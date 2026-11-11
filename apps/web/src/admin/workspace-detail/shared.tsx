@@ -2,7 +2,7 @@ import { Toggletip } from "@portikus/ui";
 import type * as React from "react";
 
 /** Every section heading in the panel: small, bold and quiet. */
-export const SECTION_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
+export const SECTION_HEADING = "pk-group-label";
 
 /** Help text for the panel's toggletips, checked against the code. */
 export const PANEL_HELP = {

@@ -752,6 +752,8 @@ test.describe("the Users table layout", () => {
 		await expect(intro).toContainText(
 			"Everyone who has signed in, with their workspace.",
 		);
+		// The rest of the intro and its Help link open from the closed "About Users".
+		await intro.getByText("About Users", { exact: true }).click();
 		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
 			"href",
 			"/admin/help#admin-users",

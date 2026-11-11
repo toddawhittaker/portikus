@@ -180,7 +180,8 @@ export function LogsTab() {
 			intro={{
 				id: "admin-logs",
 				helpAnchor: "admin-logs",
-				text: "The platform's own error, warning, info and debug lines. They never include students' files, commands or terminal output.",
+				lead: "The platform's own error, warning, info and debug lines.",
+				text: "They never include students' files, commands or terminal output.",
 			}}
 		>
 			<ServiceLogLevel />

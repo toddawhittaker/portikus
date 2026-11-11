@@ -6,7 +6,8 @@ import { SsoGroup } from "./SsoGroup.js";
 const INTRO = {
 	id: "admin-signin",
 	helpAnchor: "admin-signin",
-	text: "Choose how people sign in, and register the learning management systems that launch Portikus, and choose the interface each course's students see. A sign-in change is a trial: test it, then keep it, or it is put back by itself after 30 minutes.",
+	lead: "Choose how people sign in, and register the learning management systems that launch Portikus, and choose the interface each course's students see.",
+	text: "A sign-in change is a trial: test it, then keep it, or it is put back by itself after 30 minutes.",
 };
 
 /** The Sign-in tab of the admin page: single sign-on, then LMS platforms (SPEC.md section 20.1). */

@@ -148,6 +148,35 @@ test("an old set is deleted by the host; the newest complete set is refused", as
 	);
 	await newest.getByTestId("backup-set-delete").click({ force: true });
 	await expect(page.getByTestId("backup-delete-dialog")).toHaveCount(0);
+	// A Delete that can act wears the danger colour; one that cannot is unfilled and dashed.
+	const looks = await page
+		.getByTestId(`backup-set-${OLD}`)
+		.evaluate((row, newestId) => {
+			const danger = document.createElement("span");
+			danger.style.color = "var(--status-danger)";
+			row.append(danger);
+			const red = getComputedStyle(danger).color;
+			danger.remove();
+			const live = getComputedStyle(
+				row.querySelector("[data-testid=backup-set-delete]") as Element,
+			);
+			const kept = getComputedStyle(
+				document.querySelector(
+					`[data-testid=${newestId}] [data-testid=backup-set-delete]`,
+				) as Element,
+			);
+			return {
+				red,
+				text: live.color,
+				edge: live.borderTopColor,
+				keptStyle: kept.borderTopStyle,
+				keptFill: kept.backgroundColor,
+			};
+		}, `backup-set-${NEW}`);
+	expect(looks.text).toBe(looks.red);
+	expect(looks.edge).toBe(looks.red);
+	expect(looks.keptStyle).toBe("dashed");
+	expect(looks.keptFill).toBe("rgba(0, 0, 0, 0)");
 	// The API refuses it too, whatever the page shows.
 	const refused = await page.request.delete(`/admin/backups/sets/${NEW}`, {
 		headers: { origin: WEB_ORIGIN },

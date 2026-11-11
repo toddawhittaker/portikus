@@ -161,7 +161,7 @@ test.describe("admin health", () => {
 	});
 
 	for (const width of [1280, 1920]) {
-		test(`four cards sit in one row at a glance, above the trends, at ${width} px`, async ({
+		test(`at a glance Platform spans two columns beside the failures and the states, above the trends, at ${width} px`, async ({
 			page,
 		}) => {
 			await page.setViewportSize({ width, height: 1000 });
@@ -175,13 +175,28 @@ test.describe("admin health", () => {
 				if (!found) throw new Error(`${name} has no box`);
 				return found;
 			};
-			const cards = await Promise.all(
-				["platform", "guard", "counts", "states"].map((name) => box(name)),
+			const [platform, counts, states, guard] = await Promise.all(
+				["platform", "counts", "states", "guard"].map((name) => box(name)),
 			);
-			for (const card of cards) expect(card.y).toBe(cards[0]?.y);
-			for (let i = 1; i < cards.length; i++)
-				expect(cards[i]?.x).toBeGreaterThan(cards[i - 1]?.x ?? 0);
-			const tallest = Math.max(...cards.map((card) => card.y + card.height));
+			if (!platform || !counts || !states || !guard)
+				throw new Error("a card is missing");
+			// Platform, the failures and the states share a row, Platform two columns wide
+			// so its figures stay on one line.
+			expect(counts.y).toBe(platform.y);
+			expect(states.y).toBe(platform.y);
+			expect(counts.x).toBeGreaterThan(platform.x);
+			expect(states.x).toBeGreaterThan(counts.x);
+			expect(platform.width).toBeGreaterThan(2 * counts.width - 1);
+			// Other tests in this run may leave a workspace throttled; then the guard is the
+			// thing to act on, so it comes first, across the whole grid.
+			const glance = await box("glance");
+			if ((await page.getByTestId("health-guard").count()) > 0) {
+				expect(guard.y).toBeLessThan(platform.y);
+				expect(guard.width).toBeCloseTo(glance.width, 0);
+			}
+			const tallest = Math.max(
+				...[platform, counts, states, guard].map((card) => card.y + card.height),
+			);
 			const trends = await box("trends");
 			expect(trends.y).toBeGreaterThan(tallest - 1);
 			// At least two charts per row inside the Trends card.
@@ -190,6 +205,28 @@ test.describe("admin health", () => {
 			expect(memory?.y).toBe(pool?.y);
 		});
 	}
+
+	test("with nothing failed, the failures card says so and its zeros step back", async ({
+		page,
+	}) => {
+		await seedSample(50, 0);
+		await openHealth(page);
+		const counts = page.getByTestId("health-counts");
+		const none = page.getByTestId("health-counts-none");
+		const anyFailure = await counts
+			.locator("td")
+			.evaluateAll((cells) => cells.some((cell) => cell.textContent !== "0"));
+		// The line shows exactly when every count is zero; a non-zero count is bold.
+		await expect(none).toHaveCount(anyFailure ? 0 : 1);
+		if (!anyFailure) await expect(none).toHaveText("No failures in the last 24 hours");
+		const weights = await counts.locator("td").evaluateAll((cells) =>
+			cells.map((cell) => ({
+				zero: cell.textContent === "0",
+				weight: getComputedStyle(cell).fontWeight,
+			})),
+		);
+		for (const cell of weights) expect(cell.weight).toBe(cell.zero ? "400" : "600");
+	});
 
 	test("at 1024 px nothing overflows, and the axis text is 12 px and inside the chart", async ({
 		page,
@@ -389,20 +426,24 @@ test.describe("admin health", () => {
 		});
 	}
 
-	test("the intro links to Help, and each help tip opens from the keyboard", async ({
+	test("the intro shows its lead, opens from the keyboard to link to Help, and each help tip opens from the keyboard", async ({
 		page,
 	}) => {
 		await seedSample(50, 0);
 		await openHealth(page);
 
 		const intro = page.getByTestId("intro-admin-health");
-		await expect(intro).toContainText(
+		await expect(intro.locator("p").first()).toHaveText(
 			"How the platform is doing right now and over time.",
 		);
-		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
-			"href",
-			"/admin/help#admin-health",
-		);
+		// The rest starts closed, so the figures sit near the top.
+		const more = intro.getByRole("link", { name: /More in Help/ });
+		await expect(more).toBeHidden();
+		await intro.locator("summary").focus();
+		await page.keyboard.press("Enter");
+		await expect(intro).toContainText("Look here first when students report slow");
+		await expect(more).toHaveAttribute("href", "/admin/help#admin-health");
+		await expect(more).toBeVisible();
 
 		const tips: [string, RegExp][] = [
 			["Agents answering", /Fewer answering than running/],

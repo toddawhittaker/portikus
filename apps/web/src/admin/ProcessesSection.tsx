@@ -258,7 +258,7 @@ export function ProcessesSection({
 				ref={headingRef}
 				tabIndex={-1}
 				// The panel's section heading style (WorkspaceDetail SECTION_HEADING).
-				className="pk-text-compact m-0 font-semibold text-ink-muted outline-none"
+				className="pk-group-label outline-none"
 			>
 				Processes
 			</h4>

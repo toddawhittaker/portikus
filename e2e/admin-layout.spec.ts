@@ -245,14 +245,11 @@ test.describe("admin layout", () => {
 			const badge = await boxOf(page.getByTestId("notifications-badge"));
 			expect(badge.x + badge.width).toBeLessThanOrEqual(width);
 
-			// The strip sits right under the header, one tab row high, between the frame's lines.
+			// The strip sits right under the header, one tab row high, across the frame.
 			expect(stripBox.y).toBeCloseTo(headerBox.y + headerBox.height - 1, 0);
 			expect(stripBox.height).toBe(stripHeight(1));
-			expect(stripBox.x).toBeCloseTo(frameBox.x + 1, 0);
-			expect(stripBox.x + stripBox.width).toBeCloseTo(
-				frameBox.x + frameBox.width - 1,
-				0,
-			);
+			expect(stripBox.x).toBeCloseTo(frameBox.x, 0);
+			expect(stripBox.x + stripBox.width).toBeCloseTo(frameBox.x + frameBox.width, 0);
 			// The frame fills the window less the page gutter on each side,
 			// and runs from the header to the foot of the window.
 			expect(frameBox.x).toBe(GUTTER);
@@ -262,7 +259,8 @@ test.describe("admin layout", () => {
 				const style = getComputedStyle(el);
 				return [style.borderLeftWidth, style.borderRightWidth, style.borderTopWidth];
 			});
-			expect(lines).toEqual(["1px", "1px", "0px"]);
+			// No side lines: the tabs and the content mark out the frame.
+			expect(lines).toEqual(["0px", "0px", "0px"]);
 			// The content scrolls in the frame, under the strip.
 			expect(mainBox.y).toBeCloseTo(stripBox.y + stripBox.height, 0);
 			expect(mainBox.x).toBeCloseTo(stripBox.x, 0);
@@ -298,7 +296,7 @@ test.describe("admin layout", () => {
 				expect(tab.iconHidden).toBe("true");
 			}
 
-			// The current tab has the workspace's selected-tab look: raised, with an accent top edge.
+			// The current tab has the workspace's selected-tab look: the work ground, with an accent foot.
 			const look = await nav.getByRole("link", { name: "Health" }).evaluate((el) => {
 				const token = (name: string) => {
 					const probe = document.createElement("span");
@@ -314,14 +312,14 @@ test.describe("admin layout", () => {
 				const other = el.parentElement?.querySelector("a:not([aria-current])");
 				return {
 					background: getComputedStyle(el).backgroundColor,
-					raised: token("--surface-raised"),
+					ground: token("--surface-work"),
 					otherBackground: other ? getComputedStyle(other).backgroundColor : "",
 					edge: edge.backgroundColor,
 					accent: token("--accent"),
 					edgeHeight: edge.height,
 				};
 			});
-			expect(look.background).toBe(look.raised);
+			expect(look.background).toBe(look.ground);
 			expect(look.otherBackground).toBe("rgba(0, 0, 0, 0)");
 			expect(look.edge).toBe(look.accent);
 			expect(look.edgeHeight).toBe("2px");
@@ -687,7 +685,7 @@ test.describe("admin layout", () => {
 	});
 
 	for (const scheme of ["light", "dark"] as const) {
-		test(`the frame's side lines use the strong line colour (${scheme})`, async ({
+		test(`the frame has no side lines and the tabs no rules between them (${scheme})`, async ({
 			page,
 		}) => {
 			await page.emulateMedia({ colorScheme: scheme });
@@ -695,26 +693,15 @@ test.describe("admin layout", () => {
 			await page.goto("/admin/users");
 			const frame = page.getByTestId("admin-frame");
 			await expect(frame).toBeVisible({ timeout: 15_000 });
-			const lines = await frame.evaluate((el) => {
-				const probe = document.createElement("span");
-				probe.style.color = "var(--line-strong)";
-				el.append(probe);
-				const strong = getComputedStyle(probe).color;
-				probe.remove();
+			const look = await frame.evaluate((el) => {
 				const style = getComputedStyle(el);
+				const tab = getComputedStyle(el.querySelector("nav a") as Element);
 				return {
-					start: style.borderInlineStartColor,
-					end: style.borderInlineEndColor,
-					width: style.borderInlineStartWidth,
-					strong,
+					sides: [style.borderInlineStartWidth, style.borderInlineEndWidth],
+					between: tab.borderInlineEndWidth,
 				};
 			});
-			expect(lines.width).toBe("1px");
-			expect(lines.start).toBe(lines.strong);
-			expect(lines.end).toBe(lines.strong);
-			expect(lines.strong).toBe(
-				scheme === "light" ? "rgb(128, 120, 104)" : "rgb(138, 132, 120)",
-			);
+			expect(look).toEqual({ sides: ["0px", "0px"], between: "0px" });
 			await expectNoViolations(page, "[data-testid=admin-frame] > nav");
 		});
 	}

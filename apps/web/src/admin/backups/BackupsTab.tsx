@@ -42,7 +42,8 @@ import {
 const INTRO = {
 	id: "admin-backups",
 	helpAnchor: "admin-backups",
-	text: "Nightly copies of the platform database and of every workspace's home and recovery points, taken by the server itself or by a separate backup host. Docker data is not copied. Restore one person's files into a folder beside their own, then replace their whole home if they need it.",
+	lead: "Nightly copies of the platform database and of every workspace's home and recovery points, taken by the server itself or by a separate backup host.",
+	text: "Docker data is not copied. Restore one person's files into a folder beside their own, then replace their whole home if they need it.",
 };
 
 /** The Backups tab of the admin page (SPEC.md §20.1, §24.9; ADR 0024, ADR 0040). */

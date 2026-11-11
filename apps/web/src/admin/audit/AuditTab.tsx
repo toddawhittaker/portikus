@@ -1,5 +1,5 @@
 import type { AdminUser, AuditEvent } from "@portikus/contracts";
-import { Button, TextField, Toggletip } from "@portikus/ui";
+import { Button, Icon, TextField, Toggletip } from "@portikus/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
@@ -108,7 +108,8 @@ export function AuditTab() {
 			title="Audit"
 			intro={{
 				id: "admin-audit",
-				text: "A record of every sign-in and every change to accounts, workspaces and settings, and who made it. Use it to find out who did something, and when.",
+				lead: "A record of every sign-in and every change to accounts, workspaces and settings, and who made it.",
+				text: "Use it to find out who did something, and when.",
 				helpAnchor: "admin-audit",
 			}}
 		>
@@ -416,8 +417,13 @@ function AuditDetails({ metadata }: { metadata: [string, unknown][] }) {
 	return (
 		<>
 			<DetailLines metadata={metadata} clip />
-			<details data-testid="audit-details-full">
-				<summary className="pk-focus-ring cursor-pointer text-[var(--accent-text)]">
+			<details className="group" data-testid="audit-details-full">
+				<summary className="pk-focus-ring inline-flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden text-[var(--accent-text)]">
+					<Icon
+						name="chevron-right"
+						size="sm"
+						className="flex-none group-open:rotate-90"
+					/>
 					Show full details
 				</summary>
 				<DetailLines metadata={metadata} clip={false} />

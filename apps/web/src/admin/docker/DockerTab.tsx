@@ -37,7 +37,8 @@ import { UsageCard } from "./UsageCard.js";
 const INTRO = {
 	id: "admin-docker",
 	helpAnchor: "admin-docker",
-	text: "Workspaces pull Docker Hub images through a cache on this server, so an image one student pulled comes from here for the next. New Docker storage starts with the seed images already in it. The use report shows what to add to the seed or drop from it.",
+	lead: "Workspaces pull Docker Hub images through a cache on this server, so an image one student pulled comes from here for the next.",
+	text: "New Docker storage starts with the seed images already in it. The use report shows what to add to the seed or drop from it.",
 };
 
 /** The Docker tab of the admin page. */

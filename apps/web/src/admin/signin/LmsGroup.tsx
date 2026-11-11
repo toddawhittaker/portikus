@@ -132,9 +132,7 @@ export function LmsGroup() {
 					/>
 					{data.operatorPlatforms.length > 0 ? (
 						<div className="grid gap-2">
-							<h4 className="pk-text-compact m-0 font-semibold text-ink-muted">
-								Set by the operator
-							</h4>
+							<h4 className="pk-group-label">Set by the operator</h4>
 							<ul className="m-0 grid gap-1 pl-5" data-testid="lms-operator">
 								{data.operatorPlatforms.map((p) => (
 									<li key={`${p.issuer} ${p.clientId}`} className="text-[13px]">

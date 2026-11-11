@@ -1,3 +1,4 @@
+import { Icon } from "@portikus/ui";
 import { type ReactNode, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
@@ -47,7 +48,7 @@ function TrendGroup({
 	const [open, setOpen] = useState(() => readGroupOpen(id));
 	return (
 		<details
-			className="border-line border-t pt-3"
+			className="group border-line border-t pt-3"
 			open={open}
 			onToggle={(event) => {
 				const next = event.currentTarget.open;
@@ -57,7 +58,12 @@ function TrendGroup({
 			}}
 			data-testid={`health-group-${id}`}
 		>
-			<summary className="pk-summary cursor-pointer rounded-sm">
+			<summary className="pk-summary inline-flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden rounded-sm">
+				<Icon
+					name="chevron-right"
+					size="sm"
+					className="flex-none group-open:rotate-90"
+				/>
 				<h4 className="pk-text-compact m-0 inline font-semibold">{title}</h4>
 			</summary>
 			{open ? (

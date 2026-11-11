@@ -532,7 +532,7 @@ test("each section's actions sit in one row after its content (S5)", async () =>
 	expect(row?.className).toContain("pk-actions");
 	expect(row?.nextElementSibling).toBeNull();
 	for (const heading of within(panel).getAllByRole("heading", { level: 4 })) {
-		expect(heading.className).toContain("font-semibold");
+		expect(heading.className).toContain("pk-group-label");
 		expect(heading.className).not.toContain("pk-text-label");
 	}
 });

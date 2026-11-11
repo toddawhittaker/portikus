@@ -102,7 +102,7 @@ test("the tab opens with its intro and explains each part in a toggletip", async
 	await shown();
 	const intro = screen.getByTestId("intro-admin-network");
 	expect(intro.textContent).toContain(
-		"Which internet sites workspaces can reach. Open mode allows every public site except the ones you block.",
+		"Open mode allows every public site except the ones you block.",
 	);
 	expect(within(intro).getByRole("link").getAttribute("href")).toBe(
 		"/admin/help#admin-network",

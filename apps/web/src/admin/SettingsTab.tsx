@@ -23,7 +23,8 @@ export function SettingsTab() {
 			intro={{
 				id: "admin-settings",
 				helpAnchor: "admin-settings",
-				text: "Rules that apply to the whole site. Each section saves on its own, with its own button. Settings marked as changeable for one workspace are changed from that workspace's panel on the Users tab.",
+				lead: "Rules that apply to the whole site.",
+				text: "Each section saves on its own, with its own button. Settings marked as changeable for one workspace are changed from that workspace's panel on the Users tab.",
 			}}
 		>
 			<LastChanged />

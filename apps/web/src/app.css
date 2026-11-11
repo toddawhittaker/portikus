@@ -3,6 +3,7 @@
 @import "./running/running.css";
 @import "./shell/header.css";
 @import "./tables.css";
+@import "./controls.css";
 
 /*
  * Screen-level patterns from design/mockups/portikus-screens.css: the shell
@@ -16,14 +17,6 @@ html,
 body,
 #root {
 	height: 100%;
-}
-
-/* A button kept focusable while unavailable looks like a disabled one. */
-.pk-btn[aria-disabled="true"]:not([aria-busy="true"]) {
-	cursor: not-allowed;
-	background: var(--surface-sunken);
-	color: var(--ink-faint);
-	border-color: var(--line);
 }
 
 /* A file field kept focusable while its file is checked. */
@@ -122,6 +115,15 @@ body {
 	font-weight: 500;
 	letter-spacing: 0.01em;
 }
+/* A group's label inside a card or panel: below a card title, so small, bold and quiet. */
+.pk-group-label {
+	margin: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	color: var(--ink-muted);
+}
 .pk-mono-body {
 	font-family: var(--font-mono);
 	font-variant-ligatures: none;
@@ -156,6 +158,10 @@ body {
 		background: var(--surface-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
+	}
+	/* A card that waits on someone, as a chat's permission card does: the amber start border. */
+	.pk-card--attention {
+		border-inline-start: 4px solid var(--status-warning);
 	}
 }
 
