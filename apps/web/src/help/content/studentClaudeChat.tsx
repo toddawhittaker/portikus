@@ -147,12 +147,11 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					Each chat has a title, shown under its name in the project list and on its
 					tab. It starts as Claude Code's own summary of the conversation. To give it
-					your own, choose the pencil beside the chat in the project list (it appears once
-					the chat has a title; send a message first), type a name
-					and press Enter (Escape cancels), or type{" "}
-					<code className="pk-mono-body">/rename</code> in the chat. Titles are not kept
-					by Portikus; they live in Claude Code's own record in your workspace. A Claude
-					Code (TUI) terminal keeps its tab name.
+					your own, choose the pencil beside the chat in the project list (it appears
+					once the chat has a title; send a message first), type a name and press Enter
+					(Escape cancels), or type <code className="pk-mono-body">/rename</code> in the
+					chat. Titles are not kept by Portikus; they live in Claude Code's own record
+					in your workspace. A Claude Code (TUI) terminal keeps its tab name.
 				</li>
 				<li>
 					When Claude starts a subagent, a row for it appears under the chat in the
