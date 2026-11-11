@@ -168,7 +168,7 @@ test("each step has its own look, and the top two carry the alert icon, not colo
 	expect(full.querySelector("svg")).not.toBeNull();
 });
 
-test("each step crossed is announced once, shortly", () => {
+test("only crossing 75 and 90 percent is announced, once each", () => {
 	show(report(100, 1000, null));
 	show(report(260, 1000, null));
 	show(report(300, 1000, null));
@@ -177,8 +177,6 @@ test("each step crossed is announced once, shortly", () => {
 	show(report(790, 1000, null));
 	show(report(910, 1000, null));
 	expect(announced).toEqual([
-		"Context is now 26% full.",
-		"Context is now 52% full.",
 		`Context is now 76% full. ${COMPACT_HINT}`,
 		`Context is now 91% full. ${COMPACT_HINT}`,
 	]);

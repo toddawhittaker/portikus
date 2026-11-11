@@ -111,6 +111,14 @@
 	color: var(--status-danger);
 }
 
+/* Inline and sized to the text, so the 26 px row stays 26 px. */
+.pk-monitor-load-icon {
+	display: inline-block;
+	vertical-align: -2px;
+	margin-inline-end: 2px;
+	line-height: 0;
+}
+
 .pk-monitor-procs :is(th, td):last-child {
 	padding-inline-end: 0;
 }

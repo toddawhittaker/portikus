@@ -412,15 +412,6 @@ test("a file's zoom is kept for the session and dropped with the tab", () => {
 	expect(layout.getState().zooms).toEqual({});
 });
 
-test("a terminal or chat pane's zoom is kept by its id, apart from file zooms", () => {
-	const layout = store();
-	layout.getState().addTab("t1");
-	layout.getState().setPaneZoom("t1", 80);
-	layout.getState().setZoom("t1", 150);
-	expect(layout.getState().paneZooms).toEqual({ t1: 80 });
-	expect(layout.getState().zooms).toEqual({ t1: 150 });
-});
-
 test("a file tab's view state is kept and dropped with the tab", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");

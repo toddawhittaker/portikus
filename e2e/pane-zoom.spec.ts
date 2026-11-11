@@ -4,6 +4,7 @@ import {
 	createProject,
 	createStudent,
 	expectConnected,
+	expectNoViolations,
 	newTerminal,
 	terminalIds,
 	workspacePath,
@@ -21,6 +22,11 @@ import { splitPane } from "./split-helpers";
 
 function zoomValue(page: Page, paneId: string): Locator {
 	return page.getByTestId(`pane-zoom-${paneId}`);
+}
+
+/** The pane's polite status region, which the zoom buttons and keys write to. */
+function zoomStatus(page: Page, paneId: string): Locator {
+	return page.getByTestId(`pane-zoom-status-${paneId}`);
 }
 
 /** The pixel size xterm.js draws a terminal's rows at. */
@@ -118,6 +124,8 @@ test("Ctrl + wheel over an unfocused terminal zooms only that terminal, never th
 	const before = sizes.filter((size) => size.terminalId === first).at(-1)?.cols ?? 0;
 	await ctrlWheel(page, page.getByTestId(`terminal-pane-${first}`), -100);
 	await expect(zoomValue(page, first)).toHaveText("120%");
+	// The wheel and a pinch fire many times in a gesture, so they say nothing.
+	await expect(zoomStatus(page, first)).toHaveText("");
 	await expect
 		.poll(() => sizes.filter((size) => size.terminalId === first).at(-1)?.cols ?? 0)
 		.toBeLessThan(before);
@@ -134,6 +142,7 @@ test("Ctrl + wheel over an unfocused terminal zooms only that terminal, never th
 		.first()
 		.click();
 	await expect(zoomValue(page, first)).toHaveText("110%");
+	await expect(zoomStatus(page, first)).toHaveText(/^Terminal \d+ zoom 110%$/);
 	await zoomValue(page, first).click();
 	await expect(zoomValue(page, first)).toHaveText("100%");
 	await expect.poll(() => terminalFontSize(page, first)).toBe(startSize);
@@ -161,9 +170,11 @@ test("two chats keep different sizes, by keys and by buttons", async ({
 	await page.keyboard.press("Control+Shift+Equal");
 	await page.keyboard.press("Control+Shift+Equal");
 	await expect(zoomValue(page, left)).toHaveText("120%");
+	await expect(zoomStatus(page, left)).toHaveText(/ zoom 120%$/);
 	await page.getByTestId(`pane-zoom-out-${right}`).click();
 	await page.getByTestId(`pane-zoom-out-${right}`).click();
 	await expect(zoomValue(page, right)).toHaveText("80%");
+	await expect(zoomStatus(page, right)).toHaveText(/ zoom 80%$/);
 	await expect(zoomValue(page, left)).toHaveText("120%");
 
 	const scale = (view: Locator) =>
@@ -225,3 +236,28 @@ test("a pane keeps its zoom through a split and leaving the workspace", async ({
 	await workTabs(page).getByRole("tab").first().click();
 	await expect(zoomValue(page, shell)).toHaveText("130%");
 });
+
+for (const theme of ["dark", "light"] as const) {
+	test(`the pane bar with its zoom buttons passes axe in the ${theme} theme`, async ({
+		page,
+		context,
+	}) => {
+		await context.addInitScript((value) => {
+			localStorage.setItem("pk-theme", value);
+		}, theme);
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Axe" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+		await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+		await newTerminal(page);
+		const shell = await newId(student.workspaceId, project.id, []);
+		await expectConnected(page, shell);
+		await page.getByTestId(`pane-zoom-in-${shell}`).click();
+		await expect(zoomValue(page, shell)).toHaveText("110%");
+		await expectNoViolations(
+			page,
+			`[data-testid="terminal-leaf-${shell}"] .pk-term-bar`,
+		);
+	});
+}

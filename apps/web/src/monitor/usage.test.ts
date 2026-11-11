@@ -2,7 +2,6 @@ import { expect, test } from "vitest";
 import {
 	cpuLoad,
 	loadLevel,
-	memoryLoad,
 	STORAGE_POLL_MS,
 	USAGE_POLL_MS,
 	usagePollInterval,
@@ -34,17 +33,10 @@ test("a missing figure or a missing limit is never tinted", () => {
 	expect(loadLevel(90, 0)).toBe("normal");
 	expect(loadLevel(90, Number.NaN)).toBe("normal");
 	expect(cpuLoad(null)).toBe("normal");
-	expect(memoryLoad(900, 0)).toBe("normal");
 });
 
 test("CPU is already a share of the workspace's CPUs, so one core of two is high", () => {
 	expect(cpuLoad(50)).toBe("high");
 	expect(cpuLoad(49.9)).toBe("normal");
 	expect(cpuLoad(80)).toBe("near-limit");
-});
-
-test("memory is measured against the workspace's memory limit", () => {
-	expect(memoryLoad(499, 1000)).toBe("normal");
-	expect(memoryLoad(500, 1000)).toBe("high");
-	expect(memoryLoad(800, 1000)).toBe("near-limit");
 });

@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	readSeededFile,
 	seedFile,
 	type TestProject,
@@ -189,6 +190,7 @@ test.describe("checks", () => {
 		await expect(page.getByTestId("checks-note")).toContainText(
 			"To add one, choose the pencil above.",
 		);
+		await expectNoViolations(page, ".pk-pane-head--actions");
 		const pencil = page.getByRole("button", { name: "Edit checks" });
 		await pencil.hover();
 		await expect(page.getByRole("tooltip")).toContainText("Edit checks");
