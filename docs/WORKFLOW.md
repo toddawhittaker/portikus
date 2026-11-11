@@ -387,10 +387,11 @@ files changed in the pull request (against the base branch) or the push
 branch), and exposes two job outputs: `app`, true when any changed path
 falls outside `docs/`, `design/`, `screenshots/`, `.claude/`, and
 root-level `*.md` files; and `infra`, true when any changed path is under
-`infra/`, under `scripts/` or `packaging/`, is any other `*.sh` file, or is
-the workflow file itself (a path under `scripts/` or `packaging/`, or any
+`infra/`, under `scripts/` or `packaging/`, is any other `*.sh` file, is
+the workflow file itself, or is under `.github/actions/` (a path under `scripts/` or `packaging/`, or any
 shell script, sets both outputs, since those are exercised by both the
-application build and the infrastructure shellcheck step). The app, e2e,
+application build and the infrastructure shellcheck step; so does a path
+under `.github/actions/`, whose apt-install action both job sets use). The app, e2e,
 and infra jobs declare `needs: changes` and read these two outputs instead
 of running their own copy of the detection script. The heavy steps in each
 job (the installs, typecheck, lint, `test:coverage`, build, package build,
