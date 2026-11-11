@@ -4,11 +4,11 @@ Portikus is a browser-based development workspace for students learning agentic 
 
 Simplify access to the development environment without simplifying the environment itself. A project is a directory, a terminal is a terminal, a preview is a running service. Never draw a parallel model on top of those facts.
 
-Real tools stay real. Terminals are black, monospaced and square-cornered. File trees are indented lists of folders and files. The editor is Monaco with its own chrome. Do not round, tint, frame or decorate them.
+Real tools stay real. Terminals are monospaced and square-cornered, dark by default and light if the student chooses, per terminal. File trees are indented lists of folders and files. The editor is Monaco with its own chrome and the product's syntax colours. Do not round, frame or decorate them.
 
-Quiet by default. The interface is warm neutrals with one restrained colour, verdigris, used for selection and progress. Status colours carry meaning and are never decoration. No mascots, illustrations, confetti, streaks, points or encouragement.
+Quiet by default, with colour that means something. The chrome is warm neutral: ivory in the light theme, charcoal in the dark. Teal marks what you can act on and what is selected. Violet belongs to the coding agents, so their activity is never confused with an action. Status colours carry state and are never decoration. The only picture is the small portico above empty, starting and error messages; no mascots, confetti, streaks, points or encouragement.
 
-Immediate over animated. Show a skeleton or an optimistic state within 100ms. The only continuous motion is the transition spinner, and it means one thing: the workspace is moving toward its desired state.
+Immediate over animated. Show a skeleton or an optimistic state within 100ms. Continuous motion means something is under way: the transition spinner (the workspace is moving toward its desired state) and the agent's turning ring (an agent is working).
 
 ## Voice and copy
 
@@ -22,43 +22,77 @@ Never use exclamation marks, emoji, "Oops", "Whoops", or countdown urgency beyon
 
 ## Colour
 
-Every colour is a semantic token with a light and a dark value. Set `data-theme="light"` or `data-theme="dark"` on the root; follow the operating system by default and let the person override it.
+Every colour is a semantic token with a light and a dark value. Set `data-theme="light"` or `data-theme="dark"` on the root; follow the operating system by default and let the person override it. `packages/ui/src/theme.css` holds the values; `tokens.json` lists them with their uses.
 
-Surfaces: `surface` is the page ground and the frame of the work area. `surface-sunken` is the side panes (project list, file tree), the tab strip and table headers. `surface-raised` is anything that sits on top: dialogs, menus, toasts, inputs, table bodies, the active tab. `surface-hover` and `surface-selected` are the only row states, except in the right pane's lists (Files, Checks, Changes, Running), where the picked-out row uses the neutral `surface-row-selected` so selection never reads as green. `surface-inverse` fills the primary button.
+Surfaces come in three steps, so the work reads first. `surface` is the chrome: the header, the side panes, pane heads, tab strips and the status bar, a warm ivory (`#f5f1e8`) in light and a warm charcoal (`#1b1a18`) in dark. `surface-work` is the work area's ground, a step lighter (`#fffdf8`, dark `#22211f`); inside the work area `surface` is repointed to it, and `surface-chrome` keeps a tab strip there on the chrome tone. `surface-raised` is anything that sits on top: cards, dialogs, menus, toasts, inputs, table bodies and the selected tab's face (white in light, `#2a2825` in dark). `surface-sunken` is a well inside a surface, such as a code block or the technical detail of an error. `surface-hover` is the hover fill. `surface-selected` (the same as `accent-soft`) marks the selected tree or table row, and in the right pane's lists (Files, Checks, Changes, Running) the picked-out row uses the neutral `surface-row-selected` with a 2px `ink` bar on its start edge, so selection never reads as a passed check or an added file. `surface-inverse` is the tooltip ground.
 
-Text: `ink` for primary text, `ink-muted` for secondary text and pane headings, `ink-faint` for placeholders only. All three meet 4.5:1 on `surface`, `surface-raised` and `surface-sunken` in both themes; `ink` and `ink-muted` also meet it on `surface-hover` and `surface-selected`. Text on `surface-inverse` is `ink-inverse`; on an accent fill, `on-accent`; on a danger fill, `on-danger`. Never use literal white.
+Text: `ink` for primary text, `ink-muted` for secondary text and inactive tab labels, `ink-faint` for placeholders, code comments and the faintest metadata. `ink` and `ink-muted` meet 4.5:1 on every surface in both themes; `ink-faint` meets it on `surface`, `surface-work`, `surface-raised` and `surface-sunken`. Text on an accent fill is `on-accent`; on a danger fill, `on-danger`; on `surface-inverse`, `ink-inverse`. Never use literal white.
 
-Lines: `line` is a decorative hairline between panes and rows. Any control boundary (input, secondary button, checkbox) uses `line-strong`, which meets 3:1.
+Lines: `line` is a decorative hairline between panes, rows and pane heads. Any control boundary (input, secondary button, checkbox) uses `line-strong`, which meets 3:1 on `surface`, `surface-work` and `surface-raised`.
 
-Accent: `accent` (verdigris) marks the active tab's top edge, checked boxes and progress. `accent-text` is for links. Use accent sparingly; a screen should read as neutral at a glance.
+Accent (teal, `#1d6e67` light, `#5fcfbf` dark) is for actions and selection: the primary button fill, the selected tab's foot bar and kind icon, the selected project row's start bar, checked boxes, progress and the active item in the phone's pane bar. `accent-hover` and `accent-active` are its hover and pressed fills. `accent-soft` fills a selected project row and the pane-bar pill. `accent-text` is for links and selected names.
 
-Terminal: `terminal-bg`, `terminal-fg`, `terminal-cursor`, `terminal-selection`, `terminal-muted` and the sixteen `ansi-*` tokens form the xterm.js theme. They are the same in both themes, because a terminal is always dark. Every ANSI foreground meets 4.5:1 on `terminal-bg`. Monaco uses its own `vs` and `vs-dark` themes with the background set to `surface`; do not restyle its syntax colours.
+Agent (violet, `#6a4cc2` light, `#b4a2ff` dark) is the coding agents' own hue: agent tab icons, the turning working ring, menu items that start an agent, Claude's byline in a chat, the composer's options summary, the agent plan meters and the prompt in the state picture. `agent-text` and `agent-soft` are its text and fill. Never use it for an action or a selection.
 
-## Workspace states and status colour
+Brand: `brand-tile`, `brand-stone` and `brand-spark` colour the mark and nothing else, except that the gold `brand-spark` is also the cursor in the state picture.
 
-Six workspace states map to six tokens, each with a `-soft` fill for badges: `status-provisioning`, `status-starting`, `status-running`, `status-stopping`, `status-stopped`, `status-error`. Two more serve the rest of the product: `status-warning` for approaching limits (storage near 80 percent, the disconnect countdown) and `status-danger` for destructive actions. Error and danger share a hue today but are separate tokens so they can diverge.
+Terminal: `terminal-bg`, `terminal-fg`, `terminal-muted`, `terminal-cursor`, `terminal-selection`, `terminal-line` and the sixteen `ansi-*` tokens form the xterm.js theme. They have a dark set (the default, a warm charcoal `#252420`) and a light set (`#fdfcfa`), chosen per terminal by `data-terminal-theme` and independent of the page theme. Every ANSI foreground meets 4.5:1 on its own `terminal-bg`.
 
-The three transitional states share a slate blue on purpose: motion, not alarm. When `desiredState` differs from `state`, show the transition with the StateBadge spinner and never with `status-error`, however long it takes. Every status carries a word and a distinct glyph (filled dot, open ring, spinner, alert triangle), so colour is never the only signal. Every status foreground meets 4.5:1 on its soft fill and on the three main surfaces, in both themes.
+Code: Monaco gets two themes built from the same hues as the chrome, so the editor belongs to the product: violet keywords and tags, teal strings, terracotta numbers and constants, amber types, attributes and decorators, blue for SQL built-ins, and `ink-faint` comments set in italic. Each meets 4.5:1 on the editor ground and its current-line highlight. The editor ground is the work surface. The minimap is off; instead a clean scrollbar carries an overview ruler with coloured ticks for Git added, modified and deleted lines, warnings, errors and find matches, in the Git, status and accent colours.
+
+## Status colour and badges
+
+Six workspace states map to six tokens, each with a `-soft` fill: `status-provisioning`, `status-starting`, `status-running`, `status-stopping`, `status-stopped`, `status-error`. Two more serve the rest of the product: `status-warning` (amber) for anything waiting on the student or near a limit, and `status-danger` for destructive actions. Error and danger share a hue today but are separate tokens so they can diverge. Git has its own five (`git-added`, `git-modified`, `git-deleted`, `git-conflict`, `git-conflict-soft`); a conflict is a magenta of its own so it never looks like an ordinary change.
+
+Every status is drawn by one `Badge` with a tone: `success`, `warning`, `danger`, `info`, `neutral`, `accent` or `agent`. Workspace states, check results, Git letters and the needs-input tag all use it, so they share one height, radius and type. Pick a tone for a new status; do not draw a new pill.
+
+The three transitional states share the blue `info` tone on purpose: motion, not alarm. When `desiredState` differs from `state`, show the transition with the StateBadge spinner and never with the danger tone, however long it takes. Every status carries a word and a distinct glyph (filled dot, open ring, spinner, alert triangle), so colour is never the only signal. Every status foreground meets 4.5:1 on its soft fill and on `surface`, `surface-work` and `surface-raised` in both themes.
+
+Attention has one colour. An agent that needs input takes the amber fill in the project list, a triangle in its tab and the warning Badge; every card docked over the chat composer waiting on the student (permission, question) has a 4px amber start border and `shadow-md`. Errors in the chat and on the workspace card have a 4px `status-error` start border. Guidance under a short list, and info callouts in help, use the `info` fill with `ink` text.
 
 ## Type
 
-Public Sans is the interface face: an open, sturdy grotesque designed for public-service interfaces, legible at 12px, with no personality to compete with code. JetBrains Mono is the monospace for terminals, Monaco, paths, ports and identifiers, with ligatures turned off so code reads literally. Both are variable fonts under the SIL Open Font License, shipped as files in `fonts/`.
+Public Sans is the interface face: an open, sturdy grotesque designed for public-service interfaces, legible at 12px, with no personality to compete with code. JetBrains Mono is the monospace for terminals, Monaco and code set in the interface, with ligatures turned off so code reads literally. Both are variable fonts under the SIL Open Font License, shipped as files in `fonts/`. Paths, folders and labels in the chrome use the interface face, so chrome never reads as code.
 
-Use `text-display` once per standalone page, `text-title` for page and dialog titles, `text-heading` for sections, `text-body` for comfortable UI text, `text-compact` for dense UI and administrator tables, `text-label` for form labels and table headers, `text-caption` for badges and hints. Nothing in the product is smaller than 12px. Use `mono-terminal` as the xterm.js and Monaco font settings, `mono-body` for paths and commands in the UI, and `mono-small` for image versions and error codes.
+The interface uses five sizes: 12, 14, 16, 20 and 24px (`text-xs`, `text-md`, `text-lg`, `text-xl`, `text-2xl`). 12 is metadata, captions, badges and the status bar. 14 is the body: rows, tabs, labels, buttons, menus and navigation. 16 is pane titles, the project name in the header, section and empty-state headings, and chat prose. 20 is dialog titles. 24 is page titles and standalone pages. 600 weight is for titles, selected names and badges only. Nothing in the product is smaller than 12px.
+
+Code has its own size: 13px (`text-sm`, in the mono face) for code set inside the interface, such as chat code blocks and shell boxes, and 14px for the editor and terminal at 100% zoom. Administrator tables at compact density use 13px.
+
+The type utilities map onto the scale: `text-display` 24, `text-title` 20, `text-heading` 16, `text-body`, `text-compact` and `text-label` 14, `text-caption` 12, `mono-body` 13 and `mono-small` 12.
 
 ## Space, density and layout
 
 Spacing is a 4px scale named to match Tailwind's default steps (`space-3` is 12px, `p-3` in Tailwind). Pane gutters are `space-5` at comfortable density; dialogs pad `space-6`; standalone pages pad `space-10` and sit `space-16` from the top.
 
-Density is set with `data-density` on a container. Students get `comfortable` (36px controls, 32px rows, 24px file tree rows, 36px tabs, 14px text). Administrators get `compact` (28px controls and rows, 22px file tree rows, 30px tabs, 13px text). Components read `--pk-control`, `--pk-row`, `--pk-tree-row`, `--pk-tab`, `--pk-pad` and `--pk-font`, which `bundle.css` maps from the `density-*` tokens, so a component never branches on role. The P2 roles (instructor, developer, support) choose a density rather than getting new components.
+Density is set with `data-density` on a container. Students get `comfortable` (36px controls, 32px rows, 28px file tree rows, 36px tabs, 14px text). Administrators get `compact` (28px controls and rows, 22px file tree rows, 30px tabs, 13px text). Components read `--pk-control`, `--pk-row`, `--pk-tree-row`, `--pk-tab`, `--pk-pad` and `--pk-font`, which `bundle.css` maps from the `density-*` tokens, so a component never branches on role. The P2 roles (instructor, developer, support) choose a density rather than getting new components.
 
-The application shell is three panes: project list on the left, tabbed work area in the centre, file tree on the right, separated by 1px `line` with a PaneHandle. At 1440 wide the side panes default to about 240px and 280px. Below 56rem the work area fills the shell and the width handles hide; the project list and the right pane become drawers that slide over it from their own side, opened by the Projects and Files buttons in the header. An open drawer hides the rest of the shell with `aria-hidden`, not `inert`, so live regions stay heard and toasts stay reachable (ADR 0047). It closes on Escape, its close button, the scrim, a chosen link or file, a change of project, or code moving focus behind it. Focus returns to its button, or, if a wider window hid the button, to the pane's selected tab or first control. The `size-rail` icon rail is a mockup for later.
+The application shell is three panes: project list on the left, tabbed work area in the centre, and the right pane (Files, Checks, Running, Monitor, Problems) on the right, separated by 1px `line` with a PaneHandle. Every pane head is the height of the tab strips, so the line under them meets across the shell. On a window 1360px or wider the side panes start at 264 and 360px; narrower, they start at 240 and 280px so both still fit beside the work area's 360px minimum at 56rem. The right pane's tabs show icon and name when the pane is wide, names alone at desktop width, and the chosen name only when the pane is under 22rem, the others named by icon, tooltip and accessible name.
+
+Below 56rem the work area fills the shell, the width handles hide, and a pane bar along the foot holds Projects, Work and Files, each an icon over a 12px label. The item in view has an `accent-soft` pill behind an `accent` icon and an `accent-text` label. Projects and Files open their panes as drawers between the header and the pane bar, which fade in over a scrim; Work closes them. Under 40rem a drawer is opaque and full width, its rows grow to 44px and its buttons to 40px or more, and the header grows to 56px and shows the mark alone. In a short window (under 30rem tall) the bar slims to 48px and the drawers take the header's height too. An open drawer hides the rest of the shell with `aria-hidden`, not `inert`, so live regions stay heard and toasts stay reachable (ADR 0047). It closes on Escape, its close button, the scrim, Work, a chosen link or file, a change of project, or code moving focus behind it. Focus returns to its pane-bar button, or, if a wider window hid the bar, to the pane's selected tab or first control. The `size-rail` icon rail is a mockup for later.
 
 ## Shape and elevation
 
-Corners are small. Real tools take `radius-none`. Controls, badges and menu items take `radius-sm`; tabs stay square; menus, toasts and cards `radius-md`; dialogs and the sign-in panel `radius-lg`. `radius-full` is only for status dots, the spinner, the pane grip and the round Jump to latest button.
+Corners are small. Real tools take `radius-none`. Controls, badges and menu items take `radius-sm`; tabs stay square; menus, toasts and cards `radius-md`; dialogs and the sign-in panel `radius-lg`. `radius-full` is only for status dots, spinners, the pane grip, the round Jump to latest button, the pane-bar pill and count pills.
 
-Panes and tables are separated by lines, never shadows. Only floating things have elevation: `shadow-sm` for a dragged tab, `shadow-md` for menus, selects, tooltips and toasts, `shadow-lg` for dialogs. In the dark theme `shadow-md` and `shadow-lg` include a hairline so edges stay visible. Layers stack by `z-pane-handle`, `z-sticky`, `z-menu`, `z-dialog`, `z-toast`.
+Panes and tables are separated by lines, never shadows. Cards in the work area have one of two levels. A card that rests in the flow (the composer, a chat's step groups and shell boxes, check output) is `surface-raised` with a `line` border and `shadow-sm`. A card that asks for attention or floats (permission and question cards, the workspace starting card, menus, popovers, tooltips, toasts, the Jump to latest button) takes `shadow-md`. Dialogs take `shadow-lg`. A dragged tab lifts with `shadow-sm`. In the dark theme `shadow-md` and `shadow-lg` include a hairline so edges stay visible. Layers stack by `z-pane-handle`, `z-sticky`, `z-dialog`, `z-menu`, `z-toast`; a menu sits above a dialog because dialogs contain menus.
+
+## Selection
+
+There is one selected look per kind of thing, and it is the same everywhere.
+
+- A tab, in the work area or the right pane, is selected by a `surface-raised` face, `ink` text and a 2px `accent` bar along its foot, with its kind icon in `accent` (or `agent` for an agent tab).
+- A row in the project list, including an agent row, is selected by an `accent-soft` fill, a 2px `accent` bar on its start edge and its name in `accent-text`. An agent's state stays on its mark, never on the selection.
+- A row in the right pane's lists is selected by `surface-row-selected` and a 2px `ink` bar.
+
+## The composer
+
+The chat composer is a `surface-raised` card with `shadow-sm`. Its bottom row holds only attach, the Chat options summary, the microphone, Stop and Send. The summary (for example "Opus · Extra high · Plan", in `agent-text`) opens the Chat options panel, a disclosure holding the model, effort, permission and read-aloud pickers. A value other than the start value is set in bold, and Bypass permissions carries the warning colour and icon, in the panel and on the summary. Send is the accent primary.
+
+## States and the state picture
+
+Empty, starting and error states share one picture, `StateArt`: the portico of the mark on a soft round backdrop, with a violet prompt and a gold cursor in its doorway and the state's icon in a small badge at its corner. It is 96 by 72px, decorative and hidden from assistive technology. The error tone swaps the backdrop and badge to the error colours. While something is under way, such as the workspace starting, the cursor blinks (not under reduced motion). The picture is the only illustration in the product.
+
+A loading pane keeps its shape: a stopped or starting workspace shows skeleton rows in the side panes and skeleton tabs over the work area, and a file that is opening shows a page of placeholder lines with its save state and language hidden until it arrives.
 
 ## Focus and keyboard
 
@@ -68,11 +102,11 @@ All primary controls are reachable by keyboard: Tab through regions (project lis
 
 ## Motion
 
-Motion is functional only. Colour changes take `duration-fast` (120ms); menus, dialogs and toasts enter over `duration-base` (180ms) with `ease-standard`, fading and moving no more than 4px. The transition spinner turns once per `duration-spin`. Skeletons pulse slowly. Under `prefers-reduced-motion: reduce`, durations become zero, the spinner becomes a static half-ring and skeletons stop pulsing.
+Motion is functional only. Colour changes take `duration-fast` (120ms); menus, dialogs, toasts and narrow-window drawers enter over `duration-base` (180ms) with `ease-standard`, fading and moving no more than 4px. The transition spinner and the agent's working ring turn once per `duration-spin`. Skeletons pulse slowly and the state picture's cursor blinks while busy. Under `prefers-reduced-motion: reduce`, durations become zero, the spinner and ring stop as whole rings, and skeletons and the cursor stop.
 
 ## Iconography
 
-Icons are outlined on a 24px grid at a 1.75 stroke, drawn by the `Icon` component in `currentColor` at `size-icon-sm` (14px), `size-icon-md` (16px) or `size-icon-lg` (20px). The set is small and stroke-matched to Lucide; engineers may use `lucide-react` icons of the same names at the same stroke. Claude Code and Codex tabs share the neutral `agent` icon and are told apart by their labels; no vendor logos appear in the product chrome. No emoji anywhere.
+Icons are outlined on a 24px grid at a 1.75 stroke, drawn by the `Icon` component in `currentColor` at `size-icon-sm` (14px), `size-icon-md` (16px) or `size-icon-lg` (20px). The set is small and stroke-matched to Lucide; engineers may use `lucide-react` icons of the same names at the same stroke. Claude Code and Codex tabs share the `agent` icon, drawn in the `agent` hue, and are told apart by their labels; no vendor logos appear in the product chrome. No emoji anywhere.
 
 The product adds names to the set as screens need them; each one is Lucide's shape at the same stroke. `help` (Lucide `circle-help`) marks a Toggletip button and the Help item in the account menu, and nothing else. `arrow-left` and `arrow-right` are Back and Forward in the preview toolbar. `arrow-up` is Send in the chat's message box. `download` marks getting a copy into the workspace or onto the computer, such as Clone repository.
 
@@ -92,7 +126,7 @@ A dialog follows the density of whatever opened it: one opened from a compact ad
 
 ## The mark
 
-The Portikus mark is a portico seen straight on: a lintel, two columns with capitals and bases, and a base line, framing a small terminal with three code lines and a cursor. The entrance is the product; the terminal inside is the destination. Render it with the `NameMark` component inside the product, where the stone follows the text colour and the terminal keeps `terminal-bg`, `mark-code` and `terminal-cursor` in both themes. Below 24px use the compact variant. Elsewhere use the SVGs in the Logos group: `-ink` on light grounds, `-paper` on dark grounds, `-mono` where only one colour is possible. Never place the mark in a container, add effects, or recolour its terminal.
+The Portikus mark is a rounded teal tile holding an ivory portico seen straight on (pediment, lintel, two columns, a step) with a gold prompt and cursor in its doorway. The entrance is the product; the prompt inside is the destination. Render it with the `NameMark` component inside the product, in the brand tokens (`brand-tile`, `brand-stone`, `brand-spark`), which read the same on every surface. Elsewhere use the SVGs in the Logos group: `-ink` on light grounds, `-paper` on dark grounds, `-mono` where only one colour is possible, `-compact` for favicons. Never add an outline, shadow or gradient, and never recolour the mark.
 
 ## Mapping to Tailwind and Radix
 

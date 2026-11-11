@@ -1,6 +1,6 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="design/system/assets/Logos/portikus-wordmark-paper.svg">
-  <img alt="Portikus" src="design/system/assets/Logos/portikus-wordmark-ink.svg" width="360">
+  <img alt="Portikus" src="design/system/assets/Logos/portikus-wordmark-ink.svg" width="300">
 </picture>
 
 Portikus gives every student in a class a real Linux development workspace,

@@ -121,6 +121,11 @@ inactive, and nothing is replayed automatically.
 
 Multiple windows and devices see the same workspace and stay in sync.
 
+Every one of these states is designed, never left blank: an empty region
+gets an EmptyState with the state picture, a loading region keeps its
+shape with skeletons, and an error gets the error picture or a red start
+border with its sentence and actions (section 11).
+
 ## 6. Constraints the design must respect
 
 - Desktop browsers are the P0 target: current Chrome, Edge, Firefox;
@@ -138,10 +143,12 @@ Multiple windows and devices see the same workspace and stay in sync.
 - Privacy: the platform does not centrally record prompts, command
   history, or source. No "recent commands" or "activity feed" of that
   kind.
-- The visual identity now exists in `design/system`: Public Sans for the
-  interface and JetBrains Mono for terminals and code, a warm neutral
-  palette with a verdigris accent, and the portico mark. New work uses it
-  rather than inventing an alternative.
+- The visual identity lives in `packages/ui/src/theme.css` and
+  `design/system`: Public Sans for the interface and JetBrains Mono for
+  terminals and code, warm ivory and charcoal surfaces, teal for actions
+  and selection, violet for the coding agents, and the portico mark.
+  Section 11 sets out the rules. New work uses them rather than inventing
+  an alternative.
 
 ## 7. Where the design lives
 
@@ -157,7 +164,10 @@ Multiple windows and devices see the same workspace and stay in sync.
   checking against browser and shell bindings.
 
 `design/README.md` names the source artifacts and says how to refresh the
-copies. If a screen needs a token or component the system lacks, add it to
+copies. Since the November 2026 refresh the repository is ahead of the
+artifacts: the code came first, `design/system` was updated by hand to
+match it, and the mockups take the new tokens but were not redrawn. Section
+11 and the code win over the mockups until the artifacts are re-published. If a screen needs a token or component the system lacks, add it to
 the system first and then use it.
 
 ## 8. Hooking the designs back into engineering
@@ -217,7 +227,7 @@ target and the browser's own keyboard behaviour, with the visible box drawn as
 a sibling. That is fewer moving parts than the Radix primitive for no loss, so
 `Checkbox` is the one place where the Radix rule does not apply.
 
-**Narrow windows put the side panes in drawers.** Desktop is the P0 target (SPEC 8.1), but the shell has no minimum width. Below 56rem, the width at which both side panes still fit at their default widths beside the work area's 360 px minimum, the work area fills the space between the header and the status bar, and the width handles hide. A **Projects** button (the `list` icon) left of the wordmark slides the project list in from the left, and a **Files** button (the `folder` icon) at the right of the header slides the right pane, with all its tabs, in from the right. Each drawer is a named modal dialog over a scrim, leaves a 48 px strip of the work area showing, takes focus as it opens, and keeps Tab inside. The rest of the shell is hidden from screen readers with `aria-hidden`, not `inert`, so its live regions, such as the chat announcer, are still heard (ADR 0047); only the shell is hidden, so the toast region beside it stays reachable. It closes on Escape, its close button, a tap on the scrim, following a link in it (choosing a project), opening a file, or a change of project. Focus returns to the button that opened it; if a wider window has hidden that button, focus goes to the pane's selected tab, or else its first control. If code moves focus to the shell behind the drawer, the drawer closes and focus stays where the code sent it. A notice or tab that asks for a right-pane surface, such as Monitor, opens the Files drawer on it. Toasts and dialogs sit above the drawers and stay reachable. The slide uses `transform` and `--duration-base`, so reduced motion makes it instant. This replaced an earlier one-column stack, which left a phone's work area a cramped band between the two lists; a whole-screen pane switcher and a bottom tab bar were rejected because one needs a switch back after every visit and the other takes height from the composer on every screen. The `Shell1024` icon-rail mockup stays as a design for later.
+**Narrow windows put the side panes in drawers, opened from a pane bar.** Desktop is the P0 target (SPEC 8.1), but the shell has no minimum width. Below 56rem, the width at which both side panes still fit at their default widths beside the work area's 360 px minimum, the work area fills the space between the header and a pane bar along the foot, and the width handles hide. The pane bar holds three buttons, each an icon over a word: **Projects** (the `list` icon), **Work** (the `terminal` icon) and **Files** (the `folder` icon). Projects and Files open the project list and the right pane, with all its tabs, as drawers between the header and the pane bar, which stay in view as the frame; Work closes whichever is open. The button for what is in view has an `accent-soft` pill behind its icon. Each drawer is a named modal dialog over a scrim, fades in, takes focus as it opens, and keeps Tab inside. Under 40rem a drawer is opaque and full width, its rows grow to 44 px and its buttons to at least 40 px, and the header grows to 56 px and shows the mark without the name. In a short window (under 30rem tall, a phone held sideways) the bar slims to 48 px and the drawers also cover the header. The rest of the shell is hidden from screen readers with `aria-hidden`, not `inert`, so its live regions, such as the chat announcer, are still heard (ADR 0047); only the shell is hidden, so the toast region beside it stays reachable. A drawer closes on Escape, its close button, a tap on the scrim, Work, following a link in it (choosing a project), opening a file, or a change of project. Focus returns to the pane-bar button that opened it; if a wider window has hidden the bar, focus goes to the pane's selected tab, or else its first control. If code moves focus to the shell behind the drawer, the drawer closes and focus stays where the code sent it. A notice or tab that asks for a right-pane surface, such as Monitor, opens the Files drawer on it. Toasts and dialogs sit above the drawers and stay reachable. The fade uses `opacity` and `--duration-base`, so reduced motion makes it instant. The pane bar replaced Projects and Files buttons in the header, which gave no one-tap way back to the work area; it costs 60 px of height, which the composer gives up on a phone. The `Shell1024` icon-rail mockup stays as a design for later.
 
 **Table styles are CSS classes (Epic 18).** The Table rules from
 `design/system/components/bundle.css` and the cell classes from
@@ -278,7 +288,7 @@ Pilot feedback asked for the stock editor rather than a stripped-down one
 | Feature | Keys | Why |
 |---|---|---|
 | Find and replace | Ctrl+F, Ctrl+H, F3 and Shift+F3, Enter | Monaco handles the keys itself, so the browser's own find never opens |
-| Minimap | — | The overview students expect from an editor |
+| Overview ruler | — | The whole file's changes and problems at a glance, in the scrollbar |
 | Code folding | Click the gutter arrow, Ctrl+Shift+[ and Ctrl+Shift+] | Long files stay navigable |
 | Bracket pair colouring and bracket match | — | Reading aid, no configuration |
 | Command palette | F1 | Reaches every editor action without more shortcuts |
@@ -287,6 +297,13 @@ Pilot feedback asked for the stock editor rather than a stripped-down one
 These stay off: the TypeScript, CSS and HTML language services, because their
 diagnostics do not know the project's configuration (SPEC 13.2), and Monaco's
 own Ctrl+wheel zoom, because Portikus zooms one editor at a time instead.
+
+**No minimap; the scrollbar carries the overview.** The minimap is off. In
+its place the editor has a clean scrollbar with an overview ruler: coloured
+ticks for Git added, modified and deleted lines (the `git-*` colours),
+warnings and errors (the status colours) and find matches (the accent),
+on a transparent ground with no border. It gives the same whole-file
+overview in a few pixels instead of a second, unreadable copy of the code.
 
 **Editor zoom is per editor and per session.** Ctrl with the mouse wheel over
 the editor, Ctrl+Shift+Plus and Ctrl+Shift+Minus step it by ten percentage
@@ -299,3 +316,119 @@ such as `.git/hooks/pre-applypatch.sample` is highlighted as shell because of
 its `#!/bin/sh` line. The table covers shebangs for sh, bash, zsh, Python,
 Node, Perl and Ruby, an XML or HTML opening, a JSON object or array, and the
 file names `Makefile` and `Dockerfile`. Nothing recognised means plain text.
+
+## 11. The look
+
+The November 2026 refresh gave the product a warmer, clearer look. The
+values live in `packages/ui/src/theme.css`; `design/system/README.md`
+gives the full rules and `design/system/tokens.json` lists every token
+with its use. This section is the summary engineering works from.
+
+**Surfaces.** There are three steps, so the work reads first. The chrome
+(header, side panes, pane heads, tab strips, status bar) is `surface`, a
+warm ivory in the light theme and a warm charcoal in the dark. The work
+area is `surface-work`, one step lighter. Cards, dialogs, menus, inputs
+and the selected tab's face are `surface-raised`, white in light. Panes
+are divided by 1 px lines, never shadows. Every pane head is the height
+of the tab strips, so the line under them meets across the shell.
+
+**Colour roles.** Colour carries meaning, never decoration.
+
+| Colour | Token | Means |
+|---|---|---|
+| Teal | `accent` | Something you can act on, or what is selected: the primary button, Send, the selected tab's bar, the selected project row, progress |
+| Violet | `agent` | A coding agent: agent tab icons, the turning working ring, menu items that start an agent, Claude's byline, the composer's options summary, plan meters |
+| Amber | `status-warning` | Waiting on you: an agent that needs input, a permission or question card, a limit near 80% |
+| Red | `status-error` | Something failed: a workspace or chat error, a failed check |
+| Green | `status-running` | Running or passed |
+| Blue | `status-starting` | In progress (a workspace changing state) and information callouts |
+| Magenta | `git-conflict` | A Git conflict, which must look like nothing else |
+
+Teal and violet are kept apart on purpose: a student can tell at a glance
+whether something is theirs to do or an agent's doing. Text and status
+colours meet 4.5:1, and control borders 3:1, on the chrome, work and
+raised surfaces in both themes (SPEC 25.8).
+
+**Type.** Public Sans for the interface, JetBrains Mono for code. The
+interface uses five sizes: 12 px for metadata, badges and the status bar;
+14 px for the body (rows, tabs, labels, buttons, menus); 16 px for pane
+titles, the project name in the header, section headings and chat prose;
+20 px for dialog titles; 24 px for page titles. Code set inside the
+interface (chat code, shell boxes) is 13 px; the editor and terminal start
+at 14 px. Weight 600 is for titles, selected names and badges. Paths and
+folder names in the chrome use the interface face, so the chrome never
+reads as code.
+
+**Spacing and shape.** A 4 px scale; components never set their own outer
+margin. Corners are small: 4 px for controls and badges, 6 px for cards
+and menus, 8 px for dialogs, square for tabs, panes, terminals and the
+editor.
+
+**Badges.** Every status is one `Badge` (22 px tall, 12 px semibold, 4 px
+corners) in one of seven tones: success, warning, danger, info, neutral,
+accent, agent. Workspace states, check results, Git letters and the
+needs-input tag all use it. A new status picks a tone rather than a new
+pill, and always carries a word or letter, never colour alone.
+
+**Cards and elevation.** A card resting in the flow of the work area (the
+composer, a chat's step groups and shell boxes, check output) has a 1 px
+line and the small shadow. A card that asks for attention or floats has
+the medium shadow: permission and question cards, which also carry a 4 px
+amber start border, the workspace starting card, menus, popovers and
+toasts. Dialogs have the large shadow. Errors in the chat and on the
+workspace card have a 4 px red start border.
+
+**Selection.** One selected look per kind of thing. A tab, in the work area
+or the right pane, has a raised face, full-ink text and a 2 px teal bar
+along its foot; its icon turns teal, or stays violet for an agent. A row in
+the project list, agent rows included, has a soft teal fill, a 2 px teal
+bar at its start and its name in teal text; an agent's state stays on its
+mark. A row in a right-pane list has a neutral tonal fill and a 2 px ink
+bar, so it never reads as a passed check or an added file. An agent's
+state shows only in its tab's mark (a turning violet ring, an amber
+triangle, a check), so the selected tab always looks the same.
+
+**The right pane's tabs.** Files, Checks, Running, Monitor and Problems
+show an icon and a name when the pane is wide, the names alone at desktop
+width, and only the chosen name when the pane is under 22rem, the others
+named by icon, tooltip and accessible name. On a window 1360 px or wider
+the side panes start at 264 and 360 px; narrower, at 240 and 280 px.
+
+**The composer.** Its bottom row holds only attach, the Chat options
+summary, the microphone, Stop and Send. The summary (for example "Opus ·
+Extra high · Plan") opens the Chat options panel with the model, effort,
+permission and read-aloud pickers. A value other than the starting one is
+bold, and Bypass permissions shows the warning colour and icon on the
+summary too.
+
+**States and the state picture.** Empty, starting and error states share
+one small picture, `StateArt`: the portico of the mark on a soft round
+backdrop, with a violet prompt and a gold cursor in its doorway and the
+state's icon in a badge at its corner. The error version is tinted red;
+while something is under way the cursor blinks, except under reduced
+motion. It is decorative, and the heading beside it says what it means. It
+is the only illustration in the product; there are still no mascots or
+encouragement. A loading region keeps its shape: a starting workspace shows
+skeleton rows in the side panes and skeleton tabs, and a file that is
+opening shows placeholder lines with its save state and language hidden.
+
+**The mark.** A rounded teal tile holding an ivory portico (pediment,
+lintel, two columns, a step) with a gold prompt and cursor in its doorway.
+It is drawn by `NameMark` from the brand tokens, which read the same on
+every surface; the SVG files in `design/system/assets/Logos` are for places
+that cannot run React.
+
+**Phone layout.** Below 56rem a pane bar with Projects, Work and Files runs
+along the foot, and the side panes open as drawers between the header and
+the bar (section 9).
+
+**Code colours.** The editor's syntax colours come from the chrome's own
+hues, so the editor belongs to the product: violet keywords and tags, teal
+strings, terracotta numbers and constants, amber types and attributes, blue
+for SQL built-ins, and faint italic comments, each at 4.5:1 or better on
+the editor ground and the current-line highlight. The editor ground is the
+work surface. There is no minimap; the scrollbar's overview ruler shows
+Git changes, warnings, errors and find matches as coloured ticks (section 10). Terminals have
+a dark scheme (the default, a warm charcoal) and a light one, chosen per
+terminal and independent of the page theme; every ANSI colour meets 4.5:1
+on its own background.
