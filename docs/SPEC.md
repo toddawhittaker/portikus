@@ -7226,6 +7226,23 @@ Acceptance:
 - `make screenshots` runs from a clean checkout, never in CI, and never touches a real database or the pilot;
 - no guide, README or Help text names an epic or issue number.
 
+### Epic 61 — UI refresh
+
+Built on `epic/61-ui-refresh`. No migration. See DESIGN.md section 11 and sections 8.1, 8.6, 10.2, 10.8, 13.2, 20.1 and 25.8.
+
+Includes:
+
+- a new look for every student and administrator screen in both themes: warm neutrals, teal actions, a violet agent hue, a type scale, a Badge primitive and the portico logo;
+- a context meter and round Send and Stop buttons in the chat composer, and calmer slash menu rows;
+- admin pages with clear headings, short intros, a quieter tab strip, and Health and Backups that point at what needs doing;
+- a stepped dark theme with code colours that read apart, and the Dex sign-in page in the same look;
+- dark versions of the key documentation images.
+
+Acceptance:
+
+- every text and control pairing meets WCAG AA in both themes;
+- Memory and Disk stay visible in the status bar, the provider meters stay, and the editor has no minimap.
+
 ### Estimated total
 
 **Approximately 47–66 focused engineer-days** for a credible student pilot, depending heavily on how much UI polish, institutional identity integration, and infrastructure troubleshooting is required.
