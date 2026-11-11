@@ -37,16 +37,31 @@
 }
 .pk-appbar-context {
 	display: flex;
-	align-items: center;
-	gap: var(--space-1\.5);
+	align-items: baseline;
+	gap: var(--space-2);
 	min-width: 0;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	color: var(--ink-muted);
 }
 .pk-appbar-context strong {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	color: var(--ink);
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
 	font-weight: 600;
+}
+.pk-appbar-path {
+	min-width: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .pk-appbar-spacer {
 	flex: 1;
@@ -62,7 +77,7 @@
 	background: transparent;
 	color: var(--ink);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-sm);
 	cursor: pointer;
 	min-width: 0;
 }
@@ -90,13 +105,12 @@ button.pk-statusbar-item:focus-visible {
 .pk-initials {
 	display: grid;
 	place-items: center;
-	width: 24px;
-	height: 24px;
-	border-radius: var(--radius-sm);
-	background: var(--surface-sunken);
-	border: 1px solid var(--line);
-	color: var(--ink-muted);
-	font-size: 12px;
+	width: 26px;
+	height: 26px;
+	border-radius: var(--radius-full);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-size: var(--text-xs);
 	font-weight: 600;
 }
 /* Notifications (SPEC.md section 8.5) */
@@ -207,7 +221,7 @@ button.pk-statusbar-item:focus-visible {
 	background: var(--surface-raised);
 	color: var(--ink);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-md);
 	cursor: pointer;
 	white-space: nowrap;
 }

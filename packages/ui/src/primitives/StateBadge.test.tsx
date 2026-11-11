@@ -69,7 +69,9 @@ describe("StateBadge moving", () => {
 
 	it("keeps a transition's own tone", () => {
 		render(<StateBadge state="stopping" moving={true} label="Rebuilding…" />);
-		expect(screen.getByRole("status").className).toContain("text-status-stopping");
+		const badge = screen.getByRole("status");
+		expect(badge.dataset.tone).toBe("info");
+		expect(badge.className).toContain("text-status-starting");
 	});
 
 	it("without it, a stopped workspace keeps its ring", () => {

@@ -4,10 +4,13 @@ import { Icon, type IconName } from "./Icon.js";
 
 const VARIANT_CLASS = {
 	primary:
-		"border-transparent bg-surface-inverse text-ink-inverse hover:bg-surface-inverse-hover",
+		"border-transparent bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-active",
 	secondary: "bg-surface-raised text-ink border-line-strong hover:bg-surface-hover",
 	quiet: "border-transparent bg-transparent text-ink hover:bg-surface-hover",
 	danger: "border-transparent bg-status-danger text-on-danger hover:bg-danger-hover",
+	/** A row's own destructive action, such as Delete…, beside quieter ones. */
+	"danger-secondary":
+		"bg-surface-raised text-status-danger border-status-danger hover:bg-status-danger-soft",
 } as const;
 
 const SIZE_CLASS = {
@@ -17,7 +20,7 @@ const SIZE_CLASS = {
 } as const;
 
 export interface ButtonProps extends React.ComponentPropsWithRef<"button"> {
-	variant?: "primary" | "secondary" | "quiet" | "danger";
+	variant?: keyof typeof VARIANT_CLASS;
 	size?: "sm" | "md" | "lg";
 	/** Keeps the label and colour, adds the spinner and aria-busy, and ignores clicks. */
 	loading?: boolean;

@@ -47,8 +47,8 @@
 	background: transparent;
 	color: var(--ink);
 	font: inherit;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 	text-align: left;
 	cursor: pointer;
 }

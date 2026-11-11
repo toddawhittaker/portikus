@@ -6,19 +6,61 @@ import { CloseCode, SCROLLBACK_LINES } from "@portikus/contracts";
 import { FitAddon } from "@xterm/addon-fit";
 import { useEffect, useRef } from "react";
 import { wsUrl } from "../api/ws.js";
+import { usePageTheme } from "../editor/pageTheme.js";
 import { useScreenReaderMode } from "../editor/settingsQueries.js";
+import { applyCodeFace, terminalTheme } from "../terminal/useXterm.js";
 import { decodeCheckFrame } from "./checkFrames.js";
 
-/** The check panel uses the terminal's colours, so output looks the same. */
-const THEME = {
-	background: "#11100e",
-	foreground: "#e4dfd4",
-	cursor: "#11100e",
-	selectionBackground: "#3a4a48",
-	scrollbarSliderBackground: "#9a938666",
-	scrollbarSliderHoverBackground: "#9a9386b3",
-	scrollbarSliderActiveBackground: "#9a9386cc",
-};
+/**
+ * The output takes the terminal palette of the page's own theme, so it sits
+ * in the right pane as a card of the same family rather than a dark slab.
+ * The cursor matches the ground: nothing is typed here.
+ */
+function outputTheme(theme: "light" | "dark"): Record<string, string> {
+	const colours = terminalTheme(theme);
+	return { ...colours, cursor: colours.background ?? "" };
+}
+
+/** SGR colour codes for the closing line: green passed, red failed, yellow stopped. */
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+const YELLOW = "\x1b[33m";
+const RESET = "\x1b[0m";
+
+/**
+ * Text broken into lines of at most `columns` characters at its spaces, so a
+ * narrow panel never splits a word the way the terminal's own wrap would. A
+ * word longer than a line is left whole.
+ */
+export function wrapAtSpaces(text: string, columns: number): string[] {
+	const lines: string[] = [];
+	let line = "";
+	for (const word of text.split(" ")) {
+		if (line === "") line = word;
+		else if (line.length + 1 + word.length <= columns) line = `${line} ${word}`;
+		else {
+			lines.push(line);
+			line = word;
+		}
+	}
+	lines.push(line);
+	return lines;
+}
+
+/**
+ * The lines written when a run ends, coloured by how it ended and wrapped to
+ * the panel's width.
+ */
+export function exitLines(stopped: boolean, exitCode: number, columns: number): string {
+	const [colour, text] = stopped
+		? [YELLOW, `[portikus] check stopped (exit code ${exitCode})`]
+		: exitCode === 0
+			? [GREEN, "[portikus] check passed (exit code 0)"]
+			: [RED, `[portikus] check failed (exit code ${exitCode})`];
+	return wrapAtSpaces(text, columns)
+		.map((line) => `${colour}${line}${RESET}`)
+		.join("\r\n");
+}
 
 export interface CheckOutputProps {
 	workspaceId: string;
@@ -53,15 +95,21 @@ export function CheckOutput({
 	useEffect(() => {
 		if (term.current) term.current.options.screenReaderMode = screenReaderMode;
 	}, [screenReaderMode]);
+	const theme = usePageTheme();
+	const themeRef = useRef(theme);
+	themeRef.current = theme;
+	useEffect(() => {
+		if (term.current) term.current.options.theme = outputTheme(theme);
+	}, [theme]);
 
 	useEffect(() => {
 		const container = host.current;
 		if (!container) return;
 
 		const xterm = new Xterm({
-			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			fontSize: 13,
-			theme: THEME,
+			lineHeight: 1.3,
+			theme: outputTheme(themeRef.current),
 			// The same floor as the terminals, so dim ANSI colours stay readable.
 			minimumContrastRatio: 4.5,
 			convertEol: false,
@@ -75,6 +123,7 @@ export function CheckOutput({
 		term.current = xterm;
 		const fit = new FitAddon();
 		xterm.loadAddon(fit);
+		const dropFace = applyCodeFace(xterm, 13, () => fit.fit());
 		xterm.open(container);
 		fit.fit();
 
@@ -91,13 +140,7 @@ export function CheckOutput({
 				return;
 			}
 			if (frame.kind === "exit") {
-				xterm.writeln(
-					frame.stopped
-						? `\r\n[portikus] check stopped (exit code ${frame.exitCode})`
-						: frame.exitCode === 0
-							? "\r\n[portikus] check passed (exit code 0)"
-							: `\r\n[portikus] check failed (exit code ${frame.exitCode})`,
-				);
+				xterm.writeln(`\r\n${exitLines(frame.stopped, frame.exitCode, xterm.cols)}`);
 				finished.current();
 				return;
 			}
@@ -123,6 +166,7 @@ export function CheckOutput({
 
 		return () => {
 			observer.disconnect();
+			dropFace();
 			socket.close();
 			xterm.dispose();
 			term.current = null;
@@ -132,6 +176,7 @@ export function CheckOutput({
 	return (
 		<div
 			className="pk-check-screen"
+			data-terminal-theme={theme}
 			data-testid={`check-output-${checkId}`}
 			role="log"
 			aria-label={name ? `Output of ${name}` : "Check output"}

@@ -10,6 +10,19 @@ export function anchorId(hash: string): string {
 	}
 }
 
+type Topic = HelpPart["topics"][number];
+
+/** A part's topics cut where a topic starts a named group; a part with no groups is one untitled run. */
+function topicGroups(topics: Topic[]): { title?: string; topics: Topic[] }[] {
+	const groups: { title?: string; topics: Topic[] }[] = [];
+	for (const topic of topics) {
+		const last = groups.at(-1);
+		if (!last || topic.group) groups.push({ title: topic.group, topics: [topic] });
+		else last.topics.push(topic);
+	}
+	return groups;
+}
+
 /**
  * One help page inside the caller's `main`: its h1, an optional line pointing
  * to the other help page, the contents, and the parts (SPEC.md section 8.6).
@@ -40,7 +53,7 @@ export function HelpDocument({
 
 	return (
 		<div className="pk-help mx-auto w-full max-w-[1440px]">
-			<h1 className="pk-text-title" id={titleId}>
+			<h1 className="pk-text-display" id={titleId}>
 				{title}
 			</h1>
 			{elsewhere ? <p className="pk-help-elsewhere">{elsewhere}</p> : null}
@@ -50,13 +63,30 @@ export function HelpDocument({
 						{parts.map((part) => (
 							<li key={part.id} className="pk-help-toc-part">
 								<a href={`#${part.id}`}>{part.title}</a>
-								<ol className="pk-help-toc-sub">
-									{part.topics.map((topic) => (
-										<li key={topic.id}>
-											<a href={`#${topic.id}`}>{topic.title}</a>
-										</li>
-									))}
-								</ol>
+								{topicGroups(part.topics).map((group) => (
+									<div key={group.topics[0]?.id} className="pk-help-toc-group">
+										{group.title ? (
+											<span
+												className="pk-help-toc-group-title"
+												id={`toc-${group.topics[0]?.id}`}
+											>
+												{group.title}
+											</span>
+										) : null}
+										<ol
+											className="pk-help-toc-sub"
+											aria-labelledby={
+												group.title ? `toc-${group.topics[0]?.id}` : undefined
+											}
+										>
+											{group.topics.map((topic) => (
+												<li key={topic.id}>
+													<a href={`#${topic.id}`}>{topic.title}</a>
+												</li>
+											))}
+										</ol>
+									</div>
+								))}
 							</li>
 						))}
 					</ol>

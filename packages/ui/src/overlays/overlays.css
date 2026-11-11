@@ -178,7 +178,7 @@
 	align-items: stretch;
 	min-width: 0;
 	height: var(--density-comfortable-tab);
-	background: var(--surface-sunken);
+	background: var(--surface-chrome);
 	border-bottom: 1px solid var(--line);
 }
 /* The launcher keeps its place however many tabs there are. */
@@ -209,26 +209,25 @@
 	display: none;
 }
 /*
- * Every tab shares the width equally up to 220px and shrinks with the rest
- * down to the floor, where only the kind icon and the close control are left
- * (the Chrome model).
+ * Each tab is as wide as its name, up to 240px, and all shrink together down
+ * to the floor, where only the kind icon and the close control are left.
  */
 .pk-tab {
 	position: relative;
 	display: flex;
 	align-items: center;
-	gap: var(--space-1\.5);
-	flex: 1 1 0;
+	gap: var(--space-2);
+	flex: 0 1 auto;
 	min-width: var(--size-tab-floor);
-	max-width: 220px;
+	max-width: 240px;
 	height: 100%;
-	padding: 0 var(--space-1) 0 var(--space-3);
+	padding: 0 var(--space-1\.5) 0 var(--space-3);
 	border: 0;
 	border-right: 1px solid var(--line);
 	background: transparent;
 	color: var(--ink-muted);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-md);
 	text-decoration: none;
 	cursor: pointer;
 	outline: none;
@@ -245,19 +244,33 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
-/* A link styled as a tab is selected by aria-current, a Radix tab by data-state. */
+.pk-tab[data-pointer]:focus-visible {
+	outline: none;
+}
+/*
+ * A link styled as a tab is selected by aria-current, a Radix tab by
+ * data-state. Its face takes the work area's ground, so it opens onto the
+ * pane under it; in the dark theme that ground is the darkest step, so the
+ * chosen tab stands clear of the strip.
+ */
 .pk-tab[data-state="active"],
 .pk-tab[aria-current="page"] {
-	background: var(--surface-raised);
+	background: var(--surface-work);
 	color: var(--ink);
+}
+/* A coding agent's tab carries the agent hue in its kind icon, selected or not. */
+.pk-tab--agent > svg:first-child {
+	color: var(--agent);
+}
+.pk-tab:not(.pk-tab--agent)[data-state="active"] > svg:first-child {
+	color: var(--accent);
 }
 .pk-tab[data-state="active"]::before,
 .pk-tab[aria-current="page"]::before {
 	content: "";
 	position: absolute;
-	left: 0;
-	right: 0;
-	top: 0;
+	inset-inline: 0;
+	inset-block-end: -1px;
 	height: 2px;
 	background: var(--accent);
 }
@@ -285,10 +298,6 @@
 		font-weight: 600;
 	}
 }
-.pk-tab--terminal[data-state="active"] {
-	background: var(--terminal-bg);
-	color: var(--terminal-fg);
-}
 .pk-tab--dragging {
 	box-shadow: var(--shadow-sm);
 	background: var(--surface-raised);
@@ -298,8 +307,9 @@
 /* The label fades out at its right edge rather than ending in an ellipsis,
    and collapses to nothing when the strip is at its floor width. */
 .pk-tab-label {
-	flex: 1 1 0;
+	flex: 0 1 auto;
 	min-width: 0;
+	margin-inline-end: calc(var(--space-1) * -1);
 	overflow: hidden;
 	white-space: nowrap;
 	text-align: left;
@@ -309,13 +319,20 @@
 		transparent 100%
 	);
 }
+/* The fade falls on this space while the whole name fits; being content, not padding, it lets the label shrink to nothing. */
+.pk-tab-label::after {
+	content: "";
+	display: inline-block;
+	width: var(--space-3);
+}
 .pk-tab--ended .pk-tab-label {
 	font-style: italic;
 }
 .pk-tab--unread .pk-tab-label {
 	font-weight: 600;
 }
-/* Working is an open ring, needs input a triangle, finished a check. */
+/* A coding agent's state shows in its tab's mark only, so the selected tab always looks the same:
+   working is an open ring, needs input a triangle, finished a check. */
 .pk-agent-mark {
 	flex: none;
 	display: grid;
@@ -323,10 +340,24 @@
 	width: 14px;
 	height: 14px;
 }
+/* Working: a ring in the agent hue with one open quarter that turns, or a whole ring when motion is reduced. */
 .pk-agent-mark--working {
 	box-sizing: border-box;
-	border: 2px solid var(--status-starting);
+	border: 2px solid var(--agent);
+	border-block-start-color: transparent;
 	border-radius: var(--radius-full);
+	animation: pk-agent-turn var(--duration-spin) linear infinite;
+}
+@keyframes pk-agent-turn {
+	to {
+		transform: rotate(1turn);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-agent-mark--working {
+		animation: none;
+		border-block-start-color: var(--agent);
+	}
 }
 .pk-agent-mark--needs-input {
 	color: var(--status-warning);
@@ -482,9 +513,9 @@
 	background: var(--surface-raised);
 	box-shadow: var(--shadow-md);
 	color: var(--ink);
-	font-size: 13px;
+	font-size: var(--text-md);
 	font-weight: 400;
-	line-height: 18px;
+	line-height: var(--leading-md);
 	text-align: start;
 	text-transform: none;
 	white-space: normal;
@@ -504,4 +535,9 @@
 	.pk-toggletip-content {
 		animation: none;
 	}
+}
+
+/* A menu item that starts a coding agent carries the agent hue in its icon, as the agent's tab does. */
+.pk-menu svg[data-icon="agent"] {
+	color: var(--agent);
 }

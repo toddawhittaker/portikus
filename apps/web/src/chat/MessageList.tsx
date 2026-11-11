@@ -8,7 +8,7 @@
  * read out word by word, so ChatView announces the turn's state instead.
  */
 import { chatImageType } from "@portikus/contracts";
-import { Icon } from "@portikus/ui";
+import { AgentStateMark, Icon } from "@portikus/ui";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { displayName } from "../files/paths.js";
 import { ChatMarkdown } from "./ChatMarkdown.js";
@@ -628,9 +628,13 @@ function Turn({ turn, items, asking, opener }: TurnProps) {
 	);
 }
 
+/** The Working line while a permission card waits on the student. */
+const AWAITING_APPROVAL = "Awaiting approval";
+
 /**
  * The step in hand: the newest running tool, in the words of its row, or a
- * reply being written; null when neither, as between steps.
+ * reply being written, or else the wait for approval; null when none, as
+ * between steps.
  */
 function doingNow(
 	items: readonly ChatItem[],
@@ -641,10 +645,11 @@ function doingNow(
 		if (item.kind === "message" && item.streaming) return "Writing a reply";
 		if (item.kind !== "tool" || item.status !== "running") continue;
 		if (item.name === "AskUserQuestion") return "Waiting for your answer";
-		if (asking.has(item.id)) return "Waiting for your permission";
+		if (asking.has(item.id)) return AWAITING_APPROVAL;
 		return doingLine(item);
 	}
-	return null;
+	// Nothing moves while a permission card waits, even one whose tool call has not arrived.
+	return asking.size > 0 ? AWAITING_APPROVAL : null;
 }
 
 /** Ticks once a second; only this line renders as it does. */
@@ -655,10 +660,18 @@ function Working({ since, doing }: { since: number; doing: string | null }) {
 		return () => clearInterval(timer);
 	}, []);
 	const length = now - since;
+	const awaiting = doing === AWAITING_APPROVAL;
 	return (
 		<li className="pk-chat-step">
-			<p className="pk-chat-working pk-turn-working" data-testid="chat-working">
-				<span className="pk-spin" aria-hidden={true} />
+			<p
+				className={`pk-chat-working pk-turn-working${awaiting ? " is-awaiting" : ""}`}
+				data-testid="chat-working"
+			>
+				{awaiting ? (
+					<AgentStateMark state="needs-input" />
+				) : (
+					<span className="pk-spin" aria-hidden={true} />
+				)}
 				{doing === null ? (
 					"Working "
 				) : (

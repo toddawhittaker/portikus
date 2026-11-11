@@ -24,6 +24,7 @@ import { DRAWER_IDS, type DrawerName, openedTab } from "./shell/drawers.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { MemoryNotice, memoryAnnouncement } from "./shell/MemoryNotice.js";
+import { PaneBar } from "./shell/PaneBar.js";
 import {
 	ReinstallNotice,
 	reinstallAnnouncement,
@@ -49,8 +50,18 @@ import { useCodingAgentAlerts } from "./terminal/useCodingAgentAlerts.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
+import "./pane-placeholder.css";
 
 const PANEL_IDS = ["projects", "work", "files"];
+
+/**
+ * The side panes' starting widths. Under 1360 px they leave the work area its
+ * 360 px beside both at 56rem (DESIGN.md section 9); a wide window starts them
+ * wider, so agent names keep to a line and the right pane names its surfaces.
+ */
+const SIDE_WIDTHS = { projects: 240, files: 280 };
+const WIDE_SIDE_WIDTHS = { projects: 264, files: 360 };
+const WIDE_WINDOW = 1360;
 
 /** The workspace screen. Signed-out and unauthorized people never get here. */
 export function WorkspacePage() {
@@ -125,6 +136,9 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const phase = startingPhase(workspace);
 	const loading =
 		phase === "connecting" || phase === "starting" || phase === "restoring";
+	const [sideWidths] = useState(() =>
+		window.innerWidth >= WIDE_WINDOW ? WIDE_SIDE_WIDTHS : SIDE_WIDTHS,
+	);
 	const layout = useDefaultLayout({
 		id: "pk-shell",
 		panelIds: PANEL_IDS,
@@ -200,12 +214,6 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				user={user}
 				workspace={workspace}
 				project={project}
-				drawers={{
-					open: drawer,
-					onOpen: setDrawer,
-					projectsRef: projectsButton,
-					filesRef: filesButton,
-				}}
 			/>
 			<LaunchNotice displayName={user.displayName} />
 			{/* Shown while stopped too: a session outlasts a stop, and only the student ends it early. */}
@@ -214,10 +222,17 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			<Group
 				className="pk-shell"
 				orientation="horizontal"
+				// The library hit-tests panel edges even without handles, and would swallow taps on a phone.
+				disabled={phone}
 				defaultLayout={layout.defaultLayout}
 				onLayoutChanged={layout.onLayoutChanged}
 			>
-				<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
+				<Panel
+					id="projects"
+					defaultSize={sideWidths.projects}
+					minSize={180}
+					maxSize={420}
+				>
 					<ShellDrawer
 						id={DRAWER_IDS.projects}
 						side="left"
@@ -240,7 +255,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 						)}
 					</ShellDrawer>
 				</Panel>
-				<PaneHandle label="Resize project list" />
+				{phone ? null : <PaneHandle label="Resize project list" />}
 				<Panel id="work" minSize={360}>
 					<main
 						className="pk-work"
@@ -350,8 +365,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 						)}
 					</main>
 				</Panel>
-				<PaneHandle label="Resize file tree" />
-				<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
+				{phone ? null : <PaneHandle label="Resize file tree" />}
+				<Panel id="files" defaultSize={sideWidths.files} minSize={200} maxSize={480}>
 					<ShellDrawer
 						id={DRAWER_IDS.files}
 						side="right"
@@ -381,6 +396,14 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				workspace={workspace}
 				dialog={workspaceDialog}
 				onDialogChange={setWorkspaceDialog}
+			/>
+			<PaneBar
+				drawers={{
+					open: drawer,
+					onOpen: setDrawer,
+					projectsRef: projectsButton,
+					filesRef: filesButton,
+				}}
 			/>
 		</div>
 	);
@@ -427,6 +450,28 @@ function useThrottleLiftToast(workspace: Workspace | null) {
 	}, [workspace, toast]);
 }
 
+// Widths of a pane's placeholder rows, shared by the starting and the waiting panes.
+const ROW_WIDTHS = ["70%", "55%", "80%", "60%", "65%", "45%", "70%", "50%", "60%"];
+
+/** Placeholder rows in a pane's list shape; still ones say nothing is loading. */
+function PaneRows({ rows, still = false }: { rows: number; still?: boolean }) {
+	return (
+		<div
+			className={still ? "pk-skel-rows is-still" : "pk-skel-rows"}
+			aria-hidden="true"
+		>
+			{ROW_WIDTHS.slice(0, rows).map((width, index) => (
+				// The rows are decoration in a fixed order, so the index is a stable key.
+				// biome-ignore lint/suspicious/noArrayIndexKey: static decoration
+				<div className="pk-skel-row" key={index}>
+					<Skeleton variant="block" width="16px" height="16px" />
+					<Skeleton variant="text" width={width} />
+				</div>
+			))}
+		</div>
+	);
+}
+
 /** A pane that is waiting for the workspace (design/mockups/WorkspaceStarting). */
 function PaneSkeleton({
 	label,
@@ -437,21 +482,13 @@ function PaneSkeleton({
 	side: "left" | "right";
 	rows: number;
 }) {
-	const widths = ["70%", "55%", "80%", "60%", "65%", "45%", "70%", "50%", "60%"];
 	return (
 		<section className={`pk-pane pk-pane--${side}`} aria-label={label} aria-busy="true">
 			<div className="pk-pane-head">
 				<h2 className="pk-pane-title">{label}</h2>
 			</div>
 			<div className="pk-pane-body">
-				{widths.slice(0, rows).map((width, index) => (
-					// The rows are decoration in a fixed order, so the index is a stable key.
-					// biome-ignore lint/suspicious/noArrayIndexKey: static decoration
-					<div className="pk-skel-row" key={index}>
-						<Skeleton variant="block" width="16px" height="16px" />
-						<Skeleton variant="text" width={width} />
-					</div>
-				))}
+				<PaneRows rows={rows} />
 			</div>
 		</section>
 	);
@@ -472,8 +509,9 @@ function PaneWaiting({
 			<div className="pk-pane-head">
 				<h2 className="pk-pane-title">{label}</h2>
 			</div>
-			<div className="pk-pane-body">
-				<p className="pk-text-body m-0 px-5 py-12 text-center text-ink-muted">{text}</p>
+			<div className="pk-pane-body pk-pane-waiting">
+				<PaneRows rows={side === "left" ? 4 : 7} still={true} />
+				<p className="pk-pane-waiting-text">{text}</p>
 			</div>
 		</section>
 	);

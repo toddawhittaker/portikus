@@ -1,5 +1,5 @@
 import type { AdminEgressView, EgressPresetId } from "@portikus/contracts";
-import { Checkbox, useToast } from "@portikus/ui";
+import { Checkbox, Icon, useToast } from "@portikus/ui";
 import { AdminGroup } from "../AdminSection.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
@@ -58,8 +58,13 @@ export function PresetsPart({ view }: { view: AdminEgressView }) {
 									toggle(preset.id, preset.label, event.target.checked)
 								}
 							/>
-							<details className="text-right text-[12px]">
-								<summary className="pk-focus-ring ml-auto w-fit cursor-pointer rounded-xs text-ink-muted">
+							<details className="group text-right text-[12px]">
+								<summary className="pk-focus-ring ml-auto flex w-fit cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden rounded-xs text-ink-muted">
+									<Icon
+										name="chevron-right"
+										size="sm"
+										className="flex-none group-open:rotate-90"
+									/>
 									<span className="sr-only">{preset.label}: </span>
 									{preset.hosts.length === 1
 										? "1 site"

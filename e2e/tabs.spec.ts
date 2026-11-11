@@ -57,7 +57,7 @@ test.describe("tab strip", () => {
 		return box.width;
 	}
 
-	test("tabs are equal width whatever their labels say", async ({ page, context }) => {
+	test("tabs size to their names, up to 240 px", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "Even" });
 		const paths = ["a.txt", "a-rather-long-file-name-indeed.txt", "b.txt"];
@@ -77,8 +77,10 @@ test.describe("tab strip", () => {
 		await expect(tab(page, "a.txt")).toBeVisible({ timeout: 15_000 });
 
 		const widths = await Promise.all(paths.map((path) => widthOf(tab(page, path))));
-		const first = widths[0] as number;
-		for (const width of widths) expect(Math.abs(width - first)).toBeLessThan(2);
+		const [short, long, other] = widths as [number, number, number];
+		expect(Math.abs(short - other)).toBeLessThan(2);
+		expect(long).toBeGreaterThan(short);
+		expect(long).toBeLessThanOrEqual(240);
 	});
 
 	test("many tabs shrink to icon and close, then the strip scrolls", async ({

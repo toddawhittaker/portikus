@@ -21,42 +21,47 @@ export function AdminSection({
 	count?: ReactNode;
 	actions?: ReactNode;
 	/**
-	 * What the tab is for, under the heading. `id` names its remembered state
-	 * ("admin-users"); `helpAnchor` is the administrator help section ("admin-users").
+	 * What the tab is for, under the heading: `lead`, one sentence always shown,
+	 * then `text` in a disclosure that starts closed. `id` names its remembered
+	 * state ("admin-users"); `helpAnchor` is the administrator help section.
 	 */
-	intro?: { id: string; text: string; helpAnchor: string };
+	intro?: { id: string; lead: string; text: string; helpAnchor: string };
 	children: ReactNode;
 }) {
 	const headingId = useId();
 	return (
 		<section className="flex flex-col gap-4" aria-labelledby={headingId}>
-			<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-				<div className="flex min-w-0 items-baseline gap-3">
-					<h2
-						className="pk-text-heading m-0"
-						id={headingId}
-						tabIndex={-1}
-						data-admin-heading
-					>
-						{title}
-					</h2>
-					{count !== undefined ? (
-						<span className="text-[13px] text-ink-muted">{count}</span>
+			{/* The title and its lead read as one block above the tab's content. */}
+			<div className="grid gap-1">
+				<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+					<div className="flex min-w-0 items-baseline gap-3">
+						<h2
+							className="pk-text-title m-0"
+							id={headingId}
+							tabIndex={-1}
+							data-admin-heading
+						>
+							{title}
+						</h2>
+						{count !== undefined ? (
+							<span className="text-[13px] text-ink-muted">{count}</span>
+						) : null}
+					</div>
+					{actions !== undefined ? (
+						<div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>
 					) : null}
 				</div>
-				{actions !== undefined ? (
-					<div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>
+				{intro ? (
+					<PageIntro
+						id={intro.id}
+						summary={`About ${title}`}
+						lead={intro.lead}
+						helpHref={`/admin/help#${intro.helpAnchor}`}
+					>
+						{intro.text}
+					</PageIntro>
 				) : null}
 			</div>
-			{intro ? (
-				<PageIntro
-					id={intro.id}
-					summary={`About ${title}`}
-					helpHref={`/admin/help#${intro.helpAnchor}`}
-				>
-					{intro.text}
-				</PageIntro>
-			) : null}
 			{children}
 		</section>
 	);
@@ -71,7 +76,7 @@ const LEVEL = {
 	},
 	4: {
 		section: "grid grid-cols-[minmax(0,1fr)] gap-3",
-		heading: "pk-text-compact m-0 font-semibold text-ink-muted",
+		heading: "pk-group-label",
 	},
 } as const;
 

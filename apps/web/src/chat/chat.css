@@ -4,6 +4,8 @@
 	   tool output and images, with prose held to a reading measure inside it. */
 	--pk-chat-column: 60rem;
 	--pk-chat-measure: 46rem;
+	/* Tool-call groups and shell boxes: as wide as the reply column, up to 760px. */
+	--pk-chat-card: 47.5rem;
 	--pk-chat-gutter: max(var(--space-4), calc((100% - var(--pk-chat-column)) / 2));
 	/* Held to the pane: the log takes what the card dock and the composer
 	   leave, keeping at least a little conversation in view, and only the log
@@ -54,11 +56,11 @@
 }
 
 .pk-chat-log {
-	gap: var(--space-6);
+	gap: var(--space-4);
 }
 
 .pk-chat-steps {
-	gap: var(--space-3);
+	gap: var(--space-2);
 }
 
 .pk-chat-entry,
@@ -79,8 +81,13 @@
 	flex-direction: column;
 	gap: var(--space-2);
 	padding: var(--space-2) var(--space-3);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-md);
+	/* The student's words in the accent's soft tint, Claude's under its violet byline. */
+	border: 1px solid transparent;
+	border-radius: var(--radius-lg);
+	border-end-end-radius: var(--radius-sm);
+	background: var(--accent-soft);
+}
+.pk-chat-bubble :not(pre) > code {
 	background: var(--surface-raised);
 }
 
@@ -123,12 +130,20 @@
 .pk-chat-author {
 	display: inline-flex;
 	align-items: center;
-	gap: var(--space-1\.5);
+	gap: var(--space-2);
 	margin: 0;
-	color: var(--ink-muted);
-	font-size: 13px;
-	line-height: 18px;
+	color: var(--agent-text);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 	font-weight: 600;
+}
+/* Claude's mark: the agent glyph in a small round of the agent hue. */
+.pk-chat-author > .pk-icon {
+	box-sizing: content-box;
+	padding: var(--space-1);
+	border-radius: var(--radius-full);
+	background: var(--agent-soft);
+	color: var(--agent);
 }
 
 /* The shared Markdown look, without the document's own scroll box, and with
@@ -137,7 +152,8 @@
 	flex: none;
 	overflow: visible;
 	padding: 0;
-	font-size: inherit;
+	/* The conversation is the screen's content, so it reads a step above the chrome around it. */
+	font-size: var(--text-lg);
 	line-height: 1.6;
 	overflow-wrap: anywhere;
 }
@@ -152,15 +168,11 @@
 }
 
 .pk-markdown.pk-chat-md h1 {
-	font-size: 18px;
+	font-size: var(--text-xl);
 }
 
-.pk-markdown.pk-chat-md h2 {
-	font-size: 16px;
-}
-
-.pk-markdown.pk-chat-md :is(h3, h4) {
-	font-size: 15px;
+.pk-markdown.pk-chat-md :is(h2, h3, h4) {
+	font-size: var(--text-lg);
 }
 
 .pk-markdown.pk-chat-md :is(p, ul, ol, blockquote, pre, table) {
@@ -241,6 +253,7 @@
 	max-inline-size: var(--pk-chat-measure);
 	margin: 0;
 	padding: var(--space-2) var(--space-3);
+	border-inline-start: 3px solid var(--status-error);
 	border-radius: var(--radius-sm);
 	background: var(--status-error-soft);
 	color: var(--status-error);
@@ -293,7 +306,7 @@ details[open] > summary > .pk-chat-chevron {
 	padding-inline: var(--space-2) var(--space-3);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-sm);
-	font-size: 13px;
+	font-size: var(--text-md);
 }
 
 .pk-chat-worked-summary:hover {
@@ -333,7 +346,7 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-worked-log {
-	margin-block-start: var(--space-3);
+	margin-block-start: var(--space-2);
 	padding-inline-start: var(--space-4);
 	border-inline-start: 1px solid var(--line);
 }
@@ -344,7 +357,7 @@ details[open] > summary > .pk-chat-chevron {
 	min-block-size: var(--size-control-sm);
 	padding-inline: var(--space-1) var(--space-2);
 	border-radius: var(--radius-sm);
-	font-size: 13px;
+	font-size: var(--text-md);
 }
 
 .pk-chat-tool-summary:hover {
@@ -385,7 +398,7 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-tool-title.pk-mono-body {
-	font-size: 12.5px;
+	font-size: var(--text-xs);
 }
 
 .pk-chat-tool-stat {
@@ -477,7 +490,7 @@ details[open] > summary > .pk-chat-chevron {
 	background: var(--surface-sunken);
 	color: var(--ink);
 	font-family: var(--font-mono);
-	font-size: 12.5px;
+	font-size: var(--text-sm);
 	line-height: 1.5;
 	font-variant-ligatures: none;
 	white-space: pre-wrap;
@@ -642,19 +655,13 @@ details[open] > summary > .pk-chat-chevron {
 	min-height: 0;
 	overflow-y: auto;
 	padding: var(--space-3) var(--space-3) 0;
-	border: 1px solid var(--line-strong);
+	border: 1px solid var(--line);
+	/* Every docked card waits on the student, so it carries the needs-input colour. */
+	border-inline-start: 4px solid var(--status-warning);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
+	box-shadow: var(--shadow-md);
 	container: pk-chat-card / inline-size;
-}
-
-.pk-chat-needs {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1\.5);
-	margin: 0;
-	color: var(--ink-muted);
-	font-size: 12px;
 }
 
 .pk-chat-card-subtitle {
@@ -666,7 +673,7 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-card-path {
 	margin: 0;
 	color: var(--ink-muted);
-	font-size: 12.5px;
+	font-size: var(--text-sm);
 	overflow-wrap: anywhere;
 }
 
@@ -698,7 +705,7 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-card-waiting {
 	margin: 0 0 0 auto;
 	color: var(--ink-muted);
-	font-size: 13px;
+	font-size: var(--text-md);
 }
 
 .pk-chat-plan {

@@ -5,6 +5,28 @@ visual design. The files here are a copy for reading and reference; the
 artifacts remain the place where the design is edited. `docs/DESIGN.md`
 explains the design itself and how engineering picks it up.
 
+## The repository is ahead of the artifacts
+
+Since November 2026 the files here describe a newer look than the two Claude
+Design artifacts do: warm ivory and charcoal surfaces, teal for actions and
+selection, a violet agent hue, one `Badge` for every status, the 12, 14, 16,
+20 and 24px type scale, the redrawn portico mark and the state picture. The
+code in `packages/ui` and `apps/web` came first, and these files were updated
+by hand to match it. Until the artifacts are re-published from these files,
+treat the repository as the source and the artifacts as out of date. Do not
+refresh this folder from the artifacts before then, or the update is lost.
+
+What was updated by hand: `system/README.md`, `system/tokens.json`, the
+component READMEs that changed (and a new `components/Badge/README.md`, which
+has no preview yet), the eight logo SVGs and their sizes in
+`design-system.json`, and `mockups/portikus-tokens.css` and
+`mockups/portikus-screens.css`. Not updated: the compiled
+`components/bundle.css`, `bundle.js` and the component previews, so the
+mockups take the new colours and type but still draw the old primary button
+(dark fill) and the old tab edge (accent along the top). The mockup screens
+themselves were not redrawn. The blob identifiers in `design-system.json`
+still name the artifact's old logo files.
+
 ## `system/`
 
 The Portikus design system: `README.md` (the written rules), `tokens.json`,

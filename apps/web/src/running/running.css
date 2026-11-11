@@ -18,7 +18,7 @@
 	border-radius: var(--radius-sm);
 	background: transparent;
 	color: inherit;
-	font-size: 13px;
+	font-size: var(--text-md);
 	text-align: left;
 	cursor: pointer;
 }
@@ -52,7 +52,7 @@
 	background: transparent;
 	color: inherit;
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-xs);
 	text-align: left;
 	cursor: pointer;
 }
@@ -203,16 +203,19 @@
 	grid-template-columns: 7.5rem minmax(0, 1fr);
 	gap: var(--space-1) var(--space-3);
 	align-content: start;
-	font-family: var(--font-mono);
-	font-variant-ligatures: none;
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 }
+/* Labels in the interface face; the values are what the process reported, so they stay monospace. */
 .pk-running-details dt {
 	margin: 0;
 	color: var(--ink-muted);
 }
 .pk-running-details dd {
 	margin: 0;
-	overflow-wrap: anywhere;
+	/* Break at spaces; only a value with none is broken inside. */
+	overflow-wrap: break-word;
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: var(--text-xs);
 }

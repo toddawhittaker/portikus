@@ -315,6 +315,7 @@ function SetRow({
 					{/* Stays mounted while deleting so focus is not lost. */}
 					<Button
 						size="sm"
+						variant="danger-secondary"
 						data-testid="backup-set-delete"
 						aria-label={
 							deleting ? `Deleting the set from ${when}` : `Delete the set from ${when}`

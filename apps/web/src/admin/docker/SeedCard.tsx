@@ -47,7 +47,7 @@ const STATE_LABEL: Record<SeedJob["state"], string> = {
 	failed: "Failed",
 };
 
-const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
+const SUB_HEADING = "pk-group-label";
 
 /** The seed meter turns to the warning colour from this share of its limit (DESIGN.md, status colour). */
 

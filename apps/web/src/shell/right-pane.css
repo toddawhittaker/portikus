@@ -36,73 +36,143 @@
 }
 
 /*
- * The switch stays on one line. When the pane is too narrow for all five
- * names it scrolls sideways; the cut-off name at the edge shows there is more.
+ * The switch stays on one line. A wide pane shows each surface's icon and
+ * name, a desktop-width pane the names alone, and a pane under 22rem keeps
+ * the name on the chosen surface only, the others named by their icon, a
+ * hover title and their accessible name.
  */
 .pk-pane-tabs {
 	flex: none;
 	display: flex;
 	flex-wrap: nowrap;
-	gap: var(--space-0\.5);
-	padding: var(--space-1\.5) var(--space-2) 0;
+	align-items: stretch;
+	gap: 0;
+	box-sizing: border-box;
+	height: var(--density-comfortable-tab);
+	padding: 0 var(--space-2);
+	background: var(--surface);
 	border-bottom: 1px solid var(--line);
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: none;
-	scroll-snap-type: x proximity;
 	scroll-padding-inline: var(--space-2);
 }
 .pk-pane-tabs::-webkit-scrollbar {
 	display: none;
 }
+/* The same selected look as the work area's tabs: a raised face and an accent bar along the foot. */
 .pk-pane-tab {
+	position: relative;
 	flex: none;
-	scroll-snap-align: start;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-1\.5);
 	border: 0;
-	border-bottom: 2px solid transparent;
 	background: transparent;
 	color: var(--ink-muted);
 	font: inherit;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 400;
 	white-space: nowrap;
-	padding: var(--space-1) var(--space-2);
+	padding: 0;
 	cursor: pointer;
 }
+/* The tab's face fills it, so the name's tooltip opens wherever the pointer is on the tab. */
+.pk-pane-tab-face {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-1\.5);
+	align-self: stretch;
+	flex: 1 0 auto;
+	padding: 0 var(--space-3);
+}
+.pk-pane-tab-face > svg {
+	flex: none;
+}
 .pk-pane-tab:hover {
+	background: var(--surface-hover);
 	color: var(--ink);
 }
 .pk-pane-tab[aria-selected="true"] {
+	background: var(--surface-raised);
 	color: var(--ink);
-	border-bottom-color: var(--accent);
+}
+.pk-pane-tab[aria-selected="true"] .pk-pane-tab-face > svg {
+	color: var(--accent);
+}
+.pk-pane-tab[aria-selected="true"]::before {
+	content: "";
+	position: absolute;
+	inset-inline: 0;
+	inset-block-end: -1px;
+	height: 2px;
+	background: var(--accent);
+}
+@media (forced-colors: active) {
+	.pk-pane-tab[aria-selected="true"]::before {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
 }
 .pk-pane-tab:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
+.pk-pane-tab[data-pointer]:focus-visible {
+	outline: none;
+}
 
-/*
- * Five names, a count and the default pane width (about 280px at a 1280px
- * window) fit on one line only with 12px labels and 4px of padding, so a
- * pane under 20rem takes both. Below what that fits, the strip scrolls.
- */
-@container pk-right (width < 20rem) {
-	.pk-pane-tabs {
-		gap: 0;
-		padding-inline: var(--space-1);
-	}
+/* A desktop-width pane names every surface in words; the icons wait for room. */
+@container pk-right (width < 30rem) {
 	.pk-pane-tab {
-		font-size: 12px;
-		padding-inline: var(--space-1);
+		font-size: var(--text-sm);
+	}
+	.pk-pane-tab-face {
+		padding-inline: var(--space-2);
+	}
+	.pk-pane-tab-face > svg {
+		display: none;
 	}
 }
 
-/* The count after the Problems tab's name. */
+/* A narrow pane keeps the name on the chosen surface only; the others are named by their icon. */
+@container pk-right (width < 22rem) {
+	.pk-pane-tab {
+		flex: 1 0 auto;
+		min-inline-size: var(--size-control-md);
+	}
+	.pk-pane-tab-face {
+		padding-inline: var(--space-2);
+	}
+	.pk-pane-tab-face > svg {
+		display: inline-block;
+	}
+	.pk-pane-tab[aria-selected="false"] .pk-pane-tab-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+}
+
+/* The count after the Problems tab's name: a small pill, so it reads beside the icon alone too. */
 .pk-pane-tab-count {
-	margin-inline-start: var(--space-0\.5);
-	font-size: 12px;
+	min-inline-size: 16px;
+	padding: 0 var(--space-1);
+	box-sizing: border-box;
+	border-radius: var(--radius-full);
+	background: var(--surface-hover);
+	color: var(--ink);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
 	font-variant-numeric: tabular-nums;
-	color: var(--ink-muted);
+	text-align: center;
 }
 
 /* A surface's "About" button sits at the start of its head, the actions at the end. */

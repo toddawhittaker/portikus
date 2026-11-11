@@ -1,5 +1,6 @@
 /* One bordered box: files, text, then the controls along the bottom edge. */
 .pk-composer {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
@@ -8,13 +9,16 @@
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
+	box-shadow: var(--shadow-sm);
 	/* The pickers lay themselves out from the box's width, not the window's. */
 	container: pk-composer / inline-size;
 }
 
+/* The focus ring on the whole card; the -1px offset lays it over the 1px border. */
 .pk-composer:has(.pk-composer-text:focus-visible) {
+	border-color: var(--focus);
 	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset);
+	outline-offset: -1px;
 }
 
 .pk-composer.is-dragging {
@@ -196,36 +200,14 @@
 	background: none;
 }
 
+/* One line: attach, the Options summary, then the microphone, Stop and Send at the
+   end. The options tray opens above that line; the hint and the readouts take whole
+   lines below it. Spaced by margins, not row gaps, so an empty row adds nothing. */
 .pk-composer-bar {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: auto minmax(0, max-content) 1fr auto;
 	align-items: center;
-	gap: var(--space-2);
-}
-
-/* The microphone and Send keep to the end of the row. */
-.pk-composer-actions {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1);
-	margin-inline-start: auto;
-}
-
-/* Send is the box's main action, so it takes the primary fill. */
-.pk-composer-send.is-send {
-	border-color: transparent;
-	background: var(--surface-inverse);
-	color: var(--ink-inverse);
-}
-
-.pk-composer-send.is-send:hover {
-	background: var(--surface-inverse-hover);
-	color: var(--ink-inverse);
-}
-
-.pk-composer-send.is-send[aria-disabled="true"] {
-	opacity: 0.55;
-	cursor: not-allowed;
+	column-gap: var(--space-1);
 }
 
 .pk-composer-tools {
@@ -234,16 +216,78 @@
 	gap: var(--space-1);
 }
 
-.pk-composer-picks {
+.pk-composer-bar > .pk-composer-tools {
+	grid-area: 2 / 1;
+}
+
+.pk-composer-bar > .pk-composer-options {
+	grid-area: 2 / 2;
+}
+
+.pk-composer-actions {
+	grid-area: 2 / 4;
 	display: flex;
-	flex: 1 1 auto;
-	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-1);
-	min-inline-size: 0;
-	margin: 0;
-	padding: 0;
-	border: 0;
+}
+
+.pk-composer-bar > .pk-composer-picks {
+	grid-area: 1 / 1 / 2 / -1;
+}
+
+.pk-composer-bar > .pk-picker-hint {
+	grid-area: 3 / 1 / 4 / -1;
+	margin-block-start: var(--space-1);
+}
+
+.pk-composer-bar > .pk-ctx-row {
+	grid-area: 4 / 1 / 5 / -1;
+	margin-block-start: var(--space-1);
+}
+
+/* Send and Stop are round so the box's two turn controls read apart from its tools. */
+.pk-composer-send {
+	border-radius: var(--radius-full);
+}
+
+/* Send is the box's main action, so it takes the primary fill. */
+.pk-composer-send.is-send {
+	border-color: transparent;
+	background: var(--accent);
+	color: var(--on-accent);
+}
+
+.pk-composer-send.is-send:hover {
+	background: var(--accent-hover);
+	color: var(--on-accent);
+}
+
+.pk-composer-send.is-send:active {
+	background: var(--accent-active);
+}
+
+/* Nothing to send yet, or a send under way: a flat well, so Send never looks ready when it is not. */
+.pk-composer-send.is-send[aria-disabled="true"],
+.pk-composer-send.is-send[aria-disabled="true"]:hover,
+.pk-composer-send.is-send[aria-disabled="true"]:active {
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	cursor: not-allowed;
+}
+
+/* Stop holds its own beside the filled Send: an ink ring and a solid ink square. */
+.pk-composer-stop {
+	border: 2px solid var(--ink);
+	color: var(--ink);
+}
+
+.pk-composer-stop svg {
+	inline-size: var(--size-icon-lg);
+	block-size: var(--size-icon-lg);
+}
+
+.pk-composer-stop svg rect {
+	fill: currentColor;
 }
 
 .pk-composer-chips {
@@ -265,7 +309,7 @@
 	border: 1px solid var(--line);
 	border-radius: var(--radius-md);
 	background: var(--surface);
-	font-size: 13px;
+	font-size: var(--text-xs);
 }
 
 .pk-composer-thumb {
@@ -304,7 +348,7 @@
 .pk-composer-note {
 	margin: 0;
 	color: var(--ink-muted);
-	font-size: 13px;
+	font-size: var(--text-xs);
 	overflow-wrap: anywhere;
 }
 
@@ -338,17 +382,6 @@
 	font-weight: 500;
 }
 
-/* Too narrow for one line: the pickers take a line of their own, below the tools,
-   the microphone and Send, which stay on the first line. One line needs 607px with
-   the widest short values (Extra high, Bypass permissions) and the read-aloud
-   switch, so 40rem (640px) never moves the pickers when a value changes. */
-@container pk-composer (width < 40rem) {
-	.pk-composer-picks {
-		order: 1;
-		flex-basis: 100%;
-	}
-}
-
 /* The `/` and `@` menus: a list at the top of the box itself, above the text. It is
    in the box's flow, not floating, so the pane's scrolling wrapper can never clip it;
    the box grows upward and the text line stays put. The editor keeps focus throughout.
@@ -377,15 +410,23 @@
 	padding: var(--space-1\.5) var(--space-2);
 	border-radius: var(--radius-sm);
 	color: var(--ink);
-	font-size: 13px;
+	font-size: var(--text-md);
 	cursor: default;
 }
 
-/* The current option: the editor's aria-activedescendant points here. */
+/*
+ * The current option, which the editor's aria-activedescendant points at: the
+ * selected-row look of the project list, a soft accent fill and an accent bar
+ * at its start. Focus stays in the editor, whose own ring shows it, so the
+ * row draws no ring of its own inside the box's.
+ */
+.pk-composer-option {
+	border-inline-start: 2px solid transparent;
+}
+
 .pk-composer-option[aria-selected="true"] {
-	background: var(--surface-hover);
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset-inset);
+	background: var(--accent-soft);
+	border-inline-start-color: var(--accent);
 }
 
 .pk-composer-option-head {
@@ -409,13 +450,6 @@
 	font-size: 12px;
 }
 
-/* Pushed to the row's end while there is room; on a narrow box it wraps below. */
-.pk-composer-option-note {
-	margin-inline-start: auto;
-	color: var(--ink-muted);
-	font-size: 12px;
-}
-
 .pk-composer-option-detail {
 	min-inline-size: 0;
 	overflow: hidden;
@@ -425,9 +459,19 @@
 	white-space: nowrap;
 }
 
+/* A note says where the command works instead, so its line wraps rather than cutting it off. */
+.pk-composer-option-detail:has(.pk-composer-option-note) {
+	white-space: normal;
+}
+
 /* A command the chat cannot send: dimmed, its note still legible. */
 .pk-composer-option.is-blocked .pk-composer-option-label {
 	color: var(--ink-muted);
+}
+
+/* The current option's name in the accent text, as a selected project's name is. */
+.pk-composer-option[aria-selected="true"] .pk-composer-option-label {
+	color: var(--accent-text);
 }
 
 .pk-composer-menu-note {

@@ -150,6 +150,8 @@ test("an admin tab's More in Help lands on its topic in the administrator help",
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin/health");
+	// The intro's rest, Help link included, starts closed under its lead.
+	await page.getByText("About Health", { exact: true }).click();
 	const more = page.getByRole("link", { name: /More in Help/ });
 	await expect(more).toHaveAttribute("href", "/admin/help#admin-health");
 	const [help] = await Promise.all([context.waitForEvent("page"), more.click()]);
@@ -164,6 +166,7 @@ test("the Users tab's More in Help reaches the topic on inviting people and the 
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin");
+	await page.getByText("About Users", { exact: true }).click();
 	const more = page.getByRole("link", { name: /More in Help/ });
 	await expect(more).toHaveAttribute("href", "/admin/help#admin-users");
 	const [help] = await Promise.all([context.waitForEvent("page"), more.click()]);

@@ -42,7 +42,8 @@ const TITLE = "Certificate";
 const INTRO = {
 	id: "admin-certificate",
 	helpAnchor: "admin-certificate",
-	text: "The certificate that secures this site and its preview names. Keep Caddy's internal authority, get a trusted one from Let's Encrypt or another ACME authority, or upload your institution's own. A change is checked first and undone if the new certificate does not arrive.",
+	lead: "The certificate that secures this site and its preview names.",
+	text: "Keep Caddy's internal authority, get a trusted one from Let's Encrypt or another ACME authority, or upload your institution's own. A change is checked first and undone if the new certificate does not arrive.",
 };
 
 const BUSY_REASON = "A certificate job is waiting or running. Wait until it finishes.";

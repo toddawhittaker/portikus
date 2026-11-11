@@ -1,11 +1,14 @@
 import type { Project } from "@portikus/contracts";
 import {
 	EmptyState,
+	Icon,
 	IconButton,
+	type IconName,
 	TabsContent,
 	TabsList,
 	TabsRoot,
 	TabsTrigger,
+	Tooltip,
 } from "@portikus/ui";
 import { type Ref, useEffect, useRef, useState } from "react";
 import { ChecksPane } from "../checks/ChecksPane.js";
@@ -290,6 +293,15 @@ function Switchers({
 	);
 }
 
+/** Each surface's icon, which stands for its name when the pane is narrow. */
+const SWITCHER_ICONS: Record<RightPane, IconName> = {
+	files: "folder",
+	checks: "clipboard-list",
+	running: "globe",
+	monitor: "activity",
+	problems: "alert",
+};
+
 function Switcher({
 	value,
 	label,
@@ -312,16 +324,35 @@ function Switcher({
 			data-testid={`right-pane-tab-${value}`}
 			// Radix selects on mouse down; a click from assistive technology arrives alone.
 			onClick={() => onPick(value)}
+			// Chosen with the pointer, the tab shows its selection, not a focus ring.
+			onPointerDown={(event) => {
+				event.currentTarget.dataset.pointer = "true";
+			}}
+			onBlur={(event) => {
+				delete event.currentTarget.dataset.pointer;
+			}}
+			onKeyDown={(event) => {
+				delete event.currentTarget.dataset.pointer;
+			}}
 		>
-			{label}
-			{count ? (
-				<>
-					{" "}
-					<span className="pk-pane-tab-count" data-testid={`right-pane-count-${value}`}>
-						{count}
-					</span>
-				</>
-			) : null}
+			{/* The tooltip sits on the face, not the tab: its open state would replace the tab's data-state. */}
+			<Tooltip content={label} decorative={true}>
+				<span className="pk-pane-tab-face">
+					<Icon name={SWITCHER_ICONS[value]} />
+					<span className="pk-pane-tab-label">{label}</span>
+					{count ? (
+						<>
+							{" "}
+							<span
+								className="pk-pane-tab-count"
+								data-testid={`right-pane-count-${value}`}
+							>
+								{count}
+							</span>
+						</>
+					) : null}
+				</span>
+			</Tooltip>
 		</TabsTrigger>
 	);
 }

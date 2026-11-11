@@ -178,7 +178,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
-test("the admin content's scrollbar sits inside the frame's right line, under the tab strip", async ({
+test("the admin content's scrollbar sits at the frame's right edge, under the tab strip", async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 1280, height: 600 });
@@ -200,8 +200,8 @@ test("the admin content's scrollbar sits inside the frame's right line, under th
 	}));
 	expect(bar.width).toBeGreaterThan(0);
 	expect(bar.gutter).toBe("stable");
-	// The scroller, scrollbar and all, ends at the inside of the frame's right line.
-	expect(scroller.x + scroller.width).toBeCloseTo(frame.x + frame.width - 1, 0);
+	// The scroller, scrollbar and all, ends at the frame's right edge.
+	expect(scroller.x + scroller.width).toBeCloseTo(frame.x + frame.width, 0);
 	expect(scroller.y).toBeCloseTo(strip.y + strip.height, 0);
 	// The window has no scrollbar of its own.
 	expect(

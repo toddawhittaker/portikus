@@ -267,12 +267,16 @@ export function ComposerCommandMenu({
 									{option.hint ? (
 										<span className="pk-composer-option-hint">{option.hint}</span>
 									) : null}
-									{option.note ? (
-										<span className="pk-composer-option-note">{option.note}</span>
-									) : null}
 								</span>
-								{option.detail ? (
-									<span className="pk-composer-option-detail">{option.detail}</span>
+								{option.detail || option.note ? (
+									<span className="pk-composer-option-detail">
+										{option.detail}
+										{/* Where the command works instead, read with what it does. */}
+										{option.detail && option.note ? " · " : null}
+										{option.note ? (
+											<span className="pk-composer-option-note">{option.note}</span>
+										) : null}
+									</span>
 								) : null}
 							</div>
 						))}

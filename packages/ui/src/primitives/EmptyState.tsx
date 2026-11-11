@@ -1,6 +1,7 @@
 import type * as React from "react";
 import { cx } from "./cx.js";
-import { Icon, type IconName } from "./Icon.js";
+import type { IconName } from "./Icon.js";
+import { StateArt } from "./StateArt.js";
 
 export interface EmptyStateProps {
 	icon?: IconName;
@@ -25,17 +26,15 @@ export function EmptyState({
 				className,
 			)}
 		>
-			{icon ? (
-				<div className="pk-empty-icon mb-1 grid size-10 place-items-center rounded-md bg-surface-sunken text-ink-muted">
-					<Icon name={icon} size="lg" />
-				</div>
-			) : null}
-			<h3 className="pk-empty-title m-0 text-[15px] font-semibold leading-[22px]">
+			{icon ? <StateArt icon={icon} /> : null}
+			<h3 className="pk-empty-title m-0 text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
 				{title}
 			</h3>
-			{children ? <p className="pk-empty-body m-0 text-ink-muted">{children}</p> : null}
+			{children ? (
+				<p className="pk-empty-body m-0 max-w-[38ch] text-ink-muted">{children}</p>
+			) : null}
 			{actions ? (
-				<div className="pk-empty-actions mt-2 flex flex-wrap justify-center gap-2">
+				<div className="pk-empty-actions mt-3 flex flex-wrap justify-center gap-2">
 					{actions}
 				</div>
 			) : null}

@@ -1,0 +1,25 @@
+/* Native form controls themed to match the primitives beside them. Values are design tokens only. */
+
+/* Native boxes and radios, as in dense admin tables, tick in the accent like the Checkbox primitive. */
+input:is([type="checkbox"], [type="radio"]) {
+	accent-color: var(--accent);
+}
+
+/*
+ * Native selects (the dense filter bars, DESIGN.md) drop the browser's own
+ * arrow for a small caret in the muted ink, so they match the text fields
+ * beside them in both themes. The caret is two gradients, so it follows the
+ * theme's tokens.
+ */
+select:not([multiple], [size]) {
+	appearance: none;
+	padding-inline-end: var(--space-6);
+	background-image:
+		linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+		linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+	background-position:
+		calc(100% - 15px) 50%,
+		calc(100% - 10px) 50%;
+	background-size: 5px 5px;
+	background-repeat: no-repeat;
+}

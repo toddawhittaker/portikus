@@ -30,16 +30,16 @@ export const RESIZE_SETTLE_MS = 100;
  * which is far too loud.
  */
 const DARK_THEME = {
-	background: "#11100e",
-	foreground: "#e4dfd4",
+	background: "#171614",
+	foreground: "#e8e3d8",
 	cursor: "#e8c37a",
-	selectionBackground: "#3a4a48",
-	scrollbarSliderBackground: "#9a938666",
-	scrollbarSliderHoverBackground: "#9a9386b3",
-	scrollbarSliderActiveBackground: "#9a9386cc",
+	selectionBackground: "#3e4f4c",
+	scrollbarSliderBackground: "#a49d9066",
+	scrollbarSliderHoverBackground: "#a49d90b3",
+	scrollbarSliderActiveBackground: "#a49d90cc",
 	// xterm's default palette fails AA on this ground.
-	black: "#11100e",
-	brightBlack: "#857f73",
+	black: "#171614",
+	brightBlack: "#958f83",
 	red: "#e07a6e",
 	brightRed: "#f09a8f",
 	green: "#8fc28a",
@@ -83,6 +83,43 @@ const LIGHT_THEME = {
 	white: "#6e685d",
 	brightWhite: "#23211d",
 };
+
+const FALLBACK_FONT = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+/** The code face the editor uses, then the system's monospace. */
+const TERMINAL_FONT = `"JetBrains Mono", ${FALLBACK_FONT}`;
+
+/**
+ * Start a terminal in the code face. xterm.js measures its cells once, so
+ * when the face has not loaded yet the terminal starts in the fallback and
+ * switches when it arrives; `refit` then sizes the grid to the new cells.
+ * Returns a cleanup that drops a switch still pending.
+ */
+export function applyCodeFace(
+	term: Xterm,
+	size: number,
+	refit: () => void,
+): () => void {
+	const fonts = typeof document === "undefined" ? undefined : document.fonts;
+	const face = `${size}px "JetBrains Mono"`;
+	if (!fonts || fonts.check(face)) {
+		term.options.fontFamily = TERMINAL_FONT;
+		return () => {};
+	}
+	let live = true;
+	term.options.fontFamily = FALLBACK_FONT;
+	fonts.load(face).then(
+		() => {
+			if (!live) return;
+			term.options.fontFamily = TERMINAL_FONT;
+			refit();
+		},
+		() => {},
+	);
+	return () => {
+		live = false;
+	};
+}
 
 /** The xterm theme for one of the two schemes (contracts/settings.ts). */
 export function terminalTheme(theme: TerminalTheme): Record<string, string> {
@@ -308,8 +345,9 @@ export function useXterm({
 		container.addEventListener("focusout", onFocusOut);
 
 		const term = new Xterm({
-			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-			fontSize: 13,
+			fontSize: 14,
+			// A little air between lines, so long output is easier to follow.
+			lineHeight: 1.25,
 			theme: terminalTheme(themeRef.current),
 			convertEol: false,
 			// Ordinary output keeps this many lines. CSI 3 J, which `clear` sends, erases them.
@@ -318,6 +356,7 @@ export function useXterm({
 			minimumContrastRatio: 4.5,
 			screenReaderMode: screenReaderRef.current,
 		});
+		const dropFace = applyCodeFace(term, 14, () => fitIfMeasurable());
 		const openUrl = (uri: string) => handlers.current.openUrl(uri);
 
 		const fitAddon = new FitAddon();
@@ -542,6 +581,7 @@ export function useXterm({
 			container.removeEventListener("focusout", onFocusOut);
 			container.removeEventListener("pointerdown", onPointerDown);
 			selection.dispose();
+			dropFace();
 			term.dispose();
 			xterm.current = null;
 			fit.current = null;

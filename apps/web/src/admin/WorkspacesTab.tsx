@@ -159,7 +159,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			intro={{
 				id: "admin-users",
 				helpAnchor: "admin-users",
-				text: "Everyone who has signed in, with their workspace. Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role. Nobody can sign up on their own: invite someone before their first sign-in.",
+				lead: "Everyone who has signed in, with their workspace.",
+				text: "Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role. Nobody can sign up on their own: invite someone before their first sign-in.",
 			}}
 			count={<span data-testid="admin-account-count">{total} accounts</span>}
 			actions={

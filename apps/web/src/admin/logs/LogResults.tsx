@@ -1,5 +1,5 @@
 import type { LogLine } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
+import { Button, Icon } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
@@ -296,7 +296,11 @@ function LogRow({ line, journalIndex }: { line: LogLine; journalIndex: number })
 						data-testid="log-row-toggle"
 						onClick={() => setOpen(!open)}
 					>
-						<span aria-hidden="true">{open ? "▾" : "▸"}</span>
+						<Icon
+							name="chevron-right"
+							size="sm"
+							className={open ? "rotate-90" : undefined}
+						/>
 					</button>
 				</td>
 				<td>

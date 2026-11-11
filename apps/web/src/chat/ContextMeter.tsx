@@ -8,7 +8,7 @@
  * carries the same meaning, and the row's status region announces the two
  * moments that matter once each (SPEC.md §25.8).
  */
-import { Icon } from "@portikus/ui";
+import { Icon, Meter } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { stopTime } from "../shell/useCountdown.js";
@@ -18,8 +18,10 @@ type Cache = NonNullable<NonNullable<ChatState["context"]>["cache"]>;
 
 /** The meter appears once more than this share of the window is used. */
 const SHOW_OVER_PERCENT = 50;
-/** The student is told once when the context reaches this share. */
+/** The student is told once when the context reaches this share, and the meter warns. */
 const ANNOUNCE_AT_PERCENT = 80;
+/** From this share the meter turns to the error colour: the next turns may not fit. */
+const FULL_AT_PERCENT = 90;
 /** The cache timer turns to a warning for this long before it goes cold. */
 const SOON_SECONDS = 60;
 
@@ -72,15 +74,33 @@ function ContextUse({
 	}, [percent, onAnnounce]);
 
 	if (percent <= SHOW_OVER_PERCENT) return null;
-	const high = percent >= ANNOUNCE_AT_PERCENT;
+	const level =
+		percent >= FULL_AT_PERCENT
+			? "full"
+			: percent >= ANNOUNCE_AT_PERCENT
+				? "warning"
+				: "ok";
 	return (
 		<span
-			className={`pk-ctx${high ? " is-warning" : ""}`}
+			className={`pk-ctx pk-ctx-meter${level === "ok" ? "" : ` pk-meter--${level}`}`}
+			data-level={level}
 			title={COMPACT_HINT}
 			data-testid="composer-context"
 		>
-			{high ? <Icon name="alert" size="sm" /> : null}
-			<span>Context {percent}%</span>
+			{/* The meter is named Context too, so the visible word is not read twice. */}
+			<span className="pk-meter-label" aria-hidden={true}>
+				Context
+			</span>{" "}
+			<Meter
+				label="Context"
+				value={percent}
+				max={100}
+				// The Meter warns strictly past `high`, so this warns from 80% itself.
+				high={ANNOUNCE_AT_PERCENT - 1}
+				valueText={`${percent}% used`}
+				shortText={`${percent}%`}
+				className="pk-meter-line--slim"
+			/>
 			<span className="sr-only">. {COMPACT_HINT}</span>
 		</span>
 	);
@@ -122,8 +142,13 @@ function CacheClock({
 		>
 			<span className="pk-ctx-sight" aria-hidden={true}>
 				{soon ? <Icon name="alert" size="sm" /> : null}
-				<span>{cold ? "Cache cold" : `Cache ${formatClock(seconds)}`}</span>
-				{soon ? <span>soon</span> : null}
+				<span>
+					{cold
+						? "Cache cold"
+						: soon
+							? `Cache expires soon, ${formatClock(seconds)}`
+							: `Cache expires in ${formatClock(seconds)}`}
+				</span>
 			</span>
 			{/* Stable until the cache goes cold; the digits above are not read. */}
 			<span className="sr-only">

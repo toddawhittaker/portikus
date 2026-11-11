@@ -155,6 +155,7 @@ function VmParts({
 								<td className="pk-cell-actions">
 									<Button
 										size="sm"
+										variant="danger-secondary"
 										data-testid="backup-snapshot-delete"
 										aria-label={
 											deleting
@@ -226,6 +227,7 @@ function VmParts({
 								<td className="pk-cell-actions">
 									<Button
 										size="sm"
+										variant="danger-secondary"
 										data-testid="backup-kept-home-delete"
 										aria-label={
 											deleting
@@ -312,6 +314,7 @@ function DumpsPart({
 							<td className="pk-cell-actions">
 								<Button
 									size="sm"
+									variant="danger-secondary"
 									data-testid="backup-dump-delete"
 									aria-label={
 										deleting ? `Deleting ${dump.file}` : `Delete ${dump.file}`

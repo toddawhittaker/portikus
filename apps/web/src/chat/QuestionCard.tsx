@@ -19,6 +19,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { NeedsInputTag } from "./NeedsInputTag.js";
 import {
 	buildQuestionAnswer,
 	draftAnswer,
@@ -215,6 +216,7 @@ export function QuestionCard({
 			>
 				<header className="pk-chat-qhead">
 					<div className="pk-chat-qbar">
+						<NeedsInputTag />
 						{question.header ? (
 							<span className="pk-chat-chip pk-text-caption">{question.header}</span>
 						) : null}

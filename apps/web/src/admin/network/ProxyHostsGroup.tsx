@@ -145,9 +145,7 @@ export function ProxyHostsGroup() {
 			/>
 			{data.operatorHosts.length > 0 ? (
 				<div className="grid gap-2">
-					<h4 className="pk-text-compact m-0 font-semibold text-ink-muted">
-						Set by the operator
-					</h4>
+					<h4 className="pk-group-label">Set by the operator</h4>
 					<ul className="m-0 grid gap-1 pl-5" data-testid="proxy-hosts-operator">
 						{data.operatorHosts.map((host) => (
 							<li key={host} className="font-mono text-[13px]">

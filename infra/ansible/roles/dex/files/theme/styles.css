@@ -15,40 +15,42 @@
 
 :root {
 	color-scheme: light dark;
-	--surface: #f6f4ef;
-	--surface-raised: #fdfcfa;
-	--surface-hover: #e6e2d9;
-	--surface-inverse: #2a2723;
-	--surface-inverse-hover: #3d3933;
-	--line: #dcd7cc;
-	--line-strong: #8a8375;
-	--ink: #23211d;
-	--ink-muted: #5a554c;
-	--ink-faint: #6e685d;
-	--ink-inverse: #fdfcfa;
-	--accent-text: #24605c;
+	--surface: #f5f1e8;
+	--surface-raised: #ffffff;
+	--surface-hover: #ebe4d6;
+	--line: #e2dacb;
+	--line-strong: #8c8473;
+	--ink: #221f1a;
+	--ink-muted: #57514a;
+	--ink-faint: #6b6458;
+	--accent: #1d6e67;
+	--accent-hover: #155851;
+	--accent-active: #10443f;
+	--on-accent: #ffffff;
+	--accent-text: #17625b;
 	--focus: #1b7a86;
-	--status-error: #a4342a;
-	--status-error-soft: #f6e1dd;
+	--status-error: #b0372b;
+	--status-error-soft: #f8dcd6;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--surface: #171614;
-		--surface-raised: #211f1c;
-		--surface-hover: #2b2925;
-		--surface-inverse: #ece8df;
-		--surface-inverse-hover: #d3cec3;
-		--line: #35322d;
-		--line-strong: #7f786c;
-		--ink: #ece8df;
-		--ink-muted: #aba498;
-		--ink-faint: #948d81;
-		--ink-inverse: #171614;
-		--accent-text: #8fcdc4;
+		--surface: #1f1e1b;
+		--surface-raised: #2a2825;
+		--surface-hover: #2f2d29;
+		--line: #36332e;
+		--line-strong: #8a8478;
+		--ink: #f0ebe1;
+		--ink-muted: #bdb6aa;
+		--ink-faint: #a29b8f;
+		--accent: #5fcfbf;
+		--accent-hover: #82dccf;
+		--accent-active: #a6e8de;
+		--on-accent: #062421;
+		--accent-text: #7fd9cc;
 		--focus: #5fc3cf;
-		--status-error: #f0998f;
-		--status-error-soft: #3a1f1b;
+		--status-error: #f59a8e;
+		--status-error-soft: #45201b;
 	}
 }
 
@@ -182,14 +184,19 @@
 .theme-btn--primary,
 .theme-btn--success {
 	margin-top: 8px;
-	background: var(--surface-inverse);
-	color: var(--ink-inverse);
+	background: var(--accent);
+	color: var(--on-accent);
 }
 
 .theme-btn--primary:hover,
 .theme-btn--success:hover {
-	background: var(--surface-inverse-hover);
-	color: var(--ink-inverse);
+	background: var(--accent-hover);
+	color: var(--on-accent);
+}
+
+.theme-btn--primary:active,
+.theme-btn--success:active {
+	background: var(--accent-active);
 }
 
 /* An upstream connector's button, and Cancel. */

@@ -40,7 +40,8 @@ test("puts the intro under the heading, linked to its Help section", () => {
 			title="Users"
 			intro={{
 				id: "admin-users",
-				text: "Everyone who has signed in, with their workspace.",
+				lead: "Everyone who has signed in, with their workspace.",
+				text: "Choose a name to start, stop or rebuild a workspace.",
 				helpAnchor: "admin-users",
 			}}
 		>
@@ -50,7 +51,14 @@ test("puts the intro under the heading, linked to its Help section", () => {
 
 	const intro = screen.getByTestId("intro-admin-users");
 	expect(intro.querySelector("summary")?.textContent).toBe("About Users");
-	expect(intro.textContent).toContain("Everyone who has signed in");
+	// The lead stays in sight; the rest waits in a closed disclosure.
+	expect(intro.querySelector(":scope > p")?.textContent).toBe(
+		"Everyone who has signed in, with their workspace.",
+	);
+	expect(intro.querySelector("details")?.open).toBe(false);
+	expect(intro.querySelector("details")?.textContent).toContain(
+		"Choose a name to start",
+	);
 	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
 		"/admin/help#admin-users",
 	);

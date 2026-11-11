@@ -3,7 +3,7 @@ export function JobLog({ idPrefix, log }: { idPrefix: string; log: string[] }) {
 	const titleId = `${idPrefix}-log-title`;
 	return (
 		<div className="grid gap-2">
-			<h4 className="pk-text-compact m-0 font-semibold text-ink-muted" id={titleId}>
+			<h4 className="pk-group-label" id={titleId}>
 				Log
 			</h4>
 			{/* Focusable so it scrolls by keyboard (SPEC.md section 25.8); plain text, never HTML. */}

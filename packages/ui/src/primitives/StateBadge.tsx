@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { cx } from "./cx.js";
+import { Badge, type BadgeTone } from "./Badge.js";
 import { Icon } from "./Icon.js";
 
 export type WorkspaceState =
@@ -22,22 +22,13 @@ const STATE_LABEL: Record<WorkspaceState | "restarting", string> = {
 	restarting: "Restarting",
 };
 
-const TONE_TEXT: Record<StateTone, string> = {
-	provisioning: "text-status-provisioning",
-	starting: "text-status-starting",
-	running: "text-status-running",
-	stopping: "text-status-stopping",
-	stopped: "text-status-stopped",
-	error: "text-status-error",
-};
-
-const TONE_FILL: Record<StateTone, string> = {
-	provisioning: "bg-status-provisioning-soft",
-	starting: "bg-status-starting-soft",
-	running: "bg-status-running-soft",
-	stopping: "bg-status-stopping-soft",
-	stopped: "bg-status-stopped-soft",
-	error: "bg-status-error-soft",
+const TONE_BADGE: Record<StateTone, BadgeTone> = {
+	provisioning: "info",
+	starting: "info",
+	running: "success",
+	stopping: "info",
+	stopped: "neutral",
+	error: "danger",
 };
 
 /**
@@ -117,13 +108,10 @@ export function StateBadge({
 			/>
 		);
 	return (
-		<span
-			className={cx(
-				"pk-badge inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-sm text-[12px] font-medium leading-4",
-				TONE_TEXT[tone],
-				plain ? "px-0" : cx(TONE_FILL[tone], "px-2"),
-				className,
-			)}
+		<Badge
+			tone={TONE_BADGE[tone]}
+			plain={plain}
+			className={className}
 			role={statusRole ? "status" : undefined}
 			aria-live={live ? "polite" : undefined}
 			data-state={state}
@@ -131,6 +119,6 @@ export function StateBadge({
 		>
 			{glyph}
 			{label ?? resolved.label}
-		</span>
+		</Badge>
 	);
 }

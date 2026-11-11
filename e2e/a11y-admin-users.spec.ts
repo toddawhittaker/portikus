@@ -94,7 +94,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of 2$/);
 		await expectNoViolations(page);
 
-		// The page intro is open, and a column's help is shown over the sticky header.
+		// The page intro is shown, and a column's help is shown over the sticky header.
 		await expect(page.getByTestId("intro-admin-users")).toBeVisible();
 		const about = page.getByRole("button", { name: "About Account tags", exact: true });
 		await about.click();

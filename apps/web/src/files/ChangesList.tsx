@@ -8,6 +8,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { useRecoveryPoints } from "../recovery/queries.js";
 import { RestoreConfirm } from "../recovery/RestoreConfirm.js";
+import { GitLetter } from "./GitLetter.js";
 import { type ChangeRow, changeRows } from "./gitStatus.js";
 
 export function ChangesList({
@@ -154,9 +155,10 @@ export function ChangesList({
 										title={row.decoration.title}
 										onClick={() => show(row)}
 									>
-										<span className="pk-git-letter" aria-hidden="true">
-											{row.decoration.letter}
-										</span>
+										<GitLetter
+											kind={row.decoration.kind}
+											letter={row.decoration.letter}
+										/>
 										{row.decoration.kind === "conflict" ? (
 											<Icon name="alert" size="sm" />
 										) : null}

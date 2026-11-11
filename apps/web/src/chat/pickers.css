@@ -1,35 +1,139 @@
-/* The composer's pickers: a quiet button holding its label and value, opening a radio menu. */
-:is(.pk-picker, .pk-picker-switch) {
+/* The Options button on the composer's row: the settings icon and a short summary. */
+.pk-composer-options {
 	display: inline-flex;
 	align-items: center;
-	gap: var(--space-1);
+	gap: var(--space-1\.5);
 	min-inline-size: 0;
 	max-inline-size: 100%;
 	block-size: var(--size-control-sm);
-	padding-inline: var(--space-2) var(--space-1);
-	border: 1px solid var(--line-strong);
+	padding-inline: var(--space-2);
+	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
 	color: var(--ink-muted);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	cursor: pointer;
 	transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
-:is(.pk-picker, .pk-picker-switch):hover,
-.pk-picker[aria-expanded="true"] {
+.pk-composer-options:hover,
+.pk-composer-options[aria-expanded="true"] {
 	background: var(--surface-hover);
+	color: var(--ink);
 }
 
-:is(.pk-picker, .pk-picker-switch):focus-visible {
+.pk-composer-options:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset);
+	outline-offset: var(--ring-offset-inset);
 }
 
-:is(.pk-picker, .pk-picker-switch) > svg,
-.pk-picker-label {
+.pk-composer-options > svg {
 	flex: none;
+}
+
+/* The agent's summary wears the agent hue, as Claude's byline in the conversation does. */
+.pk-composer-options:not(.is-warning) {
+	background: var(--agent-soft);
+	color: var(--agent-text);
+	font-weight: 500;
+}
+.pk-composer-options:not(.is-warning):hover,
+.pk-composer-options:not(.is-warning)[aria-expanded="true"] {
+	background: var(--agent-soft);
+	color: var(--agent-text);
+	box-shadow: inset 0 0 0 1px var(--agent);
+}
+.pk-composer-options:not(.is-warning) > svg:first-child {
+	color: var(--agent);
+}
+
+.pk-composer-options-summary {
+	min-inline-size: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Bypass stays in sight with the panel closed. */
+.pk-composer-options.is-warning,
+.pk-composer-options.is-warning:hover {
+	background: var(--status-warning-soft);
+	color: var(--status-warning);
+	font-weight: 600;
+}
+
+/* The panel is a tray in the box's own flow, above the row that opens it, like the
+   `/` menu: the pane's scrolling wrapper can never clip it, and the box grows upward.
+   The settings flow into as many columns as the box has room for. */
+.pk-composer-picks {
+	box-sizing: border-box;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+	gap: var(--space-1);
+	min-inline-size: 0;
+	margin: 0 0 var(--space-2);
+	padding: var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+}
+
+.pk-composer-picks[hidden] {
+	display: none;
+}
+
+/* Floated, so it is a plain item of the grid rather than drawn on the border. */
+.pk-composer-picks-title {
+	float: inline-start;
+	grid-column: 1 / -1;
+	margin: 0;
+	padding: 0 var(--space-2) var(--space-1);
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
+}
+
+/* Each picker is a full-width row: what it sets, then its value and chevron. */
+.pk-picker {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	min-inline-size: 0;
+	block-size: var(--size-control-md);
+	padding-inline: var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--text-md);
+	text-align: start;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.pk-picker:hover,
+.pk-picker[aria-expanded="true"] {
+	background: var(--surface-raised);
+}
+
+.pk-picker:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+.pk-picker > svg {
+	flex: none;
+	color: var(--ink-muted);
+}
+
+.pk-picker-label {
+	flex: 1;
+	min-inline-size: 0;
+	color: var(--ink-muted);
 }
 
 /* A long value gives way before the label does. */
@@ -42,25 +146,32 @@
 }
 
 /* A value the student changed reads as set. */
-:is(.pk-picker, .pk-picker-switch).is-changed .pk-picker-value {
+.pk-picker.is-changed .pk-picker-value {
 	color: var(--ink);
 	font-weight: 600;
 }
 
 .pk-picker.is-warning,
 .pk-picker.is-warning:hover {
-	border-color: var(--status-warning);
 	background: var(--status-warning-soft);
 }
 
 .pk-picker.is-warning,
-.pk-picker.is-warning .pk-picker-value {
+.pk-picker.is-warning .pk-picker-value,
+.pk-picker.is-warning > .pk-icon {
 	color: var(--status-warning);
 }
 
 .pk-picker.is-waiting {
 	cursor: default;
-	padding-inline-end: var(--space-2);
+}
+
+/* Touch size on a phone (WCAG 2.5.5). */
+@media (width < 40rem) {
+	.pk-composer-options,
+	.pk-picker {
+		block-size: var(--size-control-lg);
+	}
 }
 
 /* The readouts take the last line of the composer's bar, whatever its width, so a
@@ -88,7 +199,7 @@
 	padding-inline: var(--space-2);
 	border-radius: var(--radius-sm);
 	color: var(--ink-muted);
-	font-size: 13px;
+	font-size: var(--text-xs);
 	white-space: nowrap;
 	font-variant-numeric: tabular-nums;
 }
@@ -99,7 +210,30 @@
 	gap: var(--space-1);
 }
 
-/* The last minute and a context near full: colour plus the icon, and "soon" for the cache. */
+/* The context figure: the slim meter of the status bar, so the two read as one family. */
+.pk-ctx-meter {
+	gap: var(--space-1\.5);
+	color: var(--ink-muted);
+}
+
+/* The context belongs to the agent, so its fill takes the agent hue until it warns, as a plan meter does. */
+.pk-ctx-meter .pk-meter-bar::-webkit-meter-optimum-value {
+	background: var(--agent);
+}
+.pk-ctx-meter .pk-meter-bar::-moz-meter-bar {
+	background: var(--agent);
+}
+.pk-ctx-meter .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-ctx-meter .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-warning);
+}
+/* Full outranks the warning above whatever order the stylesheets load in. */
+.pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-error);
+}
+
+/* The cache's last minute: colour plus the icon and the word "soon". */
 .pk-ctx.is-warning {
 	gap: var(--space-1);
 	background: var(--status-warning-soft);
@@ -136,33 +270,9 @@
 	block-size: 1lh;
 }
 
-/* A quiet line of its own under the pickers, so Ask never reads as the whole story. */
+/* A quiet line of its own under the row, so Ask never reads as the whole story. */
 .pk-picker-hint {
-	flex-basis: 100%;
 	margin: 0;
 	color: var(--ink-muted);
 	font-size: 12px;
-}
-
-/* A narrow composer shows the value alone. The prefix words are hidden visually
-   only, so each button's name still starts with them (SPEC.md §25.8). Full labels
-   with the widest values (Claude Code, Extra high, Bypass permissions) need 774px
-   on one line, and the read-aloud switch adds 66px, so 55rem (880px) keeps them
-   from ever wrapping. */
-@container pk-composer (width < 55rem) {
-	.pk-picker-label,
-	.pk-picker-more {
-		position: absolute;
-		inline-size: 1px;
-		block-size: 1px;
-		margin: -1px;
-		padding: 0;
-		overflow: hidden;
-		clip-path: inset(50%);
-		white-space: nowrap;
-	}
-
-	:is(.pk-picker, .pk-picker-switch) {
-		position: relative;
-	}
 }

@@ -8,6 +8,21 @@
 	flex: none;
 }
 
+.pk-turn-working > :is(.pk-spin, .pk-agent-mark) {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--agent);
+}
+/* Nothing moves until the student answers the card below, so the line takes its amber. */
+.pk-turn-working.is-awaiting {
+	color: var(--status-warning);
+	font-weight: 500;
+}
+.pk-turn-working.is-awaiting > .pk-agent-mark {
+	color: var(--status-warning);
+}
+
 .pk-turn-doing {
 	min-inline-size: 0;
 	overflow: hidden;
@@ -95,4 +110,38 @@ button.pk-turn-file-open {
 	color: var(--accent-text);
 	text-decoration: underline;
 	text-underline-offset: 2px;
+}
+
+/*
+ * A run of tool calls, and a finished turn's folded work, are one card as
+ * wide as the reply column up to 760px: the summary is its head, and the
+ * calls sit inside it under a divider when it is open.
+ */
+.pk-turn-group,
+.pk-chat-worked {
+	box-sizing: border-box;
+	inline-size: 100%;
+	max-inline-size: var(--pk-chat-card);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	box-shadow: var(--shadow-sm);
+}
+:is(.pk-turn-group, .pk-chat-worked) > .pk-chat-worked-summary {
+	inline-size: 100%;
+	box-sizing: border-box;
+	min-block-size: var(--size-control-md);
+	padding-inline: var(--space-3);
+	border: 0;
+	border-radius: calc(var(--radius-md) - 1px);
+}
+:is(.pk-turn-group, .pk-chat-worked)[open] > .pk-chat-worked-summary {
+	border-end-start-radius: 0;
+	border-end-end-radius: 0;
+	border-block-end: 1px solid var(--line);
+}
+:is(.pk-turn-group, .pk-chat-worked) > .pk-chat-worked-log {
+	margin: 0;
+	padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+	border-inline-start: 0;
 }

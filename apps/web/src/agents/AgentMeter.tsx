@@ -162,8 +162,10 @@ function ProviderStatus({
 					high={100 * warnAt - 1}
 					valueText={`${shortText} of the 7-day limit`}
 					shortText={shortText}
+					className="pk-meter-line--slim"
 				/>
-				<span className="pk-agent-resets">resets {resets}</span>
+				{/* In the name and the details; hidden here so the strip stays short. */}
+				<span className="pk-visually-hidden">resets {resets}</span>
 			</button>
 			{detail}
 		</>
