@@ -58,6 +58,10 @@ button.pk-statusbar-item {
 .pk-statusbar-plain {
 	color: var(--ink-muted);
 }
+/* The workspace state opens the workspace dialog, so it keeps a visible edge and reads as a control (SPEC.md section 6). */
+button.pk-statusbar-plain {
+	border: 1px solid var(--line-strong);
+}
 button.pk-statusbar-item:hover {
 	background: var(--surface-hover);
 	color: var(--ink);
