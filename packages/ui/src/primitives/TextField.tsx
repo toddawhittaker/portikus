@@ -111,7 +111,7 @@ export function UnitInput({ unit, id, ...rest }: UnitInputProps): React.ReactEle
 
 /**
  * The label row with a help button beside the label. The row keeps the label's
- * 18px line and the 24px button overflows it evenly, so a field with help lines
+ * 20px line and the 24px button overflows it evenly, so a field with help lines
  * up with one without (the target stays 24px, WCAG 2.5.8).
  */
 const LABEL_ROW_CLASS = "flex h-[20px] min-w-0 items-center gap-1";

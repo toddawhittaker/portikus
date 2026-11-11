@@ -145,9 +145,9 @@ export function AuditTab() {
 					value={actionDraft}
 					onChange={(event) => setActionDraft(event.target.value)}
 				/>
-				{/* mt-6 is LABEL_CLASS's 18 px line plus FIELD_CLASS's 6 px gap, so the
+				{/* 26 px is LABEL_CLASS's 20 px line plus FIELD_CLASS's 6 px gap, so the
 				    buttons line up with the inputs even when a field shows an error. */}
-				<div className="mt-6 flex gap-2">
+				<div className="mt-[26px] flex gap-2">
 					<Button variant="primary" type="submit" data-testid="audit-filter-apply">
 						Apply filters
 					</Button>
