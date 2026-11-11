@@ -16,7 +16,14 @@
  * chosen (SPEC.md §25.8). The panel is a disclosure, not a menu: it holds
  * those buttons, and their menus portal above it.
  */
-import { CHAT_START_EFFORT, ChatEffort, ChatPermissionMode } from "@portikus/contracts";
+
+import type { ChatModelInfo } from "@portikus/contracts";
+import {
+	CHAT_START_SETTINGS,
+	ChatEffort,
+	ChatPermissionMode,
+	chatStartMode,
+} from "@portikus/contracts";
 import {
 	Icon,
 	Menu,
@@ -34,9 +41,9 @@ import { ContextMeter } from "./ContextMeter.js";
 import {
 	type ChatSettings,
 	type ChatStore,
-	modelChoice,
 	selectSessionRulesActive,
 } from "./chatStore.js";
+import { familyChoices, modelSummary, resolveModel, versionChoices } from "./models.js";
 import type { ReadAloud } from "./readAloud.js";
 import "./pickers.css";
 
@@ -66,29 +73,6 @@ const AGENTS: Choice[] = [
 		label: "Codex",
 		description: "Coming soon.",
 		unavailable: true,
-	},
-];
-
-const MODELS: Choice[] = [
-	{
-		value: "default",
-		label: "Default",
-		description: "The model Claude Code picks for your account.",
-	},
-	{
-		value: "opus",
-		label: "Opus",
-		description: "Most capable, for hard problems. Uses your limits fastest.",
-	},
-	{
-		value: "sonnet",
-		label: "Sonnet",
-		description: "Fast and capable, for most coding.",
-	},
-	{
-		value: "haiku",
-		label: "Haiku",
-		description: "Fastest, for small, simple changes.",
 	},
 ];
 
@@ -143,9 +127,10 @@ const MODES: Choice[] = [
 
 /**
  * The values a chat starts with, as the host sets them. The model is left
- * out: the host reports the model Claude chose, so any model may be the start.
+ * out of the menus' "Default" marker, since a model row of that name exists;
+ * the start mode is Ask on a model that cannot run Auto.
  */
-const START = { agent: "claude", effort: CHAT_START_EFFORT, mode: "default" } as const;
+const START = { agent: "claude", effort: CHAT_START_SETTINGS.effort } as const;
 
 type Change = Partial<Pick<ChatSettings, "model" | "effort" | "mode">>;
 
@@ -288,12 +273,8 @@ interface PickersProps {
 }
 
 /** The short summary on the Options button: agent or model, effort, permissions. */
-function summaryOf(shown: ChatSettings): string {
-	const model = modelChoice(shown.model);
-	const first =
-		model === "default"
-			? "Claude"
-			: (MODELS.find((choice) => choice.value === model)?.label ?? model);
+function summaryOf(shown: ChatSettings, models: ChatModelInfo[]): string {
+	const first = modelSummary(models, shown.model);
 	const effort = EFFORTS.find((choice) => choice.value === shown.effort)?.label;
 	const mode = MODES.find((choice) => choice.value === shown.mode)?.label;
 	return [first, effort ?? shown.effort, mode ?? shown.mode].join(" \u00b7 ");
@@ -309,6 +290,7 @@ export function ComposerPickers({
 	onOpenChange,
 }: PickersProps) {
 	const settings = useStore(store, (state) => state.settings);
+	const models = useStore(store, (state) => state.models);
 	const lastError = useStore(store, (state) => state.lastError);
 	const [pending, setPending] = useState<Change>({});
 	const pendingNow = useRef(pending);
@@ -356,6 +338,9 @@ export function ComposerPickers({
 
 	const shown = settings ? { ...settings, ...pending } : null;
 	const bypass = shown?.mode === "bypassPermissions";
+	const startMode = shown ? chatStartMode(models, shown.model) : "default";
+	const current = shown ? resolveModel(models, shown.model) : null;
+	const versions = current ? versionChoices(models, current.family) : [];
 	// The host's own mode, not one still waiting, decides whether Ask is the whole story.
 	const askWithRules = settings?.mode === "default" && rulesActive;
 
@@ -373,7 +358,7 @@ export function ComposerPickers({
 				<Icon name={bypass ? "alert" : "agent"} size="sm" />
 				<span className="sr-only">Chat options: </span>
 				<span className="pk-composer-options-summary">
-					{shown ? summaryOf(shown) : <Skeleton width="6rem" />}
+					{shown ? summaryOf(shown, models) : <Skeleton width="6rem" />}
 				</span>
 				<Icon name={open ? "chevron-up" : "chevron-down"} size="sm" />
 			</button>
@@ -404,13 +389,25 @@ export function ComposerPickers({
 				/>
 				{shown ? (
 					<>
-						<Pick
-							label="Model"
-							testId="composer-model"
-							value={modelChoice(shown.model)}
-							choices={MODELS}
-							onChoose={(model) => ask({ model })}
-						/>
+						{/* Stacked as one cell, so Version sits under Model at any panel width. */}
+						<div className="pk-picker-pair">
+							<Pick
+								label="Model"
+								testId="composer-model"
+								value={current?.family ?? shown.model}
+								choices={familyChoices(models, shown.model)}
+								onChoose={(model) => ask({ model })}
+							/>
+							{versions.length > 0 ? (
+								<Pick
+									label="Version"
+									testId="composer-version"
+									value={current?.pinned ?? current?.family ?? shown.model}
+									choices={versions}
+									onChoose={(model) => ask({ model })}
+								/>
+							) : null}
+						</div>
 						<Pick
 							label="Effort"
 							testId="composer-effort"
@@ -425,8 +422,8 @@ export function ComposerPickers({
 							testId="composer-mode"
 							value={shown.mode}
 							choices={MODES}
-							start={START.mode}
-							changed={shown.mode !== START.mode}
+							start={startMode}
+							changed={shown.mode !== startMode}
 							warning={bypass}
 							describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
 							onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}

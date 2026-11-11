@@ -74,7 +74,7 @@ export function useChatSession(
 			const wanted = last;
 			last = null;
 			if (!isNewChat(state)) return;
-			const change = changeToward(state.settings, wanted);
+			const change = changeToward(state.settings, wanted, state.models);
 			if (!change) return;
 			state.set(change);
 			// The stored values are not a new choice, so their echo is not saved again.

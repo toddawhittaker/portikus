@@ -7,7 +7,6 @@ import {
 	initialChatState,
 	isNewChat,
 	lastSettingsOf,
-	modelChoice,
 	receiveChatEvent,
 	receiveChatFrame,
 	selectSessionRulesActive,
@@ -527,11 +526,35 @@ test("the session rules the host reports are kept, and revoking one sends it", (
 function startSettings(seq: number): string {
 	return frame("settings", seq, {
 		agent: "claude",
-		model: "default",
-		effort: "high",
-		mode: "default",
+		model: "opus",
+		effort: "medium",
+		mode: "auto",
 	});
 }
+
+const LIST = [
+	{
+		value: "opus",
+		resolvedModel: "claude-opus-5-5",
+		displayName: "Opus 5.5",
+		description: "",
+		supportsAutoMode: true,
+	},
+	{
+		value: "claude-opus-4-8",
+		resolvedModel: "claude-opus-4-8",
+		displayName: "Opus 4.8",
+		description: "",
+		supportsAutoMode: true,
+	},
+	{
+		value: "default",
+		resolvedModel: "claude-opus-5-5",
+		displayName: "Default",
+		description: "",
+		supportsAutoMode: true,
+	},
+];
 
 test("a chat with no turns at the host's start values is new; anything else is not", () => {
 	expect(isNewChat(initialChatState)).toBe(false);
@@ -541,9 +564,9 @@ test("a chat with no turns at the host's start values is new; anything else is n
 		[
 			frame("settings", 3, {
 				agent: "claude",
-				model: "opus",
-				effort: "high",
-				mode: "default",
+				model: "sonnet",
+				effort: "medium",
+				mode: "auto",
 			}),
 		],
 		fresh,
@@ -557,29 +580,88 @@ test("a chat with no turns at the host's start values is new; anything else is n
 	expect(isNewChat(used)).toBe(false);
 });
 
+test("on a model that cannot run Auto, Ask is the start mode", () => {
+	const noAuto = LIST.map((row) => ({ ...row, supportsAutoMode: false }));
+	const settings = frame("settings", 3, {
+		agent: "claude",
+		model: "opus",
+		effort: "medium",
+		mode: "default",
+	});
+	expect(isNewChat(feed([snapshot(1), settings]))).toBe(false);
+	const withList = feed([
+		snapshot(1),
+		frame("models", 2, { models: noAuto }),
+		settings,
+	]);
+	expect(isNewChat(withList)).toBe(true);
+});
+
+test("a models event replaces the list, and a new snapshot keeps it", () => {
+	const state = feed([snapshot(1), frame("models", 2, { models: LIST })]);
+	expect(state.models.map((row) => row.value)).toEqual([
+		"opus",
+		"claude-opus-4-8",
+		"default",
+	]);
+	expect(feed([snapshot(1)], state).models).toHaveLength(3);
+});
+
 test("the change toward the last-used values names only what differs", () => {
 	const start = {
 		agent: "claude" as const,
-		model: "default",
-		effort: "high" as const,
-		mode: "default" as const,
-	};
-	expect(changeToward(start, { model: "opus", effort: "high", mode: "auto" })).toEqual({
 		model: "opus",
-		mode: "auto",
-	});
+		effort: "medium" as const,
+		mode: "auto" as const,
+	};
 	expect(
-		changeToward(start, { model: "default", effort: "high", mode: "default" }),
+		changeToward(start, { model: "default", effort: "medium", mode: "plan" }, LIST),
+	).toEqual({ model: "default", mode: "plan" });
+	expect(
+		changeToward(start, { model: "opus", effort: "medium", mode: "auto" }, LIST),
 	).toBeNull();
+	// The full ID the short name resolves to is the same choice.
 	expect(
 		changeToward(
-			{ ...start, model: "claude-opus-4-1" },
-			{ model: "opus", effort: "low", mode: "default" },
+			{ ...start, model: "claude-opus-5-5[1m]" },
+			{ model: "opus", effort: "low", mode: "auto" },
+			LIST,
 		),
 	).toEqual({ effort: "low" });
 });
 
-test("what is kept is the picker's model choice and the host's effort and mode", () => {
+test("a saved model the list no longer offers falls back to its family, then the default", () => {
+	const start = {
+		agent: "claude" as const,
+		model: "opus",
+		effort: "medium" as const,
+		mode: "auto" as const,
+	};
+	const last = (model: string) => ({
+		model,
+		effort: "medium" as const,
+		mode: "auto" as const,
+	});
+	// A retired version of a family still on offer: that family's newest.
+	expect(
+		changeToward({ ...start, model: "sonnet" }, last("claude-opus-4-1"), LIST),
+	).toEqual({
+		model: "opus",
+	});
+	// A family that is gone: the default.
+	expect(changeToward(start, last("claude-fable-5-1"), LIST)).toEqual({
+		model: "default",
+	});
+	expect(changeToward(start, last("fable"), LIST)).toEqual({ model: "default" });
+	// A pinned version that is still offered stays.
+	expect(changeToward(start, last("claude-opus-4-8"), LIST)).toEqual({
+		model: "claude-opus-4-8",
+	});
+	// With no list to check against the saved model stands.
+	expect(changeToward(start, last("fable"), [])).toEqual({ model: "fable" });
+});
+
+test("what is kept is the host's model, effort and mode", () => {
 	expect(
 		lastSettingsOf({
 			agent: "claude",
@@ -587,9 +669,12 @@ test("what is kept is the picker's model choice and the host's effort and mode",
 			effort: "max",
 			mode: "bypassPermissions",
 		}),
-	).toEqual({ model: "haiku", effort: "max", mode: "bypassPermissions" });
-	expect(modelChoice("something-new")).toBe("default");
-	expect(modelChoice("sonnet")).toBe("sonnet");
+	).toEqual({ model: "claude-haiku-4-5", effort: "max", mode: "bypassPermissions" });
+	// A value the server would refuse is not sent.
+	expect(
+		lastSettingsOf({ agent: "claude", model: "Not Valid", effort: "low", mode: "plan" })
+			.model,
+	).toBe("default");
 });
 
 const SHELL = {

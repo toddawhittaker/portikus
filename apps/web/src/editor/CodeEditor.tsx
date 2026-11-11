@@ -28,7 +28,7 @@ import {
 } from "./monaco.js";
 import { editorScrollTop, editorTopLine } from "./scrollSync.js";
 import { useScreenReaderMode } from "./settingsQueries.js";
-import { DEFAULT_ZOOM, fontSizeFor, stepZoom } from "./zoom.js";
+import { DEFAULT_ZOOM, fontSizeFor, stepZoom, wheelZoom } from "./zoom.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
@@ -364,17 +364,13 @@ export function CodeEditor({
 		});
 	}, [screenReaderMode]);
 
-	// Ctrl + wheel zooms the editor only. preventDefault stops the browser from
-	// zooming the whole page, so the listener cannot be passive (SPEC.md §13.1).
+	// Ctrl + wheel zooms the editor only, never the page (SPEC.md §13.1).
 	useEffect(() => {
 		const node = host.current;
 		if (!node) return;
-		function onWheel(event: WheelEvent) {
-			if (!(event.ctrlKey || event.metaKey)) return;
-			event.preventDefault();
-			if (event.deltaY === 0) return;
-			setZoomRef.current(stepZoom(zoomRef.current, event.deltaY < 0 ? 1 : -1));
-		}
+		const onWheel = wheelZoom((steps) =>
+			setZoomRef.current(stepZoom(zoomRef.current, steps)),
+		);
 		node.addEventListener("wheel", onWheel, { passive: false });
 		return () => node.removeEventListener("wheel", onWheel);
 	}, []);

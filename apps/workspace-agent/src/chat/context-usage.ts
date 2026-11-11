@@ -146,10 +146,24 @@ export class ContextTracker {
 		return this.set(afterRequest(this.figures, usage, at, this.windowTokens));
 	}
 
+	/**
+	 * The figures to show: the last request's, or, before any request, an
+	 * empty context in the window once that is known.
+	 */
+	current(): ContextFigures | null {
+		if (this.figures) return this.figures;
+		return this.windowTokens === null
+			? null
+			: { usedTokens: 0, windowTokens: this.windowTokens, cache: null };
+	}
+
 	/** The new figures with this window, or null when nothing changed. */
 	window(window: number): ContextFigures | null {
+		const before = JSON.stringify(this.current());
 		this.windowTokens = window;
-		return this.figures ? this.set({ ...this.figures, windowTokens: window }) : null;
+		if (this.figures) this.figures = { ...this.figures, windowTokens: window };
+		const next = this.current();
+		return JSON.stringify(next) === before ? null : next;
 	}
 
 	private set(next: ContextFigures): ContextFigures | null {

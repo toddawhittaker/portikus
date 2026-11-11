@@ -108,12 +108,13 @@ function weeklyPlans(workspaceId: string) {
 }
 
 /**
- * The host's `context` report: 116k of a 200k window, over the half that
- * shows the meter, and a one-hour cache read 12 minutes ago.
+ * The host's `context` report in a 200k window, and a one-hour cache read 12
+ * minutes ago. The chat capture shows a high step of the meter and the
+ * composer capture a low one.
  */
-function sendContext(send: Send) {
+function sendContext(send: Send, usedTokens: number) {
 	send("context", {
-		usedTokens: 116_000,
+		usedTokens,
 		windowTokens: 200_000,
 		cache: { at: Date.now() - 12 * 60_000, ttlSeconds: 3600 },
 		now: Date.now(),
@@ -181,13 +182,28 @@ async function scriptChat(page: Page, id: string, play: (send: Send) => void) {
 }
 
 /** The composer's context meter and the status bar's plan meters are both up. */
-async function expectMeters(page: Page, view: Locator) {
-	await expect(view.getByTestId("composer-context")).toContainText("Context 58%");
+async function expectMeters(page: Page, view: Locator, figures: string) {
+	await expect(view.getByTestId("composer-context")).toContainText(figures);
 	await expect(page.getByTestId("agent-meter-claude")).toBeVisible();
 	await expect(page.getByTestId("agent-meter-codex")).toBeVisible();
 }
 
-const SETTINGS = { agent: "claude", model: "default", effort: "high", mode: "default" };
+const SETTINGS = { agent: "claude", model: "opus", effort: "medium", mode: "auto" };
+
+/** Claude Code's model list, as the host sends it before the settings. */
+const MODELS = [
+	["default", "Default (recommended)", "claude-opus-5-5"],
+	["opus", "Opus 5.5", "claude-opus-5-5"],
+	["sonnet", "Sonnet 5.5", "claude-sonnet-5-5"],
+	["haiku", "Haiku 5.5", "claude-haiku-5-5"],
+	["claude-opus-4-8", "Opus 4.8", "claude-opus-4-8"],
+].map(([value, displayName, resolvedModel]) => ({
+	value,
+	displayName,
+	resolvedModel,
+	description: displayName,
+	supportsAutoMode: true,
+}));
 
 for (const colorScheme of SCHEMES) {
 	test(`chat (${colorScheme})`, async ({ page }) => {
@@ -279,11 +295,12 @@ for (const colorScheme of SCHEMES) {
 					{ id: "deny", label: "Deny" },
 				],
 			});
+			send("models", { models: MODELS });
 			send("settings", SETTINGS);
-			sendContext(send);
+			sendContext(send, 166_000);
 		});
 		await expect(view.getByTestId("chat-permission-card")).toBeVisible();
-		await expectMeters(page, view);
+		await expectMeters(page, view, "166k / 200k");
 		await view.getByText("4 tool calls").click();
 		await shoot(page, imageName("student-chat", colorScheme));
 	});
@@ -325,6 +342,7 @@ for (const colorScheme of SCHEMES) {
 				truncated: false,
 				state: "done",
 			});
+			send("models", { models: MODELS });
 			send("settings", SETTINGS);
 			send("commands", {
 				commands: [
@@ -348,10 +366,10 @@ for (const colorScheme of SCHEMES) {
 					{ name: "model", description: "Choose the model", terminalOnly: true },
 				],
 			});
-			sendContext(send);
+			sendContext(send, 34_200);
 		});
 		await expect(view.getByTestId("chat-shell").first()).toBeVisible();
-		await expectMeters(page, view);
+		await expectMeters(page, view, "34.2k / 200k");
 		if (colorScheme === "light") await shoot(page, "student-chat-shell.png");
 		await view.getByTestId("chat-composer-input").click();
 		await page.keyboard.type("/");
