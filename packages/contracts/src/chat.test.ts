@@ -569,7 +569,7 @@ describe("models", () => {
 		}
 	});
 
-	test("the saved values from before still parse, and a bad model reads as default", () => {
+	test("the saved values from before still parse, and what cannot be read starts a new chat", () => {
 		for (const model of ["default", "opus", "sonnet", "haiku"]) {
 			expect(
 				ChatLastSettings.safeParse({ model, effort: "high", mode: "default" }).success,
@@ -577,10 +577,19 @@ describe("models", () => {
 		}
 		const stored = StoredChatSettings.parse({
 			model: "Not A Model",
-			effort: "high",
-			mode: "default",
+			effort: "huge",
+			mode: "low",
 		});
-		expect(stored.model).toBe("default");
+		// What cannot be read is what a new chat starts with.
+		expect(stored).toEqual({
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
+			readAloud: false,
+		});
+		expect(
+			StoredChatSettings.parse({ model: "default", effort: "high", mode: "default" }),
+		).toMatchObject({ model: "default", effort: "high", mode: "default" });
 		expect(
 			StoredChatSettings.parse({
 				model: "claude-opus-4-8",

@@ -65,7 +65,7 @@ import { SlashCommandList } from "./slash-commands.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, privateDirectory, readLines, writeLine } from "./wire.js";
 
-/** The longest a first attach waits for the model list. */
+/** The longest the host waits to read the model list before it opens its socket. */
 const MODELS_WAIT_MS = 3000;
 
 /** The shared, unmodified Claude Code binary (SPEC.md §10.1). */
@@ -182,6 +182,10 @@ export class ChatHost {
 	async start(): Promise<void> {
 		await privateDirectory(this.options.socketDir);
 		await unlink(this.socketPath).catch(() => undefined);
+		await this.ensureSession();
+		// The socket opens once the model list is read (or has taken too long), so a
+		// first attach gets the list ahead of the settings that use it.
+		await this.modelList.settled(MODELS_WAIT_MS);
 		const server = createServer((socket) => {
 			void this.attach(socket);
 		});
@@ -192,7 +196,6 @@ export class ChatHost {
 		await chmod(this.socketPath, 0o600);
 		this.server = server;
 		this.options.log.info("chat host listening");
-		await this.ensureSession();
 	}
 
 	/** Stop Claude and close every attachment. The transcript stays. */
@@ -590,8 +593,6 @@ export class ChatHost {
 			this.options.log.warn("could not read the chat transcript");
 		}
 		context ??= this.context.current();
-		// A first attach waits a moment for the list, so its first settings already have it.
-		await this.modelList.settled(MODELS_WAIT_MS);
 		// What is not known yet arrives as its own event once Claude Code answers.
 		if (this.session && !this.modelList.current) void this.refreshModels(this.session);
 		if (this.session && this.context.windowTokens === null) {
@@ -627,7 +628,6 @@ export class ChatHost {
 			const line = this.fitted(event);
 			if (line !== null) writeLine(socket, line);
 		}
-		// Before the settings, so a chat's first settings already have the list.
 		const models = this.modelList.current;
 		if (models && !held.some((event) => event.type === "models")) {
 			writeLine(socket, this.frame(this.modelsEvent(models)));

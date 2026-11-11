@@ -99,15 +99,15 @@ export const ChatLastSettings = z
 export type ChatLastSettings = z.infer<typeof ChatLastSettings>;
 
 /**
- * A stored value read back: a model that no longer parses becomes the
- * default, and Bypass permissions is never carried into a new chat, so it
- * comes back as Auto (SPEC.md §10.8).
+ * A stored value read back: a missing or unreadable one becomes the value a
+ * new chat starts with, and Bypass permissions is never carried into a new
+ * chat, so it comes back as Auto (SPEC.md §10.8).
  */
 export const StoredChatSettings = z
 	.object({
-		model: ChatModel.catch("default"),
+		model: ChatModel.catch(CHAT_START_SETTINGS.model),
 		effort: ChatEffort.catch(CHAT_START_SETTINGS.effort),
-		mode: ChatPermissionMode.catch("default"),
+		mode: ChatPermissionMode.catch(CHAT_START_SETTINGS.mode),
 		readAloud: z.boolean().catch(false),
 	})
 	.transform((value) => ({
