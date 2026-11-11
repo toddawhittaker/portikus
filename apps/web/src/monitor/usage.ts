@@ -48,11 +48,6 @@ export function cpuLoad(cpuPercent: number | null): LoadLevel {
 	return loadLevel(cpuPercent, 100);
 }
 
-/** A process's resident memory against the workspace's memory limit. */
-export function memoryLoad(residentBytes: number, limitBytes: number): LoadLevel {
-	return loadLevel(residentBytes, limitBytes);
-}
-
 export function useWorkspaceUsage(
 	workspaceId: string,
 	enabled: boolean,

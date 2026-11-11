@@ -316,16 +316,14 @@ test("a zoom button or key says the new zoom in a polite status region", () => {
 test("Ctrl + wheel does not announce a zoom", () => {
 	renderInWorkspace();
 	act(() => {
-		screen
-			.getByTestId("inside-zoom")
-			.dispatchEvent(
-				new WheelEvent("wheel", {
-					deltaY: -100,
-					ctrlKey: true,
-					bubbles: true,
-					cancelable: true,
-				}),
-			);
+		screen.getByTestId("inside-zoom").dispatchEvent(
+			new WheelEvent("wheel", {
+				deltaY: -100,
+				ctrlKey: true,
+				bubbles: true,
+				cancelable: true,
+			}),
+		);
 	});
 	expect(shown()).toBe("110%");
 	expect(announced()).toBe("");

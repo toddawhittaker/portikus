@@ -328,6 +328,24 @@ for (const theme of ["dark", "light"] as const) {
 			expect(near).toMatchObject({ color: red, weight: "700" });
 			expect(near.text).toContain("(near limit)");
 		}
+		// Near the limit differs from high by more than colour: the alert icon
+		// (aria-hidden, as the words already say it) sits in both near cells only.
+		await expect(
+			page.getByTestId("monitor-process-61").locator("td[data-load='near-limit'] svg"),
+		).toHaveCount(2);
+		await expect(
+			page.getByTestId("monitor-process-60").locator("td[data-load='high'] svg"),
+		).toHaveCount(0);
+		await expect(
+			page
+				.getByTestId("monitor-process-61")
+				.locator("td[data-load] [aria-hidden='true'] svg"),
+		).toHaveCount(2);
+		// The icon leaves the row at 26 px.
+		expect((await box(page.getByTestId("monitor-process-61"))).height).toBeCloseTo(
+			26,
+			0,
+		);
 		// Plain memory stays plain: 1000 bytes of a million.
 		expect((await cellStyle(page, 12, "mem")).weight).not.toBe("700");
 

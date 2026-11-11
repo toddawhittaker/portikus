@@ -15,6 +15,7 @@ import {
 	Checkbox,
 	ConfirmDialog,
 	ConfirmDialogRoot,
+	Icon,
 	IconButton,
 	Toggletip,
 	useToast,
@@ -43,7 +44,7 @@ import {
 	stopProcessTree,
 } from "./stop.js";
 import { descendantsOf } from "./tree.js";
-import { cpuLoad, type LoadLevel, memoryLoad, useWorkspaceUsage } from "./usage.js";
+import { cpuLoad, type LoadLevel, loadLevel, useWorkspaceUsage } from "./usage.js";
 
 export function MonitorPane({ workspaceId }: { workspaceId: string }) {
 	const query = useWorkspaceUsage(workspaceId, true);
@@ -486,7 +487,11 @@ const LOAD_WORDS: Record<Exclude<LoadLevel, "normal">, string> = {
 	"near-limit": "near limit",
 };
 
-/** A heavy figure turns amber or red and bold, and says so in words (SPEC.md §25.8). */
+/**
+ * A heavy figure turns amber or red and bold, and says so in words. Near the
+ * limit also carries the alert icon, so it differs from high by more than
+ * colour on screen (SPEC.md §25.8).
+ */
 function LoadCell({
 	level,
 	className,
@@ -498,6 +503,11 @@ function LoadCell({
 }) {
 	return (
 		<td className={className} data-load={level === "normal" ? undefined : level}>
+			{level === "near-limit" ? (
+				<span className="pk-monitor-load-icon" aria-hidden="true">
+					<Icon name="alert" size="sm" />
+				</span>
+			) : null}
 			{children}
 			{level === "normal" ? null : (
 				<span className="sr-only"> ({LOAD_WORDS[level]})</span>
@@ -532,7 +542,7 @@ function ProcessRow({
 				</LoadCell>
 				<LoadCell
 					className="pk-monitor-mem"
-					level={memoryLoad(process.residentBytes, memoryLimit)}
+					level={loadLevel(process.residentBytes, memoryLimit)}
 				>
 					{formatBytes(process.residentBytes)}
 				</LoadCell>
