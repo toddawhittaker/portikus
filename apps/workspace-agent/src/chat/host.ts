@@ -598,6 +598,11 @@ export class ChatHost {
 			if (parsed.type === "subagent.unwatch") {
 				return this.subagents.unwatch(client.socket, parsed.toolUseId);
 			}
+			if (parsed.type === "rename") {
+				// The asker alone hears the answer: a broadcast `error` could be another's.
+				const result = await this.title.answerRename(this.sessionId, parsed.title);
+				return writeLine(client.socket, JSON.stringify(result));
+			}
 			await this.onMessage(parsed);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "That did not work.";
@@ -637,8 +642,6 @@ export class ChatHost {
 			case "set":
 				await this.applySettings(message);
 				return;
-			case "rename":
-				return this.title.rename(this.sessionId, message.title);
 		}
 	}
 
@@ -736,9 +739,15 @@ export class ChatHost {
 			await session?.applyFlagSettings({ effortLevel: change.effort });
 			this.settings.effort = change.effort;
 		}
-		if (change.mode !== undefined) {
-			await session?.setPermissionMode(change.mode);
-			this.settings.mode = change.mode;
+		// A model without Auto takes the chat to Ask, as a new chat on it starts.
+		const mode =
+			change.mode ??
+			(change.model !== undefined && this.settings.mode === "auto"
+				? chatStartMode(this.modelList.current ?? [], change.model)
+				: undefined);
+		if (mode !== undefined) {
+			await session?.setPermissionMode(mode);
+			this.settings.mode = mode;
 		}
 		this.broadcastSettings();
 	}

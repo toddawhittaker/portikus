@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import type { ChatToolItem } from "./chatStore";
 import { ImageViewerProvider } from "./ImageViewer";
+import { SubagentOpenerContext } from "./subagentView";
 import { ToolBlock } from "./ToolBlock";
 
 afterEach(cleanup);
@@ -180,4 +181,31 @@ test("an edit's diff names the file's language, so its lines are coloured", () =
 		}),
 	);
 	expect(body?.querySelector(".pk-chat-lang")?.textContent).toBe("TypeScript");
+});
+
+test("each Agent card's Show its conversation button is described by that card's title", () => {
+	const agent = (id: string, description: string) =>
+		tool({
+			id,
+			key: `tool:${id}`,
+			name: "Agent",
+			title: description,
+			input: { description, prompt: "Go." },
+		});
+	render(
+		<SubagentOpenerContext.Provider value={() => undefined}>
+			<ToolBlock tool={agent("a1", "Count the routes")} />
+			<ToolBlock tool={agent("a2", "Find the tests")} />
+		</SubagentOpenerContext.Provider>,
+	);
+	const buttons = screen.getAllByRole("button", { name: "Show its conversation" });
+	expect(buttons).toHaveLength(2);
+	const described = buttons.map((button) =>
+		(button.getAttribute("aria-describedby") ?? "")
+			.split(" ")
+			.map((id) => document.getElementById(id)?.textContent ?? "")
+			.join(" "),
+	);
+	expect(described[0]).toContain("Count the routes");
+	expect(described[1]).toContain("Find the tests");
 });

@@ -70,6 +70,8 @@ export class SubagentStreams {
 	private readonly running = new Map<string, true>();
 	private readonly mappers = new Map<string, ClaudeMessageMapper>();
 	private readonly watches = new Map<Socket, Watch>();
+	/** Agent calls a scan did not find; none is looked for again until a subagent starts. */
+	private readonly unfound = new Map<string, true>();
 
 	constructor(private readonly deps: SubagentDeps) {}
 
@@ -99,6 +101,7 @@ export class SubagentStreams {
 		if (message.subtype === "task_started" && message.tool_use_id) {
 			remember(this.agentIds, message.tool_use_id, message.task_id);
 			remember(this.running, message.tool_use_id, true);
+			this.unfound.clear();
 			this.send(message.tool_use_id, { type: "turn.started", at: Date.now() });
 		} else if (message.subtype === "task_notification" && message.tool_use_id) {
 			this.finish(message.tool_use_id, FINISHED_STATUS[message.status]);
@@ -113,19 +116,21 @@ export class SubagentStreams {
 
 	/**
 	 * Watch one Agent call's subagent: a snapshot, its transcript so far, then
-	 * live events. A new watch on the same attachment replaces the last.
+	 * live events. A new watch on the same attachment replaces the last, and
+	 * the last stops reading at once.
 	 */
 	async watch(socket: Socket, toolUseId: string): Promise<void> {
 		const watch: Watch = { toolUseId, seq: 0, held: [] };
 		this.watches.set(socket, watch);
+		const current = () => this.watches.get(socket) === watch;
 		const running = this.running.has(toolUseId);
 		let replay: ReturnType<typeof replaySubagent> = {
 			events: running ? [{ type: "turn.started", at: Date.now() }] : [],
 			truncated: false,
 		};
 		try {
-			const agentId = await this.agentIdOf(toolUseId);
-			if (agentId) {
+			const agentId = await this.agentIdOf(toolUseId, current);
+			if (agentId && current()) {
 				const { sdk, projectDir } = this.deps;
 				const entries = await sdk.subagentMessages(
 					this.deps.sessionId(),
@@ -142,19 +147,26 @@ export class SubagentStreams {
 		} catch {
 			// No transcript to read: the view shows what arrives live.
 		}
-		if (this.watches.get(socket) !== watch) return;
+		if (!current()) return;
 		this.write(socket, watch, {
 			type: "snapshot",
 			cards: [],
 			turnRunning: running,
 			truncated: replay.truncated,
 		});
+		// A tool's output reaches the transcript and the live stream at once, and the view appends it.
+		const replayed = new Set<string>();
 		for (const event of replay.events) {
-			if (isSubagentEvent(event)) this.write(socket, watch, event);
+			if (!isSubagentEvent(event)) continue;
+			if (event.type === "tool.finished") replayed.add(event.id);
+			this.write(socket, watch, event);
 		}
 		const held = watch.held ?? [];
 		watch.held = null;
-		for (const event of held) this.write(socket, watch, event);
+		for (const event of held) {
+			if (event.type === "tool.output" && replayed.has(event.id)) continue;
+			this.write(socket, watch, event);
+		}
 	}
 
 	unwatch(socket: Socket, toolUseId: string): void {
@@ -168,6 +180,10 @@ export class SubagentStreams {
 
 	/** The session moved on (/clear); its subagents are not the new one's. */
 	reset(): void {
+		for (const toolUseId of [...this.running.keys()]) {
+			this.finish(toolUseId, "interrupted");
+		}
+		this.unfound.clear();
 		this.agentIds.clear();
 		this.running.clear();
 		this.mappers.clear();
@@ -180,15 +196,21 @@ export class SubagentStreams {
 
 	/**
 	 * The subagent id for an Agent call. One not seen live, as after a host
-	 * restart, is found from the first entry of each subagent transcript.
+	 * restart, is found from the first entry of each subagent transcript. The
+	 * scan stops when its watch is replaced.
 	 */
-	private async agentIdOf(toolUseId: string): Promise<string | undefined> {
+	private async agentIdOf(
+		toolUseId: string,
+		current: () => boolean,
+	): Promise<string | undefined> {
 		const known = this.agentIds.get(toolUseId);
 		if (known) return known;
+		if (this.unfound.has(toolUseId)) return undefined;
 		const { sdk, projectDir } = this.deps;
 		const sessionId = this.deps.sessionId();
 		const seen = new Set(this.agentIds.values());
 		for (const agentId of await sdk.subagentIds(sessionId, projectDir)) {
+			if (!current()) return undefined;
 			if (seen.has(agentId)) continue;
 			const [first] = await sdk.subagentMessages(sessionId, agentId, projectDir, 1);
 			if (first?.parent_tool_use_id) {
@@ -196,6 +218,7 @@ export class SubagentStreams {
 			}
 			if (first?.parent_tool_use_id === toolUseId) return agentId;
 		}
+		if (current()) remember(this.unfound, toolUseId, true);
 		return undefined;
 	}
 

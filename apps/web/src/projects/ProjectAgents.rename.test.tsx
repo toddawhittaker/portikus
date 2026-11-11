@@ -1,6 +1,6 @@
 import type { CodingAgentTerminal } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { ProjectAgents } from "./ProjectAgents.js";
@@ -99,8 +99,15 @@ test("a chat's title sits under its name, and only the chat has a pencil", () =>
 	expect(screen.queryByTestId(`agent-title-${TUI}`)).toBeNull();
 });
 
-test("Enter saves a cleaned title, shown at once and kept until the status carries it", async () => {
+test("a new chat has no pencil until its first message gives it a title", () => {
 	const view = show([terminal({})]);
+	expect(screen.queryByTestId(`agent-rename-${CHAT}`)).toBeNull();
+	view.rerender([terminal({ title: "Fix the tests" })]);
+	expect(screen.getByTestId(`agent-rename-${CHAT}`)).toBeDefined();
+});
+
+test("Enter saves a cleaned title, shown at once and kept until the status carries it", async () => {
+	const view = show([terminal({ title: "Old" })]);
 	fireEvent.click(screen.getByTestId(`agent-rename-${CHAT}`));
 	const input = screen.getByRole("textbox", { name: "Title of Claude Code (GUI)" });
 	expect(document.activeElement).toBe(input);
@@ -112,6 +119,28 @@ test("Enter saves a cleaned title, shown at once and kept until the status carri
 	expect(renames[0]?.finish).toHaveBeenCalled();
 	await act(async () => undefined);
 	expect(screen.getByTestId(`agent-title-${CHAT}`).textContent).toBe("Grade the quiz");
+});
+
+test("Enter and Escape return focus to the pencil; leaving the field leaves focus be", async () => {
+	show([terminal({ title: "Same" })]);
+	fireEvent.click(screen.getByTestId(`agent-rename-${CHAT}`));
+	fireEvent.keyDown(screen.getByTestId("agent-title-input"), { key: "Escape" });
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId(`agent-rename-${CHAT}`)),
+	);
+	fireEvent.click(screen.getByTestId(`agent-rename-${CHAT}`));
+	fireEvent.submit(screen.getByTestId("agent-title-input"));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId(`agent-rename-${CHAT}`)),
+	);
+	fireEvent.click(screen.getByTestId(`agent-rename-${CHAT}`));
+	const elsewhere = document.body.appendChild(document.createElement("button"));
+	// Moving focus blurs the field, which cancels the edit.
+	act(() => elsewhere.focus());
+	expect(screen.queryByTestId("agent-title-input")).toBeNull();
+	await new Promise((resolve) => requestAnimationFrame(resolve));
+	expect(document.activeElement).toBe(elsewhere);
+	elsewhere.remove();
 });
 
 test("Escape cancels, and an unchanged or empty title sends nothing", () => {

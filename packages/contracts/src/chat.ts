@@ -341,6 +341,9 @@ const TurnFinishedEvent = z.object({
 	at: z.number().int().nonnegative(),
 });
 
+/** Longest reason a rename failed. */
+export const MAX_CHAT_RENAME_MESSAGE_CHARS = 200;
+
 /** Longest Agent tool call id a watch may name. */
 export const MAX_CHAT_TOOL_ID_CHARS = 200;
 const ToolUseId = z.string().min(1).max(MAX_CHAT_TOOL_ID_CHARS);
@@ -396,6 +399,15 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		event: ChatSubagentEvent,
 	}),
 	z.object({ type: z.literal("error"), ...Envelope, message: z.string() }),
+	/**
+	 * The answer to a `rename`, sent only to the attachment that asked. Like a
+	 * subagent frame it carries no `seq`, so other attachments see no gap.
+	 */
+	z.object({
+		type: z.literal("rename.result"),
+		ok: z.boolean(),
+		message: z.string().max(MAX_CHAT_RENAME_MESSAGE_CHARS).optional(),
+	}),
 	z.object({
 		type: z.literal("settings"),
 		...Envelope,
