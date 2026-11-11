@@ -159,6 +159,9 @@ let exists: boolean;
 /** The transcript reads, by session id, and what each returns. */
 let reads: string[];
 let transcript: () => Promise<SessionMessage[]>;
+/** Each session's title in the fake session files, and the titles posted. */
+let titles: Map<string, string>;
+let postedTitles: (string | null)[];
 
 const EARLIER: SessionMessage[] = [
 	{
@@ -183,6 +186,10 @@ function sdk(): ChatSdk {
 		sessionMessages: async (id) => {
 			reads.push(id);
 			return transcript();
+		},
+		sessionTitle: async (id) => titles.get(id) ?? null,
+		renameSession: async (id, title) => {
+			titles.set(id, title);
 		},
 	};
 }
@@ -230,6 +237,8 @@ beforeEach(async () => {
 	transcript = async () => EARLIER;
 	startWindow = null;
 	startModels = null;
+	titles = new Map();
+	postedTitles = [];
 	host = makeHost();
 	await host.start();
 });
@@ -243,6 +252,9 @@ function makeHost(): ChatHost {
 		log: silentLogger(),
 		postLimits: async (windows) => {
 			posted.push(windows);
+		},
+		postTitle: async (title) => {
+			postedTitles.push(title);
 		},
 		sdk: sdk(),
 	});
@@ -277,6 +289,7 @@ describe("starting", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -296,6 +309,7 @@ describe("starting", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -350,6 +364,7 @@ describe("starting", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -1491,6 +1506,7 @@ describe("shell commands", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 			shellTimeoutMs: 2000,
 		});
@@ -1519,6 +1535,7 @@ describe("shell commands", () => {
 			socketDir: join(dir, "chat"),
 			log: logger,
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -1644,5 +1661,63 @@ describe("models", () => {
 		await vi.waitFor(() =>
 			expect(ofType(a, "settings").at(-1)?.model).toBe("claude-opus-4-8"),
 		);
+	});
+});
+
+describe("titles", () => {
+	const result = { type: "result", subtype: "success", is_error: false } as never;
+
+	test("a resumed chat publishes its title at start", async () => {
+		await host.stop();
+		queries = [];
+		titles.set(ID, "Fix the login redirect");
+		host = makeHost();
+		await host.start();
+		await vi.waitFor(() =>
+			expect(postedTitles).toEqual([null, "Fix the login redirect"]),
+		);
+	});
+
+	test("a title set with /rename is read back after the result and published once", async () => {
+		const fake = queries[0] as FakeQuery;
+		await vi.waitFor(() => expect(postedTitles).toEqual([null]));
+		titles.set(ID, "Tidy\nthe   tests");
+		fake.emit(result);
+		await vi.waitFor(() => expect(postedTitles).toEqual([null, "Tidy the tests"]));
+		fake.emit(result);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(postedTitles).toEqual([null, "Tidy the tests"]);
+	});
+
+	test("rename cleans the title, renames the session and publishes it", async () => {
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		client.send({ type: "rename", title: "  Grade\u0007 the\tquiz " });
+		await vi.waitFor(() => expect(postedTitles.at(-1)).toBe("Grade the quiz"));
+		expect(titles.get(ID)).toBe("Grade the quiz");
+	});
+
+	test("a title of only control characters and spaces is refused with an error", async () => {
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		client.send({ type: "rename", title: " \u0001 " });
+		await vi.waitFor(() => expect(ofType(client, "error")).toHaveLength(1));
+		expect(titles.has(ID)).toBe(false);
+	});
+
+	test("after /clear the new session's title is published, even when none", async () => {
+		const NEW = "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e";
+		titles.set(ID, "Old chat");
+		const fake = queries[0] as FakeQuery;
+		fake.emit(result);
+		await vi.waitFor(() => expect(postedTitles.at(-1)).toBe("Old chat"));
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: NEW,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() => expect(postedTitles.at(-1)).toBeNull());
 	});
 });

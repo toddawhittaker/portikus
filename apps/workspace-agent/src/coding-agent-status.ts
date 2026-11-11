@@ -63,18 +63,46 @@ export class CodingAgentBoard {
 	 * ordered per row, not per terminal, so a state post cannot hide them.
 	 */
 	private readonly subagents = new Map<string, SubagentRows>();
+	/**
+	 * Each chat's conversation title, apart from the state entry so a state
+	 * post keeps it. Drawn from prompts, so it is never logged (ADR 0074).
+	 */
+	private readonly titles = new Map<string, string>();
 
 	constructor(options: CodingAgentBoardOptions = {}) {
 		this.now = options.now ?? (() => new Date());
 	}
 
 	current(): AgentCodingAgentStatus[] {
-		return [...this.entries.values()].map((entry) => ({
-			...entry,
-			subagents: [...(this.subagents.get(entry.terminalId)?.rows.values() ?? [])].map(
-				({ row }) => ({ ...row }),
-			),
-		}));
+		return [...this.entries.values()].map((entry) => {
+			const title = this.titles.get(entry.terminalId);
+			return {
+				...entry,
+				subagents: [...(this.subagents.get(entry.terminalId)?.rows.values() ?? [])].map(
+					({ row }) => ({ ...row }),
+				),
+				...(title ? { title } : {}),
+			};
+		});
+	}
+
+	/**
+	 * Record a chat's title, or that it has none. Only the chat host posts it,
+	 * one post at a time, so the latest post wins. A closed terminal's is refused.
+	 */
+	title(terminalId: string, title: string | null): void {
+		if (this.firedAt.get(terminalId)?.removed) return;
+		if ((this.titles.get(terminalId) ?? null) === title) return;
+		this.titles.delete(terminalId);
+		if (title !== null) {
+			this.titles.set(terminalId, title);
+			while (this.titles.size > 2 * MAX_CODING_AGENT_TERMINALS) {
+				const oldest = this.titles.keys().next().value;
+				if (oldest === undefined) break;
+				this.titles.delete(oldest);
+			}
+		}
+		if (this.entries.has(terminalId)) this.changed();
 	}
 
 	/**
@@ -260,6 +288,7 @@ export class CodingAgentBoard {
 	remove(terminalId: string): void {
 		this.remember(terminalId, this.firedAt.get(terminalId)?.at ?? 0, true);
 		this.subagents.delete(terminalId);
+		this.titles.delete(terminalId);
 		if (this.entries.delete(terminalId)) this.changed();
 	}
 

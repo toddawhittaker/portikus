@@ -95,6 +95,54 @@
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 }
+/* A chat's conversation title sits between its name and its state line. */
+.pk-agent-title {
+	grid-column: 2;
+	grid-row: 2;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--ink);
+}
+.pk-agent-title ~ .pk-agent-state {
+	grid-row: 3;
+}
+.pk-agent-row:focus-visible .pk-agent-title {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+/* A chat's row and its rename pencil, side by side. */
+.pk-agent-line {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	min-width: 0;
+}
+.pk-agent-rename {
+	margin-block-start: var(--space-1);
+}
+/* The title being edited takes the row's place, at the row's size. */
+.pk-agent-edit {
+	grid-template-columns: minmax(0, 1fr);
+}
+.pk-agent-title-input {
+	min-width: 0;
+	width: 100%;
+	padding: var(--space-0\.5) var(--space-1);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+}
+.pk-agent-title-input:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: 0;
+}
+
 /* The state line under an agent that is working or waiting takes that state's colour. */
 .pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--needs-input)
 	.pk-agent-state {

@@ -1,6 +1,11 @@
 import type { CodingAgentTerminal } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { agentRowName, agentsByProject, shortElapsed } from "./ProjectAgents";
+import {
+	agentRowName,
+	agentsByProject,
+	canRename,
+	shortElapsed,
+} from "./ProjectAgents";
 
 function row(overrides: Partial<CodingAgentTerminal>): CodingAgentTerminal {
 	return {
@@ -37,4 +42,10 @@ test("rows are grouped by project in the order they came", () => {
 	const grouped = agentsByProject([a, b, c]);
 	expect(grouped.get("p1")).toEqual([a, c]);
 	expect(grouped.get("p2")).toEqual([b]);
+});
+
+test("only a Claude Code chat's row can be renamed; a terminal tab has no title to change", () => {
+	expect(canRename(row({ kind: "chat" }))).toBe(true);
+	expect(canRename(row({}))).toBe(false);
+	expect(canRename(row({ agent: "codex", kind: "chat" }))).toBe(false);
 });

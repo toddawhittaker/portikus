@@ -12,7 +12,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store";
 import { meSettingsBody } from "../profile-test-utils";
-import { WorkArea } from "./WorkArea";
+import { terminalTabText, WorkArea } from "./WorkArea";
 
 vi.mock("../terminal/TerminalPane", () => ({
 	TerminalPane: ({
@@ -1020,4 +1020,20 @@ test("a terminal tab has no tool rows to show, and an unknown tab changes nothin
 	});
 	await waitFor(() => expect(again).toHaveBeenCalledTimes(1));
 	expect(second.store.getState().activeTabId).toBe("tab1");
+});
+
+test("a chat tab is labelled with its conversation title once it has one; a terminal tab never is", () => {
+	const titles = new Map([[ONE, "Fix the login redirect"]]);
+	expect(terminalTabText(liveChat, "Claude Code (GUI)", titles)).toEqual({
+		label: "Fix the login redirect",
+		title: "Claude Code (GUI): Fix the login redirect",
+	});
+	expect(terminalTabText(liveChat, "Claude Code (GUI)", new Map())).toEqual({
+		label: "Claude Code (GUI)",
+	});
+	const tui = { ...liveChat, kind: "terminal" as const };
+	expect(terminalTabText(tui, "Claude Code (TUI)", titles)).toEqual({
+		label: "Claude Code (TUI)",
+	});
+	expect(terminalTabText(undefined, null, titles)).toEqual({ label: "Terminal" });
 });
