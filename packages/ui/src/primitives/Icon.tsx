@@ -73,6 +73,11 @@ const PATHS = {
 	plus: ["M12 5v14", "M5 12h14"],
 	minus: ["M5 12h14"],
 	x: ["M6.5 6.5l11 11", "M17.5 6.5l-11 11"],
+	// Lucide pencil: edit, rename.
+	pencil: [
+		"M21.2 6.8a1 1 0 0 0-4-4L3.8 16.2a2 2 0 0 0-.5.8l-1.3 4.4a.5.5 0 0 0 .6.6l4.4-1.3a2 2 0 0 0 .8-.5z",
+		"M15 5l4 4",
+	],
 	more: ["M6 12h.01", "M12 12h.01", "M18 12h.01"],
 	"chevron-right": ["M9.5 6l6 6-6 6"],
 	"chevron-down": ["M6 9.5l6 6 6-6"],
