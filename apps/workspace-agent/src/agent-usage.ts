@@ -9,6 +9,7 @@ import {
 	CodingAgent,
 	CodingAgentState,
 	CodingAgentSubagentPost,
+	CodingAgentTitlePost,
 	MAX_AGENT_USAGE_MODELS_PER_DAY,
 	TerminalId,
 } from "@portikus/contracts";
@@ -312,6 +313,9 @@ export const CODING_AGENT_STATE_PATH = "/coding-agent-state";
 /** Where the subagent hook script posts (scripts/portikus-agent-subagent). */
 export const CODING_AGENT_SUBAGENT_PATH = "/coding-agent-subagent";
 
+/** Where a chat host posts its conversation title (ADR 0074). */
+export const CODING_AGENT_TITLE_PATH = "/coding-agent-title";
+
 /** Where Claude Code's status line script posts (scripts/portikus-claude-status). */
 export const CLAUDE_LIMITS_PATH = "/claude-limits";
 
@@ -378,8 +382,8 @@ export interface AgentSignals {
 }
 
 /**
- * The loopback receiver: OTLP/HTTP metrics, hook states and Claude Code's
- * plan limits. JSON only (Fastify answers 415 to any other type), size
+ * The loopback receiver: OTLP/HTTP metrics, hook states, chat titles and
+ * Claude Code's plan limits. JSON only (Fastify answers 415 to any other type), size
  * capped (413), and anything off-contract is refused (400). It logs
  * nothing: a body is the sender's, and may hold anything (ADR 0012).
  */
@@ -421,6 +425,16 @@ export function buildAgentUsageReceiver(
 				return reply.code(400).send({});
 			}
 			signals.board.subagent(parsed.data);
+			return reply.code(204).send();
+		},
+	);
+	app.post(
+		CODING_AGENT_TITLE_PATH,
+		{ bodyLimit: MAX_SIGNAL_BODY_BYTES },
+		async (request, reply) => {
+			const parsed = CodingAgentTitlePost.safeParse(request.body);
+			if (!parsed.success) return reply.code(400).send({});
+			signals.board.title(parsed.data.terminal, parsed.data.title);
 			return reply.code(204).send();
 		},
 	);

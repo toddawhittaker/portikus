@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_AGENT_TITLE_CHARS } from "./coding-agent-status.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
@@ -445,6 +446,13 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 			model: ChatModel.optional(),
 			effort: ChatEffort.optional(),
 			mode: ChatPermissionMode.optional(),
+		})
+		.strict(),
+	/** Retitle the conversation; the host cleans the title (ADR 0074). */
+	z
+		.object({
+			type: z.literal("rename"),
+			title: z.string().min(1).max(MAX_AGENT_TITLE_CHARS),
 		})
 		.strict(),
 ]);

@@ -13,6 +13,7 @@ import {
 	shellCommandText,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { setCodingAgentTitle } from "./coding-agents.js";
 import type { FakeAgentState } from "./state.js";
 
 /** A 1 by 1 pixel PNG, small enough to sit inside a frame. */
@@ -289,10 +290,34 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
-	function handle(id: string, message: ChatClientMessage): void {
+	function handle(id: string, key: string, message: ChatClientMessage): void {
 		const chat = chatOf(id);
 		switch (message.type) {
 			case "send": {
+				// Claude Code's /rename retitles the session; the host reads it back after the result.
+				const renamed = /^\/rename\s+(.+)$/s.exec(message.text.trim());
+				if (renamed?.[1]) {
+					record(id, chat.sockets, { type: "turn.started", at: Date.now() });
+					record(id, chat.sockets, {
+						type: "message",
+						id: `m-user-${chat.seq}`,
+						role: "user",
+						markdown: message.text,
+					});
+					record(id, chat.sockets, {
+						type: "message",
+						id: `m-reply-${chat.seq}`,
+						role: "assistant",
+						markdown: `Session renamed to: ${renamed[1]}`,
+					});
+					record(id, chat.sockets, {
+						type: "turn.finished",
+						at: Date.now(),
+						status: "done",
+					});
+					setCodingAgentTitle(s, key, id, renamed[1]);
+					return;
+				}
 				// Claude Code's /clear starts a new session; the host sends a fresh snapshot.
 				if (message.text.trim() === "/clear") {
 					chat.history = [];
@@ -365,6 +390,9 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				};
 				emit(id, chat.sockets, { type: "settings", agent: "claude", ...chat.settings });
 				return;
+			case "rename":
+				setCodingAgentTitle(s, key, id, message.title);
+				return;
 			case "interrupt":
 				record(id, chat.sockets, {
 					type: "turn.finished",
@@ -395,7 +423,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				const text = data.toString();
 				chat.received.push(text);
 				try {
-					handle(id, JSON.parse(text) as ChatClientMessage);
+					handle(id, s.keyOf(request), JSON.parse(text) as ChatClientMessage);
 				} catch {
 					// A frame the script cannot read is ignored, like an unknown type.
 				}

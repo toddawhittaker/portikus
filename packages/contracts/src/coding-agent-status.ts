@@ -32,6 +32,33 @@ export const CodingAgentSubagent = z.object({
 });
 export type CodingAgentSubagent = z.infer<typeof CodingAgentSubagent>;
 
+/** Longest conversation title shown for a chat tab. */
+export const MAX_AGENT_TITLE_CHARS = 80;
+
+/**
+ * A title as shown: control characters (line breaks among them) become
+ * spaces, runs of space close up, and the text is cut to fit without
+ * splitting a character made of two code units. Empty when nothing is left.
+ */
+export function agentTitleText(raw: string): string {
+	const flat = raw
+		.replace(/\p{Cc}/gu, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	let cut = "";
+	for (const char of flat) {
+		if (cut.length + char.length > MAX_AGENT_TITLE_CHARS) break;
+		cut += char;
+	}
+	return cut.trim();
+}
+
+/**
+ * A chat's conversation title, from Claude Code's session file. It is drawn
+ * from the student's prompts, so it is shown and never logged (ADR 0074).
+ */
+const AgentTitle = z.string().min(1).max(MAX_AGENT_TITLE_CHARS);
+
 const CodingAgentStatusFields = {
 	terminalId: TerminalId,
 	agent: CodingAgent,
@@ -39,6 +66,8 @@ const CodingAgentStatusFields = {
 	/** When the terminal entered this state. */
 	since: z.string().datetime(),
 	subagents: z.array(CodingAgentSubagent).max(MAX_SUBAGENTS_PER_TERMINAL).default([]),
+	/** A chat tab's conversation title; terminal tabs have none. */
+	title: AgentTitle.optional(),
 };
 
 /** One terminal's agent state, as the workspace agent reports it. */
@@ -111,6 +140,22 @@ export const CodingAgentSubagentPost = z
 	})
 	.strict();
 export type CodingAgentSubagentPost = z.infer<typeof CodingAgentSubagentPost>;
+
+/**
+ * A chat host's report to `POST /coding-agent-title`: the conversation's
+ * title, or null when it has none yet. The title is cleaned on arrival.
+ */
+export const CodingAgentTitlePost = z
+	.object({
+		terminal: TerminalId,
+		title: z
+			.string()
+			.max(4 * MAX_AGENT_TITLE_CHARS)
+			.transform((text) => agentTitleText(text) || null)
+			.nullable(),
+	})
+	.strict();
+export type CodingAgentTitlePost = z.infer<typeof CodingAgentTitlePost>;
 
 /** How far ahead a limit may reset; a plan window is at most a week or so. */
 export const MAX_LIMIT_RESET_DAYS = 31;

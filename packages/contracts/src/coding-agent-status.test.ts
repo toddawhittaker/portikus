@@ -1,12 +1,16 @@
 import { describe, expect, test } from "vitest";
 import {
+	AgentCodingAgentStatus,
 	AgentCodingAgentsChanged,
 	AgentLimitsReport,
 	AgentMeter,
+	agentTitleText,
+	ChatClientMessage,
 	CodingAgentState,
 	CodingAgentSubagent,
 	CodingAgentSubagentPost,
 	CodingAgentTerminal,
+	CodingAgentTitlePost,
 	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENTS_PER_TERMINAL,
 	PlanUsage,
@@ -307,6 +311,49 @@ describe("the meter", () => {
 		expect(AgentMeter.safeParse({ providers: [entry("Bad Id")] }).success).toBe(false);
 		expect(
 			AgentMeter.safeParse({ providers: [{ ...entry("x"), plan: undefined }] }).success,
+		).toBe(false);
+	});
+});
+
+describe("chat titles", () => {
+	test("a title is one line with no control characters, cut at 80 without splitting a character", () => {
+		expect(agentTitleText(" Fix\r\nthe\u0007\tbuild  ")).toBe("Fix the build");
+		expect(agentTitleText("\u0000 \n")).toBe("");
+		const cut = agentTitleText(`${"a".repeat(79)}😀b`);
+		expect(cut).toBe("a".repeat(79));
+	});
+
+	test("a status may carry a title of 1 to 80 characters", () => {
+		expect(AgentCodingAgentStatus.parse({ ...status(), title: "Fix it" }).title).toBe(
+			"Fix it",
+		);
+		expect(AgentCodingAgentStatus.safeParse({ ...status(), title: "" }).success).toBe(
+			false,
+		);
+		expect(
+			AgentCodingAgentStatus.safeParse({ ...status(), title: "x".repeat(81) }).success,
+		).toBe(false);
+	});
+
+	test("a title post is cleaned, and a blank one means no title", () => {
+		const terminal = status().terminalId;
+		expect(CodingAgentTitlePost.parse({ terminal, title: " a\nb " }).title).toBe("a b");
+		expect(CodingAgentTitlePost.parse({ terminal, title: " \t" }).title).toBeNull();
+		expect(CodingAgentTitlePost.parse({ terminal, title: null }).title).toBeNull();
+	});
+
+	test("rename carries a title of 1 to 80 characters and nothing else", () => {
+		expect(ChatClientMessage.safeParse({ type: "rename", title: "New" }).success).toBe(
+			true,
+		);
+		expect(ChatClientMessage.safeParse({ type: "rename", title: "" }).success).toBe(
+			false,
+		);
+		expect(
+			ChatClientMessage.safeParse({ type: "rename", title: "x".repeat(81) }).success,
+		).toBe(false);
+		expect(
+			ChatClientMessage.safeParse({ type: "rename", title: "a", extra: 1 }).success,
 		).toBe(false);
 	});
 });

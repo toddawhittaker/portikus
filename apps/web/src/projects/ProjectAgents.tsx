@@ -1,17 +1,24 @@
 /**
  * Each project's agent tabs and their subagents, under its row in the project
  * list (SPEC.md §8.2). Every row is a link to its tab; a subagent's link also
- * opens its tool row in a chat. The state is part of each link's name and
- * nothing here is announced as it changes: the toasts already do that
+ * opens its tool row in a chat. A chat's row shows its conversation title and
+ * a pencil that renames it (ADR 0074). The state is part of each link's name
+ * and nothing here is announced as it changes: the toasts already do that
  * (SPEC.md §25.8).
  */
-import type { CodingAgentSubagent, CodingAgentTerminal } from "@portikus/contracts";
-import { AgentStateMark, agentStateWords, IconButton } from "@portikus/ui";
+import {
+	agentTitleText,
+	type CodingAgentSubagent,
+	type CodingAgentTerminal,
+	MAX_AGENT_TITLE_CHARS,
+} from "@portikus/contracts";
+import { AgentStateMark, agentStateWords, IconButton, useToast } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { isoDuration } from "../chat/elapsed.js";
 import { agentLabel } from "../terminal/agentLabel.js";
 import type { AgentStatusSnapshot } from "../terminal/codingAgentStatus.js";
+import { type ChatRename, renameChat } from "./renameChat.js";
 import "./project-agents.css";
 
 /** The agent tabs that have reported a state, by project, in the order they came. */
@@ -39,6 +46,11 @@ export function shortElapsed(ms: number): string {
 /** The row's name, the same words its tab shows. */
 export function agentRowName(terminal: CodingAgentTerminal): string {
 	return agentLabel(terminal) ?? terminal.name;
+}
+
+/** Only a Claude Code chat has a title Portikus can read and change. */
+export function canRename(terminal: CodingAgentTerminal): boolean {
+	return terminal.kind === "chat" && terminal.agent === "claude";
 }
 
 function capitalised(words: string): string {
@@ -117,6 +129,188 @@ function SubagentRow({
 	);
 }
 
+/**
+ * A rename in flight: the title shown until the agent status carries it, and
+ * the socket that sent it.
+ */
+interface PendingRename {
+	title: string;
+	rename: ChatRename;
+}
+
+/** A chat's title, edited in place: Enter saves, Escape or leaving cancels. */
+function TitleEditor({
+	label,
+	initial,
+	onSave,
+	onCancel,
+}: {
+	label: string;
+	initial: string;
+	onSave: (title: string) => void;
+	onCancel: () => void;
+}) {
+	const input = useRef<HTMLInputElement | null>(null);
+	useEffect(() => {
+		input.current?.focus();
+		input.current?.select();
+	}, []);
+	function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+		if (event.key === "Escape") {
+			// Escape ends the edit only, not a drawer around the list.
+			event.preventDefault();
+			event.stopPropagation();
+			onCancel();
+		}
+	}
+	return (
+		<form
+			className="pk-agent-row pk-agent-edit"
+			onSubmit={(event) => {
+				event.preventDefault();
+				onSave(input.current?.value ?? "");
+			}}
+		>
+			<input
+				ref={input}
+				className="pk-agent-title-input"
+				aria-label={label}
+				defaultValue={initial}
+				maxLength={MAX_AGENT_TITLE_CHARS}
+				onKeyDown={onKeyDown}
+				onBlur={onCancel}
+				data-testid="agent-title-input"
+			/>
+		</form>
+	);
+}
+
+function AgentRow({
+	workspaceId,
+	projectId,
+	terminal,
+	now,
+	isUnread,
+	isCurrent,
+}: {
+	workspaceId: string;
+	projectId: string;
+	terminal: CodingAgentTerminal;
+	now: number;
+	isUnread: boolean;
+	isCurrent: boolean;
+}) {
+	const toast = useToast();
+	const [editing, setEditing] = useState(false);
+	const [pending, setPending] = useState<PendingRename | null>(null);
+	const pencil = useRef<HTMLButtonElement | null>(null);
+	const name = agentRowName(terminal);
+	const title = pending?.title ?? terminal.title;
+	const length = now - Date.parse(terminal.since);
+
+	// The new title has come back through the agent status: the rename is done.
+	useEffect(() => {
+		if (pending && terminal.title === pending.title) pending.rename.finish();
+	}, [pending, terminal.title]);
+
+	function stopEditing() {
+		setEditing(false);
+		// The pencil comes back once the editor goes; focus returns to it.
+		requestAnimationFrame(() => pencil.current?.focus());
+	}
+
+	function save(raw: string) {
+		stopEditing();
+		const next = agentTitleText(raw);
+		if (next === "" || next === terminal.title) return;
+		const rename = renameChat(workspaceId, terminal.terminalId, next);
+		const mine: PendingRename = { title: next, rename };
+		setPending(mine);
+		rename.done
+			.catch((error: unknown) => {
+				toast.show({
+					tone: "danger",
+					title: "The chat was not renamed",
+					children: error instanceof Error ? error.message : undefined,
+				});
+			})
+			.finally(() => setPending((current) => (current === mine ? null : current)));
+	}
+
+	return (
+		<li>
+			<div className="pk-agent-line">
+				{editing ? (
+					<TitleEditor
+						label={`Title of ${name}`}
+						initial={title ?? ""}
+						onSave={save}
+						onCancel={stopEditing}
+					/>
+				) : (
+					<Link
+						className={`pk-agent-row${isUnread ? " is-unread" : ""}${isCurrent ? " is-current" : ""}`}
+						to="/workspaces/$id/projects/$projectId"
+						params={{ id: workspaceId, projectId }}
+						search={{ tab: terminal.terminalId }}
+						aria-current={isCurrent ? "page" : undefined}
+						data-testid={`agent-row-${terminal.terminalId}`}
+					>
+						<AgentStateMark state={terminal.state} unread={isUnread} />
+						<span className="pk-agent-name" title={name}>
+							{name}
+						</span>{" "}
+						{title ? (
+							<>
+								<span
+									className="pk-agent-title"
+									title={title}
+									data-testid={`agent-title-${terminal.terminalId}`}
+								>
+									{title}
+								</span>{" "}
+							</>
+						) : null}
+						<span className="pk-agent-state">
+							{capitalised(agentStateWords(terminal.state))}{" "}
+							<time dateTime={isoDuration(length)} aria-hidden="true">
+								{shortElapsed(length)}
+							</time>
+							{isUnread && terminal.state !== "working" ? (
+								<span className="pk-visually-hidden">, unread</span>
+							) : null}
+						</span>
+					</Link>
+				)}
+				{canRename(terminal) && !editing ? (
+					<IconButton
+						ref={pencil}
+						icon="pencil"
+						label={`Rename ${title ?? name}`}
+						size="sm"
+						className="pk-agent-rename"
+						data-testid={`agent-rename-${terminal.terminalId}`}
+						onClick={() => setEditing(true)}
+					/>
+				) : null}
+			</div>
+			{terminal.subagents.length > 0 ? (
+				<ul className="pk-agents pk-agents--sub">
+					{terminal.subagents.map((subagent) => (
+						<SubagentRow
+							key={subagent.id}
+							workspaceId={workspaceId}
+							projectId={projectId}
+							terminalId={terminal.terminalId}
+							subagent={subagent}
+						/>
+					))}
+				</ul>
+			) : null}
+		</li>
+	);
+}
+
 /** The list under one project's row; `hidden` while its disclosure is closed. */
 export function ProjectAgents({
 	workspaceId,
@@ -147,50 +341,17 @@ export function ProjectAgents({
 			hidden={!expanded}
 			data-testid={`project-agents-${projectId}`}
 		>
-			{terminals.map((terminal) => {
-				const isUnread = unread.has(terminal.terminalId);
-				const isCurrent = terminal.terminalId === currentTabId;
-				const length = now - Date.parse(terminal.since);
-				return (
-					<li key={terminal.terminalId}>
-						<Link
-							className={`pk-agent-row${isUnread ? " is-unread" : ""}${isCurrent ? " is-current" : ""}`}
-							to="/workspaces/$id/projects/$projectId"
-							params={{ id: workspaceId, projectId }}
-							search={{ tab: terminal.terminalId }}
-							aria-current={isCurrent ? "page" : undefined}
-							data-testid={`agent-row-${terminal.terminalId}`}
-						>
-							<AgentStateMark state={terminal.state} unread={isUnread} />
-							<span className="pk-agent-name" title={agentRowName(terminal)}>
-								{agentRowName(terminal)}
-							</span>{" "}
-							<span className="pk-agent-state">
-								{capitalised(agentStateWords(terminal.state))}{" "}
-								<time dateTime={isoDuration(length)} aria-hidden="true">
-									{shortElapsed(length)}
-								</time>
-								{isUnread && terminal.state !== "working" ? (
-									<span className="pk-visually-hidden">, unread</span>
-								) : null}
-							</span>
-						</Link>
-						{terminal.subagents.length > 0 ? (
-							<ul className="pk-agents pk-agents--sub">
-								{terminal.subagents.map((subagent) => (
-									<SubagentRow
-										key={subagent.id}
-										workspaceId={workspaceId}
-										projectId={projectId}
-										terminalId={terminal.terminalId}
-										subagent={subagent}
-									/>
-								))}
-							</ul>
-						) : null}
-					</li>
-				);
-			})}
+			{terminals.map((terminal) => (
+				<AgentRow
+					key={terminal.terminalId}
+					workspaceId={workspaceId}
+					projectId={projectId}
+					terminal={terminal}
+					now={now}
+					isUnread={unread.has(terminal.terminalId)}
+					isCurrent={terminal.terminalId === currentTabId}
+				/>
+			))}
 		</ul>
 	);
 }

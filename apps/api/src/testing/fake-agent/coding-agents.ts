@@ -1,5 +1,9 @@
 import type { WebSocket } from "@fastify/websocket";
-import type { AgentCodingAgentStatus, PlanUsage } from "@portikus/contracts";
+import {
+	type AgentCodingAgentStatus,
+	agentTitleText,
+	type PlanUsage,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { FakeAgentState } from "./state.js";
 
@@ -10,6 +14,26 @@ export function sendCodingAgents(
 ): void {
 	if (socket.readyState !== socket.OPEN) return;
 	socket.send(JSON.stringify({ type: "workspace.coding-agents.changed", terminals }));
+}
+
+/**
+ * Retitle one chat in a workspace's list and push the list, as the real chat
+ * host's title post does. A terminal not in the list is left alone.
+ */
+export function setCodingAgentTitle(
+	s: FakeAgentState,
+	key: string,
+	terminalId: string,
+	raw: string,
+): void {
+	const title = agentTitleText(raw);
+	const list = (s.codingAgents.get(key) ?? []).map((one) =>
+		one.terminalId === terminalId ? { ...one, title: title || undefined } : one,
+	);
+	s.codingAgents.set(key, list);
+	if (s.codingAgentsHeld.has(key)) return;
+	for (const socket of s.listeningSockets.get(key) ?? [])
+		sendCodingAgents(socket, list);
 }
 
 /**

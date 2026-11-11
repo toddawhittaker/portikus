@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type { ChatServerEvent } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
 import { expect, test, vi } from "vitest";
@@ -62,6 +63,7 @@ test.skipIf(!existsSync(CLAUDE))(
 			socketDir: join(home, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			claudePath: CLAUDE,
 		});
 		await host.start();
@@ -171,6 +173,7 @@ test.skipIf(!existsSync(CLAUDE))(
 			socketDir: join(home, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			claudePath: CLAUDE,
 		});
 		await host.start();
@@ -229,6 +232,7 @@ test.skipIf(!existsSync(CLAUDE))(
 			socketDir: join(home, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			claudePath: CLAUDE,
 		});
 		await host.start();
@@ -317,6 +321,7 @@ test.skipIf(!existsSync(CLAUDE))(
 				socketDir: join(home, "chat"),
 				log: silentLogger(),
 				postLimits: async () => undefined,
+				postTitle: async () => undefined,
 				claudePath: CLAUDE,
 			});
 			await host.start();
@@ -384,6 +389,7 @@ test.skipIf(!existsSync(CLAUDE))(
 			socketDir: join(home, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			claudePath: CLAUDE,
 		});
 		await host.start();
@@ -455,4 +461,71 @@ test.skipIf(!existsSync(CLAUDE))(
 		}
 	},
 	200_000,
+);
+
+test.skipIf(!existsSync(CLAUDE))(
+	"a rename from the pencil survives a later turn, and /rename in the chat is read back",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "titles");
+		await mkdir(project, { recursive: true });
+		const titleId = "6a2d9e4b-1c3f-4a5e-8b7d-9c0e1f2a3b4c";
+		const posted: (string | null)[] = [];
+		const host = new ChatHost({
+			terminalId: titleId,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async (title) => {
+				posted.push(title);
+			},
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		readLines(socket, 16 * 1024 * 1024, (line) => events.push(JSON.parse(line)));
+		const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+		const finished = () => events.filter((e) => e.type === "turn.finished").length;
+		const turn = async (text: string) => {
+			const before = finished();
+			send({ type: "send", text, attachments: [] });
+			await vi.waitFor(() => expect(finished()).toBeGreaterThan(before), {
+				timeout: 120_000,
+				interval: 500,
+			});
+		};
+		try {
+			await vi.waitFor(() =>
+				expect(events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			send({ type: "set", model: "haiku" });
+			await turn("Reply with the single word: ready");
+			// Claude Code's summary falls back to the first prompt.
+			await vi.waitFor(() => expect(posted.at(-1)).toBeTruthy(), { timeout: 10_000 });
+
+			send({ type: "rename", title: "Pelican plans" });
+			await vi.waitFor(() => expect(posted.at(-1)).toBe("Pelican plans"), {
+				timeout: 10_000,
+			});
+			await turn("Reply with the single word: again");
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+			expect(posted.at(-1)).toBe("Pelican plans");
+			const info = await getSessionInfo(titleId, { dir: project });
+			expect(info?.customTitle).toBe("Pelican plans");
+
+			await turn("/rename Heron notes");
+			await vi.waitFor(() => expect(posted.at(-1)).toBe("Heron notes"), {
+				timeout: 10_000,
+			});
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	300_000,
 );
