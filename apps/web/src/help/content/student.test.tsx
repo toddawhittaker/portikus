@@ -163,6 +163,8 @@ test("the chat topic covers versions, titles, subagents, zoom and the ended tab'
 		"Latest",
 		"/rename",
 		"read-only",
+		"Show its conversation",
+		"send a message first",
 		"New terminal here",
 		"Ctrl+Shift+=",
 	]) {

@@ -83,7 +83,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 59, agent rows and chat.** Agent and subagent rows in the left pane, and a chat batch with `!` shell commands, `@` file mentions and changed-file lists (ADRs 0070 to 0073).
 - **Epic 60, documentation refresh.** The guides, the in-app Help and the documentation images brought up to date, and this file cut down to this form.
 - **Epic 61, UI refresh.** A new look for the student and administrator screens in both themes: a warm palette with teal actions and a violet agent hue, a type scale, a context meter in the chat composer and clearer admin pages (DESIGN.md section 11).
-- **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache (ADR 0074).
+- **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, a read-only panel for watching a subagent, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache (ADR 0074).
 
 ## Open items
 
@@ -163,6 +163,9 @@ list was made and may already be fixed.
 - The `@` menu lists files only, with no recency boost, and does not work in shell mode. A `!` command cannot be sent while Claude works and has no standard input. `/resume` stays terminal-only.
 - Files changed does not count deleted files or changes made by shell commands.
 - A typed message that contains `<bash-input>` text replays as a shell item on reload (display only).
+- Subagent frames re-render the whole chat view while the subagent panel is open.
+- More than 256 running subagents drop from the running list.
+- Accepted: Escape closes the subagent panel only when focus is inside it.
 - A model row from Claude Code whose value ends in `[1m]` would be listed as its own family and never highlight (only if Claude Code lists such rows).
 - Unread marks do not survive a reload, and usage warnings are remembered per browser, not per user.
 

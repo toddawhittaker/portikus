@@ -147,7 +147,8 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					Each chat has a title, shown under its name in the project list and on its
 					tab. It starts as Claude Code's own summary of the conversation. To give it
-					your own, choose the pencil beside the chat in the project list, type a name
+					your own, choose the pencil beside the chat in the project list (it appears once
+					the chat has a title; send a message first), type a name
 					and press Enter (Escape cancels), or type{" "}
 					<code className="pk-mono-body">/rename</code> in the chat. Titles are not kept
 					by Portikus; they live in Claude Code's own record in your workspace. A Claude
@@ -155,10 +156,14 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				</li>
 				<li>
 					When Claude starts a subagent, a row for it appears under the chat in the
-					project list. Choose the row to watch what the subagent is doing in a panel
-					inside the chat. The view is read-only: to pass it a message, ask Claude in
-					the main chat. A subagent Claude started in the background shows as "Started
-					in the background", with its state, on its card in the conversation.
+					project list, and its card in the conversation has{" "}
+					<strong>Show its conversation</strong>. Either opens a panel over the
+					conversation that follows what the subagent is doing. The panel is read-only:
+					Claude Code cannot send a subagent a message, so to pass one on, ask Claude in
+					the chat. If the subagent starts another, it opens in the same panel, and{" "}
+					<strong>Back</strong> returns. Escape or the close button closes the panel. A
+					subagent Claude started in the background shows as "Started in the
+					background", with its state, on its card.
 				</li>
 				<li>
 					A chat zooms on its own, from 50% to 300%: hold{" "}
