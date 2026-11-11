@@ -151,6 +151,13 @@ export function composerText(editor: EditorType): string {
 	return toMarkdown(editor.state.doc.content);
 }
 
+/** True when there is nothing to send: no text, nor a rule or other block that writes some. */
+export function isBlank(editor: EditorType): boolean {
+	// Most boxes answer from their text alone, without serializing the document.
+	if (editor.state.doc.textContent.trim() !== "") return false;
+	return composerText(editor).trim() === "";
+}
+
 /** True while the cursor is in a code block, where Enter adds a line. */
 export function inCodeBlock(editor: EditorType): boolean {
 	return inCodeAt(editor.state);

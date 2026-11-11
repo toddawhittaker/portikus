@@ -266,9 +266,28 @@
 	background: var(--accent-active);
 }
 
-.pk-composer-send.is-send[aria-disabled="true"] {
-	opacity: 0.55;
+/* Nothing to send yet, or a send under way: a flat well, so Send never looks ready when it is not. */
+.pk-composer-send.is-send[aria-disabled="true"],
+.pk-composer-send.is-send[aria-disabled="true"]:hover,
+.pk-composer-send.is-send[aria-disabled="true"]:active {
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
 	cursor: not-allowed;
+}
+
+/* Stop holds its own beside the filled Send: an ink ring and a solid ink square. */
+.pk-composer-stop {
+	border: 2px solid var(--ink);
+	color: var(--ink);
+}
+
+.pk-composer-stop svg {
+	inline-size: var(--size-icon-lg);
+	block-size: var(--size-icon-lg);
+}
+
+.pk-composer-stop svg rect {
+	fill: currentColor;
 }
 
 .pk-composer-chips {
@@ -395,11 +414,19 @@
 	cursor: default;
 }
 
-/* The current option: the editor's aria-activedescendant points here. */
+/*
+ * The current option, which the editor's aria-activedescendant points at: the
+ * selected-row look of the project list, a soft accent fill and an accent bar
+ * at its start. Focus stays in the editor, whose own ring shows it, so the
+ * row draws no ring of its own inside the box's.
+ */
+.pk-composer-option {
+	border-inline-start: 2px solid transparent;
+}
+
 .pk-composer-option[aria-selected="true"] {
-	background: var(--surface-hover);
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset-inset);
+	background: var(--accent-soft);
+	border-inline-start-color: var(--accent);
 }
 
 .pk-composer-option-head {
@@ -423,13 +450,6 @@
 	font-size: 12px;
 }
 
-/* Pushed to the row's end while there is room; on a narrow box it wraps below. */
-.pk-composer-option-note {
-	margin-inline-start: auto;
-	color: var(--ink-muted);
-	font-size: 12px;
-}
-
 .pk-composer-option-detail {
 	min-inline-size: 0;
 	overflow: hidden;
@@ -439,9 +459,19 @@
 	white-space: nowrap;
 }
 
+/* A note says where the command works instead, so its line wraps rather than cutting it off. */
+.pk-composer-option-detail:has(.pk-composer-option-note) {
+	white-space: normal;
+}
+
 /* A command the chat cannot send: dimmed, its note still legible. */
 .pk-composer-option.is-blocked .pk-composer-option-label {
 	color: var(--ink-muted);
+}
+
+/* The current option's name in the accent text, as a selected project's name is. */
+.pk-composer-option[aria-selected="true"] .pk-composer-option-label {
+	color: var(--accent-text);
 }
 
 .pk-composer-menu-note {

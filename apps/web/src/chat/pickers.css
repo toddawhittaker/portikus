@@ -210,7 +210,25 @@
 	gap: var(--space-1);
 }
 
-/* The last minute and a context near full: colour plus the icon, and "soon" for the cache. */
+/* The context figure: the slim meter of the status bar, so the two read as one family. */
+.pk-ctx-meter {
+	gap: var(--space-1\.5);
+	color: var(--ink-muted);
+}
+
+/* The context belongs to the agent, so its fill takes the agent hue until it warns, as a plan meter does. */
+.pk-ctx-meter .pk-meter-bar::-webkit-meter-optimum-value {
+	background: var(--agent);
+}
+.pk-ctx-meter .pk-meter-bar::-moz-meter-bar {
+	background: var(--agent);
+}
+.pk-ctx-meter .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-ctx-meter .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-warning);
+}
+
+/* The cache's last minute: colour plus the icon and the word "soon". */
 .pk-ctx.is-warning {
 	gap: var(--space-1);
 	background: var(--status-warning-soft);

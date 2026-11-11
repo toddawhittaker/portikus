@@ -318,7 +318,38 @@ test("while a turn runs, Send stays beside Stop, sends, and marks the message", 
 	await expect(stop).toBeVisible();
 	await expect(stop).toHaveAttribute("data-testid", "chat-composer-stop");
 	const send = view.getByRole("button", { name: "Send", exact: true });
-	await expect(send).not.toHaveAttribute("aria-disabled");
+	// The box is empty, so Send waits for something to send, and looks it: a flat
+	// well rather than the accent fill. Stop holds its own beside it: an ink ring
+	// and a solid ink square.
+	await expect(send).toHaveAttribute("aria-disabled", "true");
+	await expect(send).toHaveAccessibleDescription(
+		"Type a message or attach a file first.",
+	);
+	const looks = await view.evaluate((el) => {
+		const ink = (token: string) => {
+			const span = document.createElement("span");
+			span.style.color = `var(${token})`;
+			el.append(span);
+			const colour = getComputedStyle(span).color;
+			span.remove();
+			return colour;
+		};
+		const send = el.querySelector("[data-testid=chat-composer-send]") as Element;
+		const stop = el.querySelector("[data-testid=chat-composer-stop]") as Element;
+		const square = stop.querySelector("svg rect") as Element;
+		return {
+			sendFill: getComputedStyle(send).backgroundColor,
+			sunken: ink("--surface-sunken"),
+			stopRing: getComputedStyle(stop).borderTopColor,
+			stopRingWidth: getComputedStyle(stop).borderTopWidth,
+			squareFill: getComputedStyle(square).fill,
+			ink: ink("--ink"),
+		};
+	});
+	expect(looks.sendFill).toBe(looks.sunken);
+	expect(looks.stopRing).toBe(looks.ink);
+	expect(looks.stopRingWidth).toBe("2px");
+	expect(looks.squareFill).toBe(looks.ink);
 	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
 		"Enter sends without stopping Claude. Esc stops it.",
 	);
@@ -327,6 +358,7 @@ test("while a turn runs, Send stays beside Stop, sends, and marks the message", 
 		/^Waiting for your answer · \d+m \d+s$/,
 	);
 	await box.fill("Skip the docs");
+	await expect(send).not.toHaveAttribute("aria-disabled");
 	await send.click();
 	await expect(box).toHaveText("");
 	await expect

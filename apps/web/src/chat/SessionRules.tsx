@@ -3,7 +3,7 @@
  * way to take it back (SPEC.md §10.8). Hidden while there are none.
  */
 import type { ChatSessionRule } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
+import { Button, Icon } from "@portikus/ui";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import type { ChatStore } from "./chatStore.js";
@@ -67,8 +67,17 @@ export function SessionRules({ store }: { store: ChatStore }) {
 	return (
 		<>
 			{rules.length > 0 ? (
-				<details ref={list} className="pk-chat-rules" data-testid="chat-session-rules">
-					<summary className="pk-focus-ring">
+				<details
+					ref={list}
+					className="pk-chat-rules group"
+					data-testid="chat-session-rules"
+				>
+					<summary className="pk-focus-ring flex list-none items-center gap-1 [&::-webkit-details-marker]:hidden">
+						<Icon
+							name="chevron-right"
+							size="sm"
+							className="flex-none group-open:rotate-90"
+						/>
 						Allowed without asking in this session: {count}
 					</summary>
 					<ul>

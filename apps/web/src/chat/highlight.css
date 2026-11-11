@@ -1,16 +1,17 @@
 /*
  * Syntax colours (ADR 0072), the editor's palette (editor/tokenColours.ts):
- * violet keywords and tags, teal strings, terracotta numbers, amber types and
- * attributes, faint italic comments. Each meets 4.5:1 on the sunken code
- * background and on both diff backgrounds, in both themes. Colour only
- * decorates: the language is named in text, and a diff line's mark is text.
+ * terracotta keywords and tags, sage strings, teal numbers, amber types,
+ * function names and attributes, faint italic comments; no violet, which
+ * means a coding agent. Each meets 4.5:1 on the sunken code background and
+ * on both diff backgrounds, in both themes. Colour only decorates: the
+ * language is named in text, and a diff line's mark is text.
  */
 .pk-chat-hl {
-	--hl-keyword: light-dark(#5a36b8, #bba6ff);
-	--hl-string: light-dark(#0e6b62, #5fd0bf);
-	--hl-number: light-dark(#b23a1e, #f4957c);
+	--hl-keyword: light-dark(#b23a1e, #f4957c);
+	--hl-string: light-dark(#466620, #b5c97e);
+	--hl-number: light-dark(#0e6b62, #5fd0bf);
 	--hl-comment: var(--ink-faint);
-	--hl-title: light-dark(#2f58a8, #93b6f2);
+	--hl-title: light-dark(#8a5300, #f0c062);
 	--hl-type: light-dark(#8a5300, #f0c062);
 }
 

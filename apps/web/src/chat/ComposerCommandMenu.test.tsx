@@ -142,8 +142,8 @@ test("/ at the start lists every command with its line and hint, and narrows as 
 	expect(options().map((one) => one.textContent)).toEqual([
 		"/compact[focus]Summarise the conversation so far",
 		"/reviewReview a pull request",
-		"/configUse the terminalOpen the settings",
-		"/modelUse the Model pickerChoose the model",
+		"/configOpen the settings · Use the terminal",
+		"/modelChoose the model · Use the Model picker",
 		"/pr-commentsShow a pull request's comments",
 	]);
 	expect(menuStatus()).toBe("5 commands");

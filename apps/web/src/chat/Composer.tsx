@@ -55,6 +55,7 @@ import {
 	inShellMode,
 	insertAtCursor,
 	insertPlainText,
+	isBlank,
 	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
@@ -79,6 +80,7 @@ const SHELL_RUNNING_HINT = "The command is running. Esc stops it.";
 const CODE_HINT = `In code, Enter adds a line. ${currentPlatform() === "mac" ? "Cmd" : "Ctrl"}+Enter sends.`;
 const SAVING = "Wait for the files to finish saving.";
 const SENDING = "Wait for your last message to reach Claude.";
+const NOTHING_TO_SEND = "Type a message or attach a file first.";
 // Said once on entering a block: the visible hint is only a description, read on focus.
 const CODE_ANNOUNCED = `In a code block. ${CODE_HINT} Press Enter three times at the end to leave it.`;
 const SHELL_ANNOUNCED = "Shell command mode";
@@ -152,6 +154,7 @@ export function Composer({
 	const [dragging, setDragging] = useState(false);
 	const [inCode, setInCode] = useState(false);
 	const [shell, setShell] = useState(false);
+	const [blank, setBlank] = useState(true);
 	const [menu, setMenu] = useState<ComposerMenu | null>(null);
 	/** The menu's list shows only while the box holds focus. */
 	const [focused, setFocused] = useState(false);
@@ -488,6 +491,7 @@ export function Composer({
 			onChange: (changed) => {
 				setInCode(inCodeBlock(changed));
 				setShell(inShellMode(changed));
+				setBlank(isBlank(changed));
 			},
 			onMenu: (next, closed) => handlers.current.onMenu(next, closed),
 			onMenuKey: (event) => handlers.current.onMenuKey(event),
@@ -507,7 +511,14 @@ export function Composer({
 		return event.dataTransfer.types.includes("Files");
 	}
 
-	const waitReason = files.saving > 0 ? SAVING : sending !== null ? SENDING : "";
+	const waitReason =
+		files.saving > 0
+			? SAVING
+			: sending !== null
+				? SENDING
+				: blank && files.items.length === 0
+					? NOTHING_TO_SEND
+					: "";
 
 	return (
 		<>
@@ -606,7 +617,7 @@ export function Composer({
 								icon="stop"
 								label="Stop"
 								variant="secondary"
-								className="pk-composer-send"
+								className="pk-composer-send pk-composer-stop"
 								data-testid="chat-composer-stop"
 								onFocus={() => {
 									stopFocused.current = true;

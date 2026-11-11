@@ -308,7 +308,12 @@ function MeterButton({
 			onClick={onClick}
 		>
 			<span className="pk-meter-label">{label}</span>
-			<Meter label={label} {...shown} shortText={meter.shortText} />
+			<Meter
+				label={label}
+				{...shown}
+				shortText={meter.shortText}
+				className="pk-meter-line--slim"
+			/>
 		</button>
 	);
 }
