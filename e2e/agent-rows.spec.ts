@@ -15,7 +15,7 @@ import { FAKE_AGENT_URL } from "./ports";
 /**
  * Under each project in the left pane, a row per agent tab and its subagents
  * (SPEC.md §8.2). Each row is a link to its tab; a subagent's link opens its
- * tool row in a chat. The fake agent stands in for the hooks: each post
+ * tool row in a chat, and its own conversation in a panel there. The fake agent stands in for the hooks: each post
  * replaces the whole list.
  */
 
@@ -248,6 +248,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 				.click();
 
 			await expect(view).toBeVisible();
+			// The subagent's own conversation opens over the chat; closing it lands on its tool row.
+			const panel = view.getByTestId("subagent-panel");
+			await expect(panel.getByRole("heading", { level: 2 })).toBeFocused();
+			await page.keyboard.press("Escape");
+			await expect(panel).toHaveCount(0);
 			await expect(row).toHaveJSProperty("open", true);
 			await expect(row.locator("> summary")).toBeFocused();
 			await expect(row).toBeInViewport();

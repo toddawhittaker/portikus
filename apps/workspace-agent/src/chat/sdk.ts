@@ -1,6 +1,8 @@
 import {
 	getSessionInfo,
 	getSessionMessages,
+	getSubagentMessages,
+	listSubagents,
 	query,
 	renameSession,
 	type SessionMessage,
@@ -14,6 +16,14 @@ export interface ChatSdk {
 	/** The session's title: the student's own, else Claude Code's summary. */
 	sessionTitle: (id: string, dir: string) => Promise<string | null>;
 	renameSession: (id: string, title: string, dir: string) => Promise<void>;
+	/** The ids of the subagents whose transcripts the session keeps. */
+	subagentIds: (id: string, dir: string) => Promise<string[]>;
+	subagentMessages: (
+		id: string,
+		agentId: string,
+		dir: string,
+		limit?: number,
+	) => Promise<SessionMessage[]>;
 }
 
 export const realSdk: ChatSdk = {
@@ -25,4 +35,7 @@ export const realSdk: ChatSdk = {
 		return info?.customTitle || info?.summary || null;
 	},
 	renameSession: (id, title, dir) => renameSession(id, title, { dir }),
+	subagentIds: (id, dir) => listSubagents(id, { dir }),
+	subagentMessages: (id, agentId, dir, limit) =>
+		getSubagentMessages(id, agentId, limit === undefined ? { dir } : { dir, limit }),
 };

@@ -140,3 +140,29 @@ test("a rename the host refuses puts the old title back and says why", async () 
 	expect(await screen.findByText("The chat was not renamed")).toBeDefined();
 	expect(screen.getByText("That chat has ended.")).toBeDefined();
 });
+
+test("a chat's subagent row opens that subagent's view; a terminal's does not", async () => {
+	const { takeSubagentRequest } = await import("../chat/subagentView.js");
+	const subagent = {
+		id: "toolu_sub",
+		type: "Explore",
+		description: "Find the login form",
+		state: "working" as const,
+		since: new Date().toISOString(),
+	};
+	show([
+		terminal({ subagents: [subagent] }),
+		terminal({
+			terminalId: TUI,
+			kind: "terminal",
+			subagents: [{ ...subagent, id: "toolu_tui" }],
+		}),
+	]);
+	fireEvent.click(screen.getByTestId("subagent-row-toolu_sub"));
+	fireEvent.click(screen.getByTestId("subagent-row-toolu_tui"));
+	expect(takeSubagentRequest(CHAT)).toEqual({
+		toolUseId: "toolu_sub",
+		title: "Find the login form",
+	});
+	expect(takeSubagentRequest(TUI)).toBeUndefined();
+});
