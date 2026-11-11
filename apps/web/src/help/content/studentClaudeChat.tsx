@@ -117,6 +117,14 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					when the workspace stopped is lost.
 				</li>
 				<li>
+					The Permissions picker has five modes. <strong>Ask</strong> asks before Claude
+					edits files or runs commands. <strong>Accept edits</strong> lets it edit files
+					on its own but asks before commands. <strong>Plan</strong> lets it read and
+					plan but change nothing; when the plan is ready, it asks you to approve it.{" "}
+					<strong>Auto</strong> runs what Claude judges safe and asks about the rest.{" "}
+					<strong>Bypass permissions</strong> is described below.
+				</li>
+				<li>
 					<strong>Bypass permissions</strong> lets Claude run commands and change files
 					without asking. A warning shows while it is on.
 				</li>

@@ -164,16 +164,16 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<>
 					<p>
-						<strong>Single sign-on</strong> chooses Microsoft Entra ID, Google
-						Workspace, another OpenID Connect provider, or Dex passwords only. A change
-						is a trial. Choose <strong>Apply as a trial</strong>, then{" "}
-						<strong>Test sign-in</strong>, then <strong>Keep</strong> once the test
-						passes. A trial that is not kept is put back after 30 minutes. While a bad
-						trial is open, students may not be able to sign in; the local
-						administrator's Dex password always works. A saved client secret is never
-						shown: leave the box empty to keep it, and type a new one if you change the
-						tenant, issuer or client ID. LDAP shows read-only and is changed with{" "}
-						<code>sudo dpkg-reconfigure portikus</code>.
+						<strong>Single sign-on</strong> chooses Local accounts only, Microsoft Entra
+						ID, Google Workspace, or Another OpenID Connect provider. A server that uses
+						LDAP or Active Directory shows that choice read-only. A change is a trial.
+						Choose <strong>Apply as a trial</strong>, then <strong>Test sign-in</strong>
+						, then <strong>Keep</strong> once the test passes. A trial that is not kept
+						is put back after 30 minutes. While a bad trial is open, students may not be
+						able to sign in; the local administrator's Dex password always works. A
+						saved client secret is never shown: leave the box empty to keep it, and type
+						a new one if you change the tenant, issuer or client ID. LDAP is changed
+						with <code>sudo dpkg-reconfigure portikus</code>.
 					</p>
 					<p>
 						<strong>Learning management systems</strong> registers the platforms that
@@ -297,7 +297,8 @@ export const ADMIN_HELP: HelpPart = {
 						says which and why, and they stay ticked. The server always keeps its newest
 						complete nightly backup sets (three unless the operator set another number),
 						so those cannot be ticked, and each says why. Sets taken with Back up now do
-						not count toward them and can be deleted.
+						not count toward them and can be deleted, except when no nightly set is
+						complete: then the newest complete Back up now set is kept instead.
 					</p>
 				</>
 			),
@@ -332,7 +333,8 @@ export const ADMIN_HELP: HelpPart = {
 					and then the event, such as{" "}
 					<code className="pk-mono-body">workspace.start_requested</code>. Type{" "}
 					<code className="pk-mono-body">workspace.</code> in{" "}
-					<strong>Action starts with</strong> to see every workspace action.
+					<strong>Action starts with</strong> to see every workspace action. Audit
+					records are kept for 365 days, then deleted.
 				</p>
 			),
 		},

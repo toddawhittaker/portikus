@@ -4,7 +4,7 @@
 .PHONY: help install check docs-check typecheck lint format test test-coverage build dev clean \
        infra-check backup-scope-test bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight rehearsal-lti tofu-destroy install-test \
-       build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
+       build-deb install-screens screenshots deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
        mock-lms lti-mock-register lti-mock-unregister external-port-check
 
@@ -541,6 +541,9 @@ build-deb: ## Build the control-plane Debian package into dist/deb
 
 install-screens: ## Capture the install screens in docs/INSTALL.md as PNGs under docs/images/install (needs Docker, Pillow, optipng)
 	packaging/tests/capture-install-screens.sh
+
+screenshots: ## Take the documentation images in docs/images from the end-to-end stack with demo data (needs Docker unless TEST_DATABASE_URL is set, and ImageMagick; never run in CI)
+	e2e/doc-images/run.sh
 
 # Installing the package restarts the services and runs the migrations from the
 # API unit's ExecStartPre (ADR 0007).

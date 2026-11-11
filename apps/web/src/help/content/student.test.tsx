@@ -121,11 +121,38 @@ test("the keyboard topic lists the completion and hover keys", () => {
 
 test("the topics that name Claude Code and Codex say a course may hide them", () => {
 	expect(topicText("student-getting-started")).toContain(
-		"Your course may hide Claude Code and Codex",
+		"it hides the Claude Code and Codex choices",
 	);
 	expect(topicText("student-layout")).toContain(
 		"Your course may hide Claude Code and Codex",
 	);
+});
+
+test("getting started names the five New tab choices", () => {
+	const text = topicText("student-getting-started");
+	for (const choice of [
+		"Terminal",
+		"Claude Code (TUI)",
+		"Claude Code (GUI)",
+		"Codex",
+		"Preview",
+	]) {
+		expect(text).toContain(choice);
+	}
+});
+
+test("the phone topic names both drawer buttons and how a drawer closes", () => {
+	const text = topicText("student-phone");
+	expect(text).toContain("Projects");
+	expect(text).toContain("Files");
+	expect(text).toContain("Escape");
+});
+
+test("the chat topic names the five permission modes", () => {
+	const text = topicText("student-claude-chat");
+	for (const mode of ["Ask", "Accept edits", "Plan", "Auto", "Bypass permissions"]) {
+		expect(text).toContain(mode);
+	}
 });
 
 test("the chat topic explains Resume and not running a GUI and a TUI on one session", () => {

@@ -78,7 +78,7 @@ line per step, so the run survives a context reset.
      the workspace agent, file APIs, Incus, or nested Docker;
    - a11y-reviewer when it touches `apps/web` or `packages/ui`.
 10. **Fix round.** Rule on each finding: fix now through task PRs, or
-    record as a STATUS gap. Land fixes the same way (step 8), also without human
+    record as a STATUS open item. Land fixes the same way (step 8), also without human
     review, then have each reviewer confirm its findings are closed.
 11. **Rehearsal VM full smoke** when the epic touches install, packaging
     or infra. One infra agent owns the rehearsal VM for the run. It must
@@ -88,10 +88,12 @@ line per step, so the run survives a context reset.
     change freely; this never applies to the pilot.
 12. **Fold task** (last task PR): draft it while the fix round runs,
     since the task PR bodies already hold the STATUS lines, and finish it
-    when the last fix lands. Write the epic's STATUS section from the
-    task PR bodies, move lasting rules into SPEC.md, delete the plan,
-    record gaps, and carry a `Fixes #N` line for each issue. Check
-    `git diff main...epic -- docs/STATUS.md` shows the section.
+    when the last fix lands. In STATUS.md add the epic's entry of one or
+    two sentences, add its new open items at one line each, and remove
+    the open items it fixed; no task lists, test counts or rehearsal
+    logs. Move lasting rules into SPEC.md, delete the plan, and carry a
+    `Fixes #N` line for each issue. Check `git diff main...epic --
+    docs/STATUS.md` shows the entry.
 13. **Epic PR into main.** Cite the SPEC.md and STACK.md sections and how
     it was verified (WORKFLOW.md, "Pull requests"). One `Fixes #N` per
     line. Keep the body in the scratchpad and update it with
@@ -149,7 +151,8 @@ docs/EPIC-<n>.md on the epic branch; read your task's row.
 - Before the PR: typecheck, lint, and affected tests green (`make
   infra-check` for infra or packaging). Report commands and counts.
 - Do not edit docs/STATUS.md, the plan, or SPEC.md section 29. Put a
-  proposed STATUS line (delivered, gaps left) in the PR body.
+  proposed STATUS line (one sentence delivered, any new open items) in
+  the PR body.
 - Never `git add -A`. No attribution lines. Never force-push; merge the
   epic branch in to catch up.
 - PR into `epic/<n>-<name>`, not main. Body: `Refs #N`, the SPEC.md

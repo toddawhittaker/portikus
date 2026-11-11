@@ -139,6 +139,19 @@ Environment variables are validated by `loadConfig` in `packages/config`. A
 missing or invalid variable fails at startup with a message naming it, so
 add new variables to that schema and to `.env.example` together.
 
+### Documentation images
+
+`make screenshots` rewrites the PNG files in `docs/images`. It builds the
+code, starts the end-to-end stack with invented demo data on a throwaway
+database, and takes each picture with Playwright. It needs Docker for the
+throwaway PostgreSQL container (or `TEST_DATABASE_URL` pointing at a database
+you do not mind losing) and ImageMagick, which shrinks each picture.
+
+It never runs in CI. Every picture is scripted: the chat and terminal scenes
+play fixed messages through a fake agent, so no real agent session is used and
+no real student data appears. After a run, look at each changed image before
+you commit it, and commit only the images you meant to change.
+
 ### Infrastructure smoke test
 
 `make smoke-test` runs `infra/tests/smoke-test.sh` against the platform VM
@@ -228,10 +241,13 @@ agent working from a checkout can read it.
   sentence or two each, puts any "why" a later reader will ask into an
   ADR, and deletes the plan.
 - Parallel task pull requests do not edit `docs/STATUS.md`, because
-  they all conflict on it. Each one puts its proposed STATUS line (what
-  it delivered, gaps left) in its pull request body instead.
-- The fold task writes the epic's STATUS.md section once, from those
-  pull request bodies.
+  they all conflict on it. Each one puts its proposed STATUS line (one
+  sentence on what it delivered, and any new open items) in its pull
+  request body instead.
+- The fold task edits STATUS.md once, from those pull request bodies: it
+  adds the epic's entry of one or two sentences, adds the epic's new open
+  items at one line each, and removes the open items the epic fixed. No
+  task lists, test counts or rehearsal logs; the pull requests hold those.
 - So `main` never holds a plan at a merge. Git history keeps it, and the
   epic pull request's commits show it to the reviewer.
 - Plans of epics finished before this rule are kept in

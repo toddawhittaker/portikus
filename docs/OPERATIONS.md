@@ -1,11 +1,10 @@
 # Operations runbook
 
 This is the runbook for the one operator of the Portikus pilot. It says how
-to deploy, manage accounts, back up and restore, and check the pilot. It
-serves SPEC.md section 29, Epic 12 ("deployment documentation and a
-runbook"), docs/archive/epics/EPIC-12B.md, task B6, and docs/archive/epics/EPIC-14.md, task T6. How
-the infrastructure is built the first time is in `infra/README.md`. What each part of this runbook
-rests on is in the ADRs (architecture decision records) it cites.
+to deploy, manage accounts, back up and restore, and check the pilot. How
+the infrastructure is built the first time is in `infra/README.md`. What
+each part of this runbook rests on is in the ADRs (architecture decision
+records) it cites.
 
 Names used throughout:
 
@@ -63,7 +62,7 @@ builds, never for the pilot.
 ## Before a change: a database dump
 
 Every deploy takes a `pg_dump` (a PostgreSQL export) of the platform
-database to the host. Name it after the change, for example `epic24`.
+database to the host. Name it after the change, for example `upgrade`.
 
 ```
 install -d -m 0700 /var/backups/portikus/portikus/dumps
@@ -128,8 +127,8 @@ server needs outgoing access to `downloads.claude.ai`, `api.github.com`,
 `github.com` and `release-assets.githubusercontent.com`, where GitHub
 redirects release downloads (the job follows the redirect).
 Workspace images 2026.10.2 and later no longer contain the tools, so they
-need a Portikus package from Epic 40 or later: install the package first,
-then the image. Workspaces on older images run the shared tools after their
+need a current Portikus package, which supplies them: install the package
+first, then the image. Workspaces on older images run the shared tools after their
 next start. The package makes the folder's `bin` links before it restarts
 the services, so a workspace that starts while setup is still downloading
 the tools gets its links, which work once the download ends. The folder is
@@ -192,10 +191,20 @@ the person), never by email.
 | Provider | `PORTIKUS_DEX_UPSTREAM` | Who may sign in | Role comes from | No role matched |
 |---|---|---|---|---|
 | Dex's own passwords only | `none` (the default) | people an administrator added | grants in the Users view | student |
-| Microsoft Entra ID | `entra` | the site's tenant, with a Portikus app role | Entra app roles | refused by Dex |
-| Google Workspace | `google` | the listed domains | grants in the Users view | student |
+| Microsoft Entra ID | `entra` | the site's tenant, with a Portikus app role or in one of the three groups | Entra app roles, or the three groups | refused by Dex |
+| Google Workspace | `google` | the listed domains; with group checks, members of the three groups | grants in the Users view, or the three Google groups | student (with group checks, refused by Dex) |
 | LDAP or Active Directory | `ldap` | people the user filter admits | directory groups, or grants | student |
 | Another OIDC provider | `oidc` | members of one of the three groups | the provider's groups claim | refused by Dex |
+
+**Every provider also needs an invitation.** Nobody signs themselves up
+(ADR 0049): the first sign-in through a connector makes an account only
+when an administrator has already invited that person, in the Users view
+with **Invite…** or **Import from CSV…** ("Managing users", below). The
+invitation is matched by user principal name under Entra, by username or
+verified email under LDAP, and by verified email otherwise. Someone with
+none is refused and the attempt is an `auth.login` audit row with the
+reason `not_invited`. A role from a connector's groups can raise the
+invited role but never replaces the invitation.
 
 Dex's own passwords, the local administrator among them, work beside
 every connector. Dex's sign-in page then offers two buttons: "Log in with
@@ -203,8 +212,7 @@ Email" for its own passwords, and one for the connector ("Microsoft",
 "Google", "LDAP" or "Active Directory", or "Single sign-on").
 
 A "grant" is the stored role an administrator sets with Make instructor
-or Promote in the Users view (docs/archive/epics/EPIC-13-1.md). It lasts
-across sign-ins.
+or Promote in the Users view. It lasts across sign-ins.
 
 **Someone Dex refuses never reaches Portikus.** They see Dex's own error
 page, and the refusal is in Dex's log (`journalctl -u portikus-dex`), not
@@ -240,8 +248,8 @@ provider. See "The egress proxy", below.
 everyone a new, empty account. Adding, changing or removing a Dex
 connector does not change the issuer, which is always Dex's, but a
 person who signed in through one connector gets a new account when they
-sign in through another. No tool carries accounts from one to another
-(docs/archive/epics/EPIC-12B.md, risk 7). The mock-to-Dex carry-over the
+sign in through another. No tool carries accounts from one to another.
+The mock-to-Dex carry-over the
 pilot used once, on 2026-09-23, was removed with the users file, so a
 backup from before that date restores accounts that only the mock can
 sign in to. Once the site uses Dex, every play run ends the sessions of
@@ -250,7 +258,9 @@ the mock's accounts.
 ### Microsoft Entra ID
 
 Only people from one Entra tenant (one organisation's directory) who hold
-one of the three Portikus app roles can sign in. Guests invited into that
+one of the three Portikus app roles can sign in, and each needs a Portikus
+invitation. (Roles can come from three groups instead; see "Roles from
+Entra groups instead of app roles", below.) Guests invited into that
 tenant are checked like anyone else. Dex uses its generic `oidc`
 connector, held to the tenant's own issuer,
 `https://login.microsoftonline.com/<tenant ID>/v2.0`, so a token from any
@@ -299,8 +309,9 @@ The play refuses a tenant ID that is not a GUID. `PORTIKUS_OIDC_STUDENT_GROUP`,
 `PORTIKUS_OIDC_INSTRUCTOR_GROUP` and `PORTIKUS_OIDC_ADMIN_GROUP` change
 the three app role values if a tenant already uses other names. Grants
 in the Users view still raise a role. The first Entra administrator can
-be given the `Portikus.Administrator` app role, or promoted by the local
-administrator after their first sign-in.
+be given the `Portikus.Administrator` app role, or invited as a student or
+instructor and promoted by the local administrator after their first
+sign-in.
 
 #### Roles from Entra groups instead of app roles
 
@@ -346,8 +357,10 @@ a real tenant.
 
 Only accounts from the listed Google Workspace domains can sign in; Dex's
 `google` connector checks the domain. A personal Gmail account is
-refused. Google sends no groups here, so everyone starts as a student,
-and an administrator uses Make instructor or Promote in the Users view.
+refused. Unless group checks are turned on (below), Google sends no
+groups, so everyone starts as a student, and an administrator uses Make
+instructor or Promote in the Users view. Each person needs a Portikus
+invitation.
 
 In the Google Cloud console, in a project owned by the organisation:
 
@@ -480,8 +493,8 @@ reused username inherits the old account, its workspace and its role.**
 Disable a departed person's AD account; never delete it and give the
 name to someone else. Under either schema, groups name their members by
 DN, which a reused name shares, so also take a departed person out of
-the Portikus groups. Before Epic 14's review the OpenLDAP ID was `uid`.
-No site used LDAP then, but a site that did would find everyone's next
+the Portikus groups. An earlier version used `uid` as the OpenLDAP ID. No
+site used LDAP then, but a site that did would find everyone's next
 sign-in making a new, empty account.
 
 The role comes from groups whose `cn` is `portikus-students`,
@@ -579,15 +592,15 @@ Why not SAML directly: one sign-in protocol keeps the security-sensitive
 code, its tests and its identity rule in one place. SAML would add XML
 signature checking, a common source of sign-in bypasses, for sites that
 can already turn OIDC on. Dex does have a SAML connector, but its own
-documentation warns that it is not maintained, so it is not built
-(docs/archive/epics/EPIC-14.md ruling 7).
+documentation warns that it is not maintained, so it is not built.
 
 ### First checks with a real provider
 
 The tests prove the connectors against imitation tokens from the in-repo
 mock provider, not how a real provider behaves. The first time a site
 uses Entra, Google, another OIDC provider or Active Directory, check
-these, and record the results in docs/STATUS.md:
+these, and record each result as one line in the open items of
+docs/STATUS.md (or remove the open item it settles):
 
 - Entra's ID token carries `roles`, `name` and `email` for this
   registration, and a guest (B2B) account's token comes from the tenant's
@@ -604,10 +617,33 @@ these, and record the results in docs/STATUS.md:
 
 ## Managing users
 
-Administrators manage Dex's own accounts in the Users view of `/admin`
-(docs/archive/epics/EPIC-14.md rulings 21 to 24, ADR 0028). Dex keeps them
-in its PostgreSQL database, `dex`, and the nightly backup holds them as
-`dex.dump`.
+Administrators manage accounts in the Users view of `/admin` (ADR 0028).
+Dex keeps its own passwords in its PostgreSQL database, `dex`, and the
+nightly backup holds them as `dex.dump`.
+
+- **Invite…** admits someone who will sign in through your single sign-on
+  provider. It takes a name, an email, a role (student or instructor) and,
+  for Entra or LDAP, the sign-in name (the user principal name or
+  username) to match instead of the email. Nobody can sign up on their
+  own, so the person's first sign-in with a matching identity creates the
+  account with that role. Invited people show in the table with an
+  **Invited** tag; **Revoke…** withdraws an invitation, and **Resend**
+  emails it again when account email is on.
+- **Import from CSV…** adds many people at once: a file with the columns
+  `name`, `email`, `username`, `role` and `kind`, up to 500 rows (the
+  dialog offers a sample). Kind `password` adds a Dex account with a
+  generated one-time password, kind `invite` makes an invitation. The
+  dialog checks every row first, and only confirmed rows are made. After
+  a confirm, download the one-time passwords as a CSV file; they are not
+  shown again. Administrators are added one at a time.
+- **Account email.** Under **Settings**, **Email and alerts**, **Account
+  email**, the box "Email password reset and invitation links" lets
+  Portikus email links through the mail server on that page. It is off by
+  default. When on, **Add user…**, **Invite…** and the CSV import offer to
+  email each person (a link to choose a password, or the invitation), and
+  a Dex account's **Send reset link…** emails a reset link. Reset links
+  last 30 minutes, invitation links 7 days, and each works once. Dex's
+  sign-in page then also has "Forgot your password?".
 
 - **Add user…** takes a name, an email, a username and a role: student,
   instructor or administrator. Portikus makes a 20-character password and
@@ -616,7 +652,8 @@ in its PostgreSQL database, `dex`, and the nightly backup holds them as
   email. The account exists in Portikus straight away, so an instructor
   or administrator role is a stored grant from the start. The person must
   choose their own password when they first sign in; until then every
-  page sends them to **Set a new password**.
+  page sends them to **Set a new password**. With account email on, they
+  can instead get a link to choose it, and no password is shown.
 - **Reset password** makes a new password, shows it once, and ends the
   account's sessions and preview sessions. It too must be changed at the
   next sign-in.
@@ -627,13 +664,18 @@ in its PostgreSQL database, `dex`, and the nightly backup holds them as
 - **Remove** deletes the Dex password and disables the account, which
   ends its sessions. The workspace stays; archive it from the same page
   when it is no longer needed.
-- To change someone's email or username, remove them and add them again.
-  The new account starts with a new, empty workspace.
+- **Edit email or username…** changes a Dex account's email or username
+  without losing anything: the account, its Dex subject and its workspace
+  stay the same. A username change keeps the password. An email change ends
+  the person's sessions and makes them choose a new password: they must
+  set one at their next sign-in, or, with account email on, get a link at
+  the new address while the old address gets a notice. It is not offered
+  for your own account, the install administrator or a disabled account.
 - To stop someone at once without removing them, **Disable** the account.
 
-With a connector, these buttons manage only Dex's own accounts; people
-from the directory, Microsoft, Google or the other provider are managed
-there. Under any connector, **Make instructor**, **Remove instructor**,
+With a connector, the password buttons manage only Dex's own accounts;
+the passwords of people from the directory, Microsoft, Google or the other
+provider are managed there. Under any connector, **Make instructor**, **Remove instructor**,
 **Promote** and **Demote** set or clear a stored grant. None of them ends
 sessions; the next request reads the new role.
 
@@ -641,9 +683,9 @@ Portikus never stores or logs a password. Each action writes an audit row
 (`dex_user.created`, `dex_user.password_reset`, `dex_user.removed`,
 `user.password_changed`) with no password, hash or email in it.
 
-**The users file is retired.** Before Epic 14, Dex's accounts lived in a
-users file on the host and `make users-*` managed them. The first `make
-configure-vm` of a release with Epic 14 imports that file once, when it
+**The users file is retired.** Early versions kept Dex's accounts in a
+users file on the host and managed them with `make users-*`. The first
+`make configure-vm` of a later release imports that file once, when it
 exists (`PORTIKUS_USERS_FILE`, by default
 `~/.config/portikus/users.json`) and Dex's storage holds no passwords. It
 keeps each password's hash and user ID, so every account keeps its `sub`
@@ -742,9 +784,8 @@ sign-in sets a new password and then a new factor.
 
 ## The Dex cutover and the storage move
 
-The pilot moved from the mock provider to Dex on 2026-09-23 (task A6,
-docs/archive/epics/EPIC-12B.md). Its accounts moved into Dex's storage on 2026-09-24
-(Epic 14). Both kept every account, `sub` and workspace. docs/STATUS.md
+The pilot moved from the mock provider to Dex on 2026-09-23. Its
+accounts moved into Dex's storage on 2026-09-24. Both kept every account, `sub` and workspace. docs/archive/STATUS-HISTORY.md
 records each run and its snapshots and dump.
 
 A move like these follows the same steps:
@@ -821,7 +862,7 @@ egress rules.
 ## Workspace egress
 
 Workspaces reach the internet in one of two modes, chosen on the admin
-page's Network tab (issue #284, ADR 0038). **Open mode**, the default,
+page's Network tab (ADR 0038). **Open mode**, the default,
 lets a workspace reach any public address, as before. **Allow-list mode**
 lets it reach only the host names and address ranges an administrator
 listed, on the allowed ports. The private ranges in
@@ -909,7 +950,7 @@ change it.
 ## The sign-in throttle
 
 Dex has no lockout, so the API slows repeated sign-ins from one address
-(#398, `apps/api/src/signin-throttle.ts`):
+(`apps/api/src/signin-throttle.ts`):
 
 - Sign-in starts: 150 a minute per address. Only `/auth/login` and
   `/lti/login` count, so each sign-in is one start, and a lecture of 100
@@ -982,7 +1023,7 @@ default refuses the last 10.
 
 ## Per-user limits on workspace actions and file writes
 
-Since Epic 17 the API limits each signed-in user, counted in the API's
+The API limits each signed-in user, counted in the API's
 memory per minute (SPEC.md section 5.3, ADR 0034):
 
 - `WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE`, default 20: workspace start,
@@ -1014,8 +1055,7 @@ standard for this. The LMS signs a token that names the person, their
 role and the course. Portikus checks it and signs the person in with no
 second password. Students land in their own workspace. Instructors,
 teaching assistants and course designers land in their own workspace too,
-and also get a read-only **Course** page. The design is in ADR 0025 and
-`docs/archive/epics/EPIC-13.md`.
+and also get a read-only **Course** page. The design is in ADR 0025.
 
 LTI is off until at least one LMS is registered. Every `/lti/*` route then
 answers 404.
@@ -1214,10 +1254,11 @@ always works, and using the Sign-in page again.
 
 ### Egress to the LMS
 
-Portikus fetches each platform's keyset to check a launch's signature. It
-reaches the keyset through the egress proxy, and Ansible adds the host of
-every keyset URL in the platforms file to the proxy's allow list, so a
-cloud LMS needs nothing more. A keyset URL that names an IP address, such
+Portikus fetches each platform's keyset to check a launch's signature, and
+asks its token URL for the access token that reads a course roster. It
+reaches both through the egress proxy, and setup adds the host of every
+keyset URL and token URL in the platforms file to the proxy's allow list,
+so a cloud LMS needs nothing more. A keyset URL that names an IP address, such
 as the mock LMS's, is allowed at that address and port only. If a launch
 fails with `keyset_unavailable`, see "The egress proxy".
 
@@ -1309,7 +1350,7 @@ stay in the database, under the issuer `lti:http://<MOCK_LMS_HOST>:8765`.
 
 A person who signs in both by an LTI launch and through single sign-on
 (SSO) can link the two from Settings, Profile, so every later launch lands
-in the SSO account. The design is `docs/archive/epics/EPIC-13-1.md` and ADR 0026. There
+in the SSO account. The design is in ADR 0026. There
 is no operator step to make linking available; it works once both an LMS
 and the OIDC provider are configured.
 
@@ -1328,9 +1369,12 @@ and the OIDC provider are configured.
   open the account in the Users view: the Role column says, for example,
   "Administrator (from SSO)" for a provider role and "Administrator
   (granted)" for a stored grant.
-- **Under Microsoft Entra ID, roles come from app roles**, which Entra
-  sends in the `roles` claim however many groups a person is in. Entra's
-  group object IDs and its overage claim are not used (issue #1247).
+- **Under Microsoft Entra ID, roles come from app roles or from three
+  groups.** App roles arrive in the `roles` claim however many groups a
+  person is in. In group mode the three groups' object IDs arrive in the
+  `groups` claim; send only "Groups assigned to the application", so the
+  claim holds at most the three and is never left out. No Microsoft Graph
+  lookup is made.
 - **Bulk actions and instructor member removal need no operator step.**
   The Users view's ticked-row Disable, Enable, Archive and Unarchive call
   the same single-row routes as clicking each one, so nothing here differs
@@ -1362,6 +1406,22 @@ what is where.
   Check them with `systemctl status portikus-backup.service
   portikus-backup-channel.service` and `journalctl -u
   portikus-backup.service`.
+- **Deleting sets.** The Backups tab deletes one set or dump per request,
+  and ticked rows send one request each. After a delete that worked, the
+  channel takes the next request in the same run, up to 20 requests or 25
+  seconds, so ticking many rows finishes within a few runs. Any other kind
+  of request ends the run. The host decides what may go, whatever the page
+  sends (ADR 0039): it refuses the newest 3 nightly sets
+  (`PORTIKUS_BACKUP_KEEP_COMPLETE`), or the newest complete set of any
+  kind when no nightly set is complete, and the page marks those rows as
+  unavailable with the reason. Sets made with **Back up now** do not count
+  toward the 3 and can be deleted. The nightly clean-up keeps the newest
+  14 complete sets and never removes a set younger than 14 days.
+- **Requested backups.** **Back up now** is limited by a log the host
+  keeps (`/var/lib/portikus-backup-channel/requested-runs`), not by the
+  sets that survive: at most 3 in 14 days
+  (`PORTIKUS_BACKUP_MAX_REQUESTED`), an hour apart, and only with 1 GiB
+  free. A set's `REQUESTED` marker records that it was requested.
 - **Sets.** `/var/backups/portikus/local/<timestamp>`, root-only, the same
   form as a host's. Sets an administrator copies in by hand, with rsync or
   scp, are listed on the tab within 30 seconds and get the same checks: a
@@ -1775,9 +1835,9 @@ everyone, including people signed in right now, to the statement at
 their next request; their workspaces keep running. Make changes outside
 class time where you can.
 
-## First deploy of Epic 17
+## First deploy with the resilience limits
 
-The first deploy that includes Epic 17 (platform resilience) restarts
+The first deploy that includes the platform resilience limits restarts
 Caddy once and PostgreSQL once, because their systemd drop-ins change and
 a new memory protection only takes effect on a restart. The API and worker
 restart with PostgreSQL. Expect a few seconds of errors during the play.
@@ -1790,7 +1850,8 @@ docs/CAPACITY.md has the load test results, the cost of each workspace,
 the size the pilot needs, how memory pressure is handled, and the steps
 for resizing the pilot. In short: for 25 active workspaces and 100
 provisioned ones, the pilot needs 8 vCPUs, 16 GiB of memory and a 200 GiB
-data disk. Resizing is done in a window you choose, after a backup.
+data disk, or 20 GiB when all 25 students run a coding agent with code
+help on. Resizing is done in a window you choose, after a backup.
 
 ### Host hardware for a class of about 24
 
@@ -1813,10 +1874,10 @@ or load test does not mean stopping the class.
 | Network | Wired gigabit | Wired gigabit |
 
 - **Memory.** 32 GB runs the pilot but not the rehearsal VM beside it.
-  64 GB runs both, and leaves room for language servers if the editor
-  work in issue #1246 (course profiles and a language-aware editor)
-  goes ahead; those add roughly 100 to 500 MB per active
-  student.
+  64 GB runs both, and leaves room for the editor's code help (its
+  language servers), which adds about 240 MiB per active student with all
+  three languages on (docs/CAPACITY.md, "Code help on a 16 GiB VM").
+  Languages can be turned off under **Student tools** on the Settings tab.
 - **Disk.** The VM takes a 20 GiB system disk and a 200 GiB data disk.
   The host also keeps the 14 newest backup sets under
   `/var/backups/portikus/`, which grow with student files and Docker
@@ -2052,6 +2113,12 @@ sudo journalctl -u portikus-api -u portikus-worker -u portikus-controller -o cat
 The journal is capped at 2 GB. The nightly backup logs to
 `journalctl -u portikus-backup.service`.
 
+**The audit table** (the admin page's Audit tab) keeps each row for 365
+days. A daily worker job deletes older rows, for every action, with no
+setting and no export, and logs only how many it removed. The worker's
+database role cannot delete rows any other way. Nightly backups still
+hold rows older than 365 days until those backups are pruned.
+
 ## Routine checks
 
 **Daily, during the pilot:**
@@ -2095,7 +2162,7 @@ make rebuild-exercise BACKUP=/var/backups/portikus/portikus/<timestamp> \
 ```
 
 The set must hold `dex.dump`, the Dex accounts database that backups
-carry since Epic 14. The sign-in file names a Dex user in that set: the
+carry. The sign-in file names a Dex user in that set: the
 email on the first line and the password on the second, mode 0600. The
 exercise never imports a users file, because the accounts an import
 creates would make `restore.sh` refuse the VM.
@@ -2119,9 +2186,9 @@ It prints a timing table at the end, and keeps a log of each step under
 `PREVIOUS_DEB=<file>` rolls back to a local package instead of a release.
 The previous package must support Dex. At the time of writing, no
 published release does, so the run below used a local build of the
-previous epic head.
+previous commit.
 
-The run below is from before Epic 14, when the exercise still carried
+The run below is from before 2026-09-24, when the exercise still carried
 mock accounts over to Dex; it has not been repeated since.
 
 The run on 2026-09-23 restored the pilot's set `20260923T045452Z` and
@@ -2141,12 +2208,12 @@ rolled back to `0.1.366+g1acca31`. Every step passed:
 | Destroy the VM | 2 s |
 | **Total** | **17 min 48 s** |
 
-The runs below took place on 2026-09-23, before Epic 14, when Dex's
+The runs below took place on 2026-09-23, before Dex's accounts moved into its own storage, when Dex's
 accounts still came from the users file.
 
 **The step-by-step runs.** Earlier the same day, the rehearsal VM was rebuilt twice from the repository,
 from nothing to a working platform, with package `0.1.367+gc543a49` (the
-Epic 12b head after PR #468). The pilot's newest backup was then restored
+head of the main branch that day). The pilot's newest backup was then restored
 into the second rebuild. Every step was a Make target. No step was done
 by hand on the VM.
 
@@ -2215,10 +2282,9 @@ linked them to Dex was removed with the users file, so after such a
 restore a student who signs in through Dex gets a new, empty account.
 Sets taken since hold Dex identities.
 
-**Removing an account ends its sessions.** Under Epic 14 this is the
-Users view's Remove, which disables the account through the same path as
-Disable. Route tests and the Playwright tests of the Dex user dialogs
-check it (docs/STATUS.md, Epic 14 T3).
+**Removing an account ends its sessions.** The Users view's Remove
+disables the account through the same path as Disable. Route tests and
+the Playwright tests of the Dex user dialogs check it.
 
 **Load test on the rebuilt VM.** `make load-test TOFU_ENV=rehearsal-libvirt
 N=25` ran on the first rebuild. It took 19 min 20 s in all. Start p95 was

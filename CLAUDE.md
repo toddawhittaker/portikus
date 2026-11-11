@@ -10,8 +10,8 @@ does belong under `docs/`, cited by file and section, never here.
 
 - `docs/OVERVIEW.md`: one-page orientation and the design rules every
   change must respect. Read this first.
-- `docs/STATUS.md`: what each epic and task has delivered and the gaps it
-  left.
+- `docs/STATUS.md`: a one- or two-sentence summary of each epic and the
+  open items.
 - GitHub issues (labels `enhancement` and `bug`): wanted work that is not
   yet an epic or task. File one when the user defers something.
 - `docs/VISION.md`: product intent. Wins on questions of intent.

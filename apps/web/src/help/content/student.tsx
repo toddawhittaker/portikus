@@ -93,8 +93,16 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>
 							In the middle of the screen, choose <strong>Open a terminal</strong> or{" "}
-							<strong>Start Claude Code</strong>. Your course may hide Claude Code and
-							Codex, and then only <strong>Open a terminal</strong> is there.
+							<strong>Start Claude Code</strong>, which opens Claude Code in a terminal.
+							The <strong>+</strong> at the end of the tab bar, named New tab, offers
+							five choices: <strong>Terminal</strong>;{" "}
+							<strong>Claude Code (TUI)</strong>, a text interface in a terminal;{" "}
+							<strong>Claude Code (GUI)</strong>, a chat tab; <strong>Codex</strong>
+							{"; and "}
+							<strong>Preview</strong>, which opens a running web app in a tab. If your
+							course uses the Traditional profile, it hides the Claude Code and Codex
+							choices, and only <strong>Terminal</strong> and <strong>Preview</strong>{" "}
+							are there.
 						</li>
 						<li>
 							Your files are listed on the right. Choose a file to open it in the
@@ -140,15 +148,21 @@ export const STUDENT_HELP: HelpPart = {
 						<strong>Your workspace</strong>, where you can restart or stop it, see its
 						storage, and reset Docker.
 					</li>
-					<li>
-						<strong>On a phone or a narrow window</strong> the work area fills the
-						screen. The <strong>Projects</strong> button, left of the Portikus name,
-						slides your project list in from the left, and the <strong>Files</strong>{" "}
-						button, at the right of the top bar, slides the right pane in from the
-						right. Choosing a project or opening a file closes it again, and so do
-						Escape, its close button and a tap outside it.
-					</li>
 				</ul>
+			),
+		},
+		{
+			id: "student-phone",
+			title: "On a phone or a narrow window",
+			body: (
+				<p>
+					On a phone or a narrow window the work area fills the screen, and the side
+					panes become drawers. The <strong>Projects</strong> button, left of the
+					Portikus name, slides your project list in from the left. The{" "}
+					<strong>Files</strong> button, at the right of the top bar, slides the right
+					pane in from the right. Choosing a project or opening a file closes the drawer
+					again, and so do Escape, its close button and a tap outside it.
+				</p>
 			),
 		},
 		{

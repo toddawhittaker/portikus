@@ -1,9 +1,11 @@
 # Administrator guide
 
-This guide is for the people who run Portikus for a course or a department:
-administrators, and a short section at the end for instructors. It covers
-the tasks that come up during a term. Installing and upgrading the platform
-itself is in [OPERATIONS.md](OPERATIONS.md).
+This guide is for administrators: the people who run Portikus for a course
+or a department. It covers the tasks that come up during a term.
+Instructors have their own guide, [INSTRUCTOR-GUIDE.md](INSTRUCTOR-GUIDE.md),
+for the Course page, the students' interface and live help. Installing the
+platform is in [INSTALL.md](INSTALL.md), and upgrading and running the
+server is in [OPERATIONS.md](OPERATIONS.md).
 
 Portikus has the same help built in. Each administration tab starts with a
 short **About** note. You can fold it away, and this browser remembers
@@ -27,11 +29,88 @@ has signed in. Search by name, email, username or workspace label, and
 choose a name to open its panel. The panel shows the workspace's state and
 storage, and every action for it.
 
-![The Users tab with Diego Santos's panel open: his workspace is running but throttled](images/admin-users.png)
+![The Users tab with a student's panel open: the workspace is running but throttled](images/admin-users.png)
 
-**Add user…**, above the table, creates an account with a Portikus
-password. You give the person the first password privately; it is shown
-once, and they choose their own when they first sign in.
+The tab shows 50 people at a time. Search, the filters and the sort cover
+everyone, not just the page you see, and a line above the table says, for
+example, "Showing 50 of 312". **Next** and **Previous** change page.
+Choosing a filter or typing a search goes back to the first page. Bulk
+actions apply only to the rows you ticked on the page you are on.
+
+## Inviting people
+
+Nobody can sign up on their own. There are three ways to add people, all
+on **Users**:
+
+- **Invite…** invites someone before their first sign-in, with the role you
+  choose. That sign-in creates their account. Until then they are listed at
+  the end of the table as **Invited**, and **Revoke…** takes the invitation
+  back.
+- **Add user…** creates an account with a Portikus password. The first
+  password is shown once; give it to the person privately, and they choose
+  their own when they first sign in.
+- **Import from CSV…** adds many people at once (below).
+
+How an invitation is matched to a first sign-in depends on the sign-in
+provider. Most providers must send a verified email that matches the
+invitation. Microsoft Entra ID does not verify email, so Portikus matches
+only the user principal name (the name a person signs in to Microsoft
+with): put it in **Sign-in name**, or leave that empty to match the email.
+LDAP (a directory service many campuses use) matches either the username
+or the email.
+
+### Import from a CSV file
+
+**Download a sample file** shows the columns: name, email, username, role
+and kind, one row per person, at most 500 rows. Kind **invite** invites the
+person; kind **password** adds an account with a Portikus password. Role is
+student or instructor; add administrators one at a time. Portikus checks
+the file and marks each row **Ready**, **Invalid** or **Already exists**,
+and adds nothing until you confirm. Then **Download passwords** gives the
+one-time passwords, once only. Give each person theirs privately.
+
+### Emailed links
+
+With **Account email** turned on under **Settings** and a mail server set
+under **Email and alerts**, Portikus can email people instead of you
+handing out passwords. While account email is off, nothing below sends
+mail.
+
+- **Add user…** offers "Email them a link to choose their password". Tick
+  it and no password is shown: the person gets a link that works once and
+  lasts 7 days. If the email cannot be sent, the dialog shows a password to
+  give them instead.
+- **Invite…** offers "Email the invitation". The message tells the person
+  to sign in to Portikus with that address; it carries no link to click
+  through. A waiting invitation has **Resend** in its row.
+- **Import from CSV…** offers "Email each person". Password rows get a link
+  and invite rows get their invitation, so there are no passwords to
+  download.
+- **Send reset link…** in a Portikus password account's panel emails a link
+  that works once and lasts 30 minutes. Their password stays the same until
+  they use it.
+
+At most five of these emails go to one account in an hour, so a slip
+cannot flood a mailbox. The Dex sign-in page always shows a "Forgot your
+password?" link; a reset works only for Portikus password accounts, and
+only while account email is on. (Dex is the sign-in service built into
+Portikus.)
+
+### Changing an email or username
+
+**Edit email or username…** in a Portikus password account's panel changes
+either one and keeps the same account and workspace.
+
+- A new username takes effect at once and keeps their password.
+- A new email signs them out everywhere and replaces their password. With
+  account email on, the new address gets a link to choose one, and the old
+  address gets a notice that the email changed. With it off, the dialog
+  shows a new password once to give them privately.
+
+You cannot edit your own account here. The install administrator's account
+is never emailed a link or edited by another administrator; recover it on
+the server with `portikus reset-admin`. The audit log records which fields
+changed, never the addresses.
 
 ## When a student says their workspace is broken
 
@@ -83,15 +162,32 @@ running by its owner until …".
 
 ![The Settings tab: the section index and the When workspaces stop section](images/admin-settings.png)
 
+## Site settings
+
 **Settings** holds the site-wide rules in five sections: **When workspaces
-stop**, **Resource guard**, **Student tools** (code help for each language,
-and voice input), **Acceptable use** and **Email and alerts**. Each section
-has its own Save button, and nothing saves until you press it. Leaving the
-page with unsaved changes asks first. **Student tools** shows how much memory
-each language costs per student and how many students the server holds with
-the boxes you have ticked. Saving a new acceptable-use statement asks
-everyone, you included, to accept it before they continue. Most rules can be
-changed for one workspace from its panel on **Users**.
+stop**, **Resource guard**, **Student tools**, **Acceptable use** and
+**Email and alerts**. Each section has its own Save button, and nothing is
+saved until you press it. A changed field says it is not saved and what it
+was; **Discard changes** puts the saved values back. Leaving the tab with
+unsaved changes asks first. Most rules can be changed for one workspace
+from its panel on **Users**.
+
+Saving a new acceptable-use statement asks everyone, you included, to
+accept it before they continue. **Restore built-in text…** saves at once,
+after it asks.
+
+Under **Student tools**, tick each language that gets code help in the
+editor: completion, hover, rename, format and error checking. Python and
+TypeScript with JavaScript are on by default. Each one runs a language
+server (a helper program that understands that language) in every
+student's workspace, so it costs memory. The estimate under the list shows
+how many students this server's memory holds with the languages ticked; it
+is a worst case and counts memory only. A language left unticked still
+opens in the editor, plainly. Languages marked **Coming later** cannot be
+ticked yet. The same section turns voice input on or off. Students see a
+change when they next load the page or return to the window. Course
+interfaces do not change this, and each change is written to the audit
+log.
 
 ## Internet access
 
@@ -202,9 +298,40 @@ only when the student uses Reset Docker; Docker storage is never swapped
 behind a student's back. The net disk cost of the cache is that one capped
 file, which `sudo dpkg-reconfigure portikus` can size down.
 
-## Workspace images
+## The workspace image and coding agents
 
-The **Image** tab lists the workspace images on this server. **Delete**
+Every new workspace starts from the default **workspace image**. On the
+**Workspace image** tab, **Update to latest published** downloads the newest image
+the project has published and checks its signature. **Rebuild with latest
+packages** builds a new image on this server with today's Debian packages,
+and lets you pick Node 24 or 26 and whether to add Python 3.14. A rebuild
+takes about 20 minutes; the page shows each step and the log while it runs.
+
+Each new image gets a health check, and you see what changed against the
+default. Only an image that passed can be made the default. The old
+default becomes the previous image, and **Roll back** swaps them again.
+Existing workspaces keep the image they were made from until you rebuild
+each one; the list shows how many workspaces run each image.
+
+### Updating Claude Code and Codex
+
+The coding agents, Claude Code and Codex, are not part of the image. They
+run from a shared folder on the server that every workspace reads, so
+**Coding agents** on the **Workspace image** tab updates them without a new image.
+**Update coding agents** downloads the newest version of each, checks its
+signature or checksum, and tries it in a throwaway workspace. Each tool
+that passes switches on its own, so one can update while the other stays
+as it is; the job says which and why. Students get the new version the
+next time they start the tool, and open sessions keep the version they
+started with. That covers Claude Code in both of its forms: the TUI (text
+interface) in a terminal tab and the GUI chat tab, which students open from
+the **New tab** menu as Claude Code (GUI). **Roll back** on a tool's row
+goes back to its previous version, until the next **Update coding agents**
+moves forward again.
+
+### Deleting images
+
+The **Workspace image** tab lists the workspace images on this server. **Delete**
 removes an image you no longer need and frees its disk space. The default
 image is never deleted, and the previous image is kept so you can roll
 back. Delete asks first, saying how many workspaces were made from the
@@ -216,6 +343,31 @@ Deleting an image frees about this much, or less. A dash, read as "Not
 measured yet", means the next image job will measure it. The **Main disk
 space** meter above the list shows space used, the total and space free,
 and turns amber from 80 percent used.
+
+**Packages students add** counts how many workspaces added each package
+with `sudo apt install`, on the latest day that surveyed at least 3 of
+them. A package added by at least 2 workspaces and a third of those
+surveyed is marked a **base-image candidate**; putting it in the image
+saves each student the install. The counts are site-wide and never name a
+student.
+
+## Agent usage
+
+**Agent usage** shows, for each person and coding agent, the sessions, the
+input, output and cache tokens, and the lines added and removed over the
+last 7, 30 or 90 days. Daily totals for everyone follow below. **Estimated
+API cost** is Claude Code's own figure at API prices, not what a
+subscription pays; Codex shows a dash. Usage counts never include prompts
+or code. The agents report from inside each student's workspace, so a
+student could change the numbers: use them to see who is using the tools,
+not to enforce a limit. Instructors see the same counts for their own
+courses on the Course page ([INSTRUCTOR-GUIDE.md](INSTRUCTOR-GUIDE.md)).
+
+A line you may want in your acceptable-use statement:
+
+> Portikus counts how much you use coding agents (sessions, tokens and
+> lines changed) and shows the totals to your instructors and
+> administrators. It never records your prompts or your code.
 
 ## Backups and restores
 
@@ -257,6 +409,19 @@ The operator takes a snapshot by hand before a risky change, such as a
 rebuild on a new image, and saves a database dump on the backup host before
 each deploy. Nothing deletes them on its own; delete them once the change
 checks out.
+
+### Deleting several at once
+
+Tick rows, in one list or across lists, or tick the box at the top of a
+list to select all of it. Then choose **Delete N selected** beside any list
+with ticked rows; one confirmation covers them all. If some cannot be
+deleted, the confirmation says which and why, and they stay ticked.
+
+The server always keeps its newest complete nightly backup sets: three,
+unless the operator set another number. Those cannot be ticked, and each
+says why. Sets taken with **Back up now** do not count toward them and can
+be deleted, except when no nightly set is complete: then the newest complete
+**Back up now** set is kept instead.
 
 ## The site certificate
 
@@ -597,55 +762,6 @@ because the reset command falls back to it.
 - Give each DNS credential the least access that works, and revoke the
   old one after you replace it.
 
-## Users: email links and edits
-
-These need **Account email** turned on under **Settings**, and a mail server
-set under **Email and alerts**. While account email is off, nothing below sends
-mail.
-
-- **Add user…** offers a box, "Email them a link to choose their password".
-  Tick it and no password is shown: the person gets a link that works once
-  and lasts 7 days. If the email cannot be sent, the dialog shows a password
-  to give them instead.
-- **Invite…** offers "Email the invitation". The message tells the person to
-  sign in to Portikus with that address; it carries no link to click
-  through. A waiting invitation has **Resend** in its row.
-- **Import from CSV…** offers "Email each person". Password rows get a link
-  and invite rows get their invitation, so there are no passwords to
-  download.
-- **Send reset link…** in a Portikus password account's panel emails a link
-  that works once and lasts 30 minutes. Their password stays the same until
-  they use it.
-
-At most five of these emails go to one account in an hour, so a slip cannot
-flood a mailbox.
-
-The Dex sign-in page always shows a "Forgot your password?" link. The page it
-opens explains that a reset works only for Portikus password accounts, not
-single sign-on or LDAP accounts, and only while account email is on.
-
-**Edit email or username…** in a Portikus password account's panel changes
-either one and keeps the same account and workspace.
-
-- A new username takes effect at once and keeps their password.
-- A new email signs them out everywhere and replaces their password. With
-  account email on, the new address gets a link to choose one, and the old
-  address gets a notice that the email changed. With it off, the dialog
-  shows a new password once to give them privately.
-
-You cannot edit your own account here. The install administrator's account
-is never emailed a link or edited by another administrator; recover it on
-the host with `portikus reset-admin`. The audit log records which fields
-changed, never the addresses.
-
-## Users: search and paging
-
-The **Users** tab shows 50 people at a time. Search, the filters and the sort
-run on the server, so they cover everyone, not just the page you see. A line
-above the table says "Showing 50 of 312". **Next** and **Previous** move
-between pages. Choosing a filter or typing a search goes back to the first
-page. Bulk actions apply only to the rows you ticked on the page you are on.
-
 ## Link accounts for someone else
 
 A person may have an SSO account and a course account (from a learning
@@ -672,9 +788,11 @@ reports, so they are not proof of anything.
 
 ## Sign-in
 
-The **Sign-in** tab has two groups. The first is **Single sign-on**, which
+![The Sign-in tab: single sign-on set to Google Workspace, with the field for reading groups](images/admin-sign-in.png)
+
+The **Sign-in** tab has three groups. The first is **Single sign-on**, which
 chooses who vouches for your users. You can pick Microsoft Entra ID, Google
-Workspace, another OpenID Connect provider, or "Dex passwords only", which
+Workspace, another OpenID Connect provider, or **Local accounts only**, which
 means accounts that have a Portikus password and no outside provider. The
 fields for each provider are the same questions `dpkg-reconfigure portikus`
 asks. A client secret is never shown again once saved: leave the box empty to
@@ -712,7 +830,7 @@ A change is a **trial**:
 2. Wait while setup applies it, then choose **Test sign-in**. The same tab
    takes you through the provider and brings you back. A test never creates a user or a session.
    It reports whether the sign-in worked and which role the person would get.
-3. When the test passes, choose **Keep**. For "Dex passwords only" there is
+3. When the test passes, choose **Keep**. For **Local accounts only** there is
    nothing to test, so Keep is offered at once.
 4. If you roll back, do nothing for 30 minutes, or setup fails, Portikus puts
    the old settings back.
@@ -722,7 +840,7 @@ yourself out. Only one trial can be open at a time, and a trial cannot start
 while another change is running. This works only on servers installed with
 apt.
 
-## LMS platforms
+## LMS platforms and courses
 
 The second group on **Sign-in**, **Learning management systems**, registers the
 learning systems (Canvas, Moodle and others) that may open Portikus through
@@ -739,6 +857,15 @@ servers behind the new addresses through the egress proxy, on port 443 only.
 The registration steps inside the learning system are in
 [OPERATIONS.md](OPERATIONS.md), "Signing in from a learning management
 system".
+
+The third group, **Courses**, lists every course that has opened Portikus
+through LTI and the interface its students get. **Agentic** is the whole
+interface. **Traditional** hides the Claude Code and Codex launchers, the
+Docker controls and the system ports in the Running pane. It only hides
+controls and never blocks anything. The course's instructor can set the
+same choice from the Course page, and you can change any course here. Each
+change is written to the audit log. Students see it the next time they load
+the page or return to the window.
 
 ## Allowed API hosts
 
@@ -792,7 +919,8 @@ never include students' files, commands or terminal output.
 **Audit** records every sign-in and every change to accounts, workspaces and
 settings, and who made it. Each action is named for its area and then the
 event, such as `workspace.start_requested`. Type `workspace.` in **Action
-starts with** to see every workspace action.
+starts with** to see every workspace action. Audit rows are kept for 365
+days, then deleted.
 
 ![The Audit tab: sign-ins, a throttled workspace, a quota change and a failed start](images/admin-audit.png)
 
@@ -852,112 +980,11 @@ are granted in Portikus with **Promote** and **Make instructor**. Only
 single sign-on (SSO) accounts can be granted a role in Portikus; course
 accounts get theirs from the learning system. You can take away only a role
 that was granted in Portikus, and you cannot demote yourself. Instructors
-see a **Course** page for the courses they teach.
+see a **Course** page for the courses they teach; what they can do there is
+in [INSTRUCTOR-GUIDE.md](INSTRUCTOR-GUIDE.md).
 
 ## What administrators cannot see
 
 You see a workspace's CPU, memory, disk, port numbers and short process
 names. You never see a student's files, terminals, commands or prompts, and
 Portikus does not record them.
-
-## For instructors: the Course page
-
-Once you open Portikus from a course you teach in your learning system, a
-**Course** link appears in the header of your workspace. It opens the
-course's page in a new tab. The page lists everyone who has opened Portikus
-from the course, with their role, last launch and workspace state.
-
-![The Course page for CS 101, listing the instructor and the students with their workspace states](images/instructor-course.png)
-
-**Remove** takes a student off the page. Their account, workspace and files
-stay, and they come back if they open Portikus from the course again. Only
-students can be removed; instructors are changed in your learning system.
-
-### Roster sync
-
-If the learning system's registration in the platforms file has an
-`authTokenUrl` (docs/OPERATIONS.md, "The platforms file"), the Course page
-can read the course roster from the learning system. **Sync roster** reads
-it at once, and opening the page reads it again when the last try is more
-than an hour old. The page shows when it last tried and how it went.
-
-- People on the roster who have never opened Portikus show as **Not
-  started**. They have no account or workspace yet.
-- People who left the course lose their place on the Course page,
-  instructors included. Their account, workspace and files stay.
-- A roster role changes only the course role. The account's role changes
-  at the person's next launch.
-- An empty roster, or one the learning system would not send, changes
-  nothing. A roster that would leave the course with no instructor who has
-  opened Portikus is refused and changes nothing.
-
-Without an `authTokenUrl`, the page says roster sync is unavailable.
-
-**For the operator.** Portikus reaches the learning system through its
-outgoing proxy. Setup allows each platform's keyset and token hosts. The
-roster address (the memberships URL) arrives in each launch, and on some
-systems it is on another host. If so, add that host to
-`portikus_egress_extra_hosts` (`PORTIKUS_EGRESS_EXTRA_HOSTS`, see
-docs/OPERATIONS.md, "Adding a host") and run setup again, or roster sync
-reports that it could not fetch the roster.
-
-### Starter projects from the learning system (Deep Linking)
-
-An instructor can add a Portikus link to a course that drops each student
-into a starter project. The learning system must have Portikus registered
-with its Deep Linking placement turned on (in Canvas, the Link Selection
-or Assignment Selection placement; in Moodle, "Supports Deep Linking" with
-the content selection URL `https://<site>/lti/launch`).
-
-1. In the learning system, add an external tool link and choose Portikus.
-   Portikus opens in a new tab with a picker. Only instructors may use it.
-2. Choose a project template, or type a public `https://` repository
-   address. Private repositories and `ssh` addresses are not offered.
-3. Name the project, then press **Return to your course**.
-
-A student who opens the link gets the project created in their workspace
-the first time. Later launches open the same project. If the student
-already has a project of that name, Portikus opens it and never overwrites
-it; if it is archived, the student is told so.
-
-### Agent usage
-
-Instructors see coding-agent use for the people in their courses on the
-Course page, and administrators see everyone in the **Agent usage** admin
-tab. Choose the last 7, 30 or 90 days. Each person's row shows sessions,
-input, output and cache tokens, lines added and removed, and, for Claude
-Code, an estimated API cost. That cost is what the same use would cost at
-API prices, not what a subscription pays. Codex shows no cost.
-
-These are counts only. Portikus never records prompts, answers, file
-names or code. The counts come from the student's own workspace, so a
-student can change them: use them to start a conversation, never to
-grade or enforce. They are kept for 365 days. Students are told about
-them in Help.
-
-A line you may want in your acceptable-use statement (on the Settings
-tab):
-
-> Portikus counts how much you use coding agents (sessions, tokens and
-> lines changed) and shows the totals to your instructors and
-> administrators. It never records your prompts or your code.
-
-### Shared projects
-
-A student can share one project with the instructors of their courses
-from the project's menu (**Share with my instructors…**). The share is
-read-only and ends after 24 hours, when the student stops it, or when the
-project is archived. While it is open, the Course page shows a **Shared
-project** link on that student's row.
-
-The shared view shows the project's files, Git status, changes and the
-latest check results, and refreshes every 10 seconds. It never shows
-terminals, previews, downloads or anything outside the project. Files that
-often hold secrets (such as `.env`, private keys and `.git`) and links to
-other places are hidden. If the workspace is stopped, the view says so and
-does not start it.
-
-The student sees who their share reaches before starting it, gets a
-notice the first time each instructor opens it, and can see the list of
-viewers. Starting, stopping and each instructor's first view are in the
-audit log. Administrators cannot open a shared project.
