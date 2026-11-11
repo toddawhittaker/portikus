@@ -250,7 +250,11 @@
 	background: var(--surface-raised);
 	color: var(--ink);
 }
-.pk-tab[data-state="active"] > svg:first-child {
+/* A coding agent's tab carries the agent hue in its kind icon, selected or not. */
+.pk-tab--agent > svg:first-child {
+	color: var(--agent);
+}
+.pk-tab:not(.pk-tab--agent)[data-state="active"] > svg:first-child {
 	color: var(--accent);
 }
 .pk-tab[data-state="active"]::before,
@@ -328,10 +332,24 @@
 	width: 14px;
 	height: 14px;
 }
+/* Working: a ring in the agent hue with one open quarter that turns, or a whole ring when motion is reduced. */
 .pk-agent-mark--working {
 	box-sizing: border-box;
-	border: 2px solid var(--status-starting);
+	border: 2px solid var(--agent);
+	border-block-start-color: transparent;
 	border-radius: var(--radius-full);
+	animation: pk-agent-turn var(--duration-spin) linear infinite;
+}
+@keyframes pk-agent-turn {
+	to {
+		transform: rotate(1turn);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-agent-mark--working {
+		animation: none;
+		border-block-start-color: var(--agent);
+	}
 }
 .pk-agent-mark--needs-input {
 	color: var(--status-warning);
@@ -487,9 +505,9 @@
 	background: var(--surface-raised);
 	box-shadow: var(--shadow-md);
 	color: var(--ink);
-	font-size: var(--text-sm);
+	font-size: var(--text-md);
 	font-weight: 400;
-	line-height: var(--leading-sm);
+	line-height: var(--leading-md);
 	text-align: start;
 	text-transform: none;
 	white-space: normal;
@@ -509,4 +527,9 @@
 	.pk-toggletip-content {
 		animation: none;
 	}
+}
+
+/* A menu item that starts a coding agent carries the agent hue in its icon, as the agent's tab does. */
+.pk-menu svg[data-icon="agent"] {
+	color: var(--agent);
 }

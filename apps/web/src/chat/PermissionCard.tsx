@@ -17,6 +17,7 @@ import { Button, TextField } from "@portikus/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
+import { NeedsInputTag } from "./NeedsInputTag.js";
 import { toolView } from "./toolView.js";
 import { waitingText } from "./waiting.js";
 import "./permissions.css";
@@ -197,9 +198,12 @@ export function PermissionCard({
 				choose(option.id);
 			}}
 		>
-			<h2 id={titleId} className="pk-text-heading">
-				{title}
-			</h2>
+			<header className="pk-chat-card-head">
+				<h2 id={titleId} className="pk-text-heading">
+					{title}
+				</h2>
+				<NeedsInputTag />
+			</header>
 			{subtitle ? <p className="pk-chat-card-subtitle">{subtitle}</p> : null}
 			<Body card={card} />
 			<p className="pk-chat-card-error" role="alert">

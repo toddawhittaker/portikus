@@ -8,6 +8,7 @@ import {
 	TabsList,
 	TabsRoot,
 	TabsTrigger,
+	Tooltip,
 } from "@portikus/ui";
 import { type Ref, useEffect, useRef, useState } from "react";
 import { ChecksPane } from "../checks/ChecksPane.js";
@@ -316,27 +317,31 @@ function Switcher({
 	onPick: (pane: RightPane) => void;
 }) {
 	return (
-		<TabsTrigger
-			ref={buttonRef}
-			value={value}
-			className="pk-pane-tab"
-			data-testid={`right-pane-tab-${value}`}
-			// Radix selects on mouse down; a click from assistive technology arrives alone.
-			onClick={() => onPick(value)}
-			// The name shows on hover where a narrow pane hides it.
-			title={label}
-		>
-			<Icon name={SWITCHER_ICONS[value]} />
-			<span className="pk-pane-tab-label">{label}</span>
-			{count ? (
-				<>
-					{" "}
-					<span className="pk-pane-tab-count" data-testid={`right-pane-count-${value}`}>
-						{count}
-					</span>
-				</>
-			) : null}
-		</TabsTrigger>
+		// The name shows on hover and focus where a narrow pane hides it; the tab is already named by it.
+		<Tooltip content={label} decorative={true}>
+			<TabsTrigger
+				ref={buttonRef}
+				value={value}
+				className="pk-pane-tab"
+				data-testid={`right-pane-tab-${value}`}
+				// Radix selects on mouse down; a click from assistive technology arrives alone.
+				onClick={() => onPick(value)}
+			>
+				<Icon name={SWITCHER_ICONS[value]} />
+				<span className="pk-pane-tab-label">{label}</span>
+				{count ? (
+					<>
+						{" "}
+						<span
+							className="pk-pane-tab-count"
+							data-testid={`right-pane-count-${value}`}
+						>
+							{count}
+						</span>
+					</>
+				) : null}
+			</TabsTrigger>
+		</Tooltip>
 	);
 }
 

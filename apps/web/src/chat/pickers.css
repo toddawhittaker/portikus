@@ -33,6 +33,22 @@
 	flex: none;
 }
 
+/* The agent's summary wears the agent hue, as Claude's byline in the conversation does. */
+.pk-composer-options:not(.is-warning) {
+	background: var(--agent-soft);
+	color: var(--agent-text);
+	font-weight: 500;
+}
+.pk-composer-options:not(.is-warning):hover,
+.pk-composer-options:not(.is-warning)[aria-expanded="true"] {
+	background: var(--agent-soft);
+	color: var(--agent-text);
+	box-shadow: inset 0 0 0 1px var(--agent);
+}
+.pk-composer-options:not(.is-warning) > svg:first-child {
+	color: var(--agent);
+}
+
 .pk-composer-options-summary {
 	min-inline-size: 0;
 	overflow: hidden;
@@ -183,7 +199,7 @@
 	padding-inline: var(--space-2);
 	border-radius: var(--radius-sm);
 	color: var(--ink-muted);
-	font-size: 13px;
+	font-size: var(--text-xs);
 	white-space: nowrap;
 	font-variant-numeric: tabular-nums;
 }

@@ -95,8 +95,8 @@ describe("TextField", () => {
 		);
 		const withHelp = document.querySelector("label[for=a]");
 		const plain = document.querySelector("label[for=b]");
-		expect(plain?.className).toContain("leading-[18px]");
-		expect(withHelp?.parentElement?.className).toContain("h-[18px]");
+		expect(plain?.className).toContain("leading-[20px]");
+		expect(withHelp?.parentElement?.className).toContain("h-[20px]");
 		expect(withHelp?.parentElement?.className).toContain("items-center");
 	});
 

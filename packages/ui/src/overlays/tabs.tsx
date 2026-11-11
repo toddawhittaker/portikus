@@ -156,6 +156,7 @@ function TabTrigger({
 			className={[
 				"pk-tab",
 				tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
+				tab.kind === "claude" || tab.kind === "codex" ? "pk-tab--agent" : "",
 				tab.ended ? "pk-tab--ended" : "",
 				tab.unread ? "pk-tab--unread" : "",
 				sortable.isDragging ? "pk-tab--dragging" : "",

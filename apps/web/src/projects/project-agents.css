@@ -15,8 +15,9 @@
 .pk-agents[hidden] {
 	display: none;
 }
+/* A subagent's mark sits under its parent's name, with only a small step in, so its description has room. */
 .pk-agents--sub {
-	padding: var(--space-0\.5) 0 0 calc(14px + var(--space-2));
+	padding: var(--space-0\.5) 0 0 var(--space-3);
 }
 /*
  * The mark, then the name, which may take two lines before it is cut (the
@@ -48,6 +49,11 @@
 .pk-agent-row.is-current {
 	background: var(--accent-soft);
 	box-shadow: inset 2px 0 0 var(--accent);
+}
+/* An agent waiting on the student takes the needs-input fill wherever it is, so it is found at a glance. */
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--needs-input) {
+	background: var(--status-warning-soft);
+	box-shadow: inset 2px 0 0 var(--status-warning);
 }
 .pk-agent-row:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
@@ -87,4 +93,13 @@
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
+}
+/* The state line under an agent that is working or waiting takes that state's colour. */
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--needs-input)
+	.pk-agent-state {
+	color: var(--status-warning);
+	font-weight: 600;
+}
+.pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--working) .pk-agent-state {
+	color: var(--agent-text);
 }

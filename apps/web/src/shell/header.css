@@ -40,8 +40,8 @@
 	align-items: baseline;
 	gap: var(--space-2);
 	min-width: 0;
-	font-size: var(--text-sm);
-	line-height: var(--leading-sm);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	color: var(--ink-muted);
 }
 .pk-appbar-context strong {
@@ -77,7 +77,7 @@
 	background: transparent;
 	color: var(--ink);
 	font: inherit;
-	font-size: var(--text-sm);
+	font-size: var(--text-md);
 	cursor: pointer;
 	min-width: 0;
 }
@@ -221,7 +221,7 @@ button.pk-statusbar-item:focus-visible {
 	background: var(--surface-raised);
 	color: var(--ink);
 	font: inherit;
-	font-size: var(--text-sm);
+	font-size: var(--text-md);
 	cursor: pointer;
 	white-space: nowrap;
 }

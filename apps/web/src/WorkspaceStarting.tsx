@@ -1,5 +1,5 @@
 import type { PendingOperation, Workspace, WorkspaceUsage } from "@portikus/contracts";
-import { Button, Icon, NameMark, Skeleton, useToast } from "@portikus/ui";
+import { Button, Icon, Skeleton, StateArt, useToast } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { errorText as apiErrorText } from "./api/request.js";
 import { useWorkspaceAction } from "./api/workspace.js";
@@ -246,17 +246,12 @@ export function WorkspaceStarting({
 					data-phase={phase}
 					data-pending={pending ?? undefined}
 				>
-					{phase !== "error" && (
-						<div className="pk-progress-mark" aria-hidden="true">
-							<NameMark markOnly size={22} />
-						</div>
+					{phase === "error" ? (
+						<StateArt icon="alert" tone="error" />
+					) : (
+						<StateArt busy={at >= 0} />
 					)}
 					<div className="flex items-start gap-3">
-						{phase === "error" && (
-							<div className="pk-dialog-status bg-status-error-soft text-status-error">
-								<Icon name="alert" size="lg" />
-							</div>
-						)}
 						<div className="flex flex-col gap-2">
 							<div className="flex flex-col gap-2" aria-live="polite">
 								<h1

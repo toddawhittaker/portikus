@@ -8,10 +8,19 @@
 	flex: none;
 }
 
-.pk-turn-working > .pk-spin {
+.pk-turn-working > :is(.pk-spin, .pk-agent-mark) {
+	flex: none;
 	width: 14px;
 	height: 14px;
-	color: var(--status-starting);
+	color: var(--agent);
+}
+/* Nothing moves until the student answers the card below, so the line takes its amber. */
+.pk-turn-working.is-awaiting {
+	color: var(--status-warning);
+	font-weight: 500;
+}
+.pk-turn-working.is-awaiting > .pk-agent-mark {
+	color: var(--status-warning);
 }
 
 .pk-turn-doing {

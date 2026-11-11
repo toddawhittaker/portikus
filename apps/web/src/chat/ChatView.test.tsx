@@ -282,7 +282,7 @@ test("a result in a form not read is shown once, under all the questions", () =>
 	expect(screen.getByTestId("chat-asked-outcome").textContent).toBe("Answered");
 });
 
-test("the Working line says a step waits for permission while its card is open", () => {
+test("the Working line says Awaiting approval while a permission card is open", () => {
 	draw();
 	snapshot();
 	emit("turn.started", { at: Date.now() });
@@ -300,12 +300,34 @@ test("the Working line says a step waits for permission while its card is open",
 		options: [{ id: "allow", label: "Allow once" }],
 	});
 	const working = () => screen.getByTestId("chat-working").textContent ?? "";
-	expect(working()).toMatch(/^Waiting for your permission · /);
+	expect(working()).toMatch(/^Awaiting approval · /);
+	// The card's own header carries the one needs-input tag.
+	expect(
+		screen
+			.getByTestId("chat-permission-card")
+			.querySelector("[data-testid=chat-needs-input]")?.textContent,
+	).toBe("Needs your input");
 	emit("card.resolved", { id: "p1" });
 	expect(working()).toMatch(/^Running pnpm test · /);
 	// Its row says it the same way.
 	expect(screen.getByTestId("chat-tool-p1").querySelector("summary")?.textContent).toBe(
 		"Running pnpm test",
+	);
+});
+
+test("a permission card whose tool call has not arrived still reads Awaiting approval", () => {
+	draw();
+	snapshot();
+	emit("turn.started", { at: Date.now() });
+	emit("permission.requested", {
+		id: "p9",
+		toolName: "Bash",
+		title: "pytest",
+		input: { command: "pytest" },
+		options: [{ id: "allow", label: "Allow once" }],
+	});
+	expect(screen.getByTestId("chat-working").textContent).toMatch(
+		/^Awaiting approval · /,
 	);
 });
 

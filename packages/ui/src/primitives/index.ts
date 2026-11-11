@@ -20,6 +20,7 @@ export {
 } from "./Select.js";
 export { type Key, ShortcutHint, type ShortcutHintProps } from "./ShortcutHint.js";
 export { Skeleton, type SkeletonProps } from "./Skeleton.js";
+export { StateArt, type StateArtProps } from "./StateArt.js";
 export {
 	type DesiredState,
 	resolveWorkspaceState,

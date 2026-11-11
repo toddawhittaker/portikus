@@ -71,3 +71,21 @@
 .pk-chat-card-actions[hidden] {
 	display: none;
 }
+
+/* The permission card's heading and its needs-input tag sit on a tinted band across the card's top. */
+.pk-chat-card-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+	margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-3)) 0;
+	padding: var(--space-2) var(--space-3);
+	border-block-end: 1px solid var(--line);
+	border-start-end-radius: calc(var(--radius-md) - 1px);
+	background: var(--status-warning-soft);
+	color: var(--ink);
+}
+.pk-chat-card-head > h2 {
+	min-width: 0;
+}

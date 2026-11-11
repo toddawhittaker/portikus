@@ -47,8 +47,8 @@
 	background: transparent;
 	color: var(--ink);
 	font: inherit;
-	font-size: var(--text-sm);
-	line-height: var(--leading-sm);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 	text-align: left;
 	cursor: pointer;
 }

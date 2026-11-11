@@ -373,7 +373,7 @@ export function ComposerPickers({
 				data-testid="composer-options"
 				onClick={() => onOpenChange(!open)}
 			>
-				<Icon name={bypass ? "alert" : "settings"} size="sm" />
+				<Icon name={bypass ? "alert" : "agent"} size="sm" />
 				<span className="sr-only">Chat options: </span>
 				<span className="pk-composer-options-summary">
 					{shown ? summaryOf(shown) : <Skeleton width="6rem" />}

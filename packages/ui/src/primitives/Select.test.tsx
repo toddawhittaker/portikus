@@ -95,8 +95,8 @@ describe("Select", () => {
 		);
 		const withHelp = document.getElementById("a-l");
 		const plain = document.getElementById("b-l");
-		expect(plain?.className).toContain("leading-[18px]");
-		expect(withHelp?.parentElement?.className).toContain("h-[18px]");
+		expect(plain?.className).toContain("leading-[20px]");
+		expect(withHelp?.parentElement?.className).toContain("h-[20px]");
 		expect(withHelp?.parentElement?.className).toContain("items-center");
 	});
 });

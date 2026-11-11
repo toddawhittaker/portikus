@@ -125,12 +125,20 @@
 .pk-chat-author {
 	display: inline-flex;
 	align-items: center;
-	gap: var(--space-1\.5);
+	gap: var(--space-2);
 	margin: 0;
-	color: var(--ink-muted);
-	font-size: var(--text-sm);
-	line-height: var(--leading-sm);
+	color: var(--agent-text);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 	font-weight: 600;
+}
+/* Claude's mark: the agent glyph in a small round of the agent hue. */
+.pk-chat-author > .pk-icon {
+	box-sizing: content-box;
+	padding: var(--space-1);
+	border-radius: var(--radius-full);
+	background: var(--agent-soft);
+	color: var(--agent);
 }
 
 /* The shared Markdown look, without the document's own scroll box, and with
@@ -293,7 +301,7 @@ details[open] > summary > .pk-chat-chevron {
 	padding-inline: var(--space-2) var(--space-3);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-sm);
-	font-size: var(--text-sm);
+	font-size: var(--text-md);
 }
 
 .pk-chat-worked-summary:hover {
@@ -344,7 +352,7 @@ details[open] > summary > .pk-chat-chevron {
 	min-block-size: var(--size-control-sm);
 	padding-inline: var(--space-1) var(--space-2);
 	border-radius: var(--radius-sm);
-	font-size: var(--text-sm);
+	font-size: var(--text-md);
 }
 
 .pk-chat-tool-summary:hover {
@@ -477,7 +485,7 @@ details[open] > summary > .pk-chat-chevron {
 	background: var(--surface-sunken);
 	color: var(--ink);
 	font-family: var(--font-mono);
-	font-size: 12.5px;
+	font-size: var(--text-sm);
 	line-height: 1.5;
 	font-variant-ligatures: none;
 	white-space: pre-wrap;
@@ -650,30 +658,6 @@ details[open] > summary > .pk-chat-chevron {
 	container: pk-chat-card / inline-size;
 }
 
-/* The permission card's heading sits on a tinted band across the card's top. */
-.pk-chat-card:not(.pk-chat-qcard) > h2:first-child {
-	margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-3)) 0;
-	padding: var(--space-2) var(--space-3);
-	border-block-end: 1px solid var(--line);
-	border-start-end-radius: calc(var(--radius-md) - 1px);
-	background: var(--status-warning-soft);
-	color: var(--ink);
-}
-
-.pk-chat-needs {
-	display: flex;
-	align-items: center;
-	justify-self: start;
-	gap: var(--space-1\.5);
-	margin: 0;
-	padding: var(--space-0\.5) var(--space-2);
-	border-radius: var(--radius-sm);
-	background: var(--status-warning-soft);
-	color: var(--status-warning);
-	font-size: 12px;
-	font-weight: 600;
-}
-
 .pk-chat-card-subtitle {
 	margin: 0;
 	color: var(--ink-muted);
@@ -683,7 +667,7 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-card-path {
 	margin: 0;
 	color: var(--ink-muted);
-	font-size: 12.5px;
+	font-size: var(--text-sm);
 	overflow-wrap: anywhere;
 }
 
@@ -715,7 +699,7 @@ details[open] > summary > .pk-chat-chevron {
 .pk-chat-card-waiting {
 	margin: 0 0 0 auto;
 	color: var(--ink-muted);
-	font-size: var(--text-sm);
+	font-size: var(--text-md);
 }
 
 .pk-chat-plan {

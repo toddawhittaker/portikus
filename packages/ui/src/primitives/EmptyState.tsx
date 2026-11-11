@@ -1,6 +1,7 @@
 import type * as React from "react";
 import { cx } from "./cx.js";
-import { Icon, type IconName } from "./Icon.js";
+import type { IconName } from "./Icon.js";
+import { StateArt } from "./StateArt.js";
 
 export interface EmptyStateProps {
 	icon?: IconName;
@@ -25,11 +26,7 @@ export function EmptyState({
 				className,
 			)}
 		>
-			{icon ? (
-				<div className="pk-empty-icon mb-2 grid size-12 place-items-center rounded-lg bg-accent-soft text-accent [&_svg]:size-6">
-					<Icon name={icon} size="lg" />
-				</div>
-			) : null}
+			{icon ? <StateArt icon={icon} /> : null}
 			<h3 className="pk-empty-title m-0 text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
 				{title}
 			</h3>

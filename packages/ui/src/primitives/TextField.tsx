@@ -4,7 +4,7 @@ import { FieldMessages, fieldDescribedBy } from "./FieldMessages.js";
 
 export { HINT_CLASS } from "./FieldMessages.js";
 export const FIELD_CLASS = "pk-field grid gap-1.5";
-export const LABEL_CLASS = "pk-label text-[13px] font-medium leading-[18px] text-ink";
+export const LABEL_CLASS = "pk-label text-[14px] font-medium leading-[20px] text-ink";
 /** A control's look without its width, for a control that sets its own. */
 const CONTROL_SURFACE_CLASS =
 	"pk-focus-ring box-border h-[var(--pk-control)] rounded-sm border border-line-strong bg-surface-raised px-[var(--pk-pad)] text-[length:var(--pk-font)] text-ink hover:border-ink-muted";
@@ -114,7 +114,7 @@ export function UnitInput({ unit, id, ...rest }: UnitInputProps): React.ReactEle
  * 18px line and the 24px button overflows it evenly, so a field with help lines
  * up with one without (the target stays 24px, WCAG 2.5.8).
  */
-const LABEL_ROW_CLASS = "flex h-[18px] min-w-0 items-center gap-1";
+const LABEL_ROW_CLASS = "flex h-[20px] min-w-0 items-center gap-1";
 
 /** The label row: the label, then a help button beside it when there is one. */
 export function FieldLabel({
