@@ -18,6 +18,14 @@
 a.pk-namemark { color: var(--ink); text-decoration: none; }
 .pk-num { font-variant-numeric: tabular-nums; }
 
+/* Menus and dialogs render into the body, so it takes the app's base type and ink (apps/web/src/app.css). */
+body:has(.pk-root) { font-family: var(--font-sans); font-size: 14px; line-height: 20px; color: var(--ink); }
+
+/* Artboard root, and the sort button in a table head (the design system bundle no longer defines these). */
+.pk-root { font-family: var(--font-sans); font-size: var(--pk-font); line-height: var(--pk-leading); color: var(--ink); background: var(--surface); -webkit-font-smoothing: antialiased; }
+.pk-table-sort { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.pk-table-sort:focus-visible { outline: var(--ring-width) solid var(--focus); outline-offset: var(--ring-offset-inset); }
+
 /* Canvas-only helper: draws the focus-visible ring on a static comp. Not for export. */
 .is-focus-demo { outline: var(--ring-width) solid var(--focus) !important; outline-offset: var(--ring-offset) !important; }
 .is-focus-demo-inset { outline: var(--ring-width) solid var(--focus) !important; outline-offset: var(--ring-offset-inset) !important; }
@@ -193,8 +201,8 @@ a.pk-namemark { color: var(--ink); text-decoration: none; }
 .pk-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 var(--space-1\.5); border-radius: var(--radius-sm); background: var(--surface-sunken); border: 1px solid var(--line); color: var(--ink-muted); font-size: 12px; font-weight: 500; }
 .pk-tag--warning { background: var(--status-warning-soft); border-color: transparent; color: var(--status-warning); }
 .pk-detail { flex: none; width: 380px; display: flex; flex-direction: column; overflow: auto; }
-.pk-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-4); }
-.pk-detail-section { display: grid; gap: var(--space-3); padding: var(--space-4); border-top: 1px solid var(--line); }
+.pk-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.pk-detail-section { display: grid; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
 .pk-dl { display: grid; grid-template-columns: max-content 1fr; column-gap: var(--space-4); row-gap: var(--space-1); margin: 0; font-size: 13px; line-height: 18px; }
 .pk-dl dt { color: var(--ink-muted); }
 .pk-dl dd { margin: 0; }

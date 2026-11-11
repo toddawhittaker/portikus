@@ -61,7 +61,7 @@
       <a class="pk-list-row" href="#"><x-import component-from-global-scope="Portikus.Icon" name="folder" size="md"></x-import><span class="pk-list-label">Archived projects</span><span class="pk-list-meta">2</span><x-import component-from-global-scope="Portikus.Icon" name="chevron-right" size="sm"></x-import></a>
     </div>
   </nav>
-<x-import component-from-global-scope="Portikus.PaneHandle" orientation="vertical" label="Resize project list"></x-import>
+<div class="pk-handle" role="separator" tabindex="0" aria-label="Resize project list" aria-orientation="vertical" data-orientation="vertical" data-separator="inactive" data-component="PaneHandle"><span class="pk-handle-grip"></span></div>
   <main class="pk-work" aria-label="Work area">
     <div class="pk-notice pk-notice--warning" role="status" aria-live="polite" data-component="DisconnectNotice">
       <span class="pk-notice-icon"><x-import component-from-global-scope="Portikus.Icon" name="alert" size="md"></x-import></span>
@@ -72,7 +72,7 @@
       <div class="pk-notice-actions"><x-import component-from-global-scope="Portikus.Button" variant="secondary" size="sm" class-name="is-focus-demo">Reconnect now</x-import></div>
     </div>
     <div style="position: relative; flex: none;">
-      <x-import component-from-global-scope="Portikus.Tabs" tabs="{{tabs}}" active-id="t1" label="Open tabs in todo-api" launcher-open="{{launcher}}"></x-import>
+      <x-import component-from-global-scope="Portikus.Tabs" tabs="{{tabs}}" active-id="t1" label="Open tabs in todo-api"></x-import>
       
     </div>
     <div role="tabpanel" aria-label="zsh — todo-api" class="pk-termgroup">
@@ -102,7 +102,7 @@
         <div class="pk-term-line"><span class="ansi-green">student@portikus</span>:<span class="ansi-blue">~/projects/todo-api</span>$ <span class="pk-term-cursor pk-term-cursor--idle" aria-hidden="true"></span></div>
       </div>
     </section>
-    <x-import component-from-global-scope="Portikus.PaneHandle" orientation="horizontal" label="Resize terminal split" value="{{62}}" min="{{20}}" max="{{80}}"></x-import>
+    <div class="pk-handle" role="separator" tabindex="0" aria-label="Resize terminal split" aria-orientation="horizontal" aria-valuenow="62" aria-valuemin="20" aria-valuemax="80" data-orientation="horizontal" data-separator="inactive" data-component="PaneHandle"><span class="pk-handle-grip"></span></div>
     <section class="pk-term" aria-label="Terminal: npm run dev · ~/projects/todo-api" data-component="TerminalPane" style="flex-grow: 38;">
       <div class="pk-term-bar">
         <span class="pk-term-bar-title">npm run dev · ~/projects/todo-api</span>
@@ -123,7 +123,7 @@
     </section>
     </div>
   </main>
-<x-import component-from-global-scope="Portikus.PaneHandle" orientation="vertical" label="Resize file tree"></x-import>
+<div class="pk-handle" role="separator" tabindex="0" aria-label="Resize file tree" aria-orientation="vertical" data-orientation="vertical" data-separator="inactive" data-component="PaneHandle"><span class="pk-handle-grip"></span></div>
   <aside class="pk-pane" aria-label="Files" data-component="FileTree" style="width: 280px; border-left: 1px solid var(--line);">
     <div class="pk-pane-head">
       <h2 class="pk-pane-title">Files</h2>
