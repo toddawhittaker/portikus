@@ -371,7 +371,8 @@ test("a step still running when the student sends stays on the Working line unti
 	releaseReplies();
 	await expect(view.getByText("This is a canned reply.")).toBeVisible();
 	await expect(working).toHaveCount(1);
-	await expect(working).toHaveText(/^Working \d+m \d+s$/);
+	// The fake's permission card is still open, so the new turn waits on it.
+	await expect(working).toHaveText(/^Awaiting approval · \d+m \d+s$/);
 	await expect(folds).toHaveCount(foldsBefore + 1);
 	expect(await isAfter(sent, working)).toBe(true);
 });

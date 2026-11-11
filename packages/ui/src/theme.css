@@ -59,7 +59,7 @@
 	--surface-selected: #cce9e2;
 	/* The picked-out row in a right-pane list: a tonal shift of the pane, and
 	   never green, which belongs to the passed badge and Git added. */
-	--surface-row-selected: #dcefea;
+	--surface-row-selected: #e9dfcb;
 	--surface-inverse: #2a2723;
 	--surface-inverse-hover: #3d3933;
 	--line: #e2dacb;
@@ -89,7 +89,7 @@
 	--focus-on-dark: #5fc3cf;
 	--focus: var(--focus-on-light);
 	/* The bar that marks the current row in the right pane's lists. */
-	--row-current-bar: inset 2px 0 0 var(--accent);
+	--row-current-bar: inset 2px 0 0 var(--ink);
 	--scrim: #1a18154d;
 	--status-provisioning: #3a5fa8;
 	--status-provisioning-soft: #dce6f8;
@@ -207,7 +207,7 @@
 	--surface-sunken: #141312;
 	--surface-hover: #2f2d29;
 	--surface-selected: #183f3a;
-	--surface-row-selected: #183f3a;
+	--surface-row-selected: #37322a;
 	--surface-inverse: #f0ebe1;
 	--surface-inverse-hover: #d9d3c7;
 	--line: #36332e;
@@ -265,7 +265,7 @@
 		--surface-sunken: #141312;
 		--surface-hover: #2f2d29;
 		--surface-selected: #183f3a;
-		--surface-row-selected: #183f3a;
+		--surface-row-selected: #37322a;
 		--surface-inverse: #f0ebe1;
 		--surface-inverse-hover: #d9d3c7;
 		--line: #36332e;

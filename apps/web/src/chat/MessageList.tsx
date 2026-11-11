@@ -633,22 +633,23 @@ const AWAITING_APPROVAL = "Awaiting approval";
 
 /**
  * The step in hand: the newest running tool, in the words of its row, or a
- * reply being written; null when neither, as between steps. An open
- * permission card outranks them all, as nothing moves until it is answered.
+ * reply being written, or else the wait for approval; null when none, as
+ * between steps.
  */
 function doingNow(
 	items: readonly ChatItem[],
 	asking: ReadonlySet<string>,
 ): string | null {
-	if (asking.size > 0) return AWAITING_APPROVAL;
 	for (let at = items.length - 1; at >= 0; at--) {
 		const item = items[at] as ChatItem;
 		if (item.kind === "message" && item.streaming) return "Writing a reply";
 		if (item.kind !== "tool" || item.status !== "running") continue;
 		if (item.name === "AskUserQuestion") return "Waiting for your answer";
+		if (asking.has(item.id)) return AWAITING_APPROVAL;
 		return doingLine(item);
 	}
-	return null;
+	// Nothing moves while a permission card waits, even one whose tool call has not arrived.
+	return asking.size > 0 ? AWAITING_APPROVAL : null;
 }
 
 /** Ticks once a second; only this line renders as it does. */
