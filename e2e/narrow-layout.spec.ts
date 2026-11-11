@@ -77,10 +77,10 @@ async function tabTo(page: Page, target: Locator, limit = 80): Promise<void> {
 
 /** The header buttons that open the side panes as drawers below 56rem (SPEC.md section 8.1). */
 function projectsButton(page: Page): Locator {
-	return page.getByRole("button", { name: "Projects", exact: true });
+	return page.getByRole("button", { name: "Show projects", exact: true });
 }
 function filesButton(page: Page): Locator {
-	return page.getByRole("button", { name: "Files", exact: true });
+	return page.getByRole("button", { name: "Show files", exact: true });
 }
 
 async function openDrawer(page: Page, name: "Projects" | "Files"): Promise<void> {

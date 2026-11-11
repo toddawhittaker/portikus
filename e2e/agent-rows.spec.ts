@@ -300,7 +300,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 				},
 			]);
 
-			await page.getByRole("button", { name: "Projects", exact: true }).click();
+			await page.getByRole("button", { name: "Show projects", exact: true }).click();
 			const drawer = page.getByRole("dialog", { name: "Projects" });
 			const rows = drawer.getByRole("list", {
 				name: "Agents in A project with a long name for a narrow drawer",

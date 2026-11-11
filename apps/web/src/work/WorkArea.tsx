@@ -305,6 +305,17 @@ export function WorkArea({
 		);
 	}
 
+	/** A fresh chat in an ended chat's place; the ended record stays in the history. */
+	async function newChat(terminalId: string) {
+		await createAndPlace(
+			(created) => {
+				store.getState().replaceLeaf(terminalId, created.id);
+				store.getState().setFocused(created.id);
+			},
+			{ kind: "chat", agent: "claude" },
+		);
+	}
+
 	async function replace(terminalId: string) {
 		await createAndPlace((created) => {
 			store.getState().replaceLeaf(terminalId, created.id);
@@ -622,6 +633,7 @@ export function WorkArea({
 							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
 							onResume={(id) => void resume(id)}
+							onNewChat={(id) => void newChat(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onShowRunning={() => showRightPane("running")}
 							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}

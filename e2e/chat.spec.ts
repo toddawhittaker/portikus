@@ -571,6 +571,46 @@ test("a card whose answer was lost with the connection can be answered after the
 	expect(answers).toEqual([{ type: "permission.answer", id: "p1", optionId: "allow" }]);
 });
 
+test("an ended chat offers New chat first, which starts a fresh chat in its place", async ({
+	page,
+	context,
+}) => {
+	test.setTimeout(90_000);
+	const { student, project, id } = await makeChatTab(page, context);
+	await waitForSavedLeaf(project.id, id);
+	await endTerminal(id);
+	await page.reload();
+	const ended = page.getByTestId(`terminal-ended-${id}`);
+	await expect(ended).toContainText("This chat ended when the workspace stopped");
+	await expect(ended.getByRole("button")).toHaveText([
+		"New chat",
+		"Resume chat",
+		"New terminal here",
+	]);
+	await expect(ended).toContainText("reloads the earlier conversation");
+	await expectNoViolations(page);
+	const posted = page.waitForRequest(
+		(request) => request.method() === "POST" && request.url().includes("/terminals"),
+	);
+	await page.getByRole("button", { name: "New chat" }).click();
+	expect((await posted).postDataJSON()).toEqual({
+		projectId: project.id,
+		kind: "chat",
+		agent: "claude",
+	});
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(2);
+	const next = (await terminalIds(student.workspaceId, project.id)).find(
+		(each) => each !== id,
+	);
+	const view = page.getByTestId(`chat-view-${next}`);
+	await expect(view).toBeVisible({ timeout: 15_000 });
+	await expect(view.getByTestId("chat-composer-input")).toBeFocused();
+	await expect(page.getByTestId(`terminal-ended-${id}`)).toHaveCount(0);
+	await expect(page.getByRole("tab", { name: /Claude Code \(GUI\)/ })).toHaveCount(1);
+});
+
 test("Resume continues an ended chat in a new chat in its place", async ({
 	page,
 	context,
