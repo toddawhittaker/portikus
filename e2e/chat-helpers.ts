@@ -54,6 +54,9 @@ export async function launchChat(page: Page, workspaceId: string, projectId: str
 	const view = page.getByTestId(`chat-view-${id}`);
 	await expect(view).toBeVisible({ timeout: 15_000 });
 	await expect(view.getByTestId("chat-composer-input")).toBeVisible();
+	// The box takes typing before the socket opens; a send then is refused as
+	// not connected. The Model picker is drawn from the host's settings frame.
+	await expect(view.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
 	return { id, view };
 }
 
