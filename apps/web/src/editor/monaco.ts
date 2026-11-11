@@ -124,10 +124,9 @@ export const baseEditorOptions: Monaco.editor.IEditorOptions &
 	fontFamily: '"JetBrains Mono", ui-monospace, monospace',
 	fontSize: BASE_FONT_SIZE,
 	// The stock Monaco reading aids are on (SPEC.md §13.2, DESIGN.md "The
-	// editor"): folding, bracket pair colouring and bracket match. The minimap
-	// is too small to read at this font size; the overview ruler in the
-	// scrollbar marks changes, warnings and errors instead.
-	minimap: { enabled: false },
+	// editor"): minimap, folding, bracket pair colouring and bracket match.
+	// The overview ruler beside the minimap marks changes, warnings and errors.
+	minimap: { enabled: true },
 	overviewRulerBorder: false,
 	overviewRulerLanes: 3,
 	hideCursorInOverviewRuler: true,
@@ -214,6 +213,18 @@ function defineThemes(monaco: typeof Monaco): void {
 			"scrollbarSlider.hoverBackground": "#a89f8ce6",
 			"scrollbarSlider.activeBackground": "#8d8472",
 			"scrollbar.shadow": "#00000000",
+			// The minimap sits on the editor ground with the scrollbar's slider.
+			"minimap.background": `#${EDITOR_BACKGROUNDS.light.ground}`,
+			"minimapSlider.background": "#c1b9a866",
+			"minimapSlider.hoverBackground": "#a89f8c80",
+			"minimapSlider.activeBackground": "#8d847299",
+			"minimap.selectionHighlight": "#2c6a6680",
+			"minimap.findMatchHighlight": "#2c6a66",
+			"minimap.errorHighlight": "#a4342a",
+			"minimap.warningHighlight": "#855b00",
+			"minimapGutter.addedBackground": "#2a6630",
+			"minimapGutter.modifiedBackground": "#7a5300",
+			"minimapGutter.deletedBackground": "#a4342a",
 			// The scrollbar's ticks: the Git and problem colours of theme.css.
 			"editorOverviewRuler.background": "#00000000",
 			"editorOverviewRuler.border": "#00000000",
@@ -250,6 +261,17 @@ function defineThemes(monaco: typeof Monaco): void {
 			"scrollbarSlider.hoverBackground": "#615c52e6",
 			"scrollbarSlider.activeBackground": "#7a7466",
 			"scrollbar.shadow": "#00000000",
+			"minimap.background": `#${EDITOR_BACKGROUNDS.dark.ground}`,
+			"minimapSlider.background": "#4b473f66",
+			"minimapSlider.hoverBackground": "#615c5280",
+			"minimapSlider.activeBackground": "#7a746699",
+			"minimap.selectionHighlight": "#7cc2b980",
+			"minimap.findMatchHighlight": "#7cc2b9",
+			"minimap.errorHighlight": "#f0998f",
+			"minimap.warningHighlight": "#e3b85c",
+			"minimapGutter.addedBackground": "#86c98b",
+			"minimapGutter.modifiedBackground": "#e3b85c",
+			"minimapGutter.deletedBackground": "#f0998f",
 			"editorOverviewRuler.background": "#00000000",
 			"editorOverviewRuler.border": "#00000000",
 			"editorOverviewRuler.modifiedForeground": "#e3b85c",

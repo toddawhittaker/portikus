@@ -1,8 +1,19 @@
 import type * as Monaco from "monaco-editor";
 import { expect, test, vi } from "vitest";
-import { accessibilitySupport, editorAriaLabel, fenceLanguage } from "./monaco.js";
+import {
+	accessibilitySupport,
+	baseEditorOptions,
+	editorAriaLabel,
+	fenceLanguage,
+} from "./monaco.js";
 
 vi.mock("./features.js", () => ({ loadEditorFeatures: async () => {} }));
+
+/** SPEC.md §13.2 names the minimap among the editor's reading aids. */
+test("every editor shows the minimap beside the overview ruler", () => {
+	expect(baseEditorOptions.minimap?.enabled).toBe(true);
+	expect(baseEditorOptions.overviewRulerLanes).toBe(3);
+});
 
 /**
  * "off" would make Monaco name its text box "The editor is not accessible at
