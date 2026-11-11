@@ -5,7 +5,7 @@ import {
 	poolFillPercent,
 	WorkspaceState,
 } from "@portikus/contracts";
-import { Skeleton, Toggletip } from "@portikus/ui";
+import { Icon, Skeleton, Toggletip } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ApiError } from "../../api/request.js";
@@ -38,7 +38,8 @@ export function sampleAge(sampledAt: string, now: number): string {
 const HEALTH_INTRO = {
 	id: "admin-health",
 	helpAnchor: "admin-health",
-	text: "How the platform is doing right now and over time. Look here first when students report slow or failing workspaces.",
+	lead: "How the platform is doing right now and over time.",
+	text: "Look here first when students report slow or failing workspaces.",
 };
 
 /** A figure's name with its help button; the negative margin keeps the 24 px button from growing the row. */
@@ -104,19 +105,22 @@ export function stateRows(byState: HealthReport["workspacesByState"]) {
 	}));
 }
 
-/** A card in the At a glance row: an h4 title, then its figures. */
+/** A card in the At a glance grid: an h4 title, then its figures. */
 function GlanceCard({
 	id,
 	title,
+	className = "",
 	children,
 }: {
 	id: string;
 	title: string;
+	/** Placement in the grid, or the attention border. */
+	className?: string;
 	children: ReactNode;
 }) {
 	return (
 		<section
-			className="pk-card flex min-w-0 flex-col gap-3 p-5"
+			className={`pk-card flex min-w-0 flex-col gap-3 p-5 ${className}`}
 			aria-labelledby={`health-${id}-title`}
 		>
 			<h4 className="pk-text-compact m-0 font-semibold" id={`health-${id}-title`}>
@@ -129,9 +133,11 @@ function GlanceCard({
 
 /**
  * Top to bottom (SPEC.md section 25.6): the worker-stale banner; At a
- * glance, four cards that sit side by side when there is room (Platform,
- * Resource guard, Failures in the last 24 hours, Workspaces by state);
- * then the Trends card.
+ * glance, four cards in a grid (Platform, Failures in the last 24 hours,
+ * Workspaces by state, Resource guard), Platform two columns wide when there
+ * is room so its figures stay on one line; then the Trends card. A throttled
+ * or flagged workspace is the one thing to act on, so the guard's card then
+ * comes first, across the whole grid.
  */
 export function HealthView({
 	report,
@@ -143,6 +149,13 @@ export function HealthView({
 	trends?: ReactNode;
 }) {
 	const { host } = report;
+	const guardFirst = guardRows(report.guard).length > 0;
+	const guard = <GuardList guard={report.guard} />;
+	const counts = Object.entries(COUNT_LABELS).map(
+		([key, label]) =>
+			[key, label, report.last24h[key as keyof HealthReport["last24h"]]] as const,
+	);
+	const noFailures = counts.every(([, , count]) => count === 0);
 	return (
 		<div className="flex flex-col gap-6" data-testid="health">
 			{report.workerStale ? (
@@ -169,15 +182,21 @@ export function HealthView({
 			) : null}
 
 			<section className="flex flex-col gap-3" aria-labelledby="health-glance-title">
-				<h3 className="pk-text-heading m-0" id="health-glance-title">
+				<h3 className="pk-text-heading" id="health-glance-title">
 					At a glance
 				</h3>
 				<div
-					className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] items-start gap-4"
+					className="@container grid grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] items-start gap-4"
 					data-testid="health-glance"
 				>
-					<GlanceCard id="platform" title="Platform">
-						<dl className="pk-dl">
+					{guardFirst ? guard : null}
+					<GlanceCard
+						id="platform"
+						title="Platform"
+						// Two 260 px tracks and their gap, so at 1280 px all three share a row.
+						className="@min-[33.5rem]:col-span-2"
+					>
+						<dl className="pk-dl tabular-nums">
 							<dt>Controller</dt>
 							<dd data-testid="health-controller">
 								{report.controller.reachable
@@ -278,19 +297,29 @@ export function HealthView({
 						</dl>
 					</GlanceCard>
 
-					<GuardList guard={report.guard} />
-
 					<GlanceCard id="counts" title="Failures, last 24 hours">
+						{noFailures ? (
+							<p
+								className="m-0 flex items-center gap-1.5 text-status-running"
+								data-testid="health-counts-none"
+							>
+								<Icon name="check" size="sm" />
+								No failures in the last 24 hours
+							</p>
+						) : null}
 						<table className="pk-table" data-testid="health-counts">
 							<caption className="sr-only">Failures in the last 24 hours</caption>
 							<tbody>
-								{Object.entries(COUNT_LABELS).map(([key, label]) => (
+								{counts.map(([key, label, count]) => (
 									<tr key={key}>
 										<th scope="row" className="whitespace-normal">
 											{label}
 										</th>
-										<td className="pk-num">
-											{report.last24h[key as keyof HealthReport["last24h"]]}
+										{/* A failure is the figure to look at; a zero steps back. */}
+										<td
+											className={`pk-num ${count > 0 ? "font-semibold text-status-error" : "text-ink-muted"}`}
+										>
+											{count}
 										</td>
 									</tr>
 								))}
@@ -317,6 +346,8 @@ export function HealthView({
 							</tbody>
 						</table>
 					</GlanceCard>
+					{/* With nothing to act on, the guard's all-clear comes last. */}
+					{guardFirst ? null : guard}
 				</div>
 			</section>
 
@@ -357,12 +388,17 @@ export function guardRows(guard: HealthReport["guard"]) {
 
 /**
  * Throttled and memory-flagged workspaces, each linking to its detail panel
- * (ADR 0032). Two columns, so the list fits a quarter-width card.
+ * (ADR 0032).
  */
 function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 	const rows = guardRows(guard);
 	return (
-		<GlanceCard id="guard" title="Resource guard">
+		<GlanceCard
+			id="guard"
+			title="Resource guard"
+			// Something to act on: across the grid, with the attention border.
+			className={rows.length > 0 ? "pk-card--attention col-span-full" : ""}
+		>
 			{rows.length === 0 ? (
 				<p className="pk-muted m-0 text-[13px]" data-testid="health-guard-empty">
 					No workspace is throttled or flagged.

@@ -12,8 +12,8 @@
 	background: var(--surface-raised);
 	box-shadow: var(--shadow-md);
 	color: var(--ink);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 }
 .pk-agent-popover:not(:popover-open) {
 	display: none;
@@ -43,7 +43,17 @@
 	margin: 0;
 	color: var(--ink-muted);
 }
-/* The reset day and time beside the bar; it wraps with the button's text when the bar is narrow. */
-.pk-agent-resets {
-	color: var(--ink-muted);
+
+/* A plan meter is the agents' own figure, so its fill takes the agent hue while it is clear. */
+.pk-statusbar-meter[data-kind="plan"] .pk-meter-bar::-webkit-meter-optimum-value {
+	background: var(--agent);
+}
+.pk-statusbar-meter[data-kind="plan"] .pk-meter-bar::-moz-meter-bar {
+	background: var(--agent);
+}
+.pk-statusbar-meter[data-kind="plan"]
+	.pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-statusbar-meter[data-kind="plan"]
+	.pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-warning);
 }

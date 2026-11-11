@@ -1,8 +1,19 @@
 import type * as Monaco from "monaco-editor";
 import { expect, test, vi } from "vitest";
-import { accessibilitySupport, editorAriaLabel, fenceLanguage } from "./monaco.js";
+import {
+	accessibilitySupport,
+	baseEditorOptions,
+	editorAriaLabel,
+	fenceLanguage,
+} from "./monaco.js";
 
 vi.mock("./features.js", () => ({ loadEditorFeatures: async () => {} }));
+
+/** SPEC.md §13.2: a scrollbar with change and problem marks, not a minimap. */
+test("every editor marks changes and problems in the scrollbar, with no minimap", () => {
+	expect(baseEditorOptions.minimap?.enabled).toBe(false);
+	expect(baseEditorOptions.overviewRulerLanes).toBe(3);
+});
 
 /**
  * "off" would make Monaco name its text box "The editor is not accessible at

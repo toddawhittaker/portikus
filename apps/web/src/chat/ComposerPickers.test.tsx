@@ -26,6 +26,8 @@ let accept: boolean;
 let announced: string[];
 let switched: boolean[];
 let readingAloud: boolean;
+let panelOpen: boolean;
+let toggled: boolean[];
 let store: ChatStore;
 let rerender: (
 	settings: ChatState["settings"],
@@ -45,6 +47,8 @@ function draw(settings: ChatState["settings"] = START) {
 				}}
 				onAnnounce={(text) => announced.push(text)}
 				readAloud={{ on: readingAloud, set: (next) => switched.push(next) }}
+				open={panelOpen}
+				onOpenChange={(next) => toggled.push(next)}
 			/>
 			<p id="bypass-warning">{BYPASS_WARNING}</p>
 		</>
@@ -56,15 +60,6 @@ function draw(settings: ChatState["settings"] = START) {
 
 function picker(name: string): HTMLElement {
 	return screen.getByRole("button", { name: new RegExp(`^${name} `) });
-}
-
-/** What a screen reader would read as the description of `el`. */
-function describedText(el: HTMLElement): string {
-	return (el.getAttribute("aria-describedby") ?? "")
-		.split(" ")
-		.map((id) => document.getElementById(id)?.textContent ?? "")
-		.join(" ")
-		.trim();
 }
 
 function open(name: string): HTMLElement {
@@ -84,6 +79,8 @@ beforeEach(() => {
 	announced = [];
 	switched = [];
 	readingAloud = false;
+	panelOpen = true;
+	toggled = [];
 });
 
 test("each picker is a menu button named by its label and the value shown", () => {
@@ -221,18 +218,44 @@ test("an unknown model shows as Default, and the pickers wait with their labels 
 	expect(picker("Model").textContent).toBe("Model Default");
 });
 
-test("the narrow form hides words by CSS only: every button keeps its prefix in its name", () => {
-	draw({ ...START, effort: "xhigh", mode: "bypassPermissions" });
-	// No native title: it shows on mouse hover only (SPEC.md §25.8).
-	expect(picker("Agent").hasAttribute("title")).toBe(false);
-	expect(picker("Effort").textContent).toBe("Effort Extra high");
-	expect(picker("Permissions").textContent).toBe("Permissions Bypass permissions");
-	// The agent's short form is the visible part; the rest is its own hideable span.
-	const value = picker("Agent").querySelector(".pk-picker-value");
-	expect(value?.firstChild?.textContent).toBe("Claude");
-	expect(value?.querySelector(".pk-picker-more")?.textContent).toBe(" Code");
-	// Values with no short form are not split.
-	expect(picker("Model").querySelector(".pk-picker-more")).toBeNull();
+test("the Options button summarises the settings and says whether the panel is open", () => {
+	panelOpen = false;
+	draw({ ...START, model: "claude-opus-4-1", effort: "xhigh", mode: "plan" });
+	const options = screen.getByTestId("composer-options");
+	expect(options.textContent).toBe("Chat options: Opus \u00b7 Extra high \u00b7 Plan");
+	expect(options.getAttribute("aria-expanded")).toBe("false");
+	const panel = screen.getByTestId("composer-picks");
+	expect(options.getAttribute("aria-controls")).toBe(panel.id);
+	expect(panel.hidden).toBe(true);
+	fireEvent.click(options);
+	expect(toggled).toEqual([true]);
+});
+
+test("the summary names the agent for the default model, and Bypass shows on it", () => {
+	panelOpen = false;
+	draw({ ...START, model: "default", mode: "bypassPermissions" });
+	const options = screen.getByTestId("composer-options");
+	expect(options.textContent).toBe(
+		"Chat options: Claude \u00b7 High \u00b7 Bypass permissions",
+	);
+	expect(options.classList.contains("is-warning")).toBe(true);
+});
+
+test("Escape in the open panel closes it and puts focus on the Options button", () => {
+	draw();
+	const effort = picker("Effort");
+	act(() => effort.focus());
+	fireEvent.keyDown(effort, { key: "Escape" });
+	expect(toggled).toEqual([false]);
+	expect(document.activeElement).toBe(screen.getByTestId("composer-options"));
+});
+
+test("a press outside the open panel closes it; a press inside does not", () => {
+	draw();
+	fireEvent.pointerDown(screen.getByText("Chat options", { selector: "legend" }));
+	expect(toggled).toEqual([]);
+	fireEvent.pointerDown(document.body);
+	expect(toggled).toEqual([false]);
 });
 
 test("Codex is shown, reachable and not choosable, and the agent picker sends nothing", () => {
@@ -298,22 +321,6 @@ test("Ask with no session rules shows no hint", () => {
 	holdRules([]);
 	expect(screen.queryByText(ASK_RULES_HINT)).toBeNull();
 	expect(picker("Permissions").getAttribute("aria-describedby")).toBeNull();
-});
-
-test("a picker's tooltip gives the full label on keyboard focus and describes nothing", async () => {
-	draw({ ...START, effort: "xhigh", mode: "bypassPermissions" });
-	const effort = picker("Effort");
-	act(() => effort.focus());
-	await screen.findByText("Effort Extra high", { selector: ".pk-tooltip" });
-	// The name already says it; a description would be read twice.
-	expect(describedText(effort)).toBe("");
-	// A picker with a description of its own keeps only that one.
-	const mode = picker("Permissions");
-	act(() => mode.focus());
-	await screen.findByText("Permissions Bypass permissions", {
-		selector: ".pk-tooltip",
-	});
-	expect(describedText(mode)).toBe(BYPASS_WARNING);
 });
 
 test("each menu opens with a visible heading naming what it sets", () => {

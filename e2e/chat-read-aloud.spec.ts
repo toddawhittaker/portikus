@@ -1,5 +1,5 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { makeChatTab, scriptedChat } from "./chat-helpers";
+import { makeChatTab, openChatOptions, scriptedChat } from "./chat-helpers";
 import { expectNoViolations, newTerminal, query } from "./helpers";
 
 /**
@@ -138,7 +138,7 @@ async function openChat(
 	await page.reload();
 	const view = page.getByTestId(`chat-view-${id}`);
 	await expect(view).toBeVisible({ timeout: 15_000 });
-	await expect(view.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+	await expect(view.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
 	return { view, project, student, id };
 }
 
@@ -219,6 +219,7 @@ test("Escape stops the speech, but Escape in an open menu only closes the menu",
 	await reply.getByRole("button", { name: "Read aloud" }).click();
 	await expect(reply.getByRole("button", { name: "Stop reading aloud" })).toBeVisible();
 
+	await openChatOptions(view);
 	await view.getByTestId("composer-model").click();
 	await expect(page.getByRole("menu", { name: /^Model / })).toBeVisible();
 	await page.keyboard.press("Escape");
@@ -263,6 +264,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		test.setTimeout(90_000);
 		await page.emulateMedia({ colorScheme });
 		const { view, project, id } = await openChat(page, context);
+		await openChatOptions(view);
 		const toggle = view.getByRole("switch", { name: "Read replies aloud" });
 		await expect(toggle).toHaveAttribute("aria-checked", "false");
 		await expect(toggle).toContainText("Off");
@@ -285,6 +287,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		expect((await spoken(page)).join(" ")).not.toContain(OUTPUT);
 
 		// The pickers' own saves keep it.
+		await openChatOptions(view);
 		await view.getByTestId("composer-effort").click();
 		await page.getByRole("menuitemradio", { name: "Low" }).click();
 		await expect
@@ -298,6 +301,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 			.toMatchObject({ effort: "low", readAloud: true });
 
 		await page.reload();
+		await expect(
+			page.getByTestId(`chat-view-${id}`).getByTestId("composer-model"),
+		).toBeAttached({ timeout: 15_000 });
+		await openChatOptions(page.getByTestId(`chat-view-${id}`));
 		await expect(
 			page.getByTestId(`chat-view-${id}`).getByRole("switch", {
 				name: "Read replies aloud",

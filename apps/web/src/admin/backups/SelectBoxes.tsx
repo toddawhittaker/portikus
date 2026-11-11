@@ -104,6 +104,7 @@ export function DeleteSelectedButton({
 	return (
 		<Button
 			size="sm"
+			variant="danger-secondary"
 			// Taller than the heading row, so it overhangs instead of pushing the table down when it appears;
 			// in a narrow card it takes its own row rather than squeezing the heading.
 			className="-my-1 @max-lg:basis-full"

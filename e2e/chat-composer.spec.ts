@@ -5,7 +5,7 @@ import {
 	test,
 	type WebSocketRoute,
 } from "@playwright/test";
-import { openChat, receivedFrames } from "./chat-helpers";
+import { openChat, openChatOptions, receivedFrames } from "./chat-helpers";
 import { join, newCourse } from "./course-profile-helpers";
 import {
 	createProject,
@@ -318,7 +318,38 @@ test("while a turn runs, Send stays beside Stop, sends, and marks the message", 
 	await expect(stop).toBeVisible();
 	await expect(stop).toHaveAttribute("data-testid", "chat-composer-stop");
 	const send = view.getByRole("button", { name: "Send", exact: true });
-	await expect(send).not.toHaveAttribute("aria-disabled");
+	// The box is empty, so Send waits for something to send, and looks it: a flat
+	// well rather than the accent fill. Stop holds its own beside it: an ink ring
+	// and a solid ink square.
+	await expect(send).toHaveAttribute("aria-disabled", "true");
+	await expect(send).toHaveAccessibleDescription(
+		"Type a message or attach a file first.",
+	);
+	const looks = await view.evaluate((el) => {
+		const ink = (token: string) => {
+			const span = document.createElement("span");
+			span.style.color = `var(${token})`;
+			el.append(span);
+			const colour = getComputedStyle(span).color;
+			span.remove();
+			return colour;
+		};
+		const send = el.querySelector("[data-testid=chat-composer-send]") as Element;
+		const stop = el.querySelector("[data-testid=chat-composer-stop]") as Element;
+		const square = stop.querySelector("svg rect") as Element;
+		return {
+			sendFill: getComputedStyle(send).backgroundColor,
+			sunken: ink("--surface-sunken"),
+			stopRing: getComputedStyle(stop).borderTopColor,
+			stopRingWidth: getComputedStyle(stop).borderTopWidth,
+			squareFill: getComputedStyle(square).fill,
+			ink: ink("--ink"),
+		};
+	});
+	expect(looks.sendFill).toBe(looks.sunken);
+	expect(looks.stopRing).toBe(looks.ink);
+	expect(looks.stopRingWidth).toBe("2px");
+	expect(looks.squareFill).toBe(looks.ink);
 	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
 		"Enter sends without stopping Claude. Esc stops it.",
 	);
@@ -327,6 +358,7 @@ test("while a turn runs, Send stays beside Stop, sends, and marks the message", 
 		/^Waiting for your answer · \d+m \d+s$/,
 	);
 	await box.fill("Skip the docs");
+	await expect(send).not.toHaveAttribute("aria-disabled");
 	await send.click();
 	await expect(box).toHaveText("");
 	await expect
@@ -371,23 +403,28 @@ test("a step still running when the student sends stays on the Working line unti
 	releaseReplies();
 	await expect(view.getByText("This is a canned reply.")).toBeVisible();
 	await expect(working).toHaveCount(1);
-	await expect(working).toHaveText(/^Working \d+m \d+s$/);
+	// The fake's permission card is still open, so the new turn waits on it.
+	await expect(working).toHaveText(/^Awaiting approval · \d+m \d+s$/);
 	await expect(folds).toHaveCount(foldsBefore + 1);
 	expect(await isAfter(sent, working)).toBe(true);
 });
 
-test("Escape in the message box stops a running turn, but first closes an open picker", async ({
+test("Escape in the message box stops a running turn, but first closes an open picker and the options panel", async ({
 	page,
 	context,
 }) => {
 	const student = await createStudent(context);
 	const { id, view, box } = await startHeldTurn(page, student);
+	await openChatOptions(view);
 	await view.getByRole("button", { name: /^Model/ }).click();
 	await expect(page.getByRole("menu")).toBeVisible();
 	await page.keyboard.press("Escape");
 	await expect(page.getByRole("menu")).toHaveCount(0);
 	expect(await receivedFrames(id, "interrupt")).toEqual([]);
 	await box.focus();
+	await box.press("Escape");
+	await expect(view.getByTestId("composer-picks")).toBeHidden();
+	expect(await receivedFrames(id, "interrupt")).toEqual([]);
 	await box.press("Escape");
 	await expect
 		.poll(async () => receivedFrames(id, "interrupt"))
@@ -894,7 +931,7 @@ test("Send is an icon button at the end of the row, with the microphone beside i
 	await expect(send.locator("svg")).toBeVisible();
 	const mic = view.getByTestId(`chat-voice-${id}`);
 	const attach = view.getByTestId("chat-composer-attach");
-	const permissions = view.getByTestId("composer-mode");
+	const permissions = view.getByTestId("composer-options");
 	const [sendBox, micBox, attachBox, pickBox] = await Promise.all(
 		[send, mic, attach, permissions].map(async (l) => l.boundingBox()),
 	);

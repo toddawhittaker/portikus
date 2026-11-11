@@ -7,7 +7,7 @@
  * must not grant a permission.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
-import { AgentStateMark, IconButton, Skeleton } from "@portikus/ui";
+import { IconButton, Skeleton } from "@portikus/ui";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { useStore } from "zustand";
@@ -371,10 +371,6 @@ function ChatViewBody({
 							}
 						/>
 					)}
-					<p className="pk-chat-needs" data-testid="chat-needs-input">
-						<AgentStateMark state="needs-input" />
-						Needs your input
-					</p>
 				</div>
 			) : null}
 			<SessionRules store={store} />

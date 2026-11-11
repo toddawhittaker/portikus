@@ -36,7 +36,7 @@ async function box(locator: Locator) {
 	return found;
 }
 
-test("the Working line says Waiting for your permission until the card is answered", async ({
+test("the Working line says Awaiting approval until the card is answered", async ({
 	page,
 	context,
 }) => {
@@ -49,7 +49,7 @@ test("the Working line says Waiting for your permission until the card is answer
 		},
 	});
 	const working = view.getByTestId("chat-working");
-	await expect(working).toHaveText(/^Waiting for your permission · \d+m \d+s$/);
+	await expect(working).toHaveText(/^Awaiting approval · \d+m \d+s$/);
 	await view
 		.getByTestId("chat-permission-card")
 		.getByRole("button", { name: "Allow once", exact: true })
@@ -188,7 +188,7 @@ for (const docked of [false, true]) {
 		for (const part of [
 			"chat-composer",
 			"chat-composer-send",
-			"composer-mode",
+			"composer-options",
 			"chat-composer-hint",
 		]) {
 			const shown = await box(view.getByTestId(part));

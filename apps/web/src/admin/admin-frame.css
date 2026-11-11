@@ -1,9 +1,8 @@
 /*
- * The admin frame: a column under the app header, ruled at each side like a
- * workspace pane, with the tab strip on top and the content scrolling under
- * it. It fills the window less the page gutter; text and forms keep their
- * own measure, and tables use the width (SPEC.md section 20.1). Values are
- * design tokens only.
+ * The admin frame: a column under the app header, with the tab strip on top
+ * and the content scrolling under it. It fills the window less the page
+ * gutter; text and forms keep their own measure, and tables use the width
+ * (SPEC.md section 20.1). Values are design tokens only.
  */
 .pk-adminframe-row {
 	flex: 1;
@@ -15,8 +14,6 @@
 	display: flex;
 	flex-direction: column;
 	height: 100%;
-	/* The strong line, so the sides mark out the tabbed space; they run past the strip too. */
-	border-inline: 1px solid var(--line-strong);
 }
 /*
  * The stable gutter keeps tall and short tabs the same width. A size
@@ -70,18 +67,20 @@
 }
 
 /*
- * The tab strip, with the workspace tab look (`pk-tab`). Tabs keep their
- * whole names and wrap to a second row in a fixed order when they do not
- * fit, so a row never moves when a tab is chosen. Each tab draws the rule
- * above it, and the strip draws the one under its last row, so the rows
- * read as one strip. The first row's rule lies on the header's own line.
+ * The tab strip, with the right pane's tab look: tabs on the chrome with no
+ * rules between them, the chosen one raised with the accent bar at its foot
+ * (`pk-tab`). Tabs keep their whole names and wrap to a second row in a
+ * fixed order when they do not fit, so a row never moves when a tab is
+ * chosen. Each tab draws the rule above it, and the strip draws the one
+ * under its last row, so the rows read as one strip. The first row's rule
+ * lies on the header's own line.
  */
 .pk-adminnav {
 	flex: none;
 	display: flex;
 	flex-wrap: wrap;
 	margin-block-start: -1px;
-	background: var(--surface-sunken);
+	background: var(--surface);
 	border-block-end: 1px solid var(--line);
 }
 .pk-adminnav > .pk-tab {
@@ -89,8 +88,12 @@
 	max-width: none;
 	min-width: 0;
 	height: var(--density-comfortable-tab);
-	/* space-2, so all eleven tabs fit one row at 1024 px (SPEC.md section 20.1). */
+	/* The compact type step, a tight gap and space-2, so the tabs fit one row
+	   at 1366 px (SPEC.md section 20.1). */
+	gap: var(--space-1\.5);
 	padding-inline: var(--space-2);
+	font-size: var(--text-sm);
 	border-block-start: 1px solid var(--line);
+	border-inline-end: 0;
 	white-space: nowrap;
 }

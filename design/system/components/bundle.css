@@ -141,10 +141,10 @@
 .pk-badge-dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: currentColor; }
 .pk-badge-ring { width: 8px; height: 8px; border-radius: var(--radius-full); border: 1.5px solid currentColor; box-sizing: border-box; }
 .pk-badge .pk-spin { width: 10px; height: 10px; border-width: 1.5px; }
-.pk-badge--provisioning { background: var(--status-provisioning-soft); color: var(--status-provisioning); }
+.pk-badge--provisioning { background: var(--status-starting-soft); color: var(--status-starting); }
 .pk-badge--starting { background: var(--status-starting-soft); color: var(--status-starting); }
 .pk-badge--running { background: var(--status-running-soft); color: var(--status-running); }
-.pk-badge--stopping { background: var(--status-stopping-soft); color: var(--status-stopping); }
+.pk-badge--stopping { background: var(--status-starting-soft); color: var(--status-starting); }
 .pk-badge--stopped { background: var(--status-stopped-soft); color: var(--status-stopped); }
 .pk-badge--error { background: var(--status-error-soft); color: var(--status-error); }
 .pk-badge--warning { background: var(--status-warning-soft); color: var(--status-warning); }

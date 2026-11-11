@@ -44,7 +44,7 @@ function written(agoSeconds: number, ttlSeconds: 300 | 3600 = 300): Cache {
 async function openMeter(page: Page, context: BrowserContext) {
 	const student = await createStudent(context);
 	const chat = await openChat(page, student.workspaceId, "Meter");
-	await expect(chat.view.getByTestId("composer-model")).toBeVisible({
+	await expect(chat.view.getByTestId("composer-model")).toBeAttached({
 		timeout: 15_000,
 	});
 	return chat;
@@ -74,6 +74,12 @@ test("the context shows once over half full, with the /compact hint", async ({
 	await setContext(id, { usedTokens: 144_000, windowTokens: 200_000, cache: null });
 	await expect(meter).toBeVisible();
 	await expect(meter).toContainText("Context 72%");
+	// A small meter like the status bar's, named and valued for assistive technology.
+	await expect(meter.getByRole("meter", { name: "Context" })).toHaveAttribute(
+		"aria-valuetext",
+		"72% used",
+	);
+	await expect(meter).toHaveAttribute("data-level", "ok");
 	await expect(meter).toHaveAttribute("title", /\/compact/);
 	expect(await spoken(meter)).toContain("Run /compact to free up space.");
 
@@ -89,7 +95,7 @@ test("the cache clock counts down, and its digits are not read", async ({
 	const { id, view } = await openMeter(page, context);
 	await setContext(id, { usedTokens: 1000, windowTokens: 200_000, cache: written(10) });
 	const cache = view.getByTestId("composer-cache");
-	await expect(cache).toContainText(/Cache [45]:\d\d/);
+	await expect(cache).toContainText(/Cache expires in [45]:\d\d/);
 	await expect(cache).toHaveAttribute("data-state", "warm");
 
 	const first = await cache.locator(".pk-ctx-sight").textContent();
@@ -99,7 +105,7 @@ test("the cache clock counts down, and its digits are not read", async ({
 
 	const words = await spoken(cache);
 	expect(words).toMatch(/Prompt cache: warm, goes cold at \d{1,2}:\d\d/);
-	expect(words).not.toMatch(/Cache [45]:\d\d/);
+	expect(words).not.toMatch(/Cache expires in [45]:\d\d/);
 	await expect(cache.locator(".pk-ctx-sight")).toHaveAttribute("aria-hidden", "true");
 	// Ticking reaches the status region not at all.
 	await expect(view.getByTestId("chat-composer-status")).toHaveText("");
@@ -150,7 +156,9 @@ test("a one-hour cache counts from an hour", async ({ page, context }) => {
 		windowTokens: 200_000,
 		cache: written(5, 3600),
 	});
-	await expect(view.getByTestId("composer-cache")).toContainText(/Cache 59:\d\d/);
+	await expect(view.getByTestId("composer-cache")).toContainText(
+		/Cache expires in 59:\d\d/,
+	);
 });
 
 test("passing 80% warns with an icon and is announced once", async ({
@@ -168,6 +176,11 @@ test("passing 80% warns with an icon and is announced once", async ({
 	await setContext(id, { usedTokens: 170_000, windowTokens: 200_000, cache: null });
 	await expect(meter).toContainText("Context 85%");
 	await expect(meter.locator("svg")).toBeVisible();
+	await expect(meter).toHaveAttribute("data-level", "warning");
+	await expect(meter.getByRole("meter", { name: "Context" })).toHaveAttribute(
+		"aria-valuetext",
+		"85% used, nearly full",
+	);
 	await expect(status).toHaveText(/^Context is now 85% full\. Run \/compact/);
 });
 
@@ -179,7 +192,7 @@ test("each chat tab shows its own conversation's figures", async ({
 	const { id, view: first } = await openMeter(page, context);
 	await splitPane(page, id, "right", "claude-gui");
 	const second = page.locator("[data-testid^='chat-view-']").nth(1);
-	await expect(second.getByTestId("composer-model")).toBeVisible({ timeout: 15_000 });
+	await expect(second.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
 	const secondId = (await second.getAttribute("data-testid"))?.replace(
 		"chat-view-",
 		"",
@@ -227,7 +240,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 								form.getBoundingClientRect().top,
 						);
 					return [
-						top(".pk-picker"),
+						top(".pk-composer-options"),
 						top("[data-testid=chat-composer-send]"),
 						top(".pk-composer-tools"),
 					];
@@ -251,7 +264,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const fit = await composer.evaluate((form) => {
 				const group = form.querySelector<HTMLElement>(".pk-composer-picks");
 				const send = form.querySelector("[data-testid=chat-composer-send]");
-				const pickers = form.querySelector(".pk-picker");
+				const pickers = form.querySelector(".pk-composer-options");
 				const edge = form.getBoundingClientRect();
 				const readouts = [...form.querySelectorAll<HTMLElement>(".pk-ctx")].map((one) =>
 					one.getBoundingClientRect(),

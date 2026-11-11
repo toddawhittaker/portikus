@@ -70,3 +70,50 @@ describe("PageIntro", () => {
 		expect(details.open).toBe(false);
 	});
 });
+
+describe("PageIntro with a lead", () => {
+	function renderLed() {
+		return render(
+			<PageIntro
+				id="admin-health"
+				summary="About Health"
+				lead="How the platform is doing right now and over time."
+				helpHref="/admin/help#admin-health"
+			>
+				Look here first when students report slow or failing workspaces.
+			</PageIntro>,
+		);
+	}
+
+	it("shows the lead and starts the rest closed, More in Help inside", () => {
+		renderLed();
+		const intro = screen.getByTestId("intro-admin-health");
+		expect(intro.querySelector(":scope > p")?.textContent).toBe(
+			"How the platform is doing right now and over time.",
+		);
+		const details = intro.querySelector("details") as HTMLDetailsElement;
+		expect(details.open).toBe(false);
+		expect(details.textContent).toContain("Look here first");
+		expect(details.querySelector("a")?.getAttribute("href")).toBe(
+			"/admin/help#admin-health",
+		);
+	});
+
+	it("remembers being opened", () => {
+		const first = renderLed();
+		const details = screen
+			.getByTestId("intro-admin-health")
+			.querySelector("details") as HTMLDetailsElement;
+		toggle(details, true);
+		expect(window.localStorage.getItem("pk-intro:admin-health")).toBe("open");
+		first.unmount();
+		renderLed();
+		expect(
+			(
+				screen
+					.getByTestId("intro-admin-health")
+					.querySelector("details") as HTMLDetailsElement
+			).open,
+		).toBe(true);
+	});
+});

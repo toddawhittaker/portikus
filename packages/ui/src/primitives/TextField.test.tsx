@@ -80,7 +80,7 @@ describe("TextField", () => {
 		expect(label?.parentElement?.contains(help)).toBe(true);
 		expect(input.getAttribute("aria-describedby")).toBeNull();
 	});
-	// A label row with help keeps the plain label's 18px line, so fields
+	// A label row with help keeps the plain label's 20px line, so fields
 	// with and without help line up in one row; the 24px button overflows it.
 	it("keeps the label row as tall as a plain label when it has help", () => {
 		render(
@@ -95,8 +95,8 @@ describe("TextField", () => {
 		);
 		const withHelp = document.querySelector("label[for=a]");
 		const plain = document.querySelector("label[for=b]");
-		expect(plain?.className).toContain("leading-[18px]");
-		expect(withHelp?.parentElement?.className).toContain("h-[18px]");
+		expect(plain?.className).toContain("leading-[20px]");
+		expect(withHelp?.parentElement?.className).toContain("h-[20px]");
 		expect(withHelp?.parentElement?.className).toContain("items-center");
 	});
 

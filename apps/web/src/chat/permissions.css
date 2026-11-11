@@ -71,3 +71,19 @@
 .pk-chat-card-actions[hidden] {
 	display: none;
 }
+
+/* The permission card's heading and its needs-input badge share the card's top line. */
+.pk-chat-card-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+	margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-3)) 0;
+	padding: var(--space-2) var(--space-3);
+	border-block-end: 1px solid var(--line);
+	color: var(--ink);
+}
+.pk-chat-card-head > h2 {
+	min-width: 0;
+}

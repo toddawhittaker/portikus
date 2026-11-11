@@ -15,7 +15,7 @@
 	height: var(--pk-tree-row);
 	padding-right: var(--space-1);
 	border-radius: var(--radius-sm);
-	font-size: 13px;
+	font-size: var(--text-md);
 	color: var(--ink);
 	cursor: default;
 }
@@ -55,9 +55,14 @@
 	display: flex;
 	flex-direction: column;
 }
+/* The tree takes only the height of its rows, so Changes follows straight
+   under it; a long tree scrolls in its own box. */
+.pk-pane--right > .pk-tree-body {
+	flex: 0 1 auto;
+}
 /* The empty area under the last row: a drop here means the project root.
-   It fills whatever height is left so there is always a
-   target, however few files the project has. */
+   It is at least a row tall, so there is always a target, however few
+   files the project has. */
 .pk-tree-space {
 	flex: 1;
 	min-height: var(--pk-tree-row);
@@ -127,16 +132,9 @@
 	gap: var(--space-1\.5);
 }
 
-/* Git decorations (SPEC.md §12.1, §12.6). */
-.pk-git-letter {
-	flex: none;
-	width: 12px;
-	text-align: center;
-	font-family: var(--font-mono);
-	font-size: 12px;
-	font-weight: 600;
-	color: var(--git-modified);
-}
+/* Git decorations (SPEC.md §12.1, §12.6): the shared Badge (GitLetter.tsx),
+   amber for modified, green for added or untracked, red for deleted and a
+   conflict's own hue. */
 .pk-git-dot {
 	flex: none;
 	width: 6px;
@@ -144,17 +142,13 @@
 	border-radius: var(--radius-full);
 	background: var(--git-modified);
 }
-[data-git="added"] .pk-git-letter,
-[data-git="untracked"] .pk-git-letter {
-	color: var(--git-added);
-}
 /* Untracked entries read as not-yet-part-of-the-project. */
 .pk-tree-item[data-git="untracked"] .pk-tree-name {
 	font-style: italic;
 	opacity: 0.75;
 }
-[data-git="deleted"] .pk-git-letter {
-	color: var(--git-deleted);
+[data-git="conflict"] .pk-git-letter {
+	background: var(--git-conflict-soft);
 }
 [data-git="conflict"] .pk-git-letter,
 [data-git="conflict"] .pk-icon {
@@ -186,7 +180,7 @@
 	border-radius: var(--radius-sm);
 	background: none;
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-sm);
 	color: var(--ink);
 	text-align: left;
 	cursor: pointer;
@@ -214,13 +208,14 @@
 	align-items: center;
 	gap: var(--space-1\.5);
 	width: 100%;
-	padding: var(--space-1\.5) var(--space-2);
+	padding: var(--space-2);
 	background: none;
 	border: 0;
 	font: inherit;
-	font-size: 12px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 	font-weight: 600;
-	color: var(--ink-muted);
+	color: var(--ink);
 	cursor: pointer;
 }
 .pk-changes-review {
@@ -271,7 +266,7 @@
 	background: none;
 	border: 0;
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-md);
 	color: var(--ink);
 	text-align: left;
 	cursor: pointer;
@@ -295,8 +290,6 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-family: var(--font-mono);
-	font-size: 12px;
 }
 
 /* The "Extracting…" toast's bar, drawn like the Meter so the two read alike. */

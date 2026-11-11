@@ -107,7 +107,9 @@ function SubagentRow({
 			>
 				<AgentStateMark state={subagent.state} />
 				{/* The spaces keep the link's name apart; a flex row does not draw them. */}
-				<span className="pk-agent-name">{description}</span>{" "}
+				<span className="pk-agent-name" title={description}>
+					{description}
+				</span>{" "}
 				<span className="pk-agent-type">{subagent.type}</span>{" "}
 				<span className="pk-visually-hidden">({subagent.state})</span>
 			</Link>
@@ -124,6 +126,7 @@ export function ProjectAgents({
 	expanded,
 	terminals,
 	unread,
+	currentTabId,
 }: {
 	workspaceId: string;
 	projectId: string;
@@ -132,6 +135,8 @@ export function ProjectAgents({
 	expanded: boolean;
 	terminals: readonly CodingAgentTerminal[];
 	unread: AgentStatusSnapshot["unread"];
+	/** The tab on show in this project's work area, or null in any other project. */
+	currentTabId: string | null;
 }) {
 	const now = useNow(expanded);
 	return (
@@ -144,18 +149,22 @@ export function ProjectAgents({
 		>
 			{terminals.map((terminal) => {
 				const isUnread = unread.has(terminal.terminalId);
+				const isCurrent = terminal.terminalId === currentTabId;
 				const length = now - Date.parse(terminal.since);
 				return (
 					<li key={terminal.terminalId}>
 						<Link
-							className={`pk-agent-row${isUnread ? " is-unread" : ""}`}
+							className={`pk-agent-row${isUnread ? " is-unread" : ""}${isCurrent ? " is-current" : ""}`}
 							to="/workspaces/$id/projects/$projectId"
 							params={{ id: workspaceId, projectId }}
 							search={{ tab: terminal.terminalId }}
+							aria-current={isCurrent ? "page" : undefined}
 							data-testid={`agent-row-${terminal.terminalId}`}
 						>
 							<AgentStateMark state={terminal.state} unread={isUnread} />
-							<span className="pk-agent-name">{agentRowName(terminal)}</span>{" "}
+							<span className="pk-agent-name" title={agentRowName(terminal)}>
+								{agentRowName(terminal)}
+							</span>{" "}
 							<span className="pk-agent-state">
 								{capitalised(agentStateWords(terminal.state))}{" "}
 								<time dateTime={isoDuration(length)} aria-hidden="true">

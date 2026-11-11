@@ -204,6 +204,15 @@ test("a server that offers root shells shows the Root shell tab last (ADR 0051)"
 	).toBe("/admin/shell");
 });
 
+test("the tab strip first shows with its Root shell tab, so the page never drops a row", async () => {
+	stubAdmin(600, undefined, true);
+
+	renderApp("/admin");
+
+	const nav = await screen.findByRole("navigation", { name: "Administration" });
+	expect(within(nav).getAllByRole("link").at(-1)?.textContent).toBe("Root shell");
+});
+
 test("with root shells off the tab is hidden and its address says why", async () => {
 	stubAdmin(600);
 

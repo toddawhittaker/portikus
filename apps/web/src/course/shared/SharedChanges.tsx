@@ -11,6 +11,7 @@ import { changeRows, DIFF_KIND, WORD } from "../../files/gitStatus.js";
 import { displayName } from "../../files/paths.js";
 import "../../files/files.css";
 import "../../work/work.css";
+import { GitLetter } from "../../files/GitLetter.js";
 import { type ShareRef, useSharedGitDiff } from "./queries.js";
 
 const DiffViewer = lazy(() =>
@@ -68,9 +69,7 @@ export function SharedChangesList({
 							title={row.decoration.title}
 							onClick={() => onOpen(row.path)}
 						>
-							<span className="pk-git-letter" aria-hidden="true">
-								{row.decoration.letter}
-							</span>
+							<GitLetter kind={row.decoration.kind} letter={row.decoration.letter} />
 							{row.decoration.kind === "conflict" ? (
 								<Icon name="alert" size="sm" />
 							) : null}

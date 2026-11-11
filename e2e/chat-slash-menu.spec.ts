@@ -85,6 +85,37 @@ for (const colorScheme of ["light", "dark"] as const) {
 			"aria-activedescendant",
 			(await current.getAttribute("id")) ?? "",
 		);
+		// The current row has the selected-row look, a soft accent fill and a bar at its
+		// start, and no ring of its own inside the box's.
+		const look = await current.evaluate((el) => {
+			const probe = (token: string) => {
+				const span = document.createElement("span");
+				span.style.backgroundColor = `var(${token})`;
+				span.style.color = `var(${token})`;
+				el.append(span);
+				const style = getComputedStyle(span);
+				const out = { fill: style.backgroundColor, ink: style.color };
+				span.remove();
+				return out;
+			};
+			const style = getComputedStyle(el);
+			return {
+				fill: style.backgroundColor,
+				soft: probe("--accent-soft").fill,
+				bar: style.borderInlineStartColor,
+				barWidth: style.borderInlineStartWidth,
+				accent: probe("--accent").ink,
+				outline: style.outlineStyle,
+			};
+		});
+		expect(look.fill).toBe(look.soft);
+		expect(look.bar).toBe(look.accent);
+		expect(look.barWidth).toBe("2px");
+		expect(look.outline).toBe("none");
+		// A command's note joins its line rather than standing apart.
+		await expect(
+			current.locator(".pk-composer-option-detail .pk-composer-option-note"),
+		).toHaveText("Use the terminal");
 		await expectNoViolations(page, '[data-testid="chat-composer"]');
 	});
 }

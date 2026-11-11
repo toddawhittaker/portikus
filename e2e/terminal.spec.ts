@@ -860,7 +860,7 @@ test("the terminal's scrollbar is thin, rounded and has no track", async ({
 		barWidth: 6,
 		track: "rgba(0, 0, 0, 0)",
 		sliderWidth: 6,
-		sliderBackground: "rgba(154, 147, 134, 0.4)",
+		sliderBackground: "rgba(164, 157, 144, 0.4)",
 		sliderRadius: "9999px",
 	});
 });

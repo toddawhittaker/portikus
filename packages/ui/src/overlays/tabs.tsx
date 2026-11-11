@@ -156,6 +156,7 @@ function TabTrigger({
 			className={[
 				"pk-tab",
 				tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
+				tab.kind === "claude" || tab.kind === "codex" ? "pk-tab--agent" : "",
 				tab.ended ? "pk-tab--ended" : "",
 				tab.unread ? "pk-tab--unread" : "",
 				sortable.isDragging ? "pk-tab--dragging" : "",
@@ -169,7 +170,18 @@ function TabTrigger({
 			// Only the drag listeners: dnd-kit's own attributes would replace the
 			// tab role, and its keyboard listener would swallow Enter.
 			{...sortable.listeners}
+			// A tab chosen with the pointer is marked, so a ring that the browser
+			// carries over from a focused terminal or editor does not dress the
+			// selected tab as keyboard focus. Any key brings the ring back.
+			onPointerDown={(event) => {
+				event.currentTarget.dataset.pointer = "true";
+				sortable.listeners?.onPointerDown?.(event);
+			}}
+			onBlur={(event) => {
+				delete event.currentTarget.dataset.pointer;
+			}}
 			onKeyDown={(event) => {
+				delete event.currentTarget.dataset.pointer;
 				if (
 					event.altKey &&
 					event.shiftKey &&

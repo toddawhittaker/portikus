@@ -8,7 +8,7 @@ import { DownloadSize } from "./DownloadSize.js";
 import { useDockerUsage, useSaveSeedImages } from "./queries.js";
 import { addRefusal, listHas, shortImageName, shownText } from "./text.js";
 
-const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
+const SUB_HEADING = "pk-group-label";
 
 /**
  * Which images to add to the seed and which to drop. Counts

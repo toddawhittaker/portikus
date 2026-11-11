@@ -213,11 +213,11 @@ test("group titles stand apart and a long email wraps inside the dialog", async 
 		weight: getComputedStyle(el).fontWeight,
 		size: getComputedStyle(el).fontSize,
 	});
-	expect(await second.evaluate(style)).toEqual({ weight: "600", size: "15px" });
-	expect(await label.evaluate(style)).toEqual({ weight: "400", size: "13px" });
+	expect(await second.evaluate(style)).toEqual({ weight: "600", size: "16px" });
+	expect(await label.evaluate(style)).toEqual({ weight: "400", size: "14px" });
 	expect(await dialog.getByText("GitHub", { exact: true }).evaluate(style)).toEqual({
 		weight: "400",
-		size: "13px",
+		size: "14px",
 	});
 	expect(
 		await second.evaluate((el) => {

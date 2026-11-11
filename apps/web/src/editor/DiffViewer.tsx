@@ -103,7 +103,7 @@ export function DiffViewer({
 				// layout prints two line-number columns and adds an overview
 				// ruler next to the scrollbar, so the pane looked doubled.
 				// Stay side by side at every width; the change marks
-				// in the gutter and the minimap still show where the edits are.
+				// in the gutter and each side's scrollbar ruler show where the edits are.
 				renderSideBySide: true,
 				// The columns stay equal so the side labels above them line up.
 				enableSplitViewResizing: false,

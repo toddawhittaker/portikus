@@ -441,7 +441,7 @@ test.describe("projects", () => {
 		// Archiving is reversible, so it confirms with the primary button, not danger.
 		const confirm = page.getByTestId("dialog-confirm");
 		await expect(confirm).not.toHaveClass(/bg-status-danger/);
-		await expect(confirm).toHaveClass(/bg-surface-inverse/);
+		await expect(confirm).toHaveClass(/bg-accent/);
 		await confirm.click();
 
 		await expect(page.getByTestId(`project-item-${project.id}`)).toHaveCount(0);

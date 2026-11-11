@@ -229,9 +229,9 @@ test("while a turn runs, Stop sits beside a Send that still sends, and Stop inte
 	expect(screen.queryByTestId("chat-composer-stop")).toBeNull();
 	emit("turn.started", { at: 0 });
 	const send = screen.getByTestId("chat-composer-send");
+	type("also check the tests");
 	expect(send.hasAttribute("aria-disabled")).toBe(false);
 	expect(send.hasAttribute("aria-describedby")).toBe(false);
-	type("also check the tests");
 	fireEvent.click(send);
 	expect(sent).toEqual([
 		{ type: "send", text: "also check the tests", attachments: [] },
@@ -281,8 +281,26 @@ test("while a sent message waits for the host, Send says why it waits", () => {
 		document.getElementById(send.getAttribute("aria-describedby") ?? "")?.textContent,
 	).toBe("Wait for your last message to reach Claude.");
 	echo("hi");
+	// The box is empty again, so Send now waits for something to send.
+	expect(
+		document.getElementById(send.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Type a message or attach a file first.");
+});
+
+test("an empty box leaves Send focusable but unavailable, and says why", () => {
+	draw();
+	const send = screen.getByTestId("chat-composer-send");
+	expect(send.getAttribute("aria-disabled")).toBe("true");
+	expect(
+		document.getElementById(send.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Type a message or attach a file first.");
+	type("   ");
+	expect(send.getAttribute("aria-disabled")).toBe("true");
+	type("hi");
 	expect(send.hasAttribute("aria-disabled")).toBe(false);
 	expect(send.hasAttribute("aria-describedby")).toBe(false);
+	fireEvent.click(send);
+	expect(sent).toEqual([{ type: "send", text: "hi", attachments: [] }]);
 });
 
 test("entering a code block is announced once, with how to send and how to leave", () => {

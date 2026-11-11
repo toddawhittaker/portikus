@@ -1,7 +1,6 @@
 import type { Project, Workspace } from "@portikus/contracts";
 import {
 	Icon,
-	IconButton,
 	Menu,
 	MenuItem,
 	MenuLabel,
@@ -12,7 +11,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type RefObject, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { errorText } from "../api/request.js";
 import { useOpenWorkspace } from "../api/workspace.js";
 import { useCourses } from "../course/queries.js";
@@ -23,7 +22,6 @@ import { initials } from "../settings/ProfilePane.js";
 import { useProfile } from "../settings/profileQueries.js";
 import { SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
-import { DRAWER_IDS, type DrawerName } from "./drawers.js";
 
 /** The badge text: the count, "9+" above nine, nothing at zero. */
 export function badgeText(unread: number): string | null {
@@ -52,7 +50,9 @@ function AppbarContext({
 		return (
 			<span className="pk-appbar-context">
 				<strong>{project.name}</strong>
-				<span className="pk-mono-small">~/projects/{project.slug}</span>
+				<span className="pk-appbar-path @max-[40rem]:hidden">
+					~/projects/{project.slug}
+				</span>
 			</span>
 		);
 	}
@@ -84,14 +84,6 @@ function AccountPicture({
 	return <span className="pk-initials">{initials(displayName)}</span>;
 }
 
-/** The phone-width buttons that open the side panes as drawers (SPEC.md §8.1). */
-export interface DrawerButtons {
-	open: DrawerName | null;
-	onOpen: (drawer: DrawerName) => void;
-	projectsRef: RefObject<HTMLButtonElement | null>;
-	filesRef: RefObject<HTMLButtonElement | null>;
-}
-
 /**
  * The top bar: the mark, the project in view, and the account menu.
  * The workspace dialog lives on the status bar (SPEC.md §6).
@@ -101,7 +93,6 @@ export function AppHeader({
 	user,
 	project,
 	context = "Administration",
-	drawers,
 }: {
 	/** Absent on the administration page, which belongs to no workspace. */
 	workspaceId?: string;
@@ -111,8 +102,6 @@ export function AppHeader({
 	project: Project | undefined;
 	/** What the bar names when there is no workspace, such as "Course". */
 	context?: string;
-	/** Given by the workspace screen only. */
-	drawers?: DrawerButtons;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -145,21 +134,9 @@ export function AppHeader({
 
 	return (
 		<header className="pk-appbar @container" data-testid="app-header">
-			{drawers ? (
-				<IconButton
-					ref={drawers.projectsRef}
-					icon="list"
-					label="Projects"
-					className="pk-appbar-drawer"
-					aria-haspopup="dialog"
-					aria-expanded={drawers.open === "projects"}
-					aria-controls={DRAWER_IDS.projects}
-					onClick={() => drawers.onOpen("projects")}
-				/>
-			) : null}
 			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
-			{/* On a narrow bar the context gives way first. */}
-			<span className="contents @max-[40rem]:hidden">
+			{/* On a narrow bar the path gives way first, then the whole context on the narrowest. */}
+			<span className="contents @max-[20rem]:hidden">
 				<span className="pk-appbar-divider" aria-hidden="true" />
 				<AppbarContext project={project} workspaceId={workspaceId} context={context} />
 			</span>
@@ -203,19 +180,6 @@ export function AppHeader({
 				>
 					{open.isPending ? "Opening your workspace" : ""}
 				</span>
-			) : null}
-
-			{drawers ? (
-				<IconButton
-					ref={drawers.filesRef}
-					icon="folder"
-					label="Files"
-					className="pk-appbar-drawer"
-					aria-haspopup="dialog"
-					aria-expanded={drawers.open === "files"}
-					aria-controls={DRAWER_IDS.files}
-					onClick={() => drawers.onOpen("files")}
-				/>
 			) : null}
 
 			<span className="pk-account-wrap">

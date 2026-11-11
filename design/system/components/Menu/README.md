@@ -7,5 +7,6 @@ A floating list of actions, used for the tab launcher, project actions, file tre
 - Items are verbs in sentence case. An item that opens a confirmation ends with an ellipsis ("Reset Docker…").
 - Group destructive items at the bottom, after a separator, with `danger`. They never act immediately; they open a ConfirmDialog.
 - The tab launcher lists, in this order: Terminal, Claude Code, Codex, File, Preview.
+- An item that starts a coding agent carries `agent` in its icon, as the agent's tab does.
 - Highlight uses `surface-hover` plus the inset focus ring when reached by keyboard. Arrow keys move, typeahead jumps, Escape returns focus to the trigger (Radix defaults; do not override).
 - Break-glass administrator access is not a menu item. It lives on its own audited page.

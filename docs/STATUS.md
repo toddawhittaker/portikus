@@ -82,6 +82,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epics 58.1 and 58.2, chat and phone fixes.** Two fix batches for the chat tab and the phone layout.
 - **Epic 59, agent rows and chat.** Agent and subagent rows in the left pane, and a chat batch with `!` shell commands, `@` file mentions and changed-file lists (ADRs 0070 to 0073).
 - **Epic 60, documentation refresh.** The guides, the in-app Help and the documentation images brought up to date, and this file cut down to this form.
+- **Epic 61, UI refresh.** A new look for the student and administrator screens in both themes: a warm palette with teal actions and a violet agent hue, a type scale, a context meter in the chat composer and clearer admin pages (DESIGN.md section 11).
 
 ## Open items
 
@@ -186,5 +187,5 @@ list was made and may already be fixed.
 
 ### Tests and docs
 
-- Under heavy machine load some unit tests and chat Playwright specs time out; each passes when run alone. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
+- Under heavy machine load some unit tests and chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
 - Nothing checks that the guides and the in-app Help agree, and the documentation images show scripted data.

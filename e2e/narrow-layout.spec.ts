@@ -193,8 +193,9 @@ test.describe("the workspace at 560 px", () => {
 
 		const projects = await boxOf(page.getByRole("navigation", { name: "Projects" }));
 		const files = await boxOf(page.locator(".pk-right-pane"));
-		expect(Math.round(projects.width)).toBe(240);
-		expect(Math.round(files.width)).toBe(280);
+		// A wide window starts both side panes wider.
+		expect(Math.round(projects.width)).toBe(264);
+		expect(Math.round(files.width)).toBe(360);
 		expect(files.y).toBe(projects.y);
 		await expect(
 			page.getByRole("separator", { name: "Resize project list" }),

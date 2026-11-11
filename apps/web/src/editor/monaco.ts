@@ -19,13 +19,17 @@ import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import { currentPlatform, type Platform, tabFocusKey } from "../platform.js";
 import { loadEditorFeatures } from "./features.js";
 import { detectLanguage } from "./language.js";
+import { onThemeChange, pageIsDark } from "./pageTheme.js";
 import {
 	DARK_BRACKETS,
 	DARK_TOKENS,
+	EDITOR_BACKGROUNDS,
 	LIGHT_BRACKETS,
 	LIGHT_TOKENS,
 } from "./tokenColours.js";
 import { BASE_FONT_SIZE } from "./zoom.js";
+
+export { onThemeChange };
 
 const environment: Monaco.Environment = {
 	// JSON is the one language service kept, because JSON files are named in
@@ -120,8 +124,18 @@ export const baseEditorOptions: Monaco.editor.IEditorOptions &
 	fontFamily: '"JetBrains Mono", ui-monospace, monospace',
 	fontSize: BASE_FONT_SIZE,
 	// The stock Monaco reading aids are on (SPEC.md §13.2, DESIGN.md "The
-	// editor"): minimap, folding, bracket pair colouring and bracket match.
-	minimap: { enabled: true },
+	// editor"): folding, bracket pair colouring and bracket match. In place of
+	// a minimap, the overview ruler in the scrollbar marks Git changes,
+	// warnings, errors and find matches.
+	minimap: { enabled: false },
+	overviewRulerBorder: false,
+	overviewRulerLanes: 3,
+	hideCursorInOverviewRuler: true,
+	scrollbar: {
+		verticalScrollbarSize: 12,
+		horizontalScrollbarSize: 10,
+		useShadows: false,
+	},
 	folding: true,
 	bracketPairColorization: { enabled: true },
 	matchBrackets: "always",
@@ -161,7 +175,12 @@ const LIGHT_THEME = "portikus-light";
 const DARK_THEME = "portikus-dark";
 
 function tokenRules(colours: Record<string, string>): Monaco.editor.ITokenThemeRule[] {
-	return Object.entries(colours).map(([token, foreground]) => ({ token, foreground }));
+	// Comments are set in italic as well, so they read as asides without relying on colour.
+	return Object.entries(colours).map(([token, foreground]) =>
+		token.startsWith("comment")
+			? { token, foreground, fontStyle: "italic" }
+			: { token, foreground },
+	);
 }
 
 function withHash(colours: Record<string, string>): Record<string, string> {
@@ -176,21 +195,37 @@ function defineThemes(monaco: typeof Monaco): void {
 		inherit: true,
 		rules: tokenRules(LIGHT_TOKENS),
 		colors: {
-			"editor.background": "#f6f4ef",
-			"editor.foreground": "#23211d",
-			"editor.lineHighlightBackground": "#eeebe4",
-			"editor.selectionBackground": "#d9e8e5",
-			"editorCursor.foreground": "#2c6a66",
-			"editorLineNumber.foreground": "#6e685d",
-			"editorLineNumber.activeForeground": "#23211d",
-			"editorIndentGuide.background1": "#dcd7cc",
-			"editorWidget.background": "#fdfcfa",
-			"editorWidget.border": "#dcd7cc",
+			"editor.background": `#${EDITOR_BACKGROUNDS.light.ground}`,
+			"editor.foreground": "#221f1a",
+			"editor.lineHighlightBackground": `#${EDITOR_BACKGROUNDS.light.line}`,
+			"editor.selectionBackground": "#cce9e2",
+			"editorCursor.foreground": "#1d6e67",
+			"editorLineNumber.foreground": "#675f53",
+			"editorLineNumber.activeForeground": "#221f1a",
+			"editorIndentGuide.background1": "#e2dacb",
+			"editorWidget.background": "#ffffff",
+			// Links in code help's hover, such as View Problem, in the accent.
+			"textLink.foreground": "#17625b",
+			"textLink.activeForeground": "#10443f",
+			"editorWidget.border": "#e2dacb",
 			// The split view's code side needs a scrollbar a student can see
 			// against a pale background.
 			"scrollbarSlider.background": "#c1b9a8cc",
 			"scrollbarSlider.hoverBackground": "#a89f8ce6",
 			"scrollbarSlider.activeBackground": "#8d8472",
+			"scrollbar.shadow": "#00000000",
+			// The scrollbar's ticks: the Git and status colours of theme.css.
+			"editorOverviewRuler.background": "#00000000",
+			"editorOverviewRuler.border": "#00000000",
+			"editorOverviewRuler.modifiedForeground": "#8a5a00",
+			"editorOverviewRuler.addedForeground": "#2b7336",
+			"editorOverviewRuler.deletedForeground": "#b0372b",
+			"editorOverviewRuler.warningForeground": "#8a5a00",
+			"editorOverviewRuler.errorForeground": "#b0372b",
+			"editorOverviewRuler.findMatchForeground": "#1d6e67",
+			"editorOverviewRuler.selectionHighlightForeground": "#1d6e6780",
+			"editorOverviewRuler.wordHighlightForeground": "#1d6e6780",
+			"editorOverviewRuler.bracketMatchForeground": "#00000000",
 			...withHash(LIGHT_BRACKETS),
 		},
 	});
@@ -199,19 +234,33 @@ function defineThemes(monaco: typeof Monaco): void {
 		inherit: true,
 		rules: tokenRules(DARK_TOKENS),
 		colors: {
-			"editor.background": "#171614",
-			"editor.foreground": "#ece8df",
-			"editor.lineHighlightBackground": "#211f1c",
-			"editor.selectionBackground": "#1c3533",
-			"editorCursor.foreground": "#7cc2b9",
-			"editorLineNumber.foreground": "#948d81",
-			"editorLineNumber.activeForeground": "#ece8df",
-			"editorIndentGuide.background1": "#35322d",
-			"editorWidget.background": "#211f1c",
-			"editorWidget.border": "#35322d",
+			"editor.background": `#${EDITOR_BACKGROUNDS.dark.ground}`,
+			"editor.foreground": "#f0ebe1",
+			"editor.lineHighlightBackground": `#${EDITOR_BACKGROUNDS.dark.line}`,
+			"editor.selectionBackground": "#183f3a",
+			"editorCursor.foreground": "#5fcfbf",
+			"editorLineNumber.foreground": "#aaa396",
+			"editorLineNumber.activeForeground": "#f0ebe1",
+			"editorIndentGuide.background1": "#2f2d29",
+			"editorWidget.background": "#2a2825",
+			"textLink.foreground": "#7fd9cc",
+			"textLink.activeForeground": "#a6e8de",
+			"editorWidget.border": "#36332e",
 			"scrollbarSlider.background": "#4b473fcc",
 			"scrollbarSlider.hoverBackground": "#615c52e6",
 			"scrollbarSlider.activeBackground": "#7a7466",
+			"scrollbar.shadow": "#00000000",
+			"editorOverviewRuler.background": "#00000000",
+			"editorOverviewRuler.border": "#00000000",
+			"editorOverviewRuler.modifiedForeground": "#f2c35a",
+			"editorOverviewRuler.addedForeground": "#7fd18a",
+			"editorOverviewRuler.deletedForeground": "#f59a8e",
+			"editorOverviewRuler.warningForeground": "#f2c35a",
+			"editorOverviewRuler.errorForeground": "#f59a8e",
+			"editorOverviewRuler.findMatchForeground": "#5fcfbf",
+			"editorOverviewRuler.selectionHighlightForeground": "#5fcfbf80",
+			"editorOverviewRuler.wordHighlightForeground": "#5fcfbf80",
+			"editorOverviewRuler.bracketMatchForeground": "#00000000",
 			...withHash(DARK_BRACKETS),
 		},
 	});
@@ -247,31 +296,7 @@ export function getMonaco(): Promise<typeof Monaco> {
 
 /** The theme name matching what the page is showing right now (shell/theme.ts). */
 export function currentThemeName(): string {
-	const chosen = document.documentElement.getAttribute("data-theme");
-	if (chosen === "dark") return DARK_THEME;
-	if (chosen === "light") return LIGHT_THEME;
-	const dark =
-		typeof matchMedia === "function" &&
-		matchMedia("(prefers-color-scheme: dark)").matches;
-	return dark ? DARK_THEME : LIGHT_THEME;
-}
-
-/** Call back whenever the page's light or dark choice may have changed. */
-export function onThemeChange(callback: () => void): () => void {
-	const observer = new MutationObserver(callback);
-	observer.observe(document.documentElement, {
-		attributes: true,
-		attributeFilter: ["data-theme"],
-	});
-	const media =
-		typeof matchMedia === "function"
-			? matchMedia("(prefers-color-scheme: dark)")
-			: null;
-	media?.addEventListener("change", callback);
-	return () => {
-		observer.disconnect();
-		media?.removeEventListener("change", callback);
-	};
+	return pageIsDark() ? DARK_THEME : LIGHT_THEME;
 }
 
 let watching = false;

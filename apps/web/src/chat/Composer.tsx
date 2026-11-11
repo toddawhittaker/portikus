@@ -26,6 +26,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useStore } from "zustand";
 import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
@@ -54,6 +55,7 @@ import {
 	inShellMode,
 	insertAtCursor,
 	insertPlainText,
+	isBlank,
 	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
@@ -78,6 +80,7 @@ const SHELL_RUNNING_HINT = "The command is running. Esc stops it.";
 const CODE_HINT = `In code, Enter adds a line. ${currentPlatform() === "mac" ? "Cmd" : "Ctrl"}+Enter sends.`;
 const SAVING = "Wait for the files to finish saving.";
 const SENDING = "Wait for your last message to reach Claude.";
+const NOTHING_TO_SEND = "Type a message or attach a file first.";
 // Said once on entering a block: the visible hint is only a description, read on focus.
 const CODE_ANNOUNCED = `In a code block. ${CODE_HINT} Press Enter three times at the end to leave it.`;
 const SHELL_ANNOUNCED = "Shell command mode";
@@ -151,6 +154,7 @@ export function Composer({
 	const [dragging, setDragging] = useState(false);
 	const [inCode, setInCode] = useState(false);
 	const [shell, setShell] = useState(false);
+	const [blank, setBlank] = useState(true);
 	const [menu, setMenu] = useState<ComposerMenu | null>(null);
 	/** The menu's list shows only while the box holds focus. */
 	const [focused, setFocused] = useState(false);
@@ -170,6 +174,10 @@ export function Composer({
 	const lastSent = useRef<JSONContent | null>(null);
 	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
 	const stopFocused = useRef(false);
+	const [optionsOpen, setOptionsOpen] = useState(false);
+	// The editor's key handler is set up once, so it reads the panel's state through a ref.
+	const optionsOpenNow = useRef(optionsOpen);
+	optionsOpenNow.current = optionsOpen;
 	/** The student has moved through the open menu's list with the arrow keys. */
 	const arrowed = useRef(false);
 	/** Long pastes so far, so each gets its own file and chip name. */
@@ -352,6 +360,8 @@ export function Composer({
 		}
 		// The picker does the command's job here: the typed command goes and the picker opens.
 		clearMenuText(box, menu);
+		// The pickers live in the options panel, which must show before one can take focus.
+		flushSync(() => setOptionsOpen(true));
 		picker.focus();
 		picker.dispatchEvent(
 			new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
@@ -386,6 +396,18 @@ export function Composer({
 
 	function onKeyDown(event: KeyboardEvent): boolean {
 		const plain = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+		// Escape closes the options panel before it stops the agent.
+		if (
+			plain &&
+			event.key === "Escape" &&
+			optionsOpenNow.current &&
+			!pickerMenuOpen() &&
+			menu === null
+		) {
+			event.preventDefault();
+			setOptionsOpen(false);
+			return true;
+		}
 		if (plain && event.key === "Escape" && running && !menuOpen() && menu === null) {
 			event.preventDefault();
 			store.getState().interrupt();
@@ -407,6 +429,14 @@ export function Composer({
 	function menuOpen(): boolean {
 		return (
 			host.current?.closest("form")?.querySelector('[aria-expanded="true"]') != null
+		);
+	}
+
+	function pickerMenuOpen(): boolean {
+		return (
+			host.current
+				?.closest("form")
+				?.querySelector('.pk-picker[aria-expanded="true"]') != null
 		);
 	}
 
@@ -462,6 +492,7 @@ export function Composer({
 			onChange: (changed) => {
 				setInCode(inCodeBlock(changed));
 				setShell(inShellMode(changed));
+				setBlank(isBlank(changed));
 			},
 			onMenu: (next, closed) => handlers.current.onMenu(next, closed),
 			onMenuKey: (event) => handlers.current.onMenuKey(event),
@@ -481,7 +512,14 @@ export function Composer({
 		return event.dataTransfer.types.includes("Files");
 	}
 
-	const waitReason = files.saving > 0 ? SAVING : sending !== null ? SENDING : "";
+	const waitReason =
+		files.saving > 0
+			? SAVING
+			: sending !== null
+				? SENDING
+				: blank && files.items.length === 0
+					? NOTHING_TO_SEND
+					: "";
 
 	return (
 		<>
@@ -563,6 +601,8 @@ export function Composer({
 						onSet={(next) => store.getState().set(next)}
 						onAnnounce={announce}
 						readAloud={readAloud}
+						open={optionsOpen}
+						onOpenChange={setOptionsOpen}
 					/>
 					<div className="pk-composer-actions">
 						<VoiceButton
@@ -578,7 +618,7 @@ export function Composer({
 								icon="stop"
 								label="Stop"
 								variant="secondary"
-								className="pk-composer-send"
+								className="pk-composer-send pk-composer-stop"
 								data-testid="chat-composer-stop"
 								onFocus={() => {
 									stopFocused.current = true;

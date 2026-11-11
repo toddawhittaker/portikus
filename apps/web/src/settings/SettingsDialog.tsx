@@ -143,7 +143,7 @@ function NavButton({
 			type="button"
 			aria-current={current ? "page" : undefined}
 			onClick={onClick}
-			className={`pk-focus-ring min-h-9 w-full rounded-sm py-1 text-left text-[13px] leading-[18px] text-ink ${
+			className={`pk-focus-ring min-h-9 w-full rounded-sm py-1 text-left text-[14px] leading-5 text-ink ${
 				nested ? "pr-2 pl-6" : "px-2"
 			} ${current ? "bg-surface-selected font-medium" : "hover:bg-surface-hover"}`}
 		>
@@ -437,7 +437,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 			case "terminal-colours":
 				return (
 					<div className="grid gap-1.5">
-						<div className="flex h-[18px] min-w-0 items-center gap-1">
+						<div className="flex h-[20px] min-w-0 items-center gap-1">
 							<span className={LABEL_CLASS}>{control.label}</span>
 							<Toggletip label={control.label}>
 								You can switch one terminal from its three-dots menu. A program that is

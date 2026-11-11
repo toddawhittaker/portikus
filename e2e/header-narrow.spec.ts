@@ -54,7 +54,8 @@ for (const width of [320, 480]) {
 
 				const headerBox = await header.boundingBox();
 				if (!headerBox) throw new Error("the header has no box");
-				expect(headerBox.height).toBe(48);
+				// A phone-width header is 56px, so its controls are 44px touch targets.
+				expect(headerBox.height).toBe(56);
 				// Neither the bar nor the page scrolls sideways.
 				expect(await header.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
 					true,

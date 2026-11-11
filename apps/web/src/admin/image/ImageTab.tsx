@@ -35,7 +35,8 @@ import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 const INTRO = {
 	id: "admin-image",
 	helpAnchor: "admin-image",
-	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Claude Code and Codex are updated separately, under Coding agents. Existing workspaces keep their image until you rebuild each one. Packages students add shows what they install most, so you can decide what belongs in the image.",
+	lead: "The image every new workspace starts from.",
+	text: "Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Claude Code and Codex are updated separately, under Coding agents. Existing workspaces keep their image until you rebuild each one. Packages students add shows what they install most, so you can decide what belongs in the image.",
 };
 
 const NODE_LABEL: Record<ImageNodeChoice, string> = {
@@ -479,7 +480,7 @@ function JobGroup({
 			<JobLog idPrefix="image" log={log} />
 			{made && defaultVersion ? (
 				<div className="grid gap-3" data-testid="image-job-result">
-					<h4 className="pk-text-compact m-0 font-semibold text-ink-muted">
+					<h4 className="pk-group-label">
 						Changes in {made.version} against {defaultVersion}
 					</h4>
 					<DiffView from={defaultVersion} to={made.version} heading="h5" />

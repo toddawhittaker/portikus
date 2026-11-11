@@ -624,7 +624,7 @@ export function FileTreePane({
 				<RootDropZone slug={project.slug} />
 
 				<div
-					className={`pk-pane-body${uploadToRoot ? " is-upload-root" : ""}`}
+					className={`pk-pane-body pk-tree-body${uploadToRoot ? " is-upload-root" : ""}`}
 					data-upload-root={uploadToRoot ? "true" : undefined}
 					data-testid="file-tree-body"
 				>

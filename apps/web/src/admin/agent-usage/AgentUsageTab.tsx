@@ -15,7 +15,8 @@ export function AgentUsageTab() {
 			title="Agent usage"
 			intro={{
 				id: "admin-agents",
-				text: "How much each person has used Claude Code and Codex. Usage counts never include prompts or code. The agents report them from inside the workspace, so treat them as a guide, not proof.",
+				lead: "How much each person has used Claude Code and Codex.",
+				text: "Usage counts never include prompts or code. The agents report them from inside the workspace, so treat them as a guide, not proof.",
 				helpAnchor: "admin-agents",
 			}}
 		>

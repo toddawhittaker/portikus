@@ -75,7 +75,12 @@ test("the context shows once over half full, with the /compact hint", () => {
 	expect(meter.textContent).toContain("Context 72%");
 	expect(meter.getAttribute("title")).toBe(COMPACT_HINT);
 	expect(meter.textContent).toContain(COMPACT_HINT);
-	expect(meter.className).not.toContain("is-warning");
+	expect(meter.getAttribute("data-level")).toBe("ok");
+	// A native meter, named and valued, beside its figure.
+	const bar = meter.querySelector("meter");
+	expect(bar?.getAttribute("aria-label")).toBe("Context");
+	expect(bar?.getAttribute("aria-valuetext")).toBe("72% used");
+	expect(meter.querySelector("svg")).toBeNull();
 });
 
 test("an unknown window hides the percentage", () => {
@@ -86,8 +91,22 @@ test("an unknown window hides the percentage", () => {
 test("near full the context carries the alert icon, not colour alone", () => {
 	show(report(860, 1000, null));
 	const meter = screen.getByTestId("composer-context");
-	expect(meter.className).toContain("is-warning");
+	expect(meter.getAttribute("data-level")).toBe("warning");
 	expect(meter.querySelector("svg")).not.toBeNull();
+	expect(meter.querySelector("meter")?.getAttribute("aria-valuetext")).toBe(
+		"86% used, nearly full",
+	);
+});
+
+test("from 90% the context meter turns to the error level", () => {
+	show(report(890, 1000, null));
+	expect(screen.getByTestId("composer-context").getAttribute("data-level")).toBe(
+		"warning",
+	);
+	show(report(900, 1000, null));
+	expect(screen.getByTestId("composer-context").getAttribute("data-level")).toBe(
+		"full",
+	);
 });
 
 test("the context is announced once as it passes 80%", () => {
@@ -111,17 +130,19 @@ test("a first figure already past 80% is not announced", () => {
 test("the cache clock counts down to the cache's end", () => {
 	show(report(10, 1000, { agoSeconds: 78, ttlSeconds: 300 }));
 	const cache = screen.getByTestId("composer-cache");
-	expect(cache.textContent).toContain("Cache 3:42");
+	expect(cache.textContent).toContain("Cache expires in 3:42");
 	expect(cache.getAttribute("data-state")).toBe("warm");
 	tick(1);
-	expect(cache.textContent).toContain("Cache 3:41");
+	expect(cache.textContent).toContain("Cache expires in 3:41");
 	tick(60);
-	expect(cache.textContent).toContain("Cache 2:41");
+	expect(cache.textContent).toContain("Cache expires in 2:41");
 });
 
 test("a one-hour cache counts from an hour", () => {
 	show(report(10, 1000, { agoSeconds: 0, ttlSeconds: 3600 }));
-	expect(screen.getByTestId("composer-cache").textContent).toContain("Cache 60:00");
+	expect(screen.getByTestId("composer-cache").textContent).toContain(
+		"Cache expires in 60:00",
+	);
 });
 
 test("the name is stable and the ticking digits are hidden from assistive technology", () => {
@@ -136,7 +157,7 @@ test("the name is stable and the ticking digits are hidden from assistive techno
 			.join(" ");
 	expect(spoken()).toBe(`Prompt cache: warm, goes cold at ${when}`);
 	expect(meter.querySelector("[aria-hidden=true]")?.textContent).toContain(
-		"Cache 3:42",
+		"Cache expires in 3:42",
 	);
 	tick(30);
 	expect(spoken()).toBe(`Prompt cache: warm, goes cold at ${when}`);
@@ -150,7 +171,7 @@ test("the last minute warns with an icon and the word soon", () => {
 	expect(cache.getAttribute("data-state")).toBe("warm");
 	tick(10);
 	expect(cache.getAttribute("data-state")).toBe("soon");
-	expect(cache.textContent).toContain("Cache 1:00");
+	expect(cache.textContent).toContain("Cache expires soon, 1:00");
 	expect(cache.textContent).toContain("soon");
 	expect(cache.querySelector("svg")).not.toBeNull();
 	expect(cache.className).toContain("is-warning");
@@ -194,7 +215,7 @@ test("a new cache write restarts the clock and the next cold is announced again"
 	);
 	const cache = screen.getByTestId("composer-cache");
 	expect(cache.getAttribute("data-state")).toBe("warm");
-	expect(cache.textContent).toContain("Cache 5:00");
+	expect(cache.textContent).toContain("Cache expires in 5:00");
 	tick(300);
 	expect(cache.getAttribute("data-state")).toBe("cold");
 	expect(announced).toHaveLength(2);
@@ -228,7 +249,7 @@ test("a host clock ahead of the browser's is corrected by the skew the event car
 	});
 	const cache = screen.getByTestId("composer-cache");
 	expect(cache.getAttribute("data-state")).toBe("warm");
-	expect(cache.textContent).toContain("Cache 4:00");
+	expect(cache.textContent).toContain("Cache expires in 4:00");
 });
 
 test("an older host that sends no time gets no correction", () => {
@@ -245,5 +266,7 @@ test("an older host that sends no time gets no correction", () => {
 			}),
 		);
 	});
-	expect(screen.getByTestId("composer-cache").textContent).toContain("Cache 4:00");
+	expect(screen.getByTestId("composer-cache").textContent).toContain(
+		"Cache expires in 4:00",
+	);
 });

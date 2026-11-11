@@ -40,8 +40,17 @@ let people: Person[] = [];
 let instructor: Person;
 let courseId = "";
 
+const SCHEMES = ["light", "dark"] as const;
+type Scheme = (typeof SCHEMES)[number];
+
+/** The dark shot of an image is named like the light one with `-dark` added. */
+function imageName(base: string, colorScheme: Scheme) {
+	return colorScheme === "light" ? `${base}.png` : `${base}-dark.png`;
+}
+
 /** Carol signs in through the mock provider; her name is made to fit the demo. */
-async function asAdmin(page: Page, path: string) {
+async function asAdmin(page: Page, path: string, colorScheme: Scheme = "light") {
+	await page.emulateMedia({ colorScheme });
 	await loginAs(page, "carol");
 	await query(
 		"update users set display_name = 'Carol Whitfield' where email = 'carol@example.edu'",
@@ -79,158 +88,174 @@ test.beforeAll(async () => {
 	);
 });
 
-test("users and the intro toggletip", async ({ page }) => {
-	await asAdmin(page, "/admin");
-	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-	await page
-		.getByRole("button", { name: /^About Image/ })
-		.first()
-		.click();
-	await expect(page.locator(".pk-toggletip-content[data-state='open']")).toBeVisible();
-	await shoot(page, "admin-intro-toggletip.png", {
-		clip: { x: 0, y: 40, width: 1000, height: 300 },
+for (const colorScheme of SCHEMES) {
+	test(`users and the intro toggletip (${colorScheme})`, async ({ page }) => {
+		await asAdmin(page, "/admin", colorScheme);
+		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+		await page
+			.getByRole("button", { name: /^About Image/ })
+			.first()
+			.click();
+		await expect(
+			page.locator(".pk-toggletip-content[data-state='open']"),
+		).toBeVisible();
+		if (colorScheme === "light") {
+			await shoot(page, "admin-intro-toggletip.png", {
+				clip: { x: 0, y: 40, width: 1000, height: 300 },
+			});
+		}
+		await page.keyboard.press("Escape");
+		await page.getByTestId("admin-filter-text").fill("");
+		await page.getByRole("button", { name: "Show details for Diego Santos" }).click();
+		await expect(page.getByRole("region", { name: "Diego Santos" })).toBeVisible();
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-users", colorScheme));
 	});
-	await page.keyboard.press("Escape");
-	await page.getByTestId("admin-filter-text").fill("");
-	await page.getByRole("button", { name: "Show details for Diego Santos" }).click();
-	await expect(page.getByRole("region", { name: "Diego Santos" })).toBeVisible();
-	await page.waitForTimeout(1500);
-	await shoot(page, "admin-users.png");
-});
+}
 
-test("settings", async ({ page }) => {
-	await asAdmin(page, "/admin/settings");
-	await expect(page.getByRole("heading", { name: "Settings", level: 2 })).toBeVisible({
-		timeout: 15_000,
+for (const colorScheme of SCHEMES) {
+	test(`settings (${colorScheme})`, async ({ page }) => {
+		await asAdmin(page, "/admin/settings", colorScheme);
+		await expect(page.getByRole("heading", { name: "Settings", level: 2 })).toBeVisible(
+			{
+				timeout: 15_000,
+			},
+		);
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("admin-settings", colorScheme));
 	});
-	await page.waitForTimeout(1000);
-	await shoot(page, "admin-settings.png");
-});
+}
 
 const GIB = 1024 ** 3;
 
-test("health", async ({ page }) => {
-	await query("delete from health_samples");
-	for (let minutes = 24 * 60; minutes >= 0; minutes -= 30) {
-		const hour = (24 * 60 - minutes) / 60;
-		const busy = Math.max(0, Math.sin((hour / 24) * Math.PI * 2 - 1.2));
-		await query(
-			`insert into health_samples (observed_at, sample)
+for (const colorScheme of SCHEMES) {
+	test(`health (${colorScheme})`, async ({ page }) => {
+		await query("delete from health_samples");
+		for (let minutes = 24 * 60; minutes >= 0; minutes -= 30) {
+			const hour = (24 * 60 - minutes) / 60;
+			const busy = Math.max(0, Math.sin((hour / 24) * Math.PI * 2 - 1.2));
+			await query(
+				`insert into health_samples (observed_at, sample)
 			 values (now() - make_interval(mins => $1), $2)`,
+				[
+					minutes,
+					JSON.stringify({
+						controller: { reachable: true, errorCode: null },
+						host: {
+							observedAt: new Date().toISOString(),
+							loadAverage: [0.6 + busy * 2, 0.5 + busy * 1.8, 0.4 + busy],
+							cpuCount: 8,
+							memory: {
+								usedBytes: Math.round((9 + busy * 12) * GIB),
+								totalBytes: 32 * GIB,
+							},
+							pool: {
+								name: "portikus",
+								usedBytes: Math.round((182 + hour * 0.6) * GIB),
+								totalBytes: 500 * GIB,
+								metadataPercent: 9,
+							},
+							profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
+							image: { fingerprint: "a41c9e02d7b85f13ce90", serial: "2026.11.1" },
+							instances: [],
+							rates: {
+								cpuPercent: Math.round(8 + busy * 46),
+								netRxBytesPerSecond: Math.round((0.3 + busy * 3) * 1024 * 1024),
+								netTxBytesPerSecond: Math.round((0.1 + busy) * 1024 * 1024),
+								diskReadBytesPerSecond: Math.round((0.2 + busy) * 1024 * 1024),
+								diskWriteBytesPerSecond: Math.round((0.1 + busy * 0.6) * 1024 * 1024),
+							},
+						},
+						runningWorkspaces: Math.round(1 + busy * 5),
+					}),
+				],
+			);
+		}
+		await asAdmin(page, "/admin/health", colorScheme);
+		await expect(page.getByTestId("health-trends")).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-health", colorScheme));
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`logs (${colorScheme})`, async ({ page }) => {
+		await asAdmin(page, "/admin/logs", colorScheme);
+		await expect(page.getByRole("heading", { name: "Logs", level: 2 })).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.getByLabel("Info", { exact: true }).check();
+		await page.getByRole("button", { name: "Apply filters" }).click();
+		await page.waitForTimeout(2500);
+		await shoot(page, imageName("admin-logs", colorScheme));
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`audit (${colorScheme})`, async ({ page }) => {
+		const [maya, diego, amara, lukas, priya] = people as [
+			Person,
+			Person,
+			Person,
+			Person,
+			Person,
+		];
+		const rows: [string, string, string, string, object, number][] = [
+			[maya.userId, maya.workspaceId, "auth.login", "ok", {}, 3],
 			[
-				minutes,
-				JSON.stringify({
-					controller: { reachable: true, errorCode: null },
-					host: {
-						observedAt: new Date().toISOString(),
-						loadAverage: [0.6 + busy * 2, 0.5 + busy * 1.8, 0.4 + busy],
-						cpuCount: 8,
-						memory: {
-							usedBytes: Math.round((9 + busy * 12) * GIB),
-							totalBytes: 32 * GIB,
-						},
-						pool: {
-							name: "portikus",
-							usedBytes: Math.round((182 + hour * 0.6) * GIB),
-							totalBytes: 500 * GIB,
-							metadataPercent: 9,
-						},
-						profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
-						image: { fingerprint: "a41c9e02d7b85f13ce90", serial: "2026.11.1" },
-						instances: [],
-						rates: {
-							cpuPercent: Math.round(8 + busy * 46),
-							netRxBytesPerSecond: Math.round((0.3 + busy * 3) * 1024 * 1024),
-							netTxBytesPerSecond: Math.round((0.1 + busy) * 1024 * 1024),
-							diskReadBytesPerSecond: Math.round((0.2 + busy) * 1024 * 1024),
-							diskWriteBytesPerSecond: Math.round((0.1 + busy * 0.6) * 1024 * 1024),
-						},
-					},
-					runningWorkspaces: Math.round(1 + busy * 5),
-				}),
+				"worker",
+				diego.workspaceId,
+				"workspace.cpu_throttled",
+				"ok",
+				{ averagePercent: 96 },
+				12,
 			],
+			[amara.userId, amara.workspaceId, "workspace.start_requested", "ok", {}, 25],
+			["worker", lukas.workspaceId, "workspace.idle_stopped", "ok", {}, 47],
+			[priya.userId, priya.workspaceId, "auth.login", "ok", {}, 63],
+			[
+				"worker",
+				lukas.workspaceId,
+				"workspace.start_failed",
+				"failed",
+				{ errorCode: "TIMEOUT" },
+				95,
+			],
+			[diego.userId, diego.workspaceId, "auth.login", "ok", {}, 130],
+			[maya.userId, maya.workspaceId, "workspace.stop_requested", "ok", {}, 180],
+		];
+		// The list is newest first by row number, so start from an empty table:
+		// the seeded rows are then in time order, and the sign-in that opens the
+		// page is the newest row at the top.
+		await query("delete from audit_events");
+		const [carol] = await query<{ id: string }>(
+			"select id from users where email = 'carol@example.edu'",
 		);
-	}
-	await asAdmin(page, "/admin/health");
-	await expect(page.getByTestId("health-trends")).toBeVisible({ timeout: 15_000 });
-	await page.waitForTimeout(1500);
-	await shoot(page, "admin-health.png");
-});
-
-test("logs", async ({ page }) => {
-	await asAdmin(page, "/admin/logs");
-	await expect(page.getByRole("heading", { name: "Logs", level: 2 })).toBeVisible({
-		timeout: 15_000,
-	});
-	await page.getByLabel("Info", { exact: true }).check();
-	await page.getByRole("button", { name: "Apply filters" }).click();
-	await page.waitForTimeout(2500);
-	await shoot(page, "admin-logs.png");
-});
-
-test("audit", async ({ page }) => {
-	const [maya, diego, amara, lukas, priya] = people as [
-		Person,
-		Person,
-		Person,
-		Person,
-		Person,
-	];
-	const rows: [string, string, string, string, object, number][] = [
-		[maya.userId, maya.workspaceId, "auth.login", "ok", {}, 3],
-		[
-			"worker",
+		rows.push([
+			carol?.id ?? "",
 			diego.workspaceId,
-			"workspace.cpu_throttled",
+			"workspace.quota_updated",
 			"ok",
-			{ averagePercent: 96 },
-			12,
-		],
-		[amara.userId, amara.workspaceId, "workspace.start_requested", "ok", {}, 25],
-		["worker", lukas.workspaceId, "workspace.idle_stopped", "ok", {}, 47],
-		[priya.userId, priya.workspaceId, "auth.login", "ok", {}, 63],
-		[
-			"worker",
-			lukas.workspaceId,
-			"workspace.start_failed",
-			"failed",
-			{ errorCode: "TIMEOUT" },
-			95,
-		],
-		[diego.userId, diego.workspaceId, "auth.login", "ok", {}, 130],
-		[maya.userId, maya.workspaceId, "workspace.stop_requested", "ok", {}, 180],
-	];
-	// The list is newest first by row number, so start from an empty table:
-	// the seeded rows are then in time order, and the sign-in that opens the
-	// page is the newest row at the top.
-	await query("delete from audit_events");
-	const [carol] = await query<{ id: string }>(
-		"select id from users where email = 'carol@example.edu'",
-	);
-	rows.push([
-		carol?.id ?? "",
-		diego.workspaceId,
-		"workspace.quota_updated",
-		"ok",
-		{ from: { homeGiB: 5, dockerGiB: 5 }, to: { homeGiB: 10, dockerGiB: 10 } },
-		8,
-	]);
-	rows.sort((a, b) => b[5] - a[5]);
-	for (const [who, target, action, result, metadata, minutes] of rows) {
-		const actor = who === "worker" ? who : `user:${who}`;
-		await query(
-			`insert into audit_events (actor, target, action, result, metadata, at)
+			{ from: { homeGiB: 5, dockerGiB: 5 }, to: { homeGiB: 10, dockerGiB: 10 } },
+			8,
+		]);
+		rows.sort((a, b) => b[5] - a[5]);
+		for (const [who, target, action, result, metadata, minutes] of rows) {
+			const actor = who === "worker" ? who : `user:${who}`;
+			await query(
+				`insert into audit_events (actor, target, action, result, metadata, at)
 			 values ($1, $2, $3, $4, $5, now() - make_interval(mins => $6))`,
-			[actor, target, action, result, JSON.stringify(metadata), minutes],
-		);
-	}
-	await asAdmin(page, "/admin/audit");
-	await expect(page.getByRole("heading", { name: "Audit", level: 2 })).toBeVisible({
-		timeout: 15_000,
+				[actor, target, action, result, JSON.stringify(metadata), minutes],
+			);
+		}
+		await asAdmin(page, "/admin/audit", colorScheme);
+		await expect(page.getByRole("heading", { name: "Audit", level: 2 })).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-audit", colorScheme));
 	});
-	await page.waitForTimeout(1500);
-	await shoot(page, "admin-audit.png");
-});
+}
 
 test("network", async ({ page }) => {
 	await query(
@@ -251,43 +276,45 @@ test("network", async ({ page }) => {
 	await shoot(page, "admin-network.png");
 });
 
-test("backups", async ({ page }) => {
-	await resetBackups();
-	const rows = await query<{ incus_instance_name: string }>(
-		"select incus_instance_name from workspaces where label not like 'ws-old-%'",
-	);
-	const instances = rows.map((row) => row.incus_instance_name);
-	const day = (back: number) => {
-		const at = new Date(Date.now() - back * 86_400_000);
-		at.setUTCHours(7, 30, 0, 0);
-		return at;
-	};
-	const stamp = (at: Date) =>
-		at.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
-	const last = day(0);
-	hostReport(
-		hostStatus({
-			vm: "portikus",
-			lastRun: {
-				startedAt: last.toISOString(),
-				endedAt: new Date(last.getTime() + 11 * 60_000).toISOString(),
-				result: "success",
-			},
-			nextRunAt: day(-1).toISOString(),
-			sets: [0, 1, 2, 3, 4, 5, 6].map((back) =>
-				backupSet(stamp(day(back)), instances, {
-					sizeBytes: Math.round((38 - back * 0.7) * GIB),
-				}),
-			),
-		}),
-	);
-	await asAdmin(page, "/admin/backups");
-	await expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible({
-		timeout: 15_000,
+for (const colorScheme of SCHEMES) {
+	test(`backups (${colorScheme})`, async ({ page }) => {
+		await resetBackups();
+		const rows = await query<{ incus_instance_name: string }>(
+			"select incus_instance_name from workspaces where label not like 'ws-old-%'",
+		);
+		const instances = rows.map((row) => row.incus_instance_name);
+		const day = (back: number) => {
+			const at = new Date(Date.now() - back * 86_400_000);
+			at.setUTCHours(7, 30, 0, 0);
+			return at;
+		};
+		const stamp = (at: Date) =>
+			at.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+		const last = day(0);
+		hostReport(
+			hostStatus({
+				vm: "portikus",
+				lastRun: {
+					startedAt: last.toISOString(),
+					endedAt: new Date(last.getTime() + 11 * 60_000).toISOString(),
+					result: "success",
+				},
+				nextRunAt: day(-1).toISOString(),
+				sets: [0, 1, 2, 3, 4, 5, 6].map((back) =>
+					backupSet(stamp(day(back)), instances, {
+						sizeBytes: Math.round((38 - back * 0.7) * GIB),
+					}),
+				),
+			}),
+		);
+		await asAdmin(page, "/admin/backups", colorScheme);
+		await expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-backups", colorScheme));
 	});
-	await page.waitForTimeout(1500);
-	await shoot(page, "admin-backups.png");
-});
+}
 
 test("certificate", async ({ page }) => {
 	await resetCertificateStore();

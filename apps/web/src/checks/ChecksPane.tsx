@@ -1,5 +1,12 @@
 import type { CheckRun, Project } from "@portikus/contracts";
-import { Button, EmptyState, IconButton, StateBadge, Toggletip } from "@portikus/ui";
+import {
+	Button,
+	EmptyState,
+	Icon,
+	IconButton,
+	StateBadge,
+	Toggletip,
+} from "@portikus/ui";
 import { useState } from "react";
 import { CheckOutput } from "./CheckOutput.js";
 import { CHECK_BADGE } from "./checkBadge.js";
@@ -173,6 +180,13 @@ export function ChecksPane({
 								);
 							})}
 						</ul>
+						<p className="pk-pane-note" data-testid="checks-note">
+							<Icon name="info" />
+							<span>
+								Run a check after each change to see whether your project still works.
+								To add one, choose Edit checks above.
+							</span>
+						</p>
 					</div>
 				</PaneSplit>
 			)}

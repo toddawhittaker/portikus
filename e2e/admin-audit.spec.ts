@@ -137,6 +137,8 @@ test.describe("admin audit", () => {
 		const input = page.getByRole("combobox", { name: "Person" });
 		const apply = page.getByRole("button", { name: "Apply filters" });
 		await expect(apply).toBeVisible({ timeout: 15_000 });
+		// A web font swapping in can rewrap the intro above and move the row between the two reads.
+		await page.evaluate(() => document.fonts.ready);
 		async function expectAligned() {
 			const inputBox = await input.boundingBox();
 			const applyBox = await apply.boundingBox();

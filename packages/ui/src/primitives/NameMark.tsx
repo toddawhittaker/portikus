@@ -2,28 +2,15 @@ import type * as React from "react";
 import { cx } from "./cx.js";
 
 /**
- * The Portikus mark: a portico (lintel, two columns, a base line) framing a small
- * terminal. The stone follows the text colour; the room stays dark in both themes.
+ * The Portikus mark: an ivory portico (pediment, lintel, two columns, a step)
+ * on a teal tile, with a gold prompt and cursor in its doorway. Its colours are
+ * brand tokens, so it reads the same on every surface in both themes.
  */
-const MARK = {
-	full: {
-		box: "0 0 96 48",
-		stone:
-			"M0 0h96v6h-96z M2 7L17 7L16 11L3 11z M4 11h11v26h-11z M3 37L16 37L17 41L2 41z M79 7L94 7L93 11L80 11z M81 11h11v26h-11z M80 37L93 37L94 41L79 41z M0 42h96v6h-96z",
-		room: "M20 11h56v28h-56z",
-		code: "M25 16h39v2.5h-39z M25 21h22v2.5h-22z M25 26h30v2.5h-30z",
-		cursor: "M25 31h3v5.5h-3z",
-		sizeClass: "h-[1.08em] w-[2.16em]",
-	},
-	compact: {
-		box: "0 0 32 32",
-		stone: "M1 4h30v3H1z M3 8h4v16H3z M25 8h4v16h-4z M1 25h30v3H1z",
-		room: "M9 8h14v16H9z",
-		code: "M11 11h8v2h-8z M11 15h5v2h-5z",
-		cursor: "M11 19h2v3h-2z",
-		sizeClass: "h-[1.2em] w-[1.2em]",
-	},
-} as const;
+const TILE = "M0 8a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8v16a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z";
+const STONE =
+	"M16 5.5 27 11.5H5z M6 12.5h20v2H6z M8 15.5h3.5v9H8z M20.5 15.5H24v9h-3.5z M5.5 25.5h21v2h-21z";
+const PROMPT =
+	"M12.8 17.4 16.4 20l-3.6 2.6v-1.7l1.6-.9-1.6-.9z M16.8 21.6h2.8v1.4h-2.8z";
 
 export interface NameMarkProps {
 	/** Size of the name in pixels; the mark scales with it. */
@@ -39,21 +26,19 @@ export function NameMark({
 	markOnly,
 	className,
 }: NameMarkProps): React.ReactElement {
-	const mark = MARK[markOnly && size < 24 ? "compact" : "full"];
 	const svg = (
 		<svg
-			viewBox={mark.box}
-			className={cx("pk-mark block flex-none", mark.sizeClass)}
+			viewBox="0 0 32 32"
+			className="pk-mark block h-[1.3em] w-[1.3em] flex-none"
 			aria-hidden={true}
 		>
-			<path className="fill-current" d={mark.stone} />
-			<path className="fill-terminal-bg" d={mark.room} />
-			<path className="fill-mark-code" d={mark.code} />
-			<path className="fill-terminal-cursor" d={mark.cursor} />
+			<path fill="var(--brand-tile)" d={TILE} />
+			<path fill="var(--brand-stone)" d={STONE} />
+			<path fill="var(--brand-spark)" d={PROMPT} />
 		</svg>
 	);
 	const classes = cx(
-		"pk-namemark pk-focus-ring inline-flex items-center gap-[0.36em] font-sans font-bold leading-none tracking-[-0.01em] text-ink no-underline",
+		"pk-namemark pk-focus-ring inline-flex items-center gap-[0.4em] font-sans font-bold leading-none tracking-[-0.01em] text-ink no-underline",
 		className,
 	);
 

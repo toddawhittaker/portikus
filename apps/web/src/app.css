@@ -3,6 +3,7 @@
 @import "./running/running.css";
 @import "./shell/header.css";
 @import "./tables.css";
+@import "./controls.css";
 
 /*
  * Screen-level patterns from design/mockups/portikus-screens.css: the shell
@@ -16,14 +17,6 @@ html,
 body,
 #root {
 	height: 100%;
-}
-
-/* A button kept focusable while unavailable looks like a disabled one. */
-.pk-btn[aria-disabled="true"]:not([aria-busy="true"]) {
-	cursor: not-allowed;
-	background: var(--surface-sunken);
-	color: var(--ink-faint);
-	border-color: var(--line);
 }
 
 /* A file field kept focusable while its file is checked. */
@@ -81,45 +74,55 @@ body {
 /* Type utilities, one per type token. */
 .pk-text-display {
 	margin: 0;
-	font-size: 28px;
-	line-height: 36px;
+	font-size: var(--text-2xl);
+	line-height: var(--leading-2xl);
 	font-weight: 600;
 	letter-spacing: -0.01em;
 }
 .pk-text-title {
 	margin: 0;
-	font-size: 20px;
-	line-height: 28px;
+	font-size: var(--text-xl);
+	line-height: var(--leading-xl);
+	letter-spacing: -0.005em;
 	font-weight: 600;
 }
 .pk-text-heading {
 	margin: 0;
-	font-size: 15px;
-	line-height: 22px;
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
 	font-weight: 600;
 }
 .pk-text-body {
 	margin: 0;
-	font-size: 14px;
-	line-height: 20px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 }
 .pk-text-compact {
 	margin: 0;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 }
 .pk-text-label {
 	margin: 0;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 	font-weight: 500;
 }
 .pk-text-caption {
 	margin: 0;
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	font-weight: 500;
 	letter-spacing: 0.01em;
+}
+/* A group's label inside a card or panel: below a card title, so small, bold and quiet. */
+.pk-group-label {
+	margin: 0;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	color: var(--ink-muted);
 }
 .pk-mono-body {
 	font-family: var(--font-mono);
@@ -155,6 +158,10 @@ body {
 		background: var(--surface-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
+	}
+	/* A card that waits on someone, as a chat's permission card does: the amber start border. */
+	.pk-card--attention {
+		border-inline-start: 4px solid var(--status-warning);
 	}
 }
 
@@ -234,7 +241,7 @@ body {
  * Too narrow for both side panes at their default widths (240 and 280 px)
  * beside the work area's 360 px minimum (SPEC.md section 8.1): the work
  * area fills the shell, and projects and the right pane become drawers that
- * slide over it from their own side, opened from the header. The panel
+ * slide over it from their own side, opened from the pane bar. The panel
  * library sets sizes and overflow inline, hence !important; its width
  * handles have nothing to resize here, so they go.
  */
@@ -249,7 +256,8 @@ body {
 	.pk-shell > :is(#projects, #files) {
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		position: fixed !important;
-		inset: 0;
+		/* Between the header and the pane bar, which stay in view as the frame. */
+		inset: var(--pk-appbar-height) 0 var(--pk-panebar-height) 0;
 		z-index: var(--z-dialog);
 		/* biome-ignore lint/complexity/noImportantStyles: the panel library's inline style */
 		max-height: none !important;
@@ -258,13 +266,19 @@ body {
 		pointer-events: none;
 	}
 }
+/* A short window: the drawers take the header's height too. */
+@media (width < 56rem) and (height < 30rem) {
+	.pk-shell > :is(#projects, #files) {
+		inset-block-start: 0;
+	}
+}
 .pk-pane {
 	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 	height: 100%;
-	background: var(--surface-sunken);
+	background: var(--surface);
 }
 .pk-pane--left {
 	border-right: 1px solid var(--line);
@@ -277,8 +291,10 @@ body {
 	display: flex;
 	align-items: center;
 	gap: var(--space-0\.5);
-	height: 40px;
-	padding: 0 var(--space-1) 0 var(--space-4);
+	/* The same height as the tab strips, so the line under every pane's head meets across the shell. */
+	height: var(--density-comfortable-tab);
+	padding: 0 var(--space-2) 0 var(--space-4);
+	border-bottom: 1px solid var(--line);
 	overflow: hidden;
 }
 /*
@@ -287,7 +303,8 @@ body {
  */
 .pk-pane-head.pk-pane-head--actions {
 	justify-content: flex-end;
-	height: 32px;
+	height: 36px;
+	border-bottom: 0;
 }
 /* Keep the head's buttons on screen when the pane is dragged narrow. */
 .pk-pane-head .pk-iconbtn {
@@ -300,19 +317,22 @@ body {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	margin: 0;
-	font-size: 13px;
-	line-height: 18px;
-	font-weight: 500;
-	color: var(--ink-muted);
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	color: var(--ink);
 }
+/* The folder a pane shows: interface type, so chrome never reads as code. */
 .pk-pane-sub {
 	flex: none;
 	padding: 0 var(--space-4) var(--space-2);
-	font-family: var(--font-mono);
-	font-variant-ligatures: none;
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	color: var(--ink-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .pk-pane-body {
 	flex: 1;
@@ -321,12 +341,37 @@ body {
 	overflow-x: hidden;
 	padding: 0 var(--space-2) var(--space-2);
 }
+.pk-pane--left > .pk-pane-body {
+	padding-top: var(--space-2);
+}
+/* A line of guidance under a short list, in the info callout's tint. */
+.pk-pane-note {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin: var(--space-4) var(--space-2) 0;
+	padding: var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--status-starting-soft);
+	color: var(--ink);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	max-inline-size: 40ch;
+}
+.pk-pane-note > svg {
+	flex: none;
+	margin-block-start: 2px;
+	color: var(--status-starting);
+}
 .pk-pane-foot {
 	flex: none;
 	padding: var(--space-2);
 	border-top: 1px solid var(--line);
 }
+/* Everything in the work area that sits on the page surface sits on the lighter work surface instead. */
 .pk-work {
+	--surface: var(--surface-work);
+	--color-surface: var(--surface-work);
 	flex: 1;
 	min-width: 0;
 	height: 100%;
@@ -341,7 +386,7 @@ body {
 	margin: 0;
 	padding: 0;
 	display: grid;
-	gap: 1px;
+	gap: var(--space-0\.5);
 }
 .pk-list-item {
 	display: flex;
@@ -358,8 +403,10 @@ body {
 .pk-list-item:hover {
 	background: var(--surface-hover);
 }
+/* The one selection for a row in the project list, shared with the agent rows. */
 .pk-list-item.is-current {
-	background: var(--surface-selected);
+	background: var(--accent-soft);
+	box-shadow: inset 2px 0 0 var(--accent);
 }
 .pk-list-row {
 	flex: 1;
@@ -368,14 +415,14 @@ body {
 	align-items: center;
 	gap: var(--space-2);
 	height: var(--pk-row);
-	padding: 0 var(--space-2);
+	padding: 0 var(--space-2) 0 var(--space-3);
 	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
 	color: var(--ink);
 	text-decoration: none;
 	font: inherit;
-	font-size: 14px;
+	font-size: var(--text-md);
 	text-align: left;
 	cursor: pointer;
 }
@@ -383,7 +430,7 @@ body {
 	color: var(--ink-muted);
 }
 .pk-list-row[aria-current="page"] {
-	font-weight: 600;
+	color: var(--accent-text);
 }
 .pk-list-row[aria-current="page"] .pk-icon {
 	color: var(--accent);
@@ -452,8 +499,8 @@ body {
 	column-gap: var(--space-4);
 	row-gap: var(--space-1);
 	margin: 0;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 }
 .pk-dl dt {
 	color: var(--ink-muted);
@@ -580,8 +627,8 @@ body {
 	gap: var(--space-2);
 }
 .pk-livehelp-time {
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 }
@@ -593,11 +640,20 @@ body {
 /* WorkspaceProgress */
 .pk-progress-card {
 	box-sizing: border-box;
-	width: 460px;
+	width: min(460px, 100%);
 	padding: var(--space-8);
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-6);
+	box-shadow: var(--shadow-md);
+}
+/* The picture sits close above the heading, its backdrop level with the text edge. */
+.pk-progress-card > .pk-art {
+	margin-block-end: calc(var(--space-4) * -1);
+	margin-inline-start: calc(var(--space-4) * -1);
+}
+.pk-progress-card[data-phase="error"] {
+	border-inline-start: 4px solid var(--status-error);
 }
 .pk-steps {
 	list-style: none;
@@ -629,7 +685,7 @@ body {
 	color: var(--status-running);
 }
 .pk-step--active .pk-step-glyph {
-	color: var(--status-starting);
+	color: var(--accent);
 }
 .pk-step-ring {
 	width: 8px;
@@ -645,17 +701,9 @@ body {
 	gap: var(--space-3);
 	height: var(--pk-tab);
 	padding: 0 var(--space-3);
-	background: var(--surface-sunken);
+	background: var(--surface-chrome);
 	border-bottom: 1px solid var(--line);
 }
-.pk-skel-row {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-	height: var(--pk-row);
-	padding: 0 var(--space-2);
-}
-
 /* Technical detail under an error sentence (SPEC.md §28). */
 .pk-techdetail {
 	margin: 0;
@@ -713,8 +761,8 @@ body {
 	max-width: none;
 }
 .pk-meters .pk-meter-label {
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	font-weight: 500;
 }
 .pk-meters .pk-meter-figure {
@@ -728,8 +776,8 @@ body {
 }
 /* The next step under a full meter: short, muted, below the bar. */
 .pk-meter-step {
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	color: var(--ink-muted);
 }
 
