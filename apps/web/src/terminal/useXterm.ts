@@ -12,6 +12,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { type MutableRefObject, type RefObject, useEffect, useRef } from "react";
+import { BASE_FONT_SIZE } from "../editor/zoom.js";
 import { wrappedUrlsOnRow } from "../links.js";
 import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
@@ -227,6 +228,8 @@ export interface UseXtermOptions {
 	name: string;
 	theme: TerminalTheme;
 	screenReaderMode: boolean;
+	/** The text size in pixels, from the pane's zoom; 14 when not given. */
+	fontSize?: number;
 	visible: boolean;
 	/** Take the keyboard when the terminal first appears. Read at mount only. */
 	focusOnMount: boolean;
@@ -260,6 +263,7 @@ export function useXterm({
 	name,
 	theme,
 	screenReaderMode,
+	fontSize = BASE_FONT_SIZE,
 	visible,
 	focusOnMount,
 	describedBy,
@@ -316,6 +320,18 @@ export function useXterm({
 		if (xterm.current) xterm.current.options.screenReaderMode = screenReaderMode;
 	}, [screenReaderMode]);
 
+	// A new size re-measures the cells, so the grid is fitted again and the
+	// new rows and columns reach tmux (SPEC.md §9.7).
+	const fontSizeRef = useRef(fontSize);
+	fontSizeRef.current = fontSize;
+	const sessionRef = useRef<XtermSession | null>(null);
+	useEffect(() => {
+		const term = xterm.current;
+		if (!term || term.options.fontSize === fontSize) return;
+		term.options.fontSize = fontSize;
+		sessionRef.current?.resized();
+	}, [fontSize]);
+
 	useEffect(() => {
 		const container = host.current;
 		if (!container) return;
@@ -345,9 +361,10 @@ export function useXterm({
 		container.addEventListener("focusout", onFocusOut);
 
 		const term = new Xterm({
-			fontSize: 14,
-			// A little air between lines, so long output is easier to follow.
-			lineHeight: 1.25,
+			fontSize: fontSizeRef.current,
+			// A little air between lines, but tight enough that the box-drawing
+			// characters programs draw borders with still join up.
+			lineHeight: 1.1,
 			theme: terminalTheme(themeRef.current),
 			convertEol: false,
 			// Ordinary output keeps this many lines. CSI 3 J, which `clear` sends, erases them.
@@ -356,7 +373,7 @@ export function useXterm({
 			minimumContrastRatio: 4.5,
 			screenReaderMode: screenReaderRef.current,
 		});
-		const dropFace = applyCodeFace(term, 14, () => fitIfMeasurable());
+		const dropFace = applyCodeFace(term, fontSizeRef.current, () => fitIfMeasurable());
 		const openUrl = (uri: string) => handlers.current.openUrl(uri);
 
 		const fitAddon = new FitAddon();
@@ -423,6 +440,7 @@ export function useXterm({
 
 		const attached = attach(term, { container, fit: fitIfMeasurable });
 		session = attached;
+		sessionRef.current = attached;
 
 		/**
 		 * Every keyboard paste arrives as the browser's paste event. It is
@@ -585,6 +603,7 @@ export function useXterm({
 			term.dispose();
 			xterm.current = null;
 			fit.current = null;
+			sessionRef.current = null;
 		};
 	}, [host, attach, describedBy]);
 
