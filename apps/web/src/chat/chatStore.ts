@@ -12,7 +12,6 @@ import {
 	type ChatCommand,
 	type ChatEffort,
 	type ChatLastSettings,
-	ChatModel,
 	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
@@ -24,7 +23,7 @@ import {
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { DEFAULT_MODEL, offeredModel, sameModel } from "./models.js";
+import { offeredModel, sameModel } from "./models.js";
 
 export interface ChatMessageItem {
 	kind: "message";
@@ -572,7 +571,7 @@ export function isNewChat(state: ChatState): boolean {
 /** The values worth keeping from what the host confirmed. */
 export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
 	return {
-		model: ChatModel.safeParse(settings.model).success ? settings.model : DEFAULT_MODEL,
+		model: settings.model,
 		effort: settings.effort,
 		mode: settings.mode,
 	};

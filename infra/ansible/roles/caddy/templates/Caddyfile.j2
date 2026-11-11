@@ -301,7 +301,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 		}
 		# The theme files keep their URLs from one release to the next and Dex
 		# sends no Cache-Control, so a browser would reuse an old logo for days.
-		# no-cache makes it ask each time; the ETag turns that into a cheap 304.
+		# no-cache makes it ask each time; Last-Modified turns that into a cheap 304.
 		@dex_theme path /dex/theme/*
 		route {
 			respond @dex_unused 404
