@@ -1,0 +1,28 @@
+<!-- @dsCard group="Feedback" height=150 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Badge</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+</style></head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
+var tones = [['success','check','Running'],['warning','alert','Needs input'],['danger','alert','Error'],['info','restart','Starting'],['neutral','stop','Stopped'],['accent','check','Current'],['agent','agent','Agent']];
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gap:'14px'}},
+ h('div',null,h('p',{className:'demo-cap'},'Seven tones: a glyph and a word'),
+  h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}}, tones.map(function(t){return h(P.Badge,{key:t[0],tone:t[0]},h(P.Icon,{name:t[1],size:'sm'}),t[2]);}))),
+ h('div',null,h('p',{className:'demo-cap'},'Git letters, and plain for a status bar'),
+  h('div',{style:{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}},
+   h(P.Badge,{tone:'success','aria-label':'Added'},'A'),h(P.Badge,{tone:'warning','aria-label':'Modified'},'M'),h(P.Badge,{tone:'danger','aria-label':'Deleted'},'D'),h(P.Badge,{tone:'info','aria-label':'Renamed'},'R'),
+   h('span',{style:{width:'16px'}}),
+   h(P.Badge,{tone:'success',plain:true},h(P.Icon,{name:'check',size:'sm'}),'Passed'),
+   h(P.Badge,{tone:'warning',plain:true},h(P.Icon,{name:'alert',size:'sm'}),'Needs input')))
+));
+</script>
+</body>
+</html>

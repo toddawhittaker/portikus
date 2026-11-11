@@ -1,4 +1,4 @@
-<!-- @dsCard group="Data" height=330 -->
+<!-- @dsCard group="Data" height=300 -->
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Table</title>
@@ -11,19 +11,26 @@
 <div id="root" class="pk-root"></div>
 <script>
 var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
 var rows=[
- {id:'w1',user:'Avery Chen',email:'achen12@example.edu',state:'running',desired:'running',active:'2 min ago',storage:'6.2 / 20 GB',image:'2026.09.1'},
- {id:'w2',user:'Jordan Ellis',email:'jellis4@example.edu',state:'error',desired:'running',active:'1 hr ago',storage:'19.8 / 20 GB',image:'2026.09.1'},
- {id:'w3',user:'Priya Natarajan',email:'pnatara@example.edu',state:'stopped',desired:'running',active:'just now',storage:'3.4 / 20 GB',image:'2026.08.3'},
- {id:'w4',user:'Sam Okafor',email:'sokafor@example.edu',state:'stopped',desired:'stopped',active:'3 days ago',storage:'11.0 / 20 GB',image:'2026.08.3'}];
-var cols=[
- {key:'user',header:'Student',sortable:true,sort:'asc',render:function(r){return h('div',null,h('div',{style:{fontWeight:500}},r.user),h('div',{style:{color:'var(--ink-muted)',fontSize:'12px',lineHeight:'16px'}},r.email));}},
- {key:'state',header:'State',sortable:true,render:function(r){return h(P.StateBadge,{state:r.state,desiredState:r.desired});}},
- {key:'active',header:'Last activity',sortable:true,muted:true},
- {key:'storage',header:'Docker storage',align:'right',mono:true},
- {key:'image',header:'Image',mono:true,muted:true},
- {key:'actions',header:'Actions',render:function(r){return h(P.IconButton,{icon:'more',label:'Actions for '+r.user,size:'sm'});}}];
-ReactDOM.createRoot(document.getElementById('root')).render(h('div',{'data-density':'compact',style:{padding:'16px 20px'}}, h(P.Table,{label:'Workspaces',columns:cols,rows:rows,selectedKey:'w2'})));
+ {id:'w1',user:'Avery Chen',email:'achen12@example.edu',state:'running',desired:'running',active:'2 min ago',storage:'6.2 / 20 GB',image:'2026.11.1'},
+ {id:'w2',user:'Jordan Ellis',email:'jellis4@example.edu',state:'error',desired:'running',active:'1 hr ago',storage:'19.8 / 20 GB',image:'2026.11.1'},
+ {id:'w3',user:'Priya Natarajan',email:'pnatara@example.edu',state:'stopped',desired:'running',active:'just now',storage:'3.4 / 20 GB',image:'2026.10.6'},
+ {id:'w4',user:'Sam Okafor',email:'sokafor@example.edu',state:'stopped',desired:'stopped',active:'3 days ago',storage:'11.0 / 20 GB',image:'2026.10.6'}];
+var mono={fontFamily:'var(--font-mono)'};
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{'data-density':'compact',style:{padding:'16px 20px'}},
+ h('div',{className:'pk-table-wrap'}, h('table',{className:'pk-table','aria-label':'Workspaces'},
+  h('thead',null,h('tr',null,
+   h('th',{scope:'col','aria-sort':'ascending'},'Student'),h('th',{scope:'col'},'State'),h('th',{scope:'col'},'Last activity'),
+   h('th',{scope:'col',className:'pk-num'},'Docker storage'),h('th',{scope:'col'},'Image'),h('th',{scope:'col'},h('span',{className:'pk-visually-hidden'},'Actions')))),
+  h('tbody',null, rows.map(function(r){return h('tr',{key:r.id,'aria-selected':r.id==='w2'?'true':undefined},
+   h('th',{scope:'row'},h('div',{style:{fontWeight:500}},r.user),h('div',{style:{color:'var(--ink-muted)',fontSize:'12px',lineHeight:'16px',fontWeight:400}},r.email)),
+   h('td',null,h(P.StateBadge,{state:r.state,desiredState:r.desired,statusRole:false})),
+   h('td',{style:{color:'var(--ink-muted)'}},r.active),
+   h('td',{className:'pk-num',style:mono},r.storage),
+   h('td',{style:Object.assign({color:'var(--ink-muted)'},mono)},r.image),
+   h('td',null,h(P.IconButton,{icon:'more',label:'Actions for '+r.user,size:'sm'})));}))))
+));
 </script>
 </body>
 </html>

@@ -11,6 +11,7 @@
 <div id="root" class="pk-root"></div>
 <script>
 var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
 ReactDOM.createRoot(document.getElementById('root')).render(h(P.EmptyState,{icon:'folder',title:'No projects yet',
   actions:h(F,null,h(P.Button,{variant:'primary',iconStart:'plus'},'New project'),h(P.Button,{variant:'secondary'},'Clone a repository'))},
   'A project is a folder in your workspace. Create one, clone one from Git, or start from a template.'));

@@ -10,13 +10,13 @@
  "libraries": [
   {
    "name": "react",
-   "version": "18.3.1",
+   "version": "19.3.1",
    "global": "React",
    "file": "components/lib/react.production.min.js"
   },
   {
    "name": "react-dom",
-   "version": "18.3.1",
+   "version": "19.3.1",
    "global": "ReactDOM",
    "file": "components/lib/react-dom.production.min.js"
   }
@@ -42,50 +42,50 @@
    "files": {
     "portikus-mark-ink.svg": {
      "name": "portikus-mark-ink.svg",
-     "blob": "fcbd1654f69a47b5f367e5ebecff56b5",
-     "size": 438,
+     "blob": "3bf828e0ff931eb1f8b5a72ca540e80d",
+     "size": 455,
      "type": "image/svg+xml"
     },
     "portikus-mark-paper.svg": {
      "name": "portikus-mark-paper.svg",
-     "blob": "e9e266276fedc7a518b8ad8fae859c33",
-     "size": 438,
+     "blob": "36be309b028c83b1ee74f88e9eaefe7d",
+     "size": 455,
      "type": "image/svg+xml"
     },
     "portikus-wordmark-ink.svg": {
      "name": "portikus-wordmark-ink.svg",
-     "blob": "b6843ecfb873424d607c701388254274",
-     "size": 9100,
+     "blob": "cd1acc13c321905913a9e3a762e1ed4e",
+     "size": 9123,
      "type": "image/svg+xml"
     },
     "portikus-wordmark-paper.svg": {
      "name": "portikus-wordmark-paper.svg",
-     "blob": "204166b6c4c03a511f81cd913e58aa92",
-     "size": 9100,
+     "blob": "234b8d988ee850ab8fa98dc7194a8033",
+     "size": 9123,
      "type": "image/svg+xml"
     },
     "portikus-mark-mono-ink.svg": {
      "name": "portikus-mark-mono-ink.svg",
-     "blob": "0aff79e41502dd22305072d4b0761a48",
-     "size": 406,
+     "blob": "7ab57d27ae4de5cf6e67b702ad2819d5",
+     "size": 411,
      "type": "image/svg+xml"
     },
     "portikus-mark-mono-paper.svg": {
      "name": "portikus-mark-mono-paper.svg",
-     "blob": "865c62b937976cf9170f2ff07ee5be19",
-     "size": 406,
+     "blob": "8154bf1c691307d1238044a4cfa28b83",
+     "size": 411,
      "type": "image/svg+xml"
     },
     "portikus-mark-compact-ink.svg": {
      "name": "portikus-mark-compact-ink.svg",
-     "blob": "9163f60ba87bb19c5f0980d02edd7b5e",
-     "size": 438,
+     "blob": "17295c6e80d897938d670155ae715fde",
+     "size": 455,
      "type": "image/svg+xml"
     },
     "portikus-mark-compact-paper.svg": {
      "name": "portikus-mark-compact-paper.svg",
-     "blob": "8fb916584747a50cfa1a3dc5e61a3da9",
-     "size": 438,
+     "blob": "1d62f8593ecaa545b581a44081757c2f",
+     "size": 455,
      "type": "image/svg+xml"
     }
    }
@@ -98,8 +98,8 @@
  },
  "lastChange": {
   "by": "Todd Whittaker",
-  "at": "2026-09-16T21:39:12Z",
-  "via": "Claude (Cowork)",
-  "note": "New mark: portico framing a terminal, with mono and compact variants"
+  "at": "2026-11-11T16:59:34Z",
+  "via": "Claude Code",
+  "note": "Epic 61 look: warm palette, teal actions, violet agent, Badge, new mark; bundle and previews rebuilt from packages/ui"
  }
 }

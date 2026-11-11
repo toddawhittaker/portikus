@@ -11,6 +11,7 @@
 <div id="root" class="pk-root"></div>
 <script>
 var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
 ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gridTemplateColumns:'220px 1fr',gap:'24px'}},
  h('div',{style:{background:'var(--surface-sunken)',padding:'12px',display:'grid',gap:'10px'}},
   [80,64,72,48,90,56].map(function(w,i){return h('div',{key:i,style:{display:'flex',gap:'8px',alignItems:'center',paddingLeft:(i%3)*16+'px'}},h(P.Skeleton,{variant:'block',width:'14px',height:'14px'}),h(P.Skeleton,{width:w+'%'}));})),
