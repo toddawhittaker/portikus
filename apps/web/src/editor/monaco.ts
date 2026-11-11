@@ -204,6 +204,9 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editorLineNumber.activeForeground": "#221f1a",
 			"editorIndentGuide.background1": "#e8e5dd",
 			"editorWidget.background": "#ffffff",
+			// Links in code help's hover, such as View Problem, in the accent.
+			"textLink.foreground": "#17625b",
+			"textLink.activeForeground": "#10443f",
 			"editorWidget.border": "#e2dacb",
 			// The split view's code side needs a scrollbar a student can see
 			// against a pale background.
@@ -240,6 +243,8 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editorLineNumber.activeForeground": "#ece6da",
 			"editorIndentGuide.background1": "#2e2b27",
 			"editorWidget.background": "#262624",
+			"textLink.foreground": "#7fd9cc",
+			"textLink.activeForeground": "#a6e8de",
 			"editorWidget.border": "#303735",
 			"scrollbarSlider.background": "#4b473fcc",
 			"scrollbarSlider.hoverBackground": "#615c52e6",

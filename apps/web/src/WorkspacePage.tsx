@@ -54,6 +54,15 @@ import "./pane-placeholder.css";
 
 const PANEL_IDS = ["projects", "work", "files"];
 
+/**
+ * The side panes' starting widths. Under 1360 px they leave the work area its
+ * 360 px beside both at 56rem (DESIGN.md section 9); a wide window starts them
+ * wider, so agent names keep to a line and the right pane names its surfaces.
+ */
+const SIDE_WIDTHS = { projects: 240, files: 280 };
+const WIDE_SIDE_WIDTHS = { projects: 264, files: 360 };
+const WIDE_WINDOW = 1360;
+
 /** The workspace screen. Signed-out and unauthorized people never get here. */
 export function WorkspacePage() {
 	const { id } = useParams({ from: "/workspaces/$id" });
@@ -127,6 +136,9 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const phase = startingPhase(workspace);
 	const loading =
 		phase === "connecting" || phase === "starting" || phase === "restoring";
+	const [sideWidths] = useState(() =>
+		window.innerWidth >= WIDE_WINDOW ? WIDE_SIDE_WIDTHS : SIDE_WIDTHS,
+	);
 	const layout = useDefaultLayout({
 		id: "pk-shell",
 		panelIds: PANEL_IDS,
@@ -215,7 +227,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				defaultLayout={layout.defaultLayout}
 				onLayoutChanged={layout.onLayoutChanged}
 			>
-				<Panel id="projects" defaultSize={264} minSize={180} maxSize={420}>
+				<Panel
+					id="projects"
+					defaultSize={sideWidths.projects}
+					minSize={180}
+					maxSize={420}
+				>
 					<ShellDrawer
 						id={DRAWER_IDS.projects}
 						side="left"
@@ -349,7 +366,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 					</main>
 				</Panel>
 				{phone ? null : <PaneHandle label="Resize file tree" />}
-				<Panel id="files" defaultSize={360} minSize={200} maxSize={480}>
+				<Panel id="files" defaultSize={sideWidths.files} minSize={200} maxSize={480}>
 					<ShellDrawer
 						id={DRAWER_IDS.files}
 						side="right"

@@ -232,8 +232,8 @@ body {
 	touch-action: pan-x pinch-zoom !important;
 }
 /*
- * Too narrow for both side panes beside a usable work area (its minimum is
- * 360 px, SPEC.md section 8.1): the work
+ * Too narrow for both side panes at their default widths (240 and 280 px)
+ * beside the work area's 360 px minimum (SPEC.md section 8.1): the work
  * area fills the shell, and projects and the right pane become drawers that
  * slide over it from their own side, opened from the pane bar. The panel
  * library sets sizes and overflow inline, hence !important; its width

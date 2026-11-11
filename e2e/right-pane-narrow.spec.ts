@@ -262,8 +262,8 @@ for (const theme of ["light", "dark"] as const) {
 				await expect(pidHeader).toBeHidden();
 				await expect(memoryHeader).toBeHidden();
 			} else {
-				// The 280 px default has given up PID only; Stop still names it.
-				await expect(pidHeader).toBeHidden();
+				// The 360 px default of a wide window keeps every column.
+				await expect(pidHeader).toBeVisible();
 				await expect(memoryHeader).toBeVisible();
 			}
 			await expect(page.getByRole("columnheader", { name: /^CPU/ })).toBeVisible();
