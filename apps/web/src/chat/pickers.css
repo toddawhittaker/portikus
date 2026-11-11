@@ -84,6 +84,19 @@
 	display: none;
 }
 
+/* Model and its Version: one grid cell of two rows. */
+.pk-picker-pair {
+	display: grid;
+	align-content: start;
+	gap: var(--space-1);
+	min-inline-size: 0;
+}
+
+/* The Read replies aloud switch sits in the last column, so Model and Version stay together. */
+.pk-picker-switch {
+	grid-column: -2 / -1;
+}
+
 /* Floated, so it is a plain item of the grid rather than drawn on the border. */
 .pk-composer-picks-title {
 	float: inline-start;
@@ -231,6 +244,24 @@
 .pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
 .pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
 	background: var(--status-error);
+}
+
+/* The look steps up as the window fills: plain, then ink at 25%, the agent tint at 50%,
+   the warning look at 75% (with the Meter's alert icon) and the error look from 90%. */
+.pk-ctx-meter[data-level="rising"] {
+	color: var(--ink);
+}
+.pk-ctx-meter[data-level="half"] {
+	background: var(--agent-soft);
+	color: var(--agent-text);
+}
+.pk-ctx-meter[data-level="warning"] {
+	background: var(--status-warning-soft);
+	color: var(--status-warning);
+}
+.pk-ctx-meter[data-level="full"] {
+	background: var(--status-error-soft);
+	color: var(--status-error);
 }
 
 /* The cache's last minute: colour plus the icon and the word "soon". */

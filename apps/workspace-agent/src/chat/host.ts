@@ -9,16 +9,18 @@ import type {
 	SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
-	CHAT_START_EFFORT,
+	CHAT_START_SETTINGS,
 	ChatClientMessage,
 	type ChatClientMessage as ChatClientMessageType,
 	type ChatCommand,
 	type ChatEffort,
 	type ChatMessage,
+	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	type ChatQuestion,
 	type ChatShellItem,
+	chatStartMode,
 	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
@@ -46,6 +48,7 @@ import {
 	windowFromModelUsage,
 } from "./context-usage.js";
 import { InputQueue } from "./input-queue.js";
+import { ModelList } from "./model-list.js";
 import { splitSuggestions } from "./permission-rules.js";
 import { PlanUsage } from "./plan-usage.js";
 import { type ChatSdk, realSdk } from "./sdk.js";
@@ -62,6 +65,9 @@ import { SlashCommandList } from "./slash-commands.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
 import { chatSocketPath, privateDirectory, readLines, writeLine } from "./wire.js";
 
+/** The longest the host waits to read the model list before it opens its socket. */
+const MODELS_WAIT_MS = 3000;
+
 /** The shared, unmodified Claude Code binary (SPEC.md §10.1). */
 const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
 
@@ -77,7 +83,7 @@ export interface ChatHostOptions {
 	homeDir: string;
 	socketDir: string;
 	log: Logger;
-	/** Posts plan limits to the loopback receiver (SPEC.md §10.8). */
+	/** Posts plan limits to the loopback receiver (SPEC.md §10.1). */
 	postLimits: (windows: ClaudeLimitWindows) => Promise<void>;
 	/** For tests only: another Claude Code binary. */
 	claudePath?: string;
@@ -142,10 +148,11 @@ export class ChatHost {
 	private context = new ContextTracker();
 	/** The session's init said a skipped question may be marked so. */
 	private reportSkipped = false;
+	private readonly modelList = new ModelList((models) =>
+		this.broadcast(this.modelsEvent(models)),
+	);
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
-		model: "default",
-		effort: CHAT_START_EFFORT,
-		mode: "default",
+		...CHAT_START_SETTINGS,
 	};
 
 	private readonly rules = new SessionRules(
@@ -175,6 +182,10 @@ export class ChatHost {
 	async start(): Promise<void> {
 		await privateDirectory(this.options.socketDir);
 		await unlink(this.socketPath).catch(() => undefined);
+		await this.ensureSession();
+		// The socket opens once the model list is read (or has taken too long), so a
+		// first attach gets the list ahead of the settings that use it.
+		await this.modelList.settled(MODELS_WAIT_MS);
 		const server = createServer((socket) => {
 			void this.attach(socket);
 		});
@@ -185,7 +196,6 @@ export class ChatHost {
 		await chmod(this.socketPath, 0o600);
 		this.server = server;
 		this.options.log.info("chat host listening");
-		await this.ensureSession();
 	}
 
 	/** Stop Claude and close every attachment. The transcript stays. */
@@ -245,6 +255,28 @@ export class ChatHost {
 		void this.refreshCommands(session);
 		void this.refreshPlanUsage(session);
 		void this.refreshWindow(session, undefined);
+		void this.refreshModels(session);
+	}
+
+	/**
+	 * Read the models Claude Code offers. A new chat on a model without
+	 * Auto starts at Ask, not Auto (SPEC.md §10.8).
+	 */
+	private async refreshModels(session: Query): Promise<void> {
+		const models = await this.modelList.refresh(
+			() => session.supportedModels(),
+			() => this.session === session,
+		);
+		if (!models || this.settings.mode !== CHAT_START_SETTINGS.mode) return;
+		const mode = chatStartMode(models, this.settings.model);
+		if (mode === this.settings.mode) return;
+		await session.setPermissionMode(mode).catch(() => undefined);
+		this.settings.mode = mode;
+		this.broadcastSettings();
+	}
+
+	private modelsEvent(models: ChatModelInfo[]): ChatEventBody {
+		return { type: "models", models };
 	}
 
 	/** A main-thread request finished: tell every attachment how full the context is. */
@@ -379,7 +411,6 @@ export class ChatHost {
 		this.reportSkipped = message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
 		this.commands.initKnown(message.slash_commands, message.terminal_slash_commands);
 		if (this.session) void this.refreshCommands(this.session);
-		this.settings.model = message.model || this.settings.model;
 		this.settings.mode =
 			message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
 		this.broadcastSettings();
@@ -405,6 +436,7 @@ export class ChatHost {
 		this.mapper = new ClaudeMessageMapper();
 		this.partial = null;
 		this.context.figures = null;
+		const context = this.context.current();
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
 			if (client.held) {
@@ -421,6 +453,7 @@ export class ChatHost {
 			writeLine(client.socket, JSON.stringify(snapshot));
 			writeLine(client.socket, this.frame(this.settingsEvent()));
 			writeLine(client.socket, this.frame(this.rulesEvent()));
+			if (context) writeLine(client.socket, this.frame(this.contextEvent(context)));
 		}
 	}
 
@@ -559,6 +592,12 @@ export class ChatHost {
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
 		}
+		context ??= this.context.current();
+		// What is not known yet arrives as its own event once Claude Code answers.
+		if (this.session && !this.modelList.current) void this.refreshModels(this.session);
+		if (this.session && this.context.windowTokens === null) {
+			void this.refreshWindow(this.session, undefined);
+		}
 		const snapshot = buildSnapshot({
 			sessionId: this.options.terminalId,
 			seq: this.seq,
@@ -588,6 +627,10 @@ export class ChatHost {
 		for (const event of held) {
 			const line = this.fitted(event);
 			if (line !== null) writeLine(socket, line);
+		}
+		const models = this.modelList.current;
+		if (models && !held.some((event) => event.type === "models")) {
+			writeLine(socket, this.frame(this.modelsEvent(models)));
 		}
 		writeLine(socket, this.frame(this.settingsEvent()));
 		writeLine(socket, this.frame(this.rulesEvent()));
@@ -739,6 +782,8 @@ export class ChatHost {
 		if (change.model !== undefined) {
 			await session?.setModel(change.model);
 			this.settings.model = change.model;
+			// Another model may have another context window.
+			if (session) void this.refreshWindow(session, undefined);
 		}
 		if (change.effort !== undefined) {
 			await session?.applyFlagSettings({ effortLevel: change.effort });

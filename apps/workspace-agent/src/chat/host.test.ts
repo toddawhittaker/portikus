@@ -108,10 +108,16 @@ class FakeQuery {
 		return this.usage;
 	}
 	/** What `getContextUsage()` answers; null makes it fail, as an older SDK would. */
-	contextWindow: number | null = null;
+	contextWindow: number | null = startWindow;
 	async getContextUsage() {
 		if (this.contextWindow === null) throw new Error("unsupported");
 		return { maxTokens: this.contextWindow };
+	}
+	/** What `supportedModels()` answers; null makes it fail. */
+	modelRows: Record<string, unknown>[] | null = startModels;
+	async supportedModels() {
+		if (this.modelRows === null) throw new Error("unsupported");
+		return this.modelRows;
 	}
 	close() {
 		this.ended = true;
@@ -140,6 +146,10 @@ interface Client {
 	send: (message: unknown) => void;
 	closed: Promise<void>;
 }
+
+/** What a query started now answers for its window and its models. */
+let startWindow: number | null;
+let startModels: Record<string, unknown>[] | null;
 
 let dir: string;
 let host: ChatHost;
@@ -218,7 +228,14 @@ beforeEach(async () => {
 	exists = false;
 	reads = [];
 	transcript = async () => EARLIER;
-	host = new ChatHost({
+	startWindow = null;
+	startModels = null;
+	host = makeHost();
+	await host.start();
+});
+
+function makeHost(): ChatHost {
+	return new ChatHost({
 		terminalId: ID,
 		projectDir: join(dir, "projects", "demo"),
 		homeDir: dir,
@@ -229,8 +246,7 @@ beforeEach(async () => {
 		},
 		sdk: sdk(),
 	});
-	await host.start();
-});
+}
 
 afterEach(async () => {
 	await host.stop();
@@ -372,7 +388,9 @@ describe("attaching", () => {
 		expect(client.events[4]).toMatchObject({
 			type: "settings",
 			agent: "claude",
-			effort: "high",
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
 		});
 		expect(client.events[5]).toMatchObject({ type: "rules", rules: [] });
 	});
@@ -507,7 +525,7 @@ describe("cards", () => {
 				capabilities: [...capabilities],
 			} as never);
 			await vi.waitFor(() =>
-				expect(ofType(a, "settings").at(-1)?.model).toBe("claude-haiku-4-5"),
+				expect(ofType(a, "settings").at(-1)?.mode).toBe("default"),
 			);
 			const options = [
 				{ label: "A", description: "" },
@@ -1253,11 +1271,76 @@ describe("context usage", () => {
 		});
 	});
 
-	test("an attach to a chat with no requests yet gets no context event", async () => {
+	test("an attach to a chat whose window is not known yet gets no context event", async () => {
 		const a = await attach();
 		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(ofType(a, "context")).toEqual([]);
+	});
+
+	test("the window is read at start, so the context is empty in a known window before any reply", async () => {
+		await host.stop();
+		queries = [];
+		host = makeHost();
+		startWindow = 1_000_000;
+		await host.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		expect(ofType(a, "context")[0]).toMatchObject({
+			usedTokens: 0,
+			windowTokens: 1_000_000,
+			cache: null,
+		});
+		// The first reply keeps the window.
+		(queries[0] as FakeQuery).emit(assistant({ input_tokens: 10, output_tokens: 5 }));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		expect(ofType(a, "context")[1]).toMatchObject({
+			usedTokens: 15,
+			windowTokens: 1_000_000,
+		});
+	});
+
+	test("an attach that finds the window unknown asks again, and a model change reads the new window", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		expect(ofType(a, "context")).toEqual([]);
+		fake.contextWindow = 200_000;
+		const b = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(b, "context").at(-1)).toMatchObject({
+				usedTokens: 0,
+				windowTokens: 200_000,
+			}),
+		);
+		fake.contextWindow = 1_000_000;
+		b.send({ type: "set", model: "claude-opus-4-8" });
+		await vi.waitFor(() =>
+			expect(ofType(b, "context").at(-1)).toMatchObject({ windowTokens: 1_000_000 }),
+		);
+	});
+
+	test("after /clear every attachment gets an empty context in the same window", async () => {
+		const NEW = "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e";
+		const fake = queries[0] as FakeQuery;
+		fake.contextWindow = 200_000;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		fake.emit(assistant({ input_tokens: 10, output_tokens: 5 }));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: NEW,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "snapshot")).toHaveLength(2));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(3));
+		expect(ofType(a, "context")[2]).toMatchObject({
+			usedTokens: 0,
+			windowTokens: 200_000,
+		});
 	});
 });
 
@@ -1445,5 +1528,121 @@ describe("shell commands", () => {
 		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
 		expect(ofType(a, "shell")[1]?.output).toBe("SECRET-42-MARK\n");
 		expect(JSON.stringify(lines)).not.toMatch(/SECRET/);
+	});
+});
+
+describe("models", () => {
+	const row = (value: string, extra: Record<string, unknown> = {}) => ({
+		value,
+		resolvedModel: `claude-${value}-5-5`,
+		displayName: `${value} 5.5`,
+		description: "A model",
+		supportsEffort: true,
+		supportsAutoMode: true,
+		...extra,
+	});
+
+	async function startWith(models: Record<string, unknown>[] | null) {
+		await host.stop();
+		queries = [];
+		startModels = models;
+		host = makeHost();
+		await host.start();
+		return queries[0] as FakeQuery;
+	}
+
+	test("a new chat starts at Opus, Medium and Auto, and starts Claude with them", async () => {
+		const options = queries[0]?.options;
+		expect(options?.model).toBe("opus");
+		expect(options?.effort).toBe("medium");
+		expect(options?.permissionMode).toBe("auto");
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		expect(ofType(a, "settings")[0]).toMatchObject({
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
+		});
+	});
+
+	test("the list Claude Code gives arrives before the settings, trimmed to what the contract takes", async () => {
+		await startWith([
+			row("opus"),
+			row("Not Valid"),
+			row("haiku", { supportsAutoMode: undefined, description: "d".repeat(500) }),
+		]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const [models] = ofType(a, "models");
+		expect(models?.models.map((m) => m.value)).toEqual(["opus", "haiku"]);
+		expect(models?.models[0]).toMatchObject({
+			resolvedModel: "claude-opus-5-5",
+			displayName: "opus 5.5",
+			supportsAutoMode: true,
+		});
+		expect(models?.models[1]?.supportsAutoMode).toBe(false);
+		expect(models?.models[1]?.description).toHaveLength(300);
+		const kinds = a.events.map((e) => e.type);
+		expect(kinds.indexOf("models")).toBeLessThan(kinds.indexOf("settings"));
+	});
+
+	test("at most 50 rows are sent", async () => {
+		await startWith(Array.from({ length: 60 }, (_, index) => row(`m${index}`)));
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		expect(ofType(a, "models")[0]?.models).toHaveLength(50);
+	});
+
+	test("when the list cannot be read no models event is sent, and a later attach tries again", async () => {
+		const fake = await startWith(null);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "models")).toEqual([]);
+		fake.modelRows = [row("opus")];
+		const b = await attach();
+		await vi.waitFor(() => expect(ofType(b, "models")).toHaveLength(1));
+		// The earlier attachment hears of it too.
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+	});
+
+	test("a new chat on a model without Auto starts at Ask", async () => {
+		const fake = await startWith([row("opus", { supportsAutoMode: false })]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings").at(-1)?.mode).toBe("default"));
+		expect(fake.calls).toContain("mode:default");
+	});
+
+	test("Auto stays when the model supports it, and a mode the student chose is not undone", async () => {
+		const fake = await startWith([row("opus")]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		expect(fake.calls).not.toContain("mode:default");
+		a.send({ type: "set", mode: "plan" });
+		await vi.waitFor(() => expect(ofType(a, "settings").at(-1)?.mode).toBe("plan"));
+	});
+
+	test("a model the init message reports does not replace the value the student chose", async () => {
+		const fake = await startWith([row("opus")]);
+		const a = await attach();
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			model: "claude-opus-5-5[1m]",
+			permissionMode: "auto",
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "settings").length).toBeGreaterThan(0));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "settings").at(-1)?.model).toBe("opus");
+	});
+
+	test("choosing a pinned version sets that exact value", async () => {
+		const a = await attach();
+		a.send({ type: "set", model: "claude-opus-4-8" });
+		const fake = queries[0] as FakeQuery;
+		await vi.waitFor(() => expect(fake.calls).toContain("model:claude-opus-4-8"));
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)?.model).toBe("claude-opus-4-8"),
+		);
 	});
 });

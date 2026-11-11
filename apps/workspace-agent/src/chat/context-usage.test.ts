@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	afterRequest,
+	ContextTracker,
 	fromTranscript,
 	mainThreadUsage,
 	windowFromModelUsage,
@@ -123,4 +124,43 @@ test("the window is the named model's, or the only model's, else unknown", () =>
 	).toBeNull();
 	expect(windowFromModelUsage({ a: { contextWindow: 0 } }, "a")).toBeNull();
 	expect(windowFromModelUsage(undefined, "a")).toBeNull();
+});
+
+test("the window is shown as an empty context before any request, and kept by the next one", () => {
+	const tracker = new ContextTracker();
+	expect(tracker.current()).toBeNull();
+	expect(tracker.window(1_000_000)).toEqual({
+		usedTokens: 0,
+		windowTokens: 1_000_000,
+		cache: null,
+	});
+	// The same window again changes nothing.
+	expect(tracker.window(1_000_000)).toBeNull();
+	const after = tracker.request(
+		reply({ input_tokens: 10, output_tokens: 5 }) as never,
+		1000,
+	);
+	expect(after).toMatchObject({ usedTokens: 15, windowTokens: 1_000_000 });
+});
+
+test("another model's window replaces the figure's window and keeps what was used", () => {
+	const tracker = new ContextTracker();
+	tracker.window(200_000);
+	tracker.request(reply({ input_tokens: 10, output_tokens: 5 }) as never, 1000);
+	expect(tracker.window(1_000_000)).toMatchObject({
+		usedTokens: 15,
+		windowTokens: 1_000_000,
+	});
+});
+
+test("after a new session the figures start empty again in the same window", () => {
+	const tracker = new ContextTracker();
+	tracker.window(200_000);
+	tracker.request(reply({ input_tokens: 10, output_tokens: 5 }) as never, 1000);
+	tracker.figures = null;
+	expect(tracker.current()).toEqual({
+		usedTokens: 0,
+		windowTokens: 200_000,
+		cache: null,
+	});
 });

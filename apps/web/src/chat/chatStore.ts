@@ -6,22 +6,25 @@
  * the conversation lives in the workspace only (SPEC.md §25.10).
  */
 import {
-	CHAT_START_EFFORT,
+	CHAT_START_SETTINGS,
 	type ChatAttachment,
 	ChatClientMessage,
 	type ChatCommand,
 	type ChatEffort,
 	type ChatLastSettings,
-	ChatModelChoice,
+	ChatModel,
+	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
 	type ChatSessionRule,
 	type ChatToolOutputPart,
+	chatStartMode,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { DEFAULT_MODEL, offeredModel, sameModel } from "./models.js";
 
 export interface ChatMessageItem {
 	kind: "message";
@@ -119,6 +122,8 @@ export interface ChatState {
 	truncated: boolean;
 	/** The latest `settings` event; null until one arrives. */
 	settings: ChatSettings | null;
+	/** The models Claude Code offers, as the host last listed them; empty until it does. */
+	models: ChatModelInfo[];
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
 	/** The slash commands on offer, as the host last listed them; empty until it does. */
@@ -157,6 +162,7 @@ export const initialChatState: ChatState = {
 	cards: [],
 	truncated: false,
 	settings: null,
+	models: [],
 	sessionRules: [],
 	commands: [],
 	context: null,
@@ -444,6 +450,8 @@ function applyChatEvent(
 					mode: event.mode,
 				},
 			};
+		case "models":
+			return { ...state, models: event.models };
 		case "rules":
 			return { ...state, sessionRules: event.rules };
 		case "shell": {
@@ -544,16 +552,6 @@ export function selectSessionRulesActive(state: ChatState): boolean {
 	return state.sessionRules.length > 0;
 }
 
-/** The picker entry for the model id the host reports, which may be a full name. */
-export function modelChoice(model: string): ChatModelChoice {
-	const known = ChatModelChoice.options.find((choice) => choice === model);
-	if (known) return known;
-	const family = ChatModelChoice.options.find(
-		(choice) => choice !== "default" && model.includes(choice),
-	);
-	return family ?? "default";
-}
-
 /**
  * A chat nobody has used yet: no turn has run and the host still reports
  * its start values, so the last-used settings may be applied (SPEC.md §10.8).
@@ -565,28 +563,34 @@ export function isNewChat(state: ChatState): boolean {
 		settings !== null &&
 		state.items.length === 0 &&
 		Object.keys(state.turns).length === 0 &&
-		settings.model === "default" &&
-		settings.effort === CHAT_START_EFFORT &&
-		settings.mode === "default"
+		settings.model === CHAT_START_SETTINGS.model &&
+		settings.effort === CHAT_START_SETTINGS.effort &&
+		settings.mode === chatStartMode(state.models, settings.model)
 	);
 }
 
 /** The values worth keeping from what the host confirmed. */
 export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
 	return {
-		model: modelChoice(settings.model),
+		model: ChatModel.safeParse(settings.model).success ? settings.model : DEFAULT_MODEL,
 		effort: settings.effort,
 		mode: settings.mode,
 	};
 }
 
-/** The change that brings a new chat to the last-used values; null when there is none. */
+/**
+ * The change that brings a new chat to the last-used values; null when
+ * there is none. A saved model the list no longer offers is replaced by its
+ * family's newest version, or the default.
+ */
 export function changeToward(
 	settings: ChatSettings,
 	last: ChatLastSettings,
+	models: readonly ChatModelInfo[],
 ): Partial<ChatLastSettings> | null {
 	const change: Partial<ChatLastSettings> = {};
-	if (modelChoice(settings.model) !== last.model) change.model = last.model;
+	const model = offeredModel(models, last.model);
+	if (!sameModel(models, settings.model, model)) change.model = model;
 	if (settings.effort !== last.effort) change.effort = last.effort;
 	if (settings.mode !== last.mode) change.mode = last.mode;
 	return Object.keys(change).length > 0 ? change : null;

@@ -74,15 +74,17 @@ async function open() {
 }
 
 test("a new chat is brought to the stored values once, and that echo is not saved", async () => {
-	stored = { model: "opus", effort: "low", mode: "auto" };
+	stored = { model: "sonnet", effort: "low", mode: "plan" };
 	const store = await open();
 	frame("snapshot", { cards: [], turnRunning: false, truncated: false });
-	settings("default", "high", "default");
+	settings("opus", "medium", "auto");
 	await waitFor(() =>
-		expect(sent).toEqual([{ type: "set", model: "opus", effort: "low", mode: "auto" }]),
+		expect(sent).toEqual([
+			{ type: "set", model: "sonnet", effort: "low", mode: "plan" },
+		]),
 	);
-	settings("opus", "low", "auto");
-	expect(store.getState().settings?.model).toBe("opus");
+	settings("sonnet", "low", "plan");
+	expect(store.getState().settings?.model).toBe("sonnet");
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(puts).toEqual([]);
 });
@@ -99,17 +101,17 @@ test("a chat already in use is left alone", async () => {
 test("a change the host confirms is saved as the project's last used", async () => {
 	const store = await open();
 	frame("snapshot", { cards: [], turnRunning: false, truncated: false });
-	settings("default", "high", "default");
+	settings("opus", "medium", "auto");
 	// A settings event nobody asked for is not saved.
-	settings("default", "high", "acceptEdits");
+	settings("opus", "medium", "acceptEdits");
 	act(() => {
 		store.getState().set({ mode: "bypassPermissions" });
 	});
 	expect(puts).toEqual([]);
-	settings("claude-opus-4-1", "high", "bypassPermissions");
+	settings("claude-opus-4-8", "high", "bypassPermissions");
 	await waitFor(() =>
 		expect(puts).toEqual([
-			{ model: "opus", effort: "high", mode: "bypassPermissions" },
+			{ model: "claude-opus-4-8", effort: "high", mode: "bypassPermissions" },
 		]),
 	);
 });

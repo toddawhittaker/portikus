@@ -12,10 +12,11 @@ import { splitPane } from "./split-helpers";
 
 /**
  * Each chat tab's context and prompt-cache readouts (SPEC.md §10.8, §25.8). They sit in that tab's picker row and come from the host's
- * `context` event. The context shows once over half full and warns near
- * full; the cache clock shows whenever the host reports one. The ticking
- * digits are not read, and the status region announces only the moment the
- * cache goes cold and the context passing 80%.
+ * `context` event. The context always shows, as "34.2k / 1M", and its look
+ * steps up at 25, 50 and 75% and turns to the error look from 90%; the cache
+ * clock shows whenever the host reports one. The ticking digits are not read,
+ * and the status region announces the cache going cold and each context step
+ * crossed.
  */
 
 interface Cache {
@@ -61,31 +62,101 @@ test("nothing shows until the host reports", async ({ page, context }) => {
 	await expect(view.getByTestId("composer-cache")).toHaveCount(0);
 });
 
-test("the context shows once over half full, with the /compact hint", async ({
+test("the context shows at a low count, with both figures in short form and the /compact hint", async ({
 	page,
 	context,
 }) => {
 	const { id, view } = await openMeter(page, context);
 	const meter = view.getByTestId("composer-context");
 
-	await setContext(id, { usedTokens: 90_000, windowTokens: 200_000, cache: null });
-	await expect(meter).toHaveCount(0);
-
-	await setContext(id, { usedTokens: 144_000, windowTokens: 200_000, cache: null });
+	// Before the first reply: nothing used, in a known window.
+	await setContext(id, { usedTokens: 0, windowTokens: 1_000_000, cache: null });
 	await expect(meter).toBeVisible();
-	await expect(meter).toContainText("Context 72%");
-	// A small meter like the status bar's, named and valued for assistive technology.
+	await expect(meter).toContainText("Context 0 / 1M");
+	await expect(meter).toHaveAttribute("data-level", "low");
+
+	await setContext(id, { usedTokens: 34_200, windowTokens: 1_000_000, cache: null });
+	await expect(meter).toContainText("Context 34.2k / 1M");
+	// A small meter like the status bar's, named and valued in words for assistive technology.
 	await expect(meter.getByRole("meter", { name: "Context" })).toHaveAttribute(
 		"aria-valuetext",
-		"72% used",
+		"about 34 thousand of 1 million tokens",
 	);
-	await expect(meter).toHaveAttribute("data-level", "ok");
+	await expect(meter).toHaveAttribute("data-level", "low");
 	await expect(meter).toHaveAttribute("title", /\/compact/);
 	expect(await spoken(meter)).toContain("Run /compact to free up space.");
+	// The short figures are for the eye; the meter says the words.
+	await expect(meter.locator(".pk-meter-text")).toHaveAttribute("aria-hidden", "true");
 
-	// An unknown window hides the percentage.
-	await setContext(id, { usedTokens: 144_000, windowTokens: null, cache: null });
-	await expect(meter).toHaveCount(0);
+	await setContext(id, { usedTokens: 182_000, windowTokens: 200_000, cache: null });
+	await expect(meter).toContainText("182k / 200k");
+});
+
+test("an unknown window shows the used count alone, with no bar", async ({
+	page,
+	context,
+}) => {
+	const { id, view } = await openMeter(page, context);
+	const meter = view.getByTestId("composer-context");
+	await setContext(id, { usedTokens: 34_200, windowTokens: null, cache: null });
+	await expect(meter).toContainText("34.2k tokens");
+	await expect(meter.getByRole("meter")).toHaveCount(0);
+	await setContext(id, { usedTokens: 34_200, windowTokens: 1_000_000, cache: null });
+	await expect(meter.getByRole("meter", { name: "Context" })).toBeVisible();
+});
+
+test("the look changes at 25, 50 and 75 percent and again from 90", async ({
+	page,
+	context,
+}) => {
+	const { id, view } = await openMeter(page, context);
+	const meter = view.getByTestId("composer-context");
+	const look = async (used: number, figure: string) => {
+		await setContext(id, { usedTokens: used, windowTokens: 200_000, cache: null });
+		await expect(meter).toContainText(`${figure} / 200k`);
+		return meter.evaluate((one) => {
+			const style = getComputedStyle(one);
+			return [
+				one.getAttribute("data-level"),
+				style.backgroundColor,
+				style.color,
+				one.querySelector("svg") ? "icon" : "no icon",
+			];
+		});
+	};
+	const low = await look(40_000, "40.0k");
+	const rising = await look(50_000, "50.0k");
+	const half = await look(100_000, "100k");
+	const warning = await look(150_000, "150k");
+	const full = await look(180_000, "180k");
+	expect([low[0], rising[0], half[0], warning[0], full[0]]).toEqual([
+		"low",
+		"rising",
+		"half",
+		"warning",
+		"full",
+	]);
+	// Each step looks different from the one before it, by colour.
+	for (const [before, after] of [
+		[low, rising],
+		[rising, half],
+		[half, warning],
+		[warning, full],
+	] as const) {
+		expect(`${after[1]} ${after[2]}`).not.toBe(`${before[1]} ${before[2]}`);
+	}
+	// Colour is not the only sign near full: the alert icon shows from the warning step.
+	expect([low[3], rising[3], half[3], warning[3], full[3]]).toEqual([
+		"no icon",
+		"no icon",
+		"no icon",
+		"icon",
+		"icon",
+	]);
+	await expect(meter.getByRole("meter", { name: "Context" })).toHaveAttribute(
+		"aria-valuetext",
+		"about 180 thousand of 200 thousand tokens, nearly full",
+	);
 });
 
 test("the cache clock counts down, and its digits are not read", async ({
@@ -161,27 +232,29 @@ test("a one-hour cache counts from an hour", async ({ page, context }) => {
 	);
 });
 
-test("passing 80% warns with an icon and is announced once", async ({
+test("each step crossed is announced once, shortly, and a fall then a climb is news again", async ({
 	page,
 	context,
 }) => {
 	const { id, view } = await openMeter(page, context);
 	const status = view.getByTestId("chat-composer-status");
-	const meter = view.getByTestId("composer-context");
-	await setContext(id, { usedTokens: 120_000, windowTokens: 200_000, cache: null });
-	await expect(meter).toContainText("Context 60%");
-	await expect(meter.locator("svg")).toHaveCount(0);
+	const at = (used: number) =>
+		setContext(id, { usedTokens: used, windowTokens: 200_000, cache: null });
+	await at(20_000);
 	await expect(status).toHaveText("");
-
-	await setContext(id, { usedTokens: 170_000, windowTokens: 200_000, cache: null });
-	await expect(meter).toContainText("Context 85%");
-	await expect(meter.locator("svg")).toBeVisible();
-	await expect(meter).toHaveAttribute("data-level", "warning");
-	await expect(meter.getByRole("meter", { name: "Context" })).toHaveAttribute(
-		"aria-valuetext",
-		"85% used, nearly full",
+	await at(60_000);
+	await expect(status).toHaveText("Context is now 30% full.");
+	await at(110_000);
+	await expect(status).toHaveText("Context is now 55% full.");
+	await at(160_000);
+	await expect(status).toHaveText(/^Context is now 80% full\. Run \/compact/);
+	await expect(view.getByTestId("composer-context")).toHaveAttribute(
+		"data-level",
+		"warning",
 	);
-	await expect(status).toHaveText(/^Context is now 85% full\. Run \/compact/);
+	// Passing nothing new says nothing more.
+	await at(165_000);
+	await expect(status).toHaveText(/^Context is now 80% full/);
 });
 
 test("each chat tab shows its own conversation's figures", async ({
@@ -209,8 +282,8 @@ test("each chat tab shows its own conversation's figures", async ({
 		windowTokens: 200_000,
 		cache: written(4000, 3600),
 	});
-	await expect(first.getByTestId("composer-context")).toContainText("Context 72%");
-	await expect(second.getByTestId("composer-context")).toContainText("Context 95%");
+	await expect(first.getByTestId("composer-context")).toContainText("144k / 200k");
+	await expect(second.getByTestId("composer-context")).toContainText("190k / 200k");
 	await expect(first.getByTestId("composer-cache")).toHaveAttribute(
 		"data-state",
 		"warm",
@@ -293,6 +366,22 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// Send stays reachable on the first line.
 			await expect(view.getByTestId("chat-composer-send")).toBeVisible();
 
+			await expectNoViolations(page, '[data-testid="chat-composer"]');
+			// Every step of the look, plus the used count alone, passes on its own.
+			for (const [used, figure] of [
+				[20_000, "20.0k"],
+				[60_000, "60.0k"],
+				[110_000, "110k"],
+				[150_000, "150k"],
+			] as const) {
+				await setContext(id, { usedTokens: used, windowTokens: 200_000, cache: null });
+				await expect(view.getByTestId("composer-context")).toContainText(
+					`${figure} / 200k`,
+				);
+				await expectNoViolations(page, '[data-testid="chat-composer"]');
+			}
+			await setContext(id, { usedTokens: 20_000, windowTokens: null, cache: null });
+			await expect(view.getByTestId("composer-context")).toContainText("20.0k tokens");
 			await expectNoViolations(page, '[data-testid="chat-composer"]');
 		});
 	}

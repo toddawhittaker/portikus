@@ -54,6 +54,7 @@ test("an attach replays the earlier turn and ends with settings, and starts noth
 		"message",
 		"turn.finished",
 		"commands",
+		"models",
 		"settings",
 	]);
 	const snapshot = JSON.parse(first.frames[0] ?? "");
@@ -204,4 +205,43 @@ test("a test can set the context figures; every attachment and later ones get th
 	).toMatchObject(figures);
 	late.ws.close();
 	first.ws.close();
+});
+
+test("the model list is sent before the settings, and a test can replace it for every attachment", async () => {
+	const first = await connect();
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	const listed = first.frames
+		.map((one) => JSON.parse(one))
+		.find((e) => e.type === "models");
+	expect(
+		listed.models.some((m: { value: string }) => m.value === "claude-opus-4-8"),
+	).toBe(true);
+	const replaced = [
+		{
+			value: "default",
+			displayName: "Default",
+			description: "Whatever Claude Code picks",
+			supportsAutoMode: false,
+		},
+	];
+	const response = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/chats/${ID}/models`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ models: replaced }),
+		},
+	);
+	expect(response.status).toBe(204);
+	await expect
+		.poll(() => types(first.frames).filter((one) => one === "models").length)
+		.toBe(2);
+	expect(JSON.parse(first.frames.at(-1) ?? "").models).toEqual(replaced);
+	first.ws.close();
+	// Put the list back for the tests after this one.
+	await fetch(`http://127.0.0.1:${agent.port}/__test/chats/${ID}/models`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ models: listed.models }),
+	});
 });

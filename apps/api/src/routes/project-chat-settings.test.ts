@@ -148,14 +148,14 @@ test.skipIf(skip)("a last-used Bypass comes back as Auto", async () => {
 });
 
 test.skipIf(skip)(
-	"a stored model no longer offered reads back as the default",
+	"a stored value that cannot be read comes back as the value a new chat starts with",
 	async () => {
 		const one = await newProject("one");
 		await testDb.db
 			.updateTable("projects")
 			.set({
 				chat_settings: JSON.stringify({
-					model: "retired",
+					model: "Retired Model",
 					effort: "huge",
 					mode: "low",
 				}),
@@ -163,9 +163,9 @@ test.skipIf(skip)(
 			.where("id", "=", one)
 			.execute();
 		expect((await read(alice, one)).json()).toEqual({
-			model: "default",
-			effort: "high",
-			mode: "default",
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
 			readAloud: false,
 		});
 	},
@@ -174,7 +174,7 @@ test.skipIf(skip)(
 test.skipIf(skip)("anything but the three values is refused", async () => {
 	const one = await newProject("one");
 	for (const payload of [
-		{ model: "gpt", effort: "low", mode: "auto" },
+		{ model: "GPT 4", effort: "low", mode: "auto" },
 		{ model: "opus", effort: "low" },
 		{ model: "opus", effort: "low", mode: "auto", prompt: "hello" },
 	]) {
@@ -198,12 +198,12 @@ test.skipIf(skip)(
 	"read aloud is kept beside the pickers, and each leaves the other",
 	async () => {
 		const one = await newProject("one");
-		// Saved before any picker value: the pickers read as the defaults.
+		// Saved before any picker value: the pickers read as a new chat starts.
 		expect((await save(alice, one, { readAloud: true })).statusCode).toBe(204);
 		expect((await read(alice, one)).json()).toEqual({
-			model: "default",
-			effort: "high",
-			mode: "default",
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
 			readAloud: true,
 		});
 

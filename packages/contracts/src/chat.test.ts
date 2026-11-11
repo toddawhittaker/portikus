@@ -1,14 +1,18 @@
 import { describe, expect, test } from "vitest";
 import { AgentCreateTerminalRequest } from "./agent.js";
 import {
+	CHAT_START_SETTINGS,
 	ChatClientMessage,
 	ChatLastSettings,
+	ChatModel,
 	type ChatQuestion,
 	ChatServerEvent,
 	ChatShellItem,
+	chatStartMode,
 	decodedBase64Bytes,
 	MAX_CHAT_ATTACHMENTS,
 	MAX_CHAT_IMAGE_BYTES,
+	MAX_CHAT_MODELS,
 	MAX_CHAT_QUESTION_HEADER_CHARS,
 	MAX_CHAT_RULE_CHARS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -543,5 +547,92 @@ describe("host clock and ignored plan mode", () => {
 		expect(
 			ChatClientMessage.safeParse({ ...answer, mode: "acceptEdits" }).success,
 		).toBe(true);
+	});
+});
+
+describe("models", () => {
+	const env = { sessionId: "00000000-0000-4000-8000-000000000001", seq: 1 };
+	const row = (value: string, supportsAutoMode = true) => ({
+		value,
+		resolvedModel: "claude-opus-5-5",
+		displayName: "Opus 5.5",
+		description: "For complex work",
+		supportsAutoMode,
+	});
+
+	test("a model is a short name or a full ID, with the brackets of a suffix", () => {
+		for (const ok of ["default", "opus", "claude-opus-4-8", "claude-opus-5-5[1m]"]) {
+			expect(ChatModel.safeParse(ok).success).toBe(true);
+		}
+		for (const bad of ["", "-opus", "Opus", "opus 5", "opus;rm", "x".repeat(101)]) {
+			expect(ChatModel.safeParse(bad).success).toBe(false);
+		}
+	});
+
+	test("the saved values from before still parse, and what cannot be read starts a new chat", () => {
+		for (const model of ["default", "opus", "sonnet", "haiku"]) {
+			expect(
+				ChatLastSettings.safeParse({ model, effort: "high", mode: "default" }).success,
+			).toBe(true);
+		}
+		const stored = StoredChatSettings.parse({
+			model: "Not A Model",
+			effort: "huge",
+			mode: "low",
+		});
+		// What cannot be read is what a new chat starts with.
+		expect(stored).toEqual({
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
+			readAloud: false,
+		});
+		expect(
+			StoredChatSettings.parse({ model: "default", effort: "high", mode: "default" }),
+		).toMatchObject({ model: "default", effort: "high", mode: "default" });
+		expect(
+			StoredChatSettings.parse({
+				model: "claude-opus-4-8",
+				effort: "low",
+				mode: "plan",
+			}).model,
+		).toBe("claude-opus-4-8");
+	});
+
+	test("a models event lists at most 50 rows", () => {
+		const event = (count: number) => ({
+			type: "models",
+			...env,
+			models: Array.from({ length: count }, (_, index) => row(`m${index}`)),
+		});
+		expect(MAX_CHAT_MODELS).toBe(50);
+		expect(ChatServerEvent.safeParse(event(50)).success).toBe(true);
+		expect(ChatServerEvent.safeParse(event(51)).success).toBe(false);
+		expect(
+			ChatServerEvent.safeParse({ type: "models", ...env, models: [row("Bad Value")] })
+				.success,
+		).toBe(false);
+	});
+
+	test("a set may carry any valid model but not a malformed one", () => {
+		expect(
+			ChatClientMessage.safeParse({ type: "set", model: "claude-fable-5-1" }).success,
+		).toBe(true);
+		expect(ChatClientMessage.safeParse({ type: "set", model: "A B" }).success).toBe(
+			false,
+		);
+	});
+
+	test("a new chat starts at Opus, Medium and Auto, or Ask when the model has no Auto", () => {
+		expect(CHAT_START_SETTINGS).toEqual({
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
+		});
+		expect(chatStartMode([row("opus")], "opus")).toBe("auto");
+		expect(chatStartMode([row("opus", false)], "opus")).toBe("default");
+		// An unknown model or an empty list does not block Auto.
+		expect(chatStartMode([], "opus")).toBe("auto");
+		expect(chatStartMode([row("sonnet", false)], "opus")).toBe("auto");
 	});
 });

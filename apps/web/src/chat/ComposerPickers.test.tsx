@@ -1,4 +1,4 @@
-import { CHAT_START_EFFORT } from "@portikus/contracts";
+import { CHAT_START_SETTINGS, type ChatModelInfo } from "@portikus/contracts";
 import {
 	act,
 	cleanup,
@@ -14,12 +14,34 @@ import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 type Settings = NonNullable<ChatState["settings"]>;
 
-const START: Settings = {
-	agent: "claude",
-	model: "claude-sonnet-4-5",
-	effort: CHAT_START_EFFORT,
-	mode: "default",
-};
+const START: Settings = { agent: "claude", ...CHAT_START_SETTINGS, model: "sonnet" };
+
+/** The list Claude Code gives: families with a short name, and pinned versions. */
+function row(
+	value: string,
+	displayName: string,
+	resolvedModel = value,
+	supportsAutoMode = true,
+): ChatModelInfo {
+	return {
+		value,
+		displayName,
+		resolvedModel,
+		description: "A model",
+		supportsAutoMode,
+	};
+}
+const MODELS: ChatModelInfo[] = [
+	row("default", "Default (recommended)", "claude-opus-5-5"),
+	row("opus", "Opus 5.5", "claude-opus-5-5"),
+	row("fable", "Fable 5.2", "claude-fable-5-2"),
+	row("sonnet", "Sonnet 5.5", "claude-sonnet-5-5"),
+	row("haiku", "Haiku 5.5", "claude-haiku-5-5"),
+	row("claude-opus-4-7", "Opus 4.7"),
+	row("claude-opus-4-8", "Opus 4.8"),
+	row("claude-opus-5", "Opus 5"),
+	row("claude-haiku-4-5-20251001", "Haiku 4.5", "claude-haiku-4-5-20251001", false),
+];
 
 let asked: unknown[];
 let accept: boolean;
@@ -34,8 +56,11 @@ let rerender: (
 	lastError?: ChatState["lastError"],
 ) => void;
 
-function draw(settings: ChatState["settings"] = START) {
-	store.setState({ settings });
+function draw(
+	settings: ChatState["settings"] = START,
+	models: ChatModelInfo[] = MODELS,
+) {
+	store.setState({ settings, models });
 	const view = (
 		<>
 			<ComposerPickers
@@ -84,11 +109,12 @@ beforeEach(() => {
 });
 
 test("each picker is a menu button named by its label and the value shown", () => {
-	draw({ ...START, model: "claude-opus-4-1", effort: "xhigh", mode: "plan" });
+	draw({ ...START, model: "opus", effort: "xhigh", mode: "plan" });
 	expect(picker("Agent").textContent).toBe("Agent Claude Code");
 	expect(picker("Model").textContent).toBe("Model Opus");
 	expect(picker("Effort").textContent).toBe("Effort Extra high");
 	expect(picker("Permissions").textContent).toBe("Permissions Plan");
+	expect(picker("Version").textContent).toBe("Version Latest (5.5)");
 	const model = picker("Model");
 	expect(model.getAttribute("aria-haspopup")).toBe("menu");
 	expect(model.getAttribute("aria-expanded")).toBe("false");
@@ -107,18 +133,18 @@ test("the menu marks the current value as checked and the start value as Default
 		"false",
 		"false",
 	]);
-	// The marker is a description, so the choice is still named just "High".
-	const start = within(menu).getByRole("menuitemradio", { name: "High" });
+	// The marker is a description, so the choice is still named just "Medium".
+	const start = within(menu).getByRole("menuitemradio", { name: "Medium" });
 	expect(start.querySelector(".pk-picker-default")?.textContent).toBe("Default");
 	expect(menu.querySelectorAll(".pk-picker-default")).toHaveLength(1);
 	expect(
 		document.getElementById(start.getAttribute("aria-describedby") ?? "")?.textContent,
-	).toBe("Default. Thinks it through. Slower, uses more.");
+	).toBe("Default. Thinks a little before acting.");
 });
 
 test("every choice says what it is for in a line of its own", () => {
 	draw();
-	for (const name of ["Agent", "Model", "Effort", "Permissions"]) {
+	for (const name of ["Agent", "Model", "Version", "Effort", "Permissions"]) {
 		const menu = open(name);
 		for (const item of within(menu).getAllByRole("menuitemradio")) {
 			const line = document.getElementById(item.getAttribute("aria-describedby") ?? "");
@@ -129,7 +155,7 @@ test("every choice says what it is for in a line of its own", () => {
 });
 
 test("each change asks for exactly that and shows it while the host has not answered", () => {
-	draw({ ...START, model: "claude-opus-4-1" });
+	draw({ ...START, model: "opus" });
 	choose("Model", "Haiku");
 	choose("Effort", "Max");
 	choose("Permissions", "Bypass permissions");
@@ -147,8 +173,9 @@ test("each change asks for exactly that and shows it while the host has not answ
 
 test("choosing the value already shown asks for nothing", () => {
 	draw();
-	choose("Effort", "High");
-	choose("Permissions", "Ask");
+	choose("Effort", "Medium");
+	choose("Permissions", "Auto");
+	choose("Version", "Latest (5.5)");
 	expect(asked).toEqual([]);
 });
 
@@ -157,7 +184,7 @@ test("a change that could not be sent is not shown", () => {
 	draw();
 	choose("Effort", "Low");
 	expect(asked).toEqual([{ effort: "low" }]);
-	expect(picker("Effort").textContent).toBe("Effort High");
+	expect(picker("Effort").textContent).toBe("Effort Medium");
 });
 
 test("a change the host refuses goes back and is announced", () => {
@@ -165,7 +192,7 @@ test("a change the host refuses goes back and is announced", () => {
 	choose("Effort", "Max");
 	expect(picker("Effort").textContent).toBe("Effort Max");
 	rerender(START, { seq: 7, message: "This model has no Max effort." });
-	expect(picker("Effort").textContent).toBe("Effort High");
+	expect(picker("Effort").textContent).toBe("Effort Medium");
 	expect(announced).toEqual([
 		"Your effort did not change. This model has no Max effort.",
 	]);
@@ -206,21 +233,21 @@ test("the permission menu offers five modes and warns about Bypass before it is 
 	expect(line?.querySelector(".pk-picker-warning svg")).not.toBeNull();
 });
 
-test("an unknown model shows as Default, and the pickers wait with their labels until settings arrive", () => {
+test("the pickers wait with their labels until settings arrive", () => {
 	draw(null);
 	expect(screen.queryByRole("button", { name: /^Model/ })).toBeNull();
 	expect(
 		screen.getAllByTestId("composer-pick-waiting").map((pick) => pick.textContent),
 	).toEqual(["Model", "Effort", "Permissions"]);
-	rerender({ ...START, model: "some-new-model" });
-	expect(picker("Model").textContent).toBe("Model Default");
 	rerender({ ...START, model: "default" });
 	expect(picker("Model").textContent).toBe("Model Default");
+	// Default has no versions to choose between.
+	expect(screen.queryByRole("button", { name: /^Version / })).toBeNull();
 });
 
 test("the Options button summarises the settings and says whether the panel is open", () => {
 	panelOpen = false;
-	draw({ ...START, model: "claude-opus-4-1", effort: "xhigh", mode: "plan" });
+	draw({ ...START, model: "opus", effort: "xhigh", mode: "plan" });
 	const options = screen.getByTestId("composer-options");
 	expect(options.textContent).toBe("Chat options: Opus \u00b7 Extra high \u00b7 Plan");
 	expect(options.getAttribute("aria-expanded")).toBe("false");
@@ -236,7 +263,7 @@ test("the summary names the agent for the default model, and Bypass shows on it"
 	draw({ ...START, model: "default", mode: "bypassPermissions" });
 	const options = screen.getByTestId("composer-options");
 	expect(options.textContent).toBe(
-		"Chat options: Claude \u00b7 High \u00b7 Bypass permissions",
+		"Chat options: Claude \u00b7 Medium \u00b7 Bypass permissions",
 	);
 	expect(options.classList.contains("is-warning")).toBe(true);
 });
@@ -304,15 +331,16 @@ function holdRules(rules: { rule: string; description: string }[]) {
 }
 
 test("Ask says some actions run without asking only while session rules are held", () => {
-	draw();
+	const ask = { ...START, mode: "default" } as const;
+	draw(ask);
 	expect(screen.queryByText(ASK_RULES_HINT)).toBeNull();
 	holdRules([{ rule: "Bash(sed:*)", description: '"sed" commands in this session' }]);
 	const hint = screen.getByText(ASK_RULES_HINT);
 	expect(picker("Permissions").getAttribute("aria-describedby")).toBe(hint.id);
 	// Another mode says what it does on its own.
-	rerender({ ...START, mode: "auto" });
+	rerender({ ...ask, mode: "auto" });
 	expect(screen.queryByText(ASK_RULES_HINT)).toBeNull();
-	rerender(START);
+	rerender(ask);
 	expect(screen.getByText(ASK_RULES_HINT)).toBeTruthy();
 });
 
@@ -375,4 +403,111 @@ test("the switch is there before the host reports settings, and is hidden withou
 	cleanup();
 	draw();
 	expect(screen.queryByRole("switch")).toBeNull();
+});
+
+test("the Version picker defaults to Latest with the version it means, and lists pinned versions newest first", () => {
+	draw({ ...START, model: "opus" });
+	expect(picker("Version").textContent).toBe("Version Latest (5.5)");
+	const menu = open("Version");
+	const items = within(menu).getAllByRole("menuitemradio");
+	expect(items[0]?.textContent).toMatch(/^Latest \(5\.5\)/);
+	expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual([
+		"true",
+		"false",
+		"false",
+		"false",
+	]);
+	expect(items.map((item) => item.dataset.testid)).toEqual([
+		"composer-version-opus",
+		"composer-version-claude-opus-5",
+		"composer-version-claude-opus-4-8",
+		"composer-version-claude-opus-4-7",
+	]);
+});
+
+test("choosing a version asks for that exact model, and Latest asks for the short name", () => {
+	draw({ ...START, model: "opus" });
+	choose("Version", "4.8");
+	expect(asked).toEqual([{ model: "claude-opus-4-8" }]);
+	expect(picker("Version").textContent).toBe("Version 4.8");
+	expect(screen.getByTestId("composer-options").textContent).toBe(
+		"Chat options: Opus 4.8 \u00b7 Medium \u00b7 Auto",
+	);
+	rerender({ ...START, model: "claude-opus-4-8" });
+	expect(picker("Model").textContent).toBe("Model Opus");
+	choose("Version", "Latest (5.5)");
+	expect(asked.at(-1)).toEqual({ model: "opus" });
+});
+
+test("a full ID that a short name resolves to shows as Latest, and a suffix is ignored", () => {
+	draw({ ...START, model: "claude-opus-5-5[1m]" });
+	expect(picker("Model").textContent).toBe("Model Opus");
+	expect(picker("Version").textContent).toBe("Version Latest (5.5)");
+});
+
+test("changing the model goes to that family's Latest", () => {
+	draw({ ...START, model: "claude-opus-4-8" });
+	choose("Model", "Fable");
+	expect(asked).toEqual([{ model: "fable" }]);
+	expect(picker("Version").textContent).toBe("Version Latest (5.2)");
+});
+
+test("the Model menu lists Default and each family from the list, with no pinned versions", () => {
+	draw();
+	const menu = open("Model");
+	expect(
+		within(menu)
+			.getAllByRole("menuitemradio")
+			.map((item) => item.dataset.testid),
+	).toEqual([
+		"composer-model-default",
+		"composer-model-opus",
+		"composer-model-fable",
+		"composer-model-sonnet",
+		"composer-model-haiku",
+	]);
+});
+
+test("before the list arrives the picker shows Default and the current model, and no Version", () => {
+	draw({ ...START, model: "fable" }, []);
+	expect(picker("Model").textContent).toBe("Model Fable");
+	expect(screen.queryByRole("button", { name: /^Version / })).toBeNull();
+	const menu = open("Model");
+	expect(
+		within(menu)
+			.getAllByRole("menuitemradio")
+			.map((item) => item.dataset.testid),
+	).toEqual(["composer-model-default", "composer-model-fable"]);
+});
+
+test("on a model without Auto the start mode is Ask", () => {
+	draw({ ...START, model: "claude-haiku-4-5-20251001", mode: "default" }, [
+		row("default", "Default (recommended)", "claude-opus-5-5"),
+		row("haiku", "Haiku 5.5", "claude-haiku-5-5", false),
+		row("claude-haiku-4-5-20251001", "Haiku 4.5", "claude-haiku-4-5-20251001", false),
+	]);
+	// The family's Latest (haiku) does not support Auto; the pinned row is the current one,
+	// whose own support decides the start mode.
+	const mode = picker("Permissions");
+	expect(mode.className).not.toContain("is-changed");
+});
+
+test("Read replies aloud is the last item of the panel, after Model and Version", () => {
+	installFakeSpeech();
+	try {
+		draw();
+		const names = Array.from(
+			screen.getByTestId("composer-picks").querySelectorAll("button"),
+		).map((button) => button.getAttribute("data-testid"));
+		expect(names).toEqual([
+			"composer-agent",
+			"composer-model",
+			"composer-version",
+			"composer-effort",
+			"composer-mode",
+			"composer-read-aloud",
+		]);
+	} finally {
+		removeFakeSpeech();
+	}
 });
