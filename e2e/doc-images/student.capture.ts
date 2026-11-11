@@ -137,12 +137,15 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await shoot(page, "student-agent-rows.png", {
 				clip: { x: 0, y: 0, width: 720, height: 400 },
 			});
-			// The needs-input toast sits over the status bar and would take the click.
-			await page
+			// The needs-input toast, when it has appeared, sits over the status bar
+			// and would take the click; it does not always appear in time.
+			const dismiss = page
 				.getByRole("region", { name: /Notifications/ })
 				.getByRole("button", { name: "Dismiss" })
-				.click();
-			await page.getByTestId("agent-meter-claude").click();
+				.first();
+			if (await dismiss.isVisible()) await dismiss.click();
+			// The keyboard opens it even if a late toast covers the button.
+			await page.getByTestId("agent-meter-claude").press("Enter");
 			await expect(page.getByTestId("agent-meter-claude-details")).toBeVisible();
 			await shoot(page, "student-agent-meter.png", {
 				clip: { x: 720, y: 600, width: 720, height: 300 },
