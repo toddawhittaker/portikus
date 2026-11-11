@@ -329,6 +329,16 @@ export async function otherProjects(workspaceId: string): Promise<void> {
 	await seedFile(workspaceId, quiz.slug, "quiz.py", "print('Question 1')\n");
 }
 
+/** Fill a workspace's home volume, so a STORAGE_FULL error shows the full meter it names. */
+export async function homeFull(workspaceId: string): Promise<void> {
+	await post("/__test/storage", {
+		key: workspaceId,
+		home: { usedBytes: 25 * GIB, totalBytes: 25 * GIB },
+		docker: { usedBytes: Math.round(1.4 * GIB), totalBytes: 20 * GIB },
+		recovery: { usedBytes: Math.round(0.4 * GIB), totalBytes: 3 * GIB },
+	});
+}
+
 /** The controller check the worker runs, so workspace states read as confirmed. */
 export async function controllerChecked(): Promise<void> {
 	await query("update settings set controller_checked_at = now() where id = 1");

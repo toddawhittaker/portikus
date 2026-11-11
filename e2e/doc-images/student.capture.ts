@@ -7,6 +7,7 @@ import { query, setWorkspaceState } from "../helpers";
 import {
 	course,
 	flaskRunning,
+	homeFull,
 	inHours,
 	launch,
 	minutesAgo,
@@ -355,6 +356,7 @@ test("starting and error", async ({ page }) => {
 	await page.goto(`/workspaces/${maya.workspaceId}/projects/${project.id}`);
 	await page.waitForTimeout(1500);
 	await shoot(page, "student-starting.png");
+	await homeFull(maya.workspaceId);
 	await query(
 		`update workspaces set state = 'error', error_code = 'STORAGE_FULL',
 		 error_message = 'Your workspace could not start because its storage is full.' where id = $1`,
