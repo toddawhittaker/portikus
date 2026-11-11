@@ -67,7 +67,9 @@ jobs:
       - name: Install build dependencies
         if: steps.version.outputs.build == 'true'
         timeout-minutes: 5
-        run: sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends debootstrap squashfs-tools rsync gnupg pkg-config libgpgme-dev libbtrfs-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: debootstrap squashfs-tools rsync gnupg pkg-config libgpgme-dev libbtrfs-dev
       - name: Cache distrobuilder
         if: steps.version.outputs.build == 'true'
         id: cache
