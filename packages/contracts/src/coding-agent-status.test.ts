@@ -323,6 +323,13 @@ describe("chat titles", () => {
 		expect(agentTitleText("fix \u202Etxt.exe\u202C now")).toBe("fix txt.exe now");
 		expect(agentTitleText("a\u200Bb\uFEFFc")).toBe("a b c");
 		expect(agentTitleText("\u200B\u2066")).toBe("");
+		// The zero-width joiner holds emoji like a coder together, so it stays.
+		expect(agentTitleText("\u{1F469}\u200D\u{1F4BB} homework")).toBe(
+			"\u{1F469}\u200D\u{1F4BB} homework",
+		);
+		expect(agentTitleText("\u{1F469}\u200D\u{1F4BB}\u202E\u200Bx")).toBe(
+			"\u{1F469}\u200D\u{1F4BB} x",
+		);
 		const cut = agentTitleText(`${"a".repeat(79)}😀b`);
 		expect(cut).toBe("a".repeat(79));
 	});

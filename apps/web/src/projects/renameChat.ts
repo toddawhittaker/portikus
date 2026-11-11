@@ -1,11 +1,13 @@
 /**
  * Rename a chat from the left pane (ADR 0074). The rename travels on the
- * chat's own socket, opened for this one message; the new title comes back
- * through the agent status, so the socket closes once the caller sees it.
+ * chat's own socket, opened for this one message. The host answers that
+ * socket alone with `rename.result`; other frames, a broadcast `error` among
+ * them, belong to the chat. The new title comes back through the agent
+ * status, so the socket closes once the caller sees it.
  */
 import { chatSocketPath, openChatSocket } from "../chat/chatSocket.js";
 
-/** How long a rename waits for an error before it counts as done. */
+/** How long a rename waits for a refusal before it counts as done. */
 export const RENAME_QUIET_MS = 5000;
 
 const LOST = "The chat could not be reached. Try again.";
@@ -42,8 +44,13 @@ export function renameChat(
 		onFrame: (data) => {
 			if (!sent || typeof data !== "string") return;
 			try {
-				const frame = JSON.parse(data) as { type?: unknown; message?: unknown };
-				if (frame.type === "error") {
+				const frame = JSON.parse(data) as {
+					type?: unknown;
+					ok?: unknown;
+					message?: unknown;
+				};
+				// A confirmation still waits for the title, or the quiet wait.
+				if (frame.type === "rename.result" && frame.ok === false) {
 					settle(new Error(typeof frame.message === "string" ? frame.message : LOST));
 				}
 			} catch {

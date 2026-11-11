@@ -7,12 +7,12 @@ function setup(read: () => Promise<string | null>) {
 	const posted: (string | null)[] = [];
 	const renamed: string[] = [];
 	let failPost = false;
-	let failRename = false;
+	let failRename: string | false = false;
 	const title = new ChatTitle(
 		{
 			sessionTitle: read,
 			renameSession: async (_id, text) => {
-				if (failRename) throw new Error("disk full");
+				if (failRename) throw new Error(failRename);
 				renamed.push(text);
 			},
 		},
@@ -29,8 +29,8 @@ function setup(read: () => Promise<string | null>) {
 		failPost: (fail: boolean) => {
 			failPost = fail;
 		},
-		failRename: (fail: boolean) => {
-			failRename = fail;
+		failRename: (message: string | false) => {
+			failRename = message;
 		},
 	};
 }
@@ -77,8 +77,17 @@ describe("ChatTitle", () => {
 
 	test("a rename the SDK cannot save says so and publishes nothing", async () => {
 		const { title, posted, failRename } = setup(async () => null);
-		failRename(true);
+		failRename("disk full");
 		await expect(title.rename(ID, "New name")).rejects.toThrow(/could not be renamed/);
+		expect(posted).toEqual([]);
+	});
+
+	test("a rename before the first message asks for one", async () => {
+		const { title, posted, failRename } = setup(async () => null);
+		failRename(`Session ${ID} not found in project directory for /project`);
+		await expect(title.rename(ID, "New name")).rejects.toThrow(
+			/^Send a message first, then rename it\.$/,
+		);
 		expect(posted).toEqual([]);
 	});
 

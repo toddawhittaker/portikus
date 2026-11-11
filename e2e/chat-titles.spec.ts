@@ -63,6 +63,16 @@ for (const colorScheme of ["dark", "light"] as const) {
 		);
 		if (!tui) throw new Error("no terminal tab");
 
+		// A chat with no message yet has no title, and so no pencil: Claude
+		// Code cannot rename a session it has not written.
+		await setAgentTabs(student.workspaceId, [
+			{ terminalId: first.id, agent: "claude", state: "finished" },
+		]);
+		await expect(page.getByTestId(`agent-row-${first.id}`)).toContainText(
+			"Claude Code (GUI)",
+		);
+		await expect(page.getByTestId(`agent-rename-${first.id}`)).toHaveCount(0);
+
 		await setAgentTabs(student.workspaceId, [
 			{
 				terminalId: first.id,
@@ -124,6 +134,14 @@ for (const colorScheme of ["dark", "light"] as const) {
 		await expect(
 			page.getByRole("button", { name: "Rename Fix the login redirect" }),
 		).toBeFocused();
+
+		// Tabbing out cancels too, and focus goes on to the next control, not back.
+		await page.getByRole("button", { name: "Rename Fix the login redirect" }).click();
+		await input.fill("Not this either");
+		await page.keyboard.press("Tab");
+		await expect(input).toHaveCount(0);
+		await expect(firstRow).toContainText("Fix the login redirect");
+		await expect(secondRow).toBeFocused();
 
 		// Enter renames: the host gets one rename, and the row and the tab follow.
 		await page.getByRole("button", { name: "Rename Fix the login redirect" }).click();

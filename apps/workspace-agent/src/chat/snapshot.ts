@@ -212,12 +212,15 @@ export function replayHistory(
 
 /** Most entries of a subagent's transcript replayed when it is watched. */
 export const REPLAY_SUBAGENT_ENTRIES = 500;
+/** The newest entries whose images a subagent replay keeps; older ones say `imageOmitted`. */
+export const REPLAY_SUBAGENT_IMAGE_ENTRIES = 20;
 
 /**
  * A subagent's transcript replayed as one turn: the prompt it was given as a
  * user message, then its messages and tool events, then `turn.finished`
  * unless it is still running. Only the last REPLAY_SUBAGENT_ENTRIES entries
- * are replayed, and an image too large for one frame becomes `imageOmitted`.
+ * are replayed. An image older than the last REPLAY_SUBAGENT_IMAGE_ENTRIES
+ * entries, or too large for one frame, becomes `imageOmitted`.
  */
 export function replaySubagent(
 	entries: readonly SessionMessage[],
@@ -236,7 +239,8 @@ export function replaySubagent(
 			events.push({ type: "message", id: entry.uuid, role: "user", markdown: prompt });
 			return;
 		}
-		events.push(...entryEvents(entry, mapper, true, maxBytes));
+		const keepImages = index >= kept.length - REPLAY_SUBAGENT_IMAGE_ENTRIES;
+		events.push(...entryEvents(entry, mapper, keepImages, maxBytes));
 	});
 	if (!running) {
 		events.push({
