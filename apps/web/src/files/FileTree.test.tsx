@@ -984,8 +984,9 @@ describe("the file tree", () => {
 
 		const readme = await screen.findByTestId("file-row-README.md");
 		await waitFor(() => expect(readme.textContent).toContain("Modified"));
+		// A folder holding only a new file says so, not "modified".
 		expect(screen.getByTestId("file-row-src").textContent).toContain(
-			"contains changes",
+			"Contains new files",
 		);
 		const ignored = screen.getByTestId("file-row-node_modules");
 		expect(ignored.textContent).toContain("ignored");

@@ -9,7 +9,9 @@ describe("the file row icon", () => {
 		expect(fileIconName("app.ts")).toBe("file-code");
 		expect(fileIconName("main.PY")).toBe("file-code");
 		expect(fileIconName("index.html")).toBe("file-web");
-		expect(fileIconName("styles.css")).toBe("file-web");
+		expect(fileIconName("styles.css")).toBe("file-style");
+		expect(fileIconName("theme.scss")).toBe("file-style");
+		expect(fileIconName("table.csv")).toBe("file-data");
 		expect(fileIconName("data.json")).toBe("file-data");
 		expect(fileIconName("compose.yaml")).toBe("file-data");
 		expect(fileIconName("README.md")).toBe("file-markdown");

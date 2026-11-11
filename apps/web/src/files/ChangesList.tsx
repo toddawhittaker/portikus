@@ -155,10 +155,7 @@ export function ChangesList({
 										title={row.decoration.title}
 										onClick={() => show(row)}
 									>
-										<GitLetter
-											kind={row.decoration.kind}
-											letter={row.decoration.letter}
-										/>
+										<GitLetter decoration={row.decoration} />
 										{row.decoration.kind === "conflict" ? (
 											<Icon name="alert" size="sm" />
 										) : null}

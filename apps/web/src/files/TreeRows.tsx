@@ -23,8 +23,13 @@ import { useStore } from "zustand";
 import { useProjects } from "../projects/queries.js";
 import { droppedPathsInput } from "../terminal/terminalDrop.js";
 import { fileIconName } from "./fileIcon.js";
-import { GitLetter } from "./GitLetter.js";
-import { type GitDecoration, isIgnored } from "./gitStatus.js";
+import { GitDot, GitLetter } from "./GitLetter.js";
+import {
+	DIR_TITLE,
+	type GitDecoration,
+	type GitDecorationKind,
+	isIgnored,
+} from "./gitStatus.js";
 import {
 	displayName,
 	entryCount,
@@ -255,11 +260,11 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 /** What a row's Git letter, dot and muted colour say, in words. */
 function rowStatus(
 	decoration: GitDecoration | undefined,
-	dirty: boolean,
+	dirty: GitDecorationKind | undefined,
 	ignored: boolean,
 ): string | null {
 	if (decoration) return decoration.title;
-	if (dirty) return "contains changes";
+	if (dirty) return DIR_TITLE[dirty];
 	if (ignored) return "ignored";
 	return null;
 }
@@ -281,7 +286,7 @@ function RowFace({
 	open: boolean;
 	status: string | null;
 	decoration: GitDecoration | undefined;
-	dirty: boolean;
+	dirty: GitDecorationKind | undefined;
 	ignored: boolean;
 }) {
 	const folderIcon = open ? "folder-open" : "folder";
@@ -303,10 +308,10 @@ function RowFace({
 			{decoration ? (
 				<>
 					{decoration.kind === "conflict" ? <Icon name="alert" size="sm" /> : null}
-					<GitLetter kind={decoration.kind} letter={decoration.letter} />
+					<GitLetter decoration={decoration} />
 				</>
 			) : dirty ? (
-				<span className="pk-git-dot" aria-hidden="true" />
+				<GitDot kind={dirty} />
 			) : null}
 		</>
 	);
@@ -332,11 +337,11 @@ const Row = memo(function Row({
 	// Git state: the file's own letter, or a dot when a directory holds a
 	// change (SPEC.md §12.1).
 	const decoration = api.git.byPath.get(path);
-	const dirty = isDir && api.git.changedDirs.has(path);
+	const dirty = isDir ? api.git.changedDirs.get(path) : undefined;
 	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
-	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
 	// What the letter, the dot and the muted colour say, in words.
 	const status = rowStatus(decoration, dirty, ignored);
+	const title = status ? `${shown} — ${status}` : undefined;
 	const rowRef = useRef<HTMLDivElement | null>(null);
 
 	const { focused, selected, current, dragging, dropTarget } = useRowState(
