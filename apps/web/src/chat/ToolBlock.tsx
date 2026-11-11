@@ -4,17 +4,19 @@
  * while it runs or when it failed or stopped. It opens to what it did and
  * what came back, leaving out what the row already says (SPEC.md §10.8). The
  * raw input stays one click further in. A background Agent launch shows a
- * plain status and its prompt; the text Claude Code returns for the model
- * stays behind Raw output (SPEC.md §8.3). Images from a tool are drawn from
+ * plain status, a way into the subagent's own conversation, and its prompt;
+ * the text Claude Code returns for the model stays behind Raw output (SPEC.md
+ * §8.3). Images from a tool are drawn from
  * `data:` URLs, which the page's img-src allows (apps/web/src/csp.ts).
  */
 import type { ChatToolOutputPart } from "@portikus/contracts";
 import { agentStateWords, Icon, type IconName } from "@portikus/ui";
-import { memo } from "react";
+import { memo, useContext } from "react";
 import { useAgentStatus } from "../terminal/codingAgentStatus.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import type { ChatToolItem } from "./chatStore.js";
 import { useChatImages } from "./ImageViewer.js";
+import { SubagentOpenerContext } from "./subagentView.js";
 import { type ToolDetail, type ToolLine, toolLine } from "./toolView.js";
 
 /** A tool's image opens large in the viewer, like an image in a reply. */
@@ -130,9 +132,20 @@ function agentPrompt(input: unknown): string | null {
 /** What a background launch shows: its status and prompt, with Claude Code's own text kept closed. */
 function LaunchBody({ tool }: { tool: ChatToolItem }) {
 	const prompt = agentPrompt(tool.input);
+	const openSubagent = useContext(SubagentOpenerContext);
 	return (
 		<>
 			<LaunchStatus tool={tool} />
+			{openSubagent ? (
+				<button
+					type="button"
+					className="pk-chat-agent-open pk-focus-ring"
+					data-testid="chat-agent-open"
+					onClick={() => openSubagent({ toolUseId: tool.id, title: tool.title })}
+				>
+					Show its conversation
+				</button>
+			) : null}
 			{prompt ? <CodeBlock text={prompt} limit={12} /> : null}
 			{tool.output.length > 0 ? (
 				<details className="pk-chat-raw">

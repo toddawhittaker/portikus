@@ -758,3 +758,53 @@ test("the latest context event is kept per tab, and a new snapshot clears it", (
 	state = feed([snapshot(4)], state);
 	expect(state.context).toBeNull();
 });
+
+test("a subagent frame is kept apart and never moves the chat's sequence", () => {
+	let state = receiveChatFrame(
+		initialChatState,
+		JSON.stringify({
+			type: "snapshot",
+			sessionId: SESSION,
+			seq: 4,
+			cards: [],
+			turnRunning: false,
+			truncated: false,
+		}),
+		0,
+	);
+	const frame = {
+		type: "subagent",
+		sessionId: SESSION,
+		toolUseId: "toolu_a",
+		event: {
+			type: "message",
+			sessionId: SESSION,
+			seq: 9,
+			id: "m",
+			role: "assistant",
+			markdown: "hi",
+		},
+	};
+	state = receiveChatFrame(state, JSON.stringify(frame), 0);
+	expect(state.subagentFrame).toEqual(frame);
+	expect(state.lastSeq).toBe(4);
+	expect(state.items).toEqual([]);
+	// A frame whose event is not one a subagent sends is dropped.
+	const bad = { ...frame, event: { type: "settings", sessionId: SESSION, seq: 1 } };
+	expect(receiveChatFrame(state, JSON.stringify(bad), 0).invalidFrames).toBe(1);
+});
+
+test("watching a subagent sends the watch and the unwatch", () => {
+	const sent: ChatClientMessage[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	expect(store.getState().watchSubagent("toolu_a")).toBe(true);
+	expect(store.getState().unwatchSubagent("toolu_a")).toBe(true);
+	expect(store.getState().watchSubagent("")).toBe(false);
+	expect(sent).toEqual([
+		{ type: "subagent.watch", toolUseId: "toolu_a" },
+		{ type: "subagent.unwatch", toolUseId: "toolu_a" },
+	]);
+});

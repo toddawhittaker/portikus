@@ -529,3 +529,108 @@ test.skipIf(!existsSync(CLAUDE))(
 	},
 	300_000,
 );
+
+/**
+ * A subagent's own conversation reaches an attachment that watches its Agent
+ * call, outside the chat's own events, and a later watch replays it from the
+ * subagent's transcript (SPEC.md §10.8).
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"a watched subagent's conversation streams to the watcher and replays from disk",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		const host = new ChatHost({
+			terminalId: ID,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async () => undefined,
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+		readLines(socket, 16 * 1024 * 1024, (line) => {
+			const event = JSON.parse(line) as ChatServerEvent;
+			events.push(event);
+			// Watch the subagent as soon as its Agent call shows.
+			if (event.type === "tool.started" && event.name === "Agent") {
+				send({ type: "subagent.watch", toolUseId: event.id });
+			}
+		});
+		const subagentEvents = () =>
+			events.flatMap((e) => (e.type === "subagent" ? [e.event] : []));
+		try {
+			await vi.waitFor(() =>
+				expect(events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			send({ type: "set", model: "haiku", mode: "bypassPermissions" });
+			send({
+				type: "send",
+				text: "Use the Agent tool once, with subagent_type general-purpose and the prompt: 'Run `echo hi` with the Bash tool, then reply with exactly the word sparrow.' Wait for it, then tell me its reply.",
+				attachments: [],
+			});
+			await vi.waitFor(
+				() => {
+					const finished = subagentEvents().find((e) => e.type === "turn.finished");
+					expect(finished).toBeTruthy();
+				},
+				{ timeout: 150_000, interval: 500 },
+			);
+			const watched = subagentEvents();
+			expect(watched[0]?.type).toBe("snapshot");
+			expect(watched.some((e) => e.type === "tool.started" && e.name === "Bash")).toBe(
+				true,
+			);
+			const said = watched
+				.filter((e) => e.type === "message" && e.role === "assistant")
+				.map((e) => (e as { markdown: string }).markdown)
+				.join(" ");
+			expect(said.toLowerCase()).toContain("sparrow");
+			// The subagent's Bash call never shows in the chat's own events.
+			expect(events.some((e) => e.type === "tool.started" && e.name === "Bash")).toBe(
+				false,
+			);
+
+			// A second attachment watching later gets the run from the transcript.
+			const agentCall = events.find(
+				(e) => e.type === "tool.started" && e.name === "Agent",
+			);
+			const late = connect(host.socketPath);
+			const lateEvents: ChatServerEvent[] = [];
+			readLines(late, 16 * 1024 * 1024, (line) => {
+				lateEvents.push(JSON.parse(line) as ChatServerEvent);
+			});
+			try {
+				late.write(
+					`${JSON.stringify({ type: "subagent.watch", toolUseId: (agentCall as { id: string }).id })}\n`,
+				);
+				await vi.waitFor(
+					() => {
+						const replayed = lateEvents.flatMap((e) =>
+							e.type === "subagent" ? [e.event] : [],
+						);
+						expect(replayed.at(-1)?.type).toBe("turn.finished");
+						expect(
+							replayed.some((e) => e.type === "message" && e.role === "user"),
+						).toBe(true);
+					},
+					{ timeout: 30_000, interval: 200 },
+				);
+			} finally {
+				late.destroy();
+			}
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	240_000,
+);
