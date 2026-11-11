@@ -4,6 +4,8 @@
 	   tool output and images, with prose held to a reading measure inside it. */
 	--pk-chat-column: 60rem;
 	--pk-chat-measure: 46rem;
+	/* Tool-call groups and shell boxes: as wide as the reply column, up to 760px. */
+	--pk-chat-card: 47.5rem;
 	--pk-chat-gutter: max(var(--space-4), calc((100% - var(--pk-chat-column)) / 2));
 	/* Held to the pane: the log takes what the card dock and the composer
 	   leave, keeping at least a little conversation in view, and only the log

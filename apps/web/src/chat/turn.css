@@ -112,7 +112,7 @@ button.pk-turn-file-open {
 .pk-chat-worked {
 	box-sizing: border-box;
 	inline-size: 100%;
-	max-inline-size: 47.5rem;
+	max-inline-size: var(--pk-chat-card);
 	border: 1px solid var(--line);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
