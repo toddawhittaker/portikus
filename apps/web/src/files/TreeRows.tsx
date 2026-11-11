@@ -23,6 +23,7 @@ import { useStore } from "zustand";
 import { useProjects } from "../projects/queries.js";
 import { droppedPathsInput } from "../terminal/terminalDrop.js";
 import { fileIconName } from "./fileIcon.js";
+import { GitLetter } from "./GitLetter.js";
 import { type GitDecoration, isIgnored } from "./gitStatus.js";
 import {
 	displayName,
@@ -302,9 +303,7 @@ function RowFace({
 			{decoration ? (
 				<>
 					{decoration.kind === "conflict" ? <Icon name="alert" size="sm" /> : null}
-					<span className="pk-git-letter" aria-hidden="true">
-						{decoration.letter}
-					</span>
+					<GitLetter kind={decoration.kind} letter={decoration.letter} />
 				</>
 			) : dirty ? (
 				<span className="pk-git-dot" aria-hidden="true" />

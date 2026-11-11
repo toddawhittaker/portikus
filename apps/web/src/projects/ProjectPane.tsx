@@ -210,6 +210,7 @@ export function ProjectPane({
 											<span className="pk-tag">not a repo</span>
 										) : null}
 										{project.missing ? null : <ShareBadge project={project} />}
+										<Icon name="chevron-right" size="sm" className="pk-project-open" />
 									</Link>
 									{projectAgents.length > 0 ? (
 										<AgentsToggle

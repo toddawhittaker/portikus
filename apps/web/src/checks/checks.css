@@ -156,9 +156,9 @@
 .pk-check-empty {
 	margin: 0;
 	padding: var(--space-3);
-	border: 1px dashed var(--line);
 	border-radius: var(--radius-md);
-	color: var(--ink-muted);
+	background: var(--status-starting-soft);
+	color: var(--ink);
 	font-size: var(--text-xs);
 	line-height: var(--leading-xs);
 	overflow-wrap: anywhere;

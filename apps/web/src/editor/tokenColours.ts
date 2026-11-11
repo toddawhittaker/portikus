@@ -8,32 +8,32 @@ export const EDITOR_BACKGROUNDS = {
 } as const;
 
 /**
- * Syntax colours in families shared by both themes: violet keywords, green
- * strings, orange numbers and constants, blue types and decorators, teal
- * escapes and attribute names, and the faint ink for comments. Every one
- * reads at 4.5:1 or better on the editor and line-highlight backgrounds
- * (SPEC.md section 25.8).
+ * Syntax colours from the chrome's own hues, so the editor belongs to the
+ * product: violet keywords and tags (the agent hue), teal strings (the
+ * accent), terracotta numbers and constants, amber types and decorators,
+ * and the faint ink for comments. Every one reads at 4.5:1 or better on the
+ * editor and line-highlight backgrounds (SPEC.md section 25.8).
  */
 const LIGHT = {
-	violet: "7a3e9d",
-	green: "3b7328",
-	orange: "a14a00",
-	blue: "2d5fb0",
-	teal: "1f6b66",
-	faint: "5d6461",
-	ink: "1e2220",
-	red: "a4342a",
+	violet: "5a36b8",
+	teal: "0e6b62",
+	terracotta: "b23a1e",
+	amber: "8a5300",
+	blue: "2f58a8",
+	faint: "6b6458",
+	ink: "221f1a",
+	red: "b0372b",
 };
 
 const DARK = {
-	violet: "c9a0e8",
-	green: "a6d189",
-	orange: "eda16b",
-	blue: "8db4ef",
-	teal: "7cc2b9",
-	faint: "959b97",
-	ink: "ece8df",
-	red: "f0998f",
+	violet: "bba6ff",
+	teal: "5fd0bf",
+	terracotta: "f4957c",
+	amber: "f0c062",
+	blue: "93b6f2",
+	faint: "a29b8f",
+	ink: "ece6da",
+	red: "f59a8e",
 };
 
 function tokens(c: typeof LIGHT): Record<string, string> {
@@ -41,32 +41,32 @@ function tokens(c: typeof LIGHT): Record<string, string> {
 		keyword: c.violet,
 		"keyword.flow": c.violet,
 		"keyword.control": c.violet,
-		"variable.predefined": c.orange,
-		string: c.green,
-		"string.escape": c.teal,
-		"string.sql": c.green,
-		"string.key.json": c.blue,
-		"string.value.json": c.green,
-		regexp: c.green,
+		"variable.predefined": c.terracotta,
+		string: c.teal,
+		"string.escape": c.terracotta,
+		"string.sql": c.teal,
+		"string.key.json": c.violet,
+		"string.value.json": c.teal,
+		regexp: c.terracotta,
 		comment: c.faint,
 		"comment.doc": c.faint,
-		number: c.orange,
-		"number.hex": c.orange,
-		constant: c.orange,
-		type: c.blue,
-		"type.identifier": c.blue,
-		annotation: c.blue,
+		number: c.terracotta,
+		"number.hex": c.terracotta,
+		constant: c.terracotta,
+		type: c.amber,
+		"type.identifier": c.amber,
+		annotation: c.amber,
 		tag: c.violet,
-		"tag.id.pug": c.blue,
-		"tag.class.pug": c.blue,
+		"tag.id.pug": c.amber,
+		"tag.class.pug": c.amber,
 		metatag: c.violet,
-		"metatag.content.html": c.green,
+		"metatag.content.html": c.teal,
 		"metatag.html": c.faint,
 		"metatag.xml": c.faint,
-		"attribute.name": c.teal,
-		"attribute.value": c.green,
-		"attribute.value.number": c.orange,
-		"attribute.value.unit": c.orange,
+		"attribute.name": c.amber,
+		"attribute.value": c.teal,
+		"attribute.value.number": c.terracotta,
+		"attribute.value.unit": c.terracotta,
 		"delimiter.html": c.faint,
 		"delimiter.xml": c.faint,
 		"operator.sql": c.faint,
@@ -82,14 +82,14 @@ export const DARK_TOKENS: Record<string, string> = tokens(DARK);
 
 /** Bracket pair colours, in three of the same families, so nesting reads without a clash. */
 export const LIGHT_BRACKETS: Record<string, string> = {
-	"editorBracketHighlight.foreground1": LIGHT.blue,
+	"editorBracketHighlight.foreground1": LIGHT.amber,
 	"editorBracketHighlight.foreground2": LIGHT.violet,
 	"editorBracketHighlight.foreground3": LIGHT.teal,
 	"editorBracketHighlight.unexpectedBracket.foreground": LIGHT.red,
 };
 
 export const DARK_BRACKETS: Record<string, string> = {
-	"editorBracketHighlight.foreground1": DARK.blue,
+	"editorBracketHighlight.foreground1": DARK.amber,
 	"editorBracketHighlight.foreground2": DARK.violet,
 	"editorBracketHighlight.foreground3": DARK.teal,
 	"editorBracketHighlight.unexpectedBracket.foreground": DARK.red,

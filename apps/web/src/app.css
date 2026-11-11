@@ -232,8 +232,8 @@ body {
 	touch-action: pan-x pinch-zoom !important;
 }
 /*
- * Too narrow for both side panes at their default widths (240 and 280 px)
- * beside the work area's 360 px minimum (SPEC.md section 8.1): the work
+ * Too narrow for both side panes beside a usable work area (its minimum is
+ * 360 px, SPEC.md section 8.1): the work
  * area fills the shell, and projects and the right pane become drawers that
  * slide over it from their own side, opened from the pane bar. The panel
  * library sets sizes and overflow inline, hence !important; its width
@@ -338,16 +338,16 @@ body {
 .pk-pane--left > .pk-pane-body {
 	padding-top: var(--space-2);
 }
-/* A line of guidance under a short list, so the space below it is not left blank. */
+/* A line of guidance under a short list, in the info callout's tint. */
 .pk-pane-note {
 	display: flex;
 	align-items: flex-start;
 	gap: var(--space-2);
 	margin: var(--space-4) var(--space-2) 0;
 	padding: var(--space-3);
-	border: 1px dashed var(--line);
 	border-radius: var(--radius-md);
-	color: var(--ink-muted);
+	background: var(--status-starting-soft);
+	color: var(--ink);
 	font-size: var(--text-md);
 	line-height: var(--leading-md);
 	max-inline-size: 40ch;
@@ -355,7 +355,7 @@ body {
 .pk-pane-note > svg {
 	flex: none;
 	margin-block-start: 2px;
-	color: var(--accent);
+	color: var(--status-starting);
 }
 .pk-pane-foot {
 	flex: none;
@@ -698,14 +698,6 @@ body {
 	background: var(--surface-chrome);
 	border-bottom: 1px solid var(--line);
 }
-.pk-skel-row {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-	height: var(--pk-row);
-	padding: 0 var(--space-2);
-}
-
 /* Technical detail under an error sentence (SPEC.md §28). */
 .pk-techdetail {
 	margin: 0;

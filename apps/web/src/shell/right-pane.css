@@ -36,9 +36,10 @@
 }
 
 /*
- * The switch stays on one line. Each surface is an icon and a name; a pane
- * under 26rem keeps the name on the chosen surface only, and the others are
- * named by their icon, a hover title and their accessible name.
+ * The switch stays on one line. A wide pane shows each surface's icon and
+ * name, a desktop-width pane the names alone, and a pane under 22rem keeps
+ * the name on the chosen surface only, the others named by their icon, a
+ * hover title and their accessible name.
  */
 .pk-pane-tabs {
 	flex: none;
@@ -120,14 +121,34 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
+.pk-pane-tab[data-pointer]:focus-visible {
+	outline: none;
+}
 
-@container pk-right (width < 26rem) {
+/* A desktop-width pane names every surface in words; the icons wait for room. */
+@container pk-right (width < 30rem) {
+	.pk-pane-tab {
+		font-size: var(--text-sm);
+	}
+	.pk-pane-tab-face {
+		padding-inline: var(--space-2);
+	}
+	.pk-pane-tab-face > svg {
+		display: none;
+	}
+}
+
+/* A narrow pane keeps the name on the chosen surface only; the others are named by their icon. */
+@container pk-right (width < 22rem) {
 	.pk-pane-tab {
 		flex: 1 0 auto;
 		min-inline-size: var(--size-control-md);
 	}
 	.pk-pane-tab-face {
 		padding-inline: var(--space-2);
+	}
+	.pk-pane-tab-face > svg {
+		display: inline-block;
 	}
 	.pk-pane-tab[aria-selected="false"] .pk-pane-tab-label {
 		position: absolute;

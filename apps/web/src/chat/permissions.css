@@ -72,7 +72,7 @@
 	display: none;
 }
 
-/* The permission card's heading and its needs-input tag sit on a tinted band across the card's top. */
+/* The permission card's heading and its needs-input badge share the card's top line. */
 .pk-chat-card-head {
 	display: flex;
 	flex-wrap: wrap;
@@ -82,8 +82,6 @@
 	margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-3)) 0;
 	padding: var(--space-2) var(--space-3);
 	border-block-end: 1px solid var(--line);
-	border-start-end-radius: calc(var(--radius-md) - 1px);
-	background: var(--status-warning-soft);
 	color: var(--ink);
 }
 .pk-chat-card-head > h2 {

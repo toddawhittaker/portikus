@@ -132,25 +132,9 @@
 	gap: var(--space-1\.5);
 }
 
-/* Git decorations (SPEC.md §12.1, §12.6): a lettered badge in the state
-   badge's style, amber for modified, green for added or untracked, red for
-   deleted and purple for a conflict. */
-.pk-git-letter {
-	flex: none;
-	box-sizing: border-box;
-	display: inline-grid;
-	place-items: center;
-	min-inline-size: 18px;
-	block-size: 18px;
-	padding-inline: var(--space-1);
-	border-radius: var(--radius-sm);
-	background: var(--status-warning-soft);
-	color: var(--git-modified);
-	font-family: var(--font-mono);
-	font-size: 11px;
-	line-height: 1;
-	font-weight: 700;
-}
+/* Git decorations (SPEC.md §12.1, §12.6): the shared Badge (GitLetter.tsx),
+   amber for modified, green for added or untracked, red for deleted and a
+   conflict's own hue. */
 .pk-git-dot {
 	flex: none;
 	width: 6px;
@@ -158,23 +142,10 @@
 	border-radius: var(--radius-full);
 	background: var(--git-modified);
 }
-[data-git="added"] .pk-git-letter,
-[data-git="untracked"] .pk-git-letter {
-	background: var(--status-running-soft);
-	color: var(--git-added);
-}
 /* Untracked entries read as not-yet-part-of-the-project. */
 .pk-tree-item[data-git="untracked"] .pk-tree-name {
 	font-style: italic;
 	opacity: 0.75;
-}
-[data-git="renamed"] .pk-git-letter {
-	background: var(--status-starting-soft);
-	color: var(--status-starting);
-}
-[data-git="deleted"] .pk-git-letter {
-	background: var(--status-error-soft);
-	color: var(--git-deleted);
 }
 [data-git="conflict"] .pk-git-letter {
 	background: var(--git-conflict-soft);

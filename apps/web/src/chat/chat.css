@@ -655,11 +655,12 @@ details[open] > summary > .pk-chat-chevron {
 	min-height: 0;
 	overflow-y: auto;
 	padding: var(--space-3) var(--space-3) 0;
-	border: 1px solid var(--line-strong);
+	border: 1px solid var(--line);
 	/* Every docked card waits on the student, so it carries the needs-input colour. */
 	border-inline-start: 4px solid var(--status-warning);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
+	box-shadow: var(--shadow-md);
 	container: pk-chat-card / inline-size;
 }
 

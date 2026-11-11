@@ -7,7 +7,7 @@
  */
 
 /** The font size at 100%, matching baseEditorOptions in monaco.ts. */
-export const BASE_FONT_SIZE = 13;
+export const BASE_FONT_SIZE = 14;
 
 export const DEFAULT_ZOOM = 100;
 export const MIN_ZOOM = 50;

@@ -155,6 +155,7 @@ export function PaneFrame({
 			// scrollbar follow this terminal rather than the per-user default
 			// on the document.
 			data-terminal-theme={theme}
+			data-alone={alone ? "true" : undefined}
 			// Changes only when this pane is mounted again, which a test reads
 			// to tell a move apart from a teardown and reconnect.
 			data-mount-id={mountId.current}

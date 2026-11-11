@@ -1,3 +1,4 @@
+export { Badge, type BadgeProps, type BadgeTone } from "./Badge.js";
 export { Button, type ButtonProps } from "./Button.js";
 export { Checkbox, type CheckboxProps } from "./Checkbox.js";
 export { EmptyState, type EmptyStateProps } from "./EmptyState.js";

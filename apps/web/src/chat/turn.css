@@ -125,6 +125,7 @@ button.pk-turn-file-open {
 	border: 1px solid var(--line);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
+	box-shadow: var(--shadow-sm);
 }
 :is(.pk-turn-group, .pk-chat-worked) > .pk-chat-worked-summary {
 	inline-size: 100%;

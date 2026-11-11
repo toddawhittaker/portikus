@@ -50,6 +50,7 @@ import { useCodingAgentAlerts } from "./terminal/useCodingAgentAlerts.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
+import "./pane-placeholder.css";
 
 const PANEL_IDS = ["projects", "work", "files"];
 
@@ -214,7 +215,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 				defaultLayout={layout.defaultLayout}
 				onLayoutChanged={layout.onLayoutChanged}
 			>
-				<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
+				<Panel id="projects" defaultSize={264} minSize={180} maxSize={420}>
 					<ShellDrawer
 						id={DRAWER_IDS.projects}
 						side="left"
@@ -348,7 +349,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 					</main>
 				</Panel>
 				{phone ? null : <PaneHandle label="Resize file tree" />}
-				<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
+				<Panel id="files" defaultSize={360} minSize={200} maxSize={480}>
 					<ShellDrawer
 						id={DRAWER_IDS.files}
 						side="right"
@@ -432,6 +433,28 @@ function useThrottleLiftToast(workspace: Workspace | null) {
 	}, [workspace, toast]);
 }
 
+// Widths of a pane's placeholder rows, shared by the starting and the waiting panes.
+const ROW_WIDTHS = ["70%", "55%", "80%", "60%", "65%", "45%", "70%", "50%", "60%"];
+
+/** Placeholder rows in a pane's list shape; still ones say nothing is loading. */
+function PaneRows({ rows, still = false }: { rows: number; still?: boolean }) {
+	return (
+		<div
+			className={still ? "pk-skel-rows is-still" : "pk-skel-rows"}
+			aria-hidden="true"
+		>
+			{ROW_WIDTHS.slice(0, rows).map((width, index) => (
+				// The rows are decoration in a fixed order, so the index is a stable key.
+				// biome-ignore lint/suspicious/noArrayIndexKey: static decoration
+				<div className="pk-skel-row" key={index}>
+					<Skeleton variant="block" width="16px" height="16px" />
+					<Skeleton variant="text" width={width} />
+				</div>
+			))}
+		</div>
+	);
+}
+
 /** A pane that is waiting for the workspace (design/mockups/WorkspaceStarting). */
 function PaneSkeleton({
 	label,
@@ -442,21 +465,13 @@ function PaneSkeleton({
 	side: "left" | "right";
 	rows: number;
 }) {
-	const widths = ["70%", "55%", "80%", "60%", "65%", "45%", "70%", "50%", "60%"];
 	return (
 		<section className={`pk-pane pk-pane--${side}`} aria-label={label} aria-busy="true">
 			<div className="pk-pane-head">
 				<h2 className="pk-pane-title">{label}</h2>
 			</div>
 			<div className="pk-pane-body">
-				{widths.slice(0, rows).map((width, index) => (
-					// The rows are decoration in a fixed order, so the index is a stable key.
-					// biome-ignore lint/suspicious/noArrayIndexKey: static decoration
-					<div className="pk-skel-row" key={index}>
-						<Skeleton variant="block" width="16px" height="16px" />
-						<Skeleton variant="text" width={width} />
-					</div>
-				))}
+				<PaneRows rows={rows} />
 			</div>
 		</section>
 	);
@@ -477,8 +492,9 @@ function PaneWaiting({
 			<div className="pk-pane-head">
 				<h2 className="pk-pane-title">{label}</h2>
 			</div>
-			<div className="pk-pane-body">
-				<p className="pk-text-body m-0 px-5 py-12 text-center text-ink-muted">{text}</p>
+			<div className="pk-pane-body pk-pane-waiting">
+				<PaneRows rows={side === "left" ? 4 : 7} still={true} />
+				<p className="pk-pane-waiting-text">{text}</p>
 			</div>
 		</section>
 	);

@@ -57,6 +57,8 @@
 .pk-segmented {
 	flex: none;
 	display: flex;
+	/* A fieldset fills its row otherwise, leaving a blank segment at the end. */
+	inline-size: fit-content;
 	margin: 0;
 	padding: 0;
 	border: 1px solid var(--line-strong);

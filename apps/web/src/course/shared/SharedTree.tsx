@@ -13,6 +13,7 @@ import {
 	visibleEntries,
 } from "../../files/paths.js";
 import "../../files/files.css";
+import { GitLetter } from "../../files/GitLetter.js";
 import { type ShareRef, useSharedTree } from "./queries.js";
 
 export interface SharedTreeProps {
@@ -135,9 +136,7 @@ function Entry(
 				<span className={`pk-changes-path${ignored ? " pk-muted" : ""}`}>{shown}</span>
 				{status ? <span className="pk-visually-hidden">, {status}</span> : null}
 				{decoration ? (
-					<span className="pk-git-letter" aria-hidden="true">
-						{decoration.letter}
-					</span>
+					<GitLetter kind={decoration.kind} letter={decoration.letter} />
 				) : dirty ? (
 					<span className="pk-git-dot" aria-hidden="true" />
 				) : null}

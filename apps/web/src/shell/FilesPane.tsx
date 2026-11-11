@@ -324,6 +324,16 @@ function Switcher({
 			data-testid={`right-pane-tab-${value}`}
 			// Radix selects on mouse down; a click from assistive technology arrives alone.
 			onClick={() => onPick(value)}
+			// Chosen with the pointer, the tab shows its selection, not a focus ring.
+			onPointerDown={(event) => {
+				event.currentTarget.dataset.pointer = "true";
+			}}
+			onBlur={(event) => {
+				delete event.currentTarget.dataset.pointer;
+			}}
+			onKeyDown={(event) => {
+				delete event.currentTarget.dataset.pointer;
+			}}
 		>
 			{/* The tooltip sits on the face, not the tab: its open state would replace the tab's data-state. */}
 			<Tooltip content={label} decorative={true}>

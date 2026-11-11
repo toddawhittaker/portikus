@@ -103,3 +103,33 @@
 .pk-agent-row:not(.pk-agent-row--sub):has(> .pk-agent-mark--working) .pk-agent-state {
 	color: var(--agent-text);
 }
+
+/* Where projects are a drawer of their own, each row is a full-width, phone-sized
+   way into its project, with a chevron that says so. */
+.pk-project-open {
+	display: none;
+}
+@media (width < 56rem) {
+	#projects .pk-project {
+		padding-block-end: var(--space-1);
+	}
+	#projects .pk-project + .pk-project {
+		border-block-start: 1px solid var(--line);
+		padding-block-start: var(--space-1);
+	}
+	#projects .pk-project .pk-list-row {
+		height: var(--size-control-lg);
+	}
+	#projects .pk-project-open {
+		display: inline-block;
+		color: var(--ink-faint);
+	}
+	/* The open project needs no way in. */
+	#projects .pk-list-row[aria-current="page"] .pk-project-open {
+		display: none;
+	}
+	.pk-agent-row {
+		min-height: var(--size-control-lg);
+		align-content: center;
+	}
+}

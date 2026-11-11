@@ -96,7 +96,7 @@ button.pk-statusbar-meter {
 }
 .pk-statusbar-meter .pk-meter-label {
 	font-weight: 500;
-	color: var(--ink-muted);
+	color: var(--ink);
 }
 .pk-statusbar-meter .pk-meter-line {
 	flex-wrap: nowrap;
@@ -104,12 +104,12 @@ button.pk-statusbar-meter {
 }
 .pk-statusbar-meter .pk-meter-wrap {
 	flex: none;
-	inline-size: 40px;
+	inline-size: 56px;
 	min-width: 0;
 }
 /* A slim rounded track rather than a boxed bar; the line-strong edge keeps the empty part visible (WCAG 1.4.11). */
 .pk-statusbar-meter .pk-meter-bar {
-	block-size: 6px;
+	block-size: 8px;
 	border-radius: var(--radius-full);
 }
 /* When space is tight the project path gives way first, then the Git line, each with an ellipsis. */

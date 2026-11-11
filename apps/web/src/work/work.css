@@ -76,9 +76,14 @@
 	--focus: var(--focus-on-dark);
 }
 
+/* A ring marks the pane that has the keyboard when there are several to tell
+   apart; a pane alone in its tab shows focus through its cursor or field. */
 .pk-term.is-focused {
-	outline: var(--ring-width) solid var(--focus);
+	outline: var(--ring-width) none var(--focus);
 	outline-offset: var(--ring-offset-inset);
+}
+.pk-term.is-focused:not([data-alone]) {
+	outline-style: solid;
 }
 
 .pk-term-bar {
@@ -90,8 +95,8 @@
 	padding: 0 var(--space-1) 0 var(--space-3);
 	border-bottom: 1px solid var(--terminal-line);
 	color: var(--terminal-muted);
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 }
 
 .pk-term-bar .pk-iconbtn {
