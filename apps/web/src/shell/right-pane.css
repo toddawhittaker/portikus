@@ -43,8 +43,12 @@
 	flex: none;
 	display: flex;
 	flex-wrap: nowrap;
-	gap: var(--space-0\.5);
-	padding: var(--space-1\.5) var(--space-2) 0;
+	align-items: stretch;
+	gap: var(--space-1);
+	box-sizing: border-box;
+	height: var(--density-comfortable-tab);
+	padding: 0 var(--space-2);
+	background: var(--surface-sunken);
 	border-bottom: 1px solid var(--line);
 	overflow-x: auto;
 	overflow-y: hidden;
@@ -57,16 +61,20 @@
 }
 .pk-pane-tab {
 	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	scroll-snap-align: start;
 	border: 0;
-	border-bottom: 2px solid transparent;
+	border-block: 2px solid transparent;
 	background: transparent;
 	color: var(--ink-muted);
 	font: inherit;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 500;
 	white-space: nowrap;
-	padding: var(--space-1) var(--space-2);
+	padding: 0 var(--space-3);
 	cursor: pointer;
 }
 .pk-pane-tab:hover {
@@ -82,17 +90,18 @@
 }
 
 /*
- * Five names, a count and the default pane width (about 280px at a 1280px
- * window) fit on one line only with 12px labels and 4px of padding, so a
- * pane under 20rem takes both. Below what that fits, the strip scrolls.
+ * Five names and a count fit the default pane width (about 280px) only at
+ * 13px, so a pane under 24rem shares its width out evenly among the names
+ * instead of padding each one. Below what that fits, the strip scrolls.
  */
-@container pk-right (width < 20rem) {
+@container pk-right (width < 24rem) {
 	.pk-pane-tabs {
 		gap: 0;
-		padding-inline: var(--space-1);
+		padding-inline: var(--space-2);
 	}
 	.pk-pane-tab {
-		font-size: 12px;
+		flex: 1 0 auto;
+		font-size: var(--text-sm);
 		padding-inline: var(--space-1);
 	}
 }

@@ -21,8 +21,8 @@ function contrast(a: string, b: string): number {
 
 // The editor background and line highlight of each theme in monaco.ts.
 const BACKGROUNDS = {
-	light: ["f6f4ef", "eeebe4"],
-	dark: ["171614", "211f1c"],
+	light: ["f7f5f0", "efebe3"],
+	dark: ["1a1917", "22201d"],
 };
 
 test.each([

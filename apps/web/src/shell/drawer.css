@@ -83,3 +83,41 @@
 		display: none;
 	}
 }
+
+/*
+ * A phone: each drawer takes all but a 48px strip, which stays to tap and
+ * close but is darkened so the page behind does not show through. Rows and
+ * buttons inside grow to touch size (WCAG 2.5.5).
+ */
+@media (width < 40rem) {
+	.pk-drawer-scrim {
+		background: var(--scrim-strong);
+	}
+	.pk-drawer-layer--left > .pk-drawer,
+	.pk-drawer-layer--right > .pk-drawer {
+		--pk-row: var(--size-control-lg);
+		--pk-tree-row: 40px;
+		inline-size: calc(100% - var(--space-12));
+		box-shadow: var(--shadow-lg);
+	}
+	.pk-drawer .pk-iconbtn {
+		min-inline-size: 40px;
+		min-block-size: 40px;
+	}
+	.pk-drawer-bar {
+		align-items: center;
+		min-block-size: var(--size-control-lg);
+	}
+	.pk-drawer-bar .pk-iconbtn {
+		min-inline-size: var(--size-control-lg);
+		min-block-size: var(--size-control-lg);
+	}
+	:root {
+		--pk-appbar-height: 56px;
+	}
+	.pk-appbar .pk-iconbtn,
+	.pk-appbar .pk-account {
+		min-inline-size: var(--size-control-lg);
+		min-block-size: var(--size-control-lg);
+	}
+}

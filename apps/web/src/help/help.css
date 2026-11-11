@@ -27,8 +27,8 @@
 	list-style: none;
 	display: grid;
 	gap: var(--space-4);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
 }
 .pk-help-toc-part {
 	font-weight: 600;
@@ -80,9 +80,13 @@
 }
 .pk-help-article h3 {
 	margin: 0;
-	font-size: 14px;
-	line-height: 20px;
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
 	font-weight: 600;
+}
+.pk-help-article h2 {
+	font-size: var(--text-xl);
+	line-height: var(--leading-xl);
 }
 .pk-help-article p,
 .pk-help-article ol,

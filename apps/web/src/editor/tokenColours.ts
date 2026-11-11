@@ -1,56 +1,84 @@
 /**
- * Monaco's own token colours below 4.5:1 on our editor and line-highlight
- * backgrounds (SPEC.md section 25.8), each moved in lightness only, so the
- * hue a student knows stays the same.
+ * Syntax colours drawn from the interface's own families: muted blue for
+ * keywords, terracotta for strings, teal for numbers, purple for types and
+ * decorators, and the faint ink for comments. Every one reads at 4.5:1 or
+ * better on the editor and line-highlight backgrounds (SPEC.md section 25.8).
  */
-export const LIGHT_TOKENS: Record<string, string> = {
-	invalid: "c52f2f",
-	constant: "d50000",
-	comment: "007b00",
-	number: "08784f",
-	annotation: "696969",
-	type: "007373",
-	"tag.id.pug": "476a9b",
-	"tag.class.pug": "476a9b",
-	metatag: "d30000",
-	"metatag.content.html": "d40000",
-	"metatag.html": "696969",
-	"metatag.xml": "696969",
-	"attribute.name": "d40000",
-	"attribute.value.number": "08784f",
-	"attribute.value.unit": "08784f",
-	"string.sql": "d40000",
-	"operator.sql": "5b6b7a",
-	"predefined.sql": "ba00ba",
+const LIGHT = {
+	blue: "36598f",
+	terracotta: "9a4526",
+	teal: "1f6b66",
+	purple: "7b3f99",
+	faint: "655f55",
+	ink: "23211d",
+	red: "a4342a",
 };
 
-export const DARK_TOKENS: Record<string, string> = {
-	"variable.predefined": "7087c2",
-	comment: "679553",
-	regexp: "ba729d",
-	annotation: "ce6c6c",
-	"delimiter.html": "888888",
-	"delimiter.xml": "888888",
-	"tag.id.pug": "688aba",
-	"tag.class.pug": "688aba",
-	"string.sql": "ff3b3b",
+const DARK = {
+	blue: "9fb4e0",
+	terracotta: "e8a383",
+	teal: "7cc2b9",
+	purple: "c9a3dc",
+	faint: "9a9387",
+	ink: "ece8df",
+	red: "f0998f",
 };
 
-/**
- * Bracket pair colours, all listed so the contrast test covers each. Monaco's
- * light green and both themes' unmatched-bracket red fell below 4.5:1, so
- * they are moved in lightness only; the rest are Monaco's own.
- */
+function tokens(c: typeof LIGHT): Record<string, string> {
+	return {
+		keyword: c.blue,
+		"keyword.flow": c.blue,
+		"keyword.control": c.blue,
+		"variable.predefined": c.blue,
+		string: c.terracotta,
+		"string.escape": c.teal,
+		"string.sql": c.terracotta,
+		"string.key.json": c.blue,
+		"string.value.json": c.terracotta,
+		regexp: c.terracotta,
+		comment: c.faint,
+		"comment.doc": c.faint,
+		number: c.teal,
+		"number.hex": c.teal,
+		constant: c.teal,
+		type: c.purple,
+		"type.identifier": c.purple,
+		annotation: c.purple,
+		tag: c.purple,
+		"tag.id.pug": c.blue,
+		"tag.class.pug": c.blue,
+		metatag: c.purple,
+		"metatag.content.html": c.terracotta,
+		"metatag.html": c.faint,
+		"metatag.xml": c.faint,
+		"attribute.name": c.teal,
+		"attribute.value": c.terracotta,
+		"attribute.value.number": c.teal,
+		"attribute.value.unit": c.teal,
+		"delimiter.html": c.faint,
+		"delimiter.xml": c.faint,
+		"operator.sql": c.faint,
+		"predefined.sql": c.purple,
+		identifier: c.ink,
+		invalid: c.red,
+	};
+}
+
+export const LIGHT_TOKENS: Record<string, string> = tokens(LIGHT);
+
+export const DARK_TOKENS: Record<string, string> = tokens(DARK);
+
+/** Bracket pair colours, in the same three families, so nesting reads without a clash. */
 export const LIGHT_BRACKETS: Record<string, string> = {
-	"editorBracketHighlight.foreground1": "0431fa",
-	"editorBracketHighlight.foreground2": "297a29",
-	"editorBracketHighlight.foreground3": "7b3814",
-	"editorBracketHighlight.unexpectedBracket.foreground": "c52f2f",
+	"editorBracketHighlight.foreground1": LIGHT.blue,
+	"editorBracketHighlight.foreground2": LIGHT.purple,
+	"editorBracketHighlight.foreground3": LIGHT.teal,
+	"editorBracketHighlight.unexpectedBracket.foreground": LIGHT.red,
 };
 
 export const DARK_BRACKETS: Record<string, string> = {
-	"editorBracketHighlight.foreground1": "ffd700",
-	"editorBracketHighlight.foreground2": "da70d6",
-	"editorBracketHighlight.foreground3": "179fff",
-	"editorBracketHighlight.unexpectedBracket.foreground": "ff4040",
+	"editorBracketHighlight.foreground1": DARK.blue,
+	"editorBracketHighlight.foreground2": DARK.purple,
+	"editorBracketHighlight.foreground3": DARK.teal,
+	"editorBracketHighlight.unexpectedBracket.foreground": DARK.red,
 };

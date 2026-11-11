@@ -163,7 +163,8 @@ function ProviderStatus({
 					valueText={`${shortText} of the 7-day limit`}
 					shortText={shortText}
 				/>
-				<span className="pk-agent-resets">resets {resets}</span>
+				{/* In the name and the details; hidden here so the strip stays short. */}
+				<span className="pk-visually-hidden">resets {resets}</span>
 			</button>
 			{detail}
 		</>

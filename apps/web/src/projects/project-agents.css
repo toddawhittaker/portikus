@@ -8,28 +8,34 @@
 	list-style: none;
 	margin: 0;
 	/* The marks line up under the project's name, past its folder icon. */
-	padding: 0 0 0 calc(var(--space-2) + 16px + var(--space-2) - var(--space-1\.5));
+	padding: var(--space-0\.5) 0 var(--space-1) calc(var(--space-3) + 16px);
 	display: grid;
-	gap: 1px;
+	gap: var(--space-0\.5);
 }
 .pk-agents[hidden] {
 	display: none;
 }
 .pk-agents--sub {
-	padding-left: var(--space-4);
+	padding: var(--space-0\.5) 0 0 calc(14px + var(--space-2));
 }
+/*
+ * Two lines per row: the mark and the name, then the state or the subagent
+ * type under the name, so neither is cut short in a narrow pane.
+ */
 .pk-agent-row {
-	display: flex;
+	display: grid;
+	grid-template-columns: 14px minmax(0, 1fr);
 	align-items: center;
-	gap: var(--space-1\.5);
+	column-gap: var(--space-2);
+	row-gap: 0;
 	min-width: 0;
 	min-height: var(--pk-tree-row);
-	padding: 2px var(--space-1\.5);
+	padding: var(--space-1) var(--space-2);
 	border-radius: var(--radius-sm);
 	color: var(--ink);
 	text-decoration: none;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 }
 .pk-agent-row:hover {
 	background: var(--surface-hover);
@@ -39,49 +45,41 @@
 	outline-offset: var(--ring-offset-inset);
 }
 .pk-agent-row .pk-agent-mark {
-	flex: none;
+	grid-column: 1;
+	grid-row: 1;
 }
 .pk-agent-name {
-	flex: 1;
+	grid-column: 2;
+	grid-row: 1;
 	min-width: 0;
+	/* Up to two lines before the name is cut, so a subagent's task reads whole. */
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
 	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
+	font-weight: 500;
+}
+.pk-agent-row--sub .pk-agent-name {
+	font-weight: 400;
 }
 /* An unread finish or question is bold, as its tab is. */
 .pk-agent-row.is-unread .pk-agent-name {
-	font-weight: 600;
+	font-weight: 650;
 }
 .pk-agent-state,
 .pk-agent-type {
-	flex: none;
-	font-size: 12px;
-	line-height: 16px;
+	grid-column: 2;
+	grid-row: 2;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
-}
-.pk-agent-type {
-	flex: 0 1 auto;
-	max-width: 40%;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-/*
- * An agent's name keeps its whole width; when the state does not fit beside
- * it, the state goes to the next line rather than cutting the name short.
- */
-.pk-agent-row:not(.pk-agent-row--sub) {
-	flex-wrap: wrap;
-	column-gap: var(--space-1\.5);
-	row-gap: 0;
-}
-.pk-agent-row:not(.pk-agent-row--sub) .pk-agent-name {
-	flex: 1 0 auto;
-	max-width: calc(100% - 14px - var(--space-1\.5));
-}
-.pk-agent-row:not(.pk-agent-row--sub) .pk-agent-state {
-	margin-left: auto;
 }
 /*
  * An agent's row is tinted by its state, with a bar at its start, so a

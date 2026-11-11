@@ -52,7 +52,7 @@ function AppbarContext({
 		return (
 			<span className="pk-appbar-context">
 				<strong>{project.name}</strong>
-				<span className="pk-mono-small">~/projects/{project.slug}</span>
+				<span className="pk-appbar-path">~/projects/{project.slug}</span>
 			</span>
 		);
 	}

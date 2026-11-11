@@ -12,8 +12,8 @@
 	padding: var(--space-0\.5) var(--space-3);
 	background: var(--surface-sunken);
 	border-top: 1px solid var(--line);
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
 	color: var(--ink-muted);
 }
 /* Claims at least 12rem beside the workspace group, and the path inside it gives way first. */
@@ -60,9 +60,32 @@ button.pk-statusbar-item {
 button.pk-statusbar-item:hover {
 	background: var(--surface-hover);
 }
-.pk-statusbar-mono {
-	font-family: var(--font-mono);
-	font-variant-ligatures: none;
+
+/* Memory, disk and the agent plans as one bordered strip of segments, so the bar reads as a few groups rather than a row of separate pills. */
+.pk-statusbar-usage {
+	flex: 0 1 auto;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: stretch;
+	min-width: 0;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+	overflow: hidden;
+}
+.pk-statusbar-usage:empty {
+	display: none;
+}
+.pk-statusbar-usage > button.pk-statusbar-item {
+	height: 20px;
+	border: 0;
+	border-radius: 0;
+}
+.pk-statusbar-usage > button.pk-statusbar-item:not(:first-child) {
+	border-inline-start: 1px solid var(--line);
+}
+.pk-statusbar-usage > button.pk-statusbar-item:focus-visible {
+	outline-offset: var(--ring-offset-inset);
 }
 
 /* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. The element in the selector outranks app.css's .pk-meter grid whatever the load order. */
@@ -81,7 +104,7 @@ button.pk-statusbar-meter {
 }
 .pk-statusbar-meter .pk-meter-wrap {
 	flex: none;
-	inline-size: 40px;
+	inline-size: 32px;
 	min-width: 0;
 }
 /* When space is tight the project path gives way first, then the Git line, each with an ellipsis. */

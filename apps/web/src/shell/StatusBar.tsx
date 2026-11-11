@@ -126,7 +126,7 @@ export function StatusBar({
 			{/* Where you are, then the workspace; the second group wraps under the first when narrow. */}
 			<div className="pk-statusbar-where">
 				<span
-					className="pk-statusbar-item pk-statusbar-mono pk-statusbar-path"
+					className="pk-statusbar-item pk-statusbar-path"
 					title={project ? `~/projects/${project.slug}` : "~/projects"}
 				>
 					{project ? `~/projects/${project.slug}` : "~/projects"}
@@ -187,26 +187,29 @@ export function StatusBar({
 				>
 					{resolved.label}
 				</span>
-				{memory ? (
-					<MeterButton
-						label="Memory"
-						meter={memory}
-						action="See what's using memory"
-						testId="memory-meter"
-						onClick={() => showMonitor("memory")}
-					/>
-				) : null}
-				{disk ? (
-					<MeterButton
-						label="Disk"
-						meter={disk}
-						action="Open workspace storage"
-						testId="disk-meter"
-						dialog
-						onClick={() => setStatusOpen(true)}
-					/>
-				) : null}
-				<AgentMeters workspaceId={workspaceId} enabled={running} />
+				{/* Memory, disk and agent plans read as one strip; :empty hides it before any figure arrives. */}
+				<div className="pk-statusbar-usage">
+					{memory ? (
+						<MeterButton
+							label="Memory"
+							meter={memory}
+							action="See what's using memory"
+							testId="memory-meter"
+							onClick={() => showMonitor("memory")}
+						/>
+					) : null}
+					{disk ? (
+						<MeterButton
+							label="Disk"
+							meter={disk}
+							action="Open workspace storage"
+							testId="disk-meter"
+							dialog
+							onClick={() => setStatusOpen(true)}
+						/>
+					) : null}
+					<AgentMeters workspaceId={workspaceId} enabled={running} />
+				</div>
 				{warning ? (
 					<button
 						type="button"

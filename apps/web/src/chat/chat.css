@@ -54,11 +54,11 @@
 }
 
 .pk-chat-log {
-	gap: var(--space-6);
+	gap: var(--space-4);
 }
 
 .pk-chat-steps {
-	gap: var(--space-3);
+	gap: var(--space-2);
 }
 
 .pk-chat-entry,
@@ -334,7 +334,7 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-worked-log {
-	margin-block-start: var(--space-3);
+	margin-block-start: var(--space-2);
 	padding-inline-start: var(--space-4);
 	border-inline-start: 1px solid var(--line);
 }
@@ -386,7 +386,7 @@ details[open] > summary > .pk-chat-chevron {
 }
 
 .pk-chat-tool-title.pk-mono-body {
-	font-size: 12.5px;
+	font-size: var(--text-xs);
 }
 
 .pk-chat-tool-stat {

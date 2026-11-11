@@ -109,8 +109,6 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-family: var(--font-mono);
-	font-variant-ligatures: none;
 }
 
 .pk-term-bar-input {
@@ -122,8 +120,8 @@
 	border-radius: var(--radius-sm);
 	background: var(--terminal-bg);
 	color: var(--terminal-fg);
-	font-family: var(--font-mono);
-	font-size: 12px;
+	font: inherit;
+	font-size: var(--text-xs);
 }
 
 .pk-term-screen {

@@ -47,27 +47,27 @@
 	color-scheme: light;
 
 	/* Colour: light values. */
-	--surface: #f6f4ef;
-	--surface-raised: #fdfcfa;
-	--surface-sunken: #eeebe4;
-	--surface-hover: #e6e2d9;
-	--surface-selected: #d9e8e5;
+	--surface: #f7f5f0;
+	--surface-raised: #fffefb;
+	--surface-sunken: #ebe7dd;
+	--surface-hover: #e1dcd0;
+	--surface-selected: #cfe5e0;
 	/* The picked-out row in a right-pane list: a tonal shift of the pane, and
 	   never green, which belongs to the passed badge and Git added. */
-	--surface-row-selected: #e0dbd0;
+	--surface-row-selected: #e3ddd1;
 	--surface-inverse: #2a2723;
 	--surface-inverse-hover: #3d3933;
-	--line: #dcd7cc;
+	--line: #d9d3c7;
 	--line-strong: #8a8375;
 	--ink: #23211d;
-	--ink-muted: #5a554c;
-	--ink-faint: #6e685d;
+	--ink-muted: #514c44;
+	--ink-faint: #655f55;
 	--ink-inverse: #fdfcfa;
 	--accent: #2c6a66;
 	--accent-hover: #22524f;
 	--accent-active: #1a403e;
 	--on-accent: #ffffff;
-	--accent-soft: #dcebe8;
+	--accent-soft: #d4e9e5;
 	--accent-text: #24605c;
 	/* Both focus colours, named once so a pane with its own scheme can pick
 	   one without the two drifting apart. */
@@ -77,22 +77,24 @@
 	/* The bar that marks the current row in the right pane's lists. */
 	--row-current-bar: inset 2px 0 0 var(--ink);
 	--scrim: #1a18154d;
+	/* Behind a phone's drawer: opaque, so the page behind does not read through. */
+	--scrim-strong: #d9d3c7;
 	--status-provisioning: #3f5a8c;
-	--status-provisioning-soft: #e3e8f2;
+	--status-provisioning-soft: #dde5f3;
 	--status-starting: #3f5a8c;
-	--status-starting-soft: #e3e8f2;
+	--status-starting-soft: #dde5f3;
 	--status-running: #2e6e34;
-	--status-running-soft: #dfeedf;
+	--status-running-soft: #d9ecd9;
 	--status-stopping: #3f5a8c;
-	--status-stopping-soft: #e3e8f2;
+	--status-stopping-soft: #dde5f3;
 	--status-stopped: #5a554c;
 	--status-stopped-soft: #e9e6df;
 	--status-error: #a4342a;
-	--status-error-soft: #f6e1dd;
+	--status-error-soft: #f5ddd8;
 	--status-warning: #855b00;
-	--status-warning-soft: #f5ead0;
+	--status-warning-soft: #f4e5c0;
 	--status-danger: #a4342a;
-	--status-danger-soft: #f6e1dd;
+	--status-danger-soft: #f5ddd8;
 	--danger-hover: #86281f;
 	--on-danger: #ffffff;
 	--mark-code: #3a8a7e;
@@ -117,6 +119,20 @@
 	--space-12: 48px;
 	--space-16: 64px;
 
+	/* Type scale: 12 is metadata only, 14 the body, list rows, tabs and navigation. */
+	--text-xs: 12px;
+	--text-sm: 13px;
+	--text-md: 14px;
+	--text-lg: 16px;
+	--text-xl: 20px;
+	--text-2xl: 24px;
+	--leading-xs: 16px;
+	--leading-sm: 18px;
+	--leading-md: 20px;
+	--leading-lg: 24px;
+	--leading-xl: 28px;
+	--leading-2xl: 32px;
+
 	/* Fixed control and icon sizes. */
 	--size-control-sm: 28px;
 	--size-control-md: 36px;
@@ -133,7 +149,7 @@
 	/* Density source values; --pk-* below picks one set. */
 	--density-comfortable-control: 36px;
 	--density-comfortable-row: 32px;
-	--density-comfortable-tree-row: 24px;
+	--density-comfortable-tree-row: 28px;
 	--density-comfortable-tab: 36px;
 	--density-comfortable-pad: 12px;
 	--density-comfortable-font: 14px;
@@ -170,44 +186,45 @@
  */
 [data-theme="dark"] {
 	color-scheme: dark;
-	--surface: #171614;
-	--surface-raised: #211f1c;
+	--surface: #1a1917;
+	--surface-raised: #24221f;
 	--surface-sunken: #121110;
-	--surface-hover: #2b2925;
-	--surface-selected: #1c3533;
+	--surface-hover: #2e2b27;
+	--surface-selected: #1d3a37;
 	--surface-row-selected: #3a3730;
 	--surface-inverse: #ece8df;
 	--surface-inverse-hover: #d3cec3;
-	--line: #35322d;
+	--line: #38342f;
 	--line-strong: #7f786c;
 	--ink: #ece8df;
-	--ink-muted: #aba498;
-	--ink-faint: #948d81;
+	--ink-muted: #b3ac9f;
+	--ink-faint: #9a9387;
 	--ink-inverse: #171614;
 	--accent: #7cc2b9;
 	--accent-hover: #9bd3cb;
 	--accent-active: #b6e0da;
 	--on-accent: #0f201e;
-	--accent-soft: #1b3230;
+	--accent-soft: #1d3a37;
 	--accent-text: #8fcdc4;
 	--focus: var(--focus-on-dark);
 	--scrim: #00000099;
+	--scrim-strong: #090807;
 	--status-provisioning: #9fb4e0;
-	--status-provisioning-soft: #1f2636;
+	--status-provisioning-soft: #202a3d;
 	--status-starting: #9fb4e0;
-	--status-starting-soft: #1f2636;
+	--status-starting-soft: #202a3d;
 	--status-running: #86c98b;
-	--status-running-soft: #1a2e1c;
+	--status-running-soft: #1b311d;
 	--status-stopping: #9fb4e0;
-	--status-stopping-soft: #1f2636;
+	--status-stopping-soft: #202a3d;
 	--status-stopped: #aba498;
 	--status-stopped-soft: #26241f;
 	--status-error: #f0998f;
-	--status-error-soft: #3a1f1b;
+	--status-error-soft: #3d201c;
 	--status-warning: #e3b85c;
-	--status-warning-soft: #33290f;
+	--status-warning-soft: #3b2f12;
 	--status-danger: #f0998f;
-	--status-danger-soft: #3a1f1b;
+	--status-danger-soft: #3d201c;
 	--danger-hover: #f5b3ab;
 	--on-danger: #1f0d0b;
 	--git-added: #86c98b;
@@ -215,51 +232,52 @@
 	--git-deleted: #f0998f;
 	--git-conflict: #d39fe8;
 	--shadow-sm: 0 1px 2px #00000066;
-	--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
-	--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #35322d;
+	--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #38342f;
+	--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #38342f;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
 		color-scheme: dark;
-		--surface: #171614;
-		--surface-raised: #211f1c;
+		--surface: #1a1917;
+		--surface-raised: #24221f;
 		--surface-sunken: #121110;
-		--surface-hover: #2b2925;
-		--surface-selected: #1c3533;
+		--surface-hover: #2e2b27;
+		--surface-selected: #1d3a37;
 		--surface-row-selected: #3a3730;
 		--surface-inverse: #ece8df;
 		--surface-inverse-hover: #d3cec3;
-		--line: #35322d;
+		--line: #38342f;
 		--line-strong: #7f786c;
 		--ink: #ece8df;
-		--ink-muted: #aba498;
-		--ink-faint: #948d81;
+		--ink-muted: #b3ac9f;
+		--ink-faint: #9a9387;
 		--ink-inverse: #171614;
 		--accent: #7cc2b9;
 		--accent-hover: #9bd3cb;
 		--accent-active: #b6e0da;
 		--on-accent: #0f201e;
-		--accent-soft: #1b3230;
+		--accent-soft: #1d3a37;
 		--accent-text: #8fcdc4;
 		--focus: var(--focus-on-dark);
 		--scrim: #00000099;
+		--scrim-strong: #090807;
 		--status-provisioning: #9fb4e0;
-		--status-provisioning-soft: #1f2636;
+		--status-provisioning-soft: #202a3d;
 		--status-starting: #9fb4e0;
-		--status-starting-soft: #1f2636;
+		--status-starting-soft: #202a3d;
 		--status-running: #86c98b;
-		--status-running-soft: #1a2e1c;
+		--status-running-soft: #1b311d;
 		--status-stopping: #9fb4e0;
-		--status-stopping-soft: #1f2636;
+		--status-stopping-soft: #202a3d;
 		--status-stopped: #aba498;
 		--status-stopped-soft: #26241f;
 		--status-error: #f0998f;
-		--status-error-soft: #3a1f1b;
+		--status-error-soft: #3d201c;
 		--status-warning: #e3b85c;
-		--status-warning-soft: #33290f;
+		--status-warning-soft: #3b2f12;
 		--status-danger: #f0998f;
-		--status-danger-soft: #3a1f1b;
+		--status-danger-soft: #3d201c;
 		--danger-hover: #f5b3ab;
 		--on-danger: #1f0d0b;
 		--git-added: #86c98b;
@@ -267,8 +285,8 @@
 		--git-deleted: #f0998f;
 		--git-conflict: #d39fe8;
 		--shadow-sm: 0 1px 2px #00000066;
-		--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #35322d;
-		--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #35322d;
+		--shadow-md: 0 4px 12px #00000080, 0 0 0 1px #38342f;
+		--shadow-lg: 0 16px 40px #000000a6, 0 0 0 1px #38342f;
 	}
 }
 

@@ -12,8 +12,8 @@
 	background: var(--surface-raised);
 	box-shadow: var(--shadow-md);
 	color: var(--ink);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 }
 .pk-agent-popover:not(:popover-open) {
 	display: none;
@@ -41,9 +41,5 @@
 }
 .pk-agent-popover-note {
 	margin: 0;
-	color: var(--ink-muted);
-}
-/* The reset day and time beside the bar; it wraps with the button's text when the bar is narrow. */
-.pk-agent-resets {
 	color: var(--ink-muted);
 }
