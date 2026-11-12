@@ -1,0 +1,38 @@
+#!/bin/bash
+# A Claude Code PreToolUse hook for AskUserQuestion: shows the question in
+# the student's browser and waits for the answer (SPEC.md §10.8, ADR 0075).
+# It keeps only the tool name, call id and input, never logs them, and prints
+# the receiver's reply only on a 200. Anything else prints nothing, so
+# Claude Code asks in the terminal itself. It never writes to stderr and
+# always exits 0.
+exec 2>/dev/null
+
+# A chat tab answers its own questions.
+if [[ -n ${PORTIKUS_CHAT_TAB:-} ]]; then
+	cat >/dev/null
+	exit 0
+fi
+
+# PORTIKUS_TERMINAL is pk-<terminal id>, set in every Portikus terminal.
+id=${PORTIKUS_TERMINAL#pk-}
+if ! [[ $PORTIKUS_TERMINAL == pk-* && $id =~ ^[0-9a-f-]+$ ]] || ! command -v jq >/dev/null; then
+	cat >/dev/null
+	exit 0
+fi
+
+body=$(timeout 1 jq --compact-output '{tool_name, tool_use_id, tool_input}') || {
+	cat >/dev/null
+	exit 0
+}
+[[ -n $body ]] || exit 0
+
+# The hook's timeout in the managed settings is 1800 seconds; curl stops 5
+# seconds sooner so this script, not Claude Code, ends the wait.
+reply=$(printf '%s' "$body" | curl --silent --connect-timeout 1 --max-time 1795 \
+	--header 'content-type: application/json' \
+	--data-binary @- --write-out '\n%{http_code}' \
+	"${PORTIKUS_AGENT_RECEIVER:-http://127.0.0.1:7401}/coding-agent-question?terminal=$id") || exit 0
+if [[ ${reply##*$'\n'} == 200 ]]; then
+	printf '%s\n' "${reply%$'\n'*}"
+fi
+exit 0

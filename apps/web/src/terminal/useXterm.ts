@@ -18,6 +18,7 @@ import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { isLeaveShortcut } from "./leaveShortcut.js";
 import { decide } from "./terminalClipboard.js";
+import { enableWebglRenderer } from "./webglRenderer.js";
 
 /** Quiet time after the pane's last size change before the size is sent. */
 export const RESIZE_SETTLE_MS = 100;
@@ -362,8 +363,8 @@ export function useXterm({
 
 		const term = new Xterm({
 			fontSize: fontSizeRef.current,
-			// A little air between lines, but tight enough that the box-drawing
-			// characters programs draw borders with still join up.
+			// A little air between lines; the WebGL renderer draws box-drawing
+			// characters to fill the cell, so they still join up.
 			lineHeight: 1.1,
 			theme: terminalTheme(themeRef.current),
 			convertEol: false,
@@ -424,6 +425,8 @@ export function useXterm({
 			return true;
 		});
 		term.open(container);
+		// After open: the addon needs the terminal's element to draw into.
+		const dropWebgl = enableWebglRenderer(term);
 		term.textarea?.setAttribute("aria-describedby", describedBy);
 		xterm.current = term;
 		fit.current = fitAddon;
@@ -600,6 +603,7 @@ export function useXterm({
 			container.removeEventListener("pointerdown", onPointerDown);
 			selection.dispose();
 			dropFace();
+			dropWebgl();
 			term.dispose();
 			xterm.current = null;
 			fit.current = null;
