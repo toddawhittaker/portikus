@@ -85,6 +85,10 @@ async function openTerminal(page: Page, context: Parameters<typeof createStudent
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("launcher").click();
 	await page.getByTestId("launcher-terminal").click();
+	// The row is written after the click returns, so wait for it.
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(1);
 	const [terminalId] = await terminalIds(student.workspaceId, project.id);
 	if (!terminalId) throw new Error("the terminal row was not created");
 	await expectConnected(page, terminalId);

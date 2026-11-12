@@ -6,7 +6,7 @@ import {
 	type SeedJob,
 	seedDrift,
 } from "@portikus/contracts";
-import { Button, Meter, TextField, Toggletip, useToast } from "@portikus/ui";
+import { Button, Icon, Meter, TextField, Toggletip, useToast } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
@@ -16,6 +16,7 @@ import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { useAdminImage } from "../image/queries.js";
 import { Notice } from "../Notice.js";
+import { TableBox } from "../TableBox.js";
 import { ImageSizeText } from "./DownloadSize.js";
 import {
 	dockerKey,
@@ -175,7 +176,7 @@ function CurrentSeed({
 			<h4 className={SUB_HEADING} id="docker-seed-current-title">
 				Current seed
 			</h4>
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dl className="pk-kv">
 				<dt className="pk-muted">Seed size</dt>
 				<dd className="m-0" data-testid="docker-seed-size">
 					<Meter
@@ -316,20 +317,20 @@ function LatestRebuild({ job }: { job: SeedJob }) {
 		job.state === "failed"
 			? "pk-tag pk-tag--error"
 			: job.state === "succeeded"
-				? "pk-tag"
+				? "pk-tag gap-1 border-transparent bg-status-running-soft text-status-running"
 				: "pk-tag border-transparent bg-status-starting-soft text-status-starting";
 	return (
 		<section className="grid gap-2" aria-labelledby="docker-seed-job-title">
 			<h4 className={SUB_HEADING} id="docker-seed-job-title">
 				Latest rebuild
 			</h4>
-			<dl
-				className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
-				data-testid="docker-seed-job"
-			>
+			<dl className="pk-kv" data-testid="docker-seed-job">
 				<dt className="pk-muted">State</dt>
 				<dd className="m-0" data-testid="docker-seed-job-state">
-					<span className={tone}>{STATE_LABEL[job.state]}</span>
+					<span className={tone}>
+						{job.state === "succeeded" ? <Icon name="check" size="sm" /> : null}
+						{STATE_LABEL[job.state]}
+					</span>
 					{/* A finished job's last step only repeats the state. */}
 					{job.state === "running" || job.state === "failed" ? ` ${job.step}` : null}
 				</dd>
@@ -517,7 +518,7 @@ function ImageTable({
 	action?: (name: string) => ReactNode;
 }) {
 	return (
-		<div className="pk-table-wrap">
+		<TableBox label={caption}>
 			<table className="pk-table" data-testid={testId}>
 				<caption className="sr-only">{caption}</caption>
 				<thead>
@@ -550,7 +551,7 @@ function ImageTable({
 					))}
 				</tbody>
 			</table>
-		</div>
+		</TableBox>
 	);
 }
 

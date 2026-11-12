@@ -69,9 +69,9 @@ export function RosterStatus({
 			aria-labelledby="roster-title"
 			data-testid="roster-status"
 		>
-			<h2 className="pk-text-heading m-0" id="roster-title">
+			<h3 className="pk-text-heading m-0" id="roster-title">
 				Roster
-			</h2>
+			</h3>
 			{roster.available ? (
 				<>
 					<p className="pk-text-body m-0">

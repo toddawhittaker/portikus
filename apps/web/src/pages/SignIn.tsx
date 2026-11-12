@@ -53,7 +53,7 @@ export function SignIn() {
 				<a
 					data-testid="signin"
 					href="/auth/login"
-					className="pk-btn pk-focus-ring inline-flex h-[var(--size-control-lg)] w-full items-center justify-center rounded-sm bg-accent px-5 font-medium text-[15px] text-on-accent no-underline hover:bg-accent-hover active:bg-accent-active"
+					className="pk-btn pk-focus-ring inline-flex h-[var(--size-control-lg)] w-full items-center justify-center rounded-sm bg-accent-fill px-5 font-medium text-[15px] text-on-accent-fill no-underline hover:bg-accent-fill-hover active:bg-accent-fill-active"
 				>
 					Continue to institution sign-in
 				</a>

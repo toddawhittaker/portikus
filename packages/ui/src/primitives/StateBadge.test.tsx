@@ -74,6 +74,11 @@ describe("StateBadge moving", () => {
 		expect(badge.className).toContain("text-status-starting");
 	});
 
+	it("draws Stopping in the neutral tone, apart from Starting and Setting up", () => {
+		render(<StateBadge state="stopping" />);
+		expect(screen.getByRole("status").dataset.tone).toBe("neutral");
+	});
+
 	it("without it, a stopped workspace keeps its ring", () => {
 		const { container } = render(<StateBadge state="stopped" label="Rebuilding…" />);
 		expect(container.querySelector(".pk-badge-ring")).not.toBeNull();

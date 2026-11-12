@@ -1,0 +1,241 @@
+/* The course list's cards and the course page's class summary and live help queue. Values are design tokens only. */
+
+/*
+ * The teaching session: the class in one sentence beside the live help
+ * queue, one band across the page. Each is a raised card; the queue takes
+ * the amber start edge while anyone waits.
+ */
+@container (width >= 56rem) {
+	.pk-course-glance {
+		grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+		/* Each card is as tall as what it holds; the class summary is short. */
+		align-items: start;
+	}
+}
+.pk-class-summary,
+.pk-help-queue {
+	display: grid;
+	align-content: start;
+	gap: var(--space-3);
+	min-width: 0;
+	padding: var(--space-5);
+	background: var(--surface-raised);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+}
+.pk-help-queue[data-waiting] {
+	border-inline-start: 3px solid var(--status-warning);
+}
+.pk-class-sentence {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-1) var(--space-2);
+	margin: 0;
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
+	color: var(--ink);
+}
+.pk-class-sentence strong {
+	font-weight: 600;
+}
+.pk-class-sentence [data-tone="warning"] {
+	color: var(--status-warning);
+	font-weight: 600;
+}
+.pk-class-sentence [data-tone="error"] {
+	color: var(--status-error);
+	font-weight: 600;
+}
+.pk-class-sep {
+	color: var(--ink-faint);
+}
+
+/* The dots and their key, read together. */
+.pk-class-picture {
+	display: grid;
+	gap: var(--space-2);
+}
+/* A dot per student: amber waiting, red failed, green running, blue moving, a ring stopped, a dashed ring with none. */
+.pk-class-dots {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-block-size: 10px;
+}
+.pk-class-dot {
+	inline-size: 10px;
+	block-size: 10px;
+	border-radius: 50%;
+	box-sizing: border-box;
+	border: 1.5px solid var(--line-strong);
+}
+.pk-class-dot[data-kind="running"] {
+	border-color: var(--status-running);
+	background: var(--status-running);
+}
+.pk-class-dot[data-kind="waiting"] {
+	border-color: var(--status-warning);
+	background: var(--status-warning);
+}
+.pk-class-dot[data-kind="error"] {
+	border-color: var(--status-error);
+	background: var(--status-error);
+}
+.pk-class-dot[data-kind="moving"] {
+	border-color: var(--status-starting);
+	background: var(--status-starting);
+}
+.pk-class-dot[data-kind="none"] {
+	border-style: dashed;
+}
+.pk-class-key {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--ink-muted);
+}
+.pk-class-key > li {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+}
+
+/* The queue: its head with the link to every session, then a tile per waiting student. */
+.pk-help-queue-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-2) var(--space-4);
+}
+.pk-help-tiles {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.pk-help-tile {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-width: 0;
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface);
+}
+.pk-help-face.pk-initials {
+	flex: none;
+	inline-size: 32px;
+	block-size: 32px;
+	font-size: var(--text-xs);
+}
+.pk-help-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 600;
+}
+.pk-help-meta {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--ink-muted);
+}
+.pk-help-wait {
+	color: var(--status-warning);
+	font-weight: 600;
+}
+
+/* The course list: a card per course, the class alive in its dot row. */
+.pk-course-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.pk-course-card {
+	position: relative;
+	display: grid;
+	align-content: start;
+	gap: var(--space-4);
+	padding: var(--space-5);
+	background: var(--surface-raised);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	transition: border-color var(--duration-fast) var(--ease-standard);
+}
+.pk-course-card:hover,
+.pk-course-card:focus-within {
+	border-color: var(--accent);
+}
+.pk-course-card-top {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-width: 0;
+}
+.pk-course-mono {
+	display: grid;
+	place-items: center;
+	flex: none;
+	inline-size: 44px;
+	block-size: 44px;
+	border-radius: var(--radius-md);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	font-weight: 600;
+}
+.pk-course-card-link {
+	color: var(--ink);
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
+	font-weight: 600;
+	text-decoration: none;
+}
+.pk-course-card-link:focus-visible {
+	outline: none;
+}
+.pk-course-card:has(.pk-course-card-link:focus-visible) {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-course-card-chevron {
+	flex: none;
+	color: var(--ink-muted);
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+.pk-course-card:hover .pk-course-card-chevron {
+	transform: translateX(2px);
+	color: var(--accent-text);
+}
+.pk-course-card-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--ink-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-course-card,
+	.pk-course-card-chevron {
+		transition: none;
+	}
+}

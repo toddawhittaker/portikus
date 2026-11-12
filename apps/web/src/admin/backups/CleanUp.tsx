@@ -3,7 +3,7 @@ import { Button, Icon, Toggletip } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { plural } from "../../text.js";
-import { longTime, workspaceName } from "./model.js";
+import { backupTime, workspaceName } from "./model.js";
 import { FocusCatchGroup, SELECT_CELL, Table, useFocusCatch } from "./parts.js";
 import {
 	DeleteSelectedButton,
@@ -52,10 +52,14 @@ export function CleanUpGroup({
 				{/* A flex summary loses the browser's marker, so it draws the system chevron. */}
 				<summary
 					ref={summaryRef}
-					className="pk-focus-ring flex w-fit cursor-pointer list-none items-baseline gap-3 rounded-xs [&::-webkit-details-marker]:hidden"
+					className="pk-focus-ring flex w-fit cursor-pointer list-none flex-wrap items-baseline gap-x-3 gap-y-2 rounded-xs [&::-webkit-details-marker]:hidden"
 					data-testid="backups-cleanup-summary"
 				>
-					<h3 className="pk-text-heading m-0" id="backups-cleanup-title">
+					{/* The heading never breaks; on a narrow card the count wraps under it instead. */}
+					<h3
+						className="pk-text-heading m-0 whitespace-nowrap"
+						id="backups-cleanup-title"
+					>
 						<Icon
 							name="chevron-right"
 							size="md"
@@ -151,7 +155,7 @@ function VmParts({
 								<th scope="row" className="font-mono">
 									{snap.name}
 								</th>
-								<td>{longTime(snap.createdAt)}</td>
+								<td>{backupTime(snap.createdAt)}</td>
 								<td className="pk-cell-actions">
 									<Button
 										size="sm"
@@ -223,7 +227,7 @@ function VmParts({
 										</span>
 									</span>
 								</th>
-								<td>{longTime(kept.createdAt)}</td>
+								<td>{backupTime(kept.createdAt)}</td>
 								<td className="pk-cell-actions">
 									<Button
 										size="sm"
@@ -310,7 +314,7 @@ function DumpsPart({
 								{dump.file}
 							</th>
 							<td className="tabular-nums">{formatBytes(dump.sizeBytes)}</td>
-							<td>{longTime(dump.modifiedAt)}</td>
+							<td>{backupTime(dump.modifiedAt)}</td>
 							<td className="pk-cell-actions">
 								<Button
 									size="sm"

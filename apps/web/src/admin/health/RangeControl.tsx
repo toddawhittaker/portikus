@@ -1,5 +1,4 @@
 import { HealthRange } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
 import { useState } from "react";
 import { RANGE_LABELS } from "./charts/scales.js";
 
@@ -37,18 +36,18 @@ export function RangeControl({
 	onChange: (range: HealthRange) => void;
 }) {
 	return (
-		<fieldset className="pk-actions m-0 border-0 p-0">
+		// The student segmented control, so a chosen range never looks like a primary action.
+		<fieldset className="pk-segmented pk-range">
 			<legend className="sr-only">Time range</legend>
 			{HealthRange.options.map((option) => (
-				<Button
+				<button
 					key={option}
-					size="sm"
-					variant={option === range ? "primary" : "secondary"}
+					type="button"
 					aria-pressed={option === range}
 					onClick={() => onChange(option)}
 				>
 					{RANGE_LABELS[option]}
-				</Button>
+				</button>
 			))}
 		</fieldset>
 	);

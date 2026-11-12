@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { errorText } from "../../api/request.js";
 import { shortTime } from "../../text.js";
 import { AdminGroup } from "../AdminSection.js";
+import { TableBox } from "../TableBox.js";
 import { DownloadSize } from "./DownloadSize.js";
 import { useDockerUsage, useSaveSeedImages } from "./queries.js";
 import { addRefusal, listHas, shortImageName, shownText } from "./text.js";
@@ -188,7 +189,7 @@ function UsageTable({
 					{shown}
 				</p>
 			) : null}
-			<div className="pk-table-wrap">
+			<TableBox label={caption}>
 				<table className="pk-table" data-testid={testId}>
 					<caption className="sr-only">{caption}</caption>
 					<thead>
@@ -225,7 +226,7 @@ function UsageTable({
 						))}
 					</tbody>
 				</table>
-			</div>
+			</TableBox>
 		</>
 	);
 }

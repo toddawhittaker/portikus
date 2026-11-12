@@ -3,8 +3,8 @@ import { Button, Toggletip } from "@portikus/ui";
 import type { ReactNode } from "react";
 import { AdminGroup } from "../AdminSection.js";
 import {
+	backupTime,
 	isWaiting,
-	longTime,
 	requestText,
 	setTime,
 	stateText,
@@ -155,7 +155,7 @@ function RecentTable({
 					<th scope="row" className="whitespace-normal">
 						{requestText(request, workspaces)}
 					</th>
-					<td>{longTime(request.requestedAt)}</td>
+					<td>{backupTime(request.requestedAt)}</td>
 					<td className="whitespace-normal">
 						{request.state === "failed" ? (
 							<>

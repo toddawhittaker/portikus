@@ -19,7 +19,7 @@ export async function expectUsageColumnsAligned(page: Page): Promise<void> {
 			);
 	const people = await boxes("agent-usage-users");
 	const daily = await boxes("agent-usage-daily");
-	expect(people).toHaveLength(10);
+	expect(people).toHaveLength(8);
 	expect(daily).toHaveLength(people.length);
 	people.forEach((cell, i) => {
 		const other = daily[i];

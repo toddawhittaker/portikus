@@ -207,7 +207,11 @@ describe("When workspaces stop", () => {
 			.split(" ")
 			.map((id) => document.getElementById(id)?.textContent);
 		expect(described[0]).toBe("minutes");
-		expect(described.join(" ")).toContain("Still working?");
+		expect(described.join(" ")).toContain("Stops a workspace after this long");
+		// The full explanation sits behind its own disclosure, not in the description.
+		const more = screen.getByText("More about idle stop").closest("details");
+		expect(more?.open).toBe(false);
+		expect(more?.textContent).toContain("Still working?");
 		expect(described.join(" ")).toContain("Default 60 minutes; 10 to 1,440.");
 		expect(screen.getByRole("textbox", { name: "Disconnect grace" })).toBe(
 			input("settings-shutdownGraceSeconds"),
@@ -326,7 +330,7 @@ describe("When workspaces stop", () => {
 });
 
 describe("Resource guard", () => {
-	test("the measuring period comes first, then the four named groups", async () => {
+	test("the measuring period comes first, then the named groups, the advanced two closed", async () => {
 		stubSettings();
 		await openSettings();
 		const guard = screen.getByTestId("settings-guard");
@@ -336,10 +340,13 @@ describe("Resource guard", () => {
 				.map((heading) => heading.textContent),
 		).toEqual([
 			"Slow down heavy CPU use",
+			"Flag high memory",
 			"Give full speed back",
 			"Keep repeat cases slowed",
-			"Flag high memory",
 		]);
+		expect(
+			(within(guard).getByTestId("guard-advanced") as HTMLDetailsElement).open,
+		).toBe(false);
 		expect(
 			within(guard)
 				.getAllByRole("textbox")
@@ -348,11 +355,11 @@ describe("Resource guard", () => {
 			"settings-guardWindowMinutes",
 			"settings-cpuGuardThresholdPercent",
 			"settings-cpuThrottleSharePercent",
+			"settings-memoryGuardThresholdPercent",
 			"settings-cpuIdleLiftMinutes",
 			"settings-cpuIdleLiftPercent",
 			"settings-cpuThrottleHoldAfter",
 			"settings-cpuThrottleHoldHours",
-			"settings-memoryGuardThresholdPercent",
 		]);
 		for (const label of [
 			"Measuring period",
@@ -402,6 +409,10 @@ describe("Resource guard", () => {
 		);
 		expect(screen.getByText("Enter a whole number from 1 to 60.")).toBeDefined();
 		expect(screen.getByText("Enter a whole number from 1 to 168.")).toBeDefined();
+		// The closed advanced rules open, so the boxes the footer names are in view.
+		expect((screen.getByTestId("guard-advanced") as HTMLDetailsElement).open).toBe(
+			true,
+		);
 		expect(writes).toEqual([]);
 	});
 });

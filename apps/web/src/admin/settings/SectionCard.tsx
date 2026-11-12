@@ -2,6 +2,7 @@ import { Button } from "@portikus/ui";
 import type { ReactNode } from "react";
 import { errorText } from "../../api/request.js";
 import { Notice } from "../Notice.js";
+import { MoreAbout } from "./SettingRow.js";
 import type { SettingsSection } from "./sections.js";
 
 /**
@@ -12,10 +13,13 @@ import type { SettingsSection } from "./sections.js";
 export function SectionCard({
 	section,
 	description,
+	more,
 	children,
 }: {
 	section: SettingsSection;
 	description: ReactNode;
+	/** The rest of the explanation, folded so the one line stays the first thing read. */
+	more?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
@@ -25,10 +29,17 @@ export function SectionCard({
 			data-testid={section.id}
 		>
 			<div className="grid gap-1">
-				<h3 className="pk-text-heading m-0" id={section.id} tabIndex={-1}>
+				<h3
+					className="pk-text-heading m-0 scroll-mt-20 @min-[62rem]/settings:scroll-mt-4"
+					id={section.id}
+					tabIndex={-1}
+				>
 					{section.title}
 				</h3>
-				<p className="pk-muted m-0 max-w-[72ch] text-[13px]">{description}</p>
+				<p className="pk-muted m-0 max-w-[60ch] text-[13px] leading-[18px]">
+					{description}
+				</p>
+				{more ? <MoreAbout label={section.title}>{more}</MoreAbout> : null}
 			</div>
 			{children}
 		</section>
@@ -40,11 +51,13 @@ export function SectionGroup({
 	id,
 	title,
 	description,
+	more,
 	children,
 }: {
 	id: string;
 	title: string;
 	description?: ReactNode;
+	more?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
@@ -54,8 +67,11 @@ export function SectionGroup({
 					{title}
 				</h4>
 				{description ? (
-					<p className="pk-muted m-0 max-w-[72ch] text-[13px]">{description}</p>
+					<p className="pk-muted m-0 max-w-[60ch] text-[13px] leading-[18px]">
+						{description}
+					</p>
 				) : null}
+				{more ? <MoreAbout label={title}>{more}</MoreAbout> : null}
 			</div>
 			{children}
 		</section>

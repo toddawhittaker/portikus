@@ -45,7 +45,7 @@ export function PresetsPart({ view }: { view: AdminEgressView }) {
 					return (
 						<li
 							key={preset.id}
-							className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 py-2"
+							className="pk-preset-row flex flex-wrap items-start justify-between gap-x-4 gap-y-1 py-2"
 							data-testid={`egress-preset-${preset.id}`}
 							data-on={on}
 						>
@@ -59,7 +59,7 @@ export function PresetsPart({ view }: { view: AdminEgressView }) {
 								}
 							/>
 							<details className="group text-right text-[12px]">
-								<summary className="pk-focus-ring ml-auto flex w-fit cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden rounded-xs text-ink-muted">
+								<summary className="pk-preset-sites pk-focus-ring ml-auto flex w-fit cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden rounded-xs text-ink-muted">
 									<Icon
 										name="chevron-right"
 										size="sm"

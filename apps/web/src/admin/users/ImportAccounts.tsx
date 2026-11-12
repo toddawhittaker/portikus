@@ -34,7 +34,8 @@ const OUTCOME_LABEL: Record<AccountImportResultRow["outcome"], string> = {
 };
 
 function tagClass(tone: "ok" | "warning" | "error"): string {
-	if (tone === "ok") return "pk-tag";
+	if (tone === "ok")
+		return "pk-tag gap-1 border-transparent bg-status-running-soft text-status-running";
 	return tone === "warning" ? "pk-tag pk-tag--warning" : "pk-tag pk-tag--error";
 }
 
@@ -80,12 +81,21 @@ function statusText(
 	}`;
 }
 
-export function ImportAccounts() {
+/**
+ * The Import from CSV dialog. The Users view owns what opens it, and mounts it
+ * afresh for each opening, so no earlier file or result carries over.
+ */
+export function ImportAccounts({
+	open,
+	onOpenChange,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
 	const preview = usePreviewImport();
 	const confirm = useConfirmImport();
 	const accountEmail = useAccountEmail();
 	const [sendEmail, setSendEmail] = useState(false);
-	const [open, setOpen] = useState(false);
 	const [csv, setCsv] = useState<string | null>(null);
 	const [fileError, setFileError] = useState<string | null>(null);
 	const busy = preview.isPending || confirm.isPending;
@@ -103,14 +113,7 @@ export function ImportAccounts() {
 
 	function change(next: boolean) {
 		if (busy) return;
-		if (next) {
-			preview.reset();
-			confirm.reset();
-			setCsv(null);
-			setFileError(null);
-			setSendEmail(false);
-		}
-		setOpen(next);
+		onOpenChange(next);
 	}
 
 	async function pick(file: File | undefined) {
@@ -169,68 +172,63 @@ export function ImportAccounts() {
 	);
 
 	return (
-		<>
-			<Button size="sm" data-testid="import-users" onClick={() => change(true)}>
-				Import from CSV…
-			</Button>
-			<DialogRoot open={open} onOpenChange={change}>
-				<Dialog
-					testId="import-dialog"
-					size="lg"
-					title={result ? "Import finished" : "Import from CSV"}
-					description={
-						result
-							? undefined
-							: `One row per person with the columns name, email, username, role and kind, at most ${ACCOUNT_IMPORT_MAX_ROWS} rows. Kind password adds a Portikus password; kind invite invites someone who signs in through your single sign-on provider (for Microsoft Entra, put the user principal name in username). Role is student or instructor; add administrators one at a time.`
-					}
-					footer={footer}
-				>
-					<div className="flex flex-col gap-3">
-						{result ? null : (
-							<PickFile
-								busy={busy}
-								error={
-									fileError ?? (preview.error ? errorText(preview.error) : undefined)
-								}
-								onPick={(file) => void pick(file)}
-							/>
-						)}
-						<EmailChoice
-							offered={accountEmail && !result}
-							checked={sendEmail}
-							onChange={setSendEmail}
+		<DialogRoot open={open} onOpenChange={change}>
+			<Dialog
+				testId="import-dialog"
+				size="lg"
+				title={result ? "Import finished" : "Import from CSV"}
+				description={
+					result
+						? undefined
+						: `One row per person with the columns name, email, username, role and kind, at most ${ACCOUNT_IMPORT_MAX_ROWS} rows. Kind password adds a Portikus password; kind invite invites someone who signs in through your single sign-on provider (for Microsoft Entra, put the user principal name in username). Role is student or instructor; add administrators one at a time.`
+				}
+				footer={footer}
+			>
+				<div className="flex flex-col gap-3">
+					{result ? null : (
+						<PickFile
+							busy={busy}
+							error={
+								fileError ?? (preview.error ? errorText(preview.error) : undefined)
+							}
+							onPick={(file) => void pick(file)}
 						/>
-						<p
-							ref={status}
-							id={STATUS_ID}
-							className={`m-0 outline-none ${rows || result ? "" : "pk-muted"}`}
-							role="status"
-							tabIndex={-1}
-							aria-describedby={result && passwords > 0 ? WARNING_ID : undefined}
-							data-testid="import-status"
-						>
-							{statusText(preview.isPending, rows, ready, result)}
-						</p>
-						{result ? (
-							<ResultView rows={result} passwords={passwords} />
-						) : (
-							<>
-								{rows && !preview.isPending ? <PreviewTable rows={rows} /> : null}
-								{confirm.error ? (
-									<p
-										className="m-0 text-status-error"
-										role="alert"
-										data-testid="import-error"
-									>
-										{errorText(confirm.error)}
-									</p>
-								) : null}
-							</>
-						)}
-					</div>
-				</Dialog>
-			</DialogRoot>
-		</>
+					)}
+					<EmailChoice
+						offered={accountEmail && !result}
+						checked={sendEmail}
+						onChange={setSendEmail}
+					/>
+					<p
+						ref={status}
+						id={STATUS_ID}
+						className={`m-0 outline-none ${rows || result ? "" : "pk-muted"}`}
+						role="status"
+						tabIndex={-1}
+						aria-describedby={result && passwords > 0 ? WARNING_ID : undefined}
+						data-testid="import-status"
+					>
+						{statusText(preview.isPending, rows, ready, result)}
+					</p>
+					{result ? (
+						<ResultView rows={result} passwords={passwords} />
+					) : (
+						<>
+							{rows && !preview.isPending ? <PreviewTable rows={rows} /> : null}
+							{confirm.error ? (
+								<p
+									className="m-0 text-status-error"
+									role="alert"
+									data-testid="import-error"
+								>
+									{errorText(confirm.error)}
+								</p>
+							) : null}
+						</>
+					)}
+				</div>
+			</Dialog>
+		</DialogRoot>
 	);
 }
 

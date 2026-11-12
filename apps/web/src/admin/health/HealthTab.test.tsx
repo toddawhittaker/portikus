@@ -1,16 +1,16 @@
 import type { HealthReport, HealthSeries } from "@portikus/contracts";
+import {
+	createMemoryHistory,
+	createRootRoute,
+	createRouter,
+	RouterProvider,
+} from "@tanstack/react-router";
 import { render, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, renderWithQuery, stubFetch } from "../../test-utils.js";
-import {
-	guardRows,
-	HealthTab,
-	HealthView,
-	isNearlyFull,
-	sampleAge,
-	stateRows,
-	usedPercent,
-} from "./HealthTab.js";
+import { guardRows, healthProblems, isNearlyFull, usedPercent } from "./attention.js";
+import { HealthTab, HealthView, sampleAge, stateRows } from "./HealthTab.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -67,14 +67,38 @@ test("the warning starts at 80 percent", () => {
 	expect(usedPercent(1, 3)).toBe(33);
 });
 
+/** Renders a view under a router, since its links lead into other tabs. */
+async function renderView(ui: ReactElement) {
+	const rootRoute = createRootRoute({ component: () => ui });
+	const router = createRouter({
+		routeTree: rootRoute,
+		history: createMemoryHistory({ initialEntries: ["/admin/health"] }),
+	});
+	// biome-ignore lint/suspicious/noExplicitAny: the test router is not the registered one
+	const view = render(<RouterProvider router={router as any} />);
+	await screen.findByTestId("health");
+	return view;
+}
+
+/** Renders the whole tab under a router, as the admin page does. */
+function renderTab() {
+	const rootRoute = createRootRoute({ component: HealthTab });
+	const router = createRouter({
+		routeTree: rootRoute,
+		history: createMemoryHistory({ initialEntries: ["/admin/health"] }),
+	});
+	// biome-ignore lint/suspicious/noExplicitAny: the test router is not the registered one
+	renderWithQuery(<RouterProvider router={router as any} />);
+}
+
 test("sample ages read as plain words", () => {
 	expect(sampleAge("2026-09-22T11:59:30.000Z", NOW)).toBe("less than a minute ago");
 	expect(sampleAge("2026-09-22T11:57:00.000Z", NOW)).toBe("3 minutes ago");
 	expect(sampleAge("2026-09-22T10:00:00.000Z", NOW)).toBe("2 hours ago");
 });
 
-test("a healthy report shows the figures and no warnings", () => {
-	render(<HealthView report={report()} now={NOW} />);
+test("a healthy report shows the figures and no warnings", async () => {
+	await renderView(<HealthView report={report()} now={NOW} />);
 
 	expect(screen.queryByTestId("health-worker-stale")).toBeNull();
 	expect(screen.queryByTestId("health-pool-warning")).toBeNull();
@@ -95,8 +119,8 @@ test("a healthy report shows the figures and no warnings", () => {
 	expect(states.getByRole("row", { name: /stopped 5$/i })).toBeDefined();
 });
 
-test("a newer package names both versions and the apt command", () => {
-	render(
+test("a newer package names both versions and the apt command", async () => {
+	await renderView(
 		<HealthView
 			report={report({ packageUpdate: { installed: "0.1.695", available: "0.1.700" } })}
 			now={NOW}
@@ -110,9 +134,9 @@ test("a newer package names both versions and the apt command", () => {
 	);
 });
 
-test("the pool at 70 percent or more and memory at 80 or more are flagged", () => {
+test("the pool at 70 percent or more and memory at 80 or more are flagged", async () => {
 	const base = report();
-	render(
+	await renderView(
 		<HealthView
 			report={report({
 				host: base.host && {
@@ -136,13 +160,13 @@ test("the pool at 70 percent or more and memory at 80 or more are flagged", () =
 	);
 });
 
-test("metadata use is shown, and warns on its own when it passes 70 percent", () => {
+test("metadata use is shown, and warns on its own when it passes 70 percent", async () => {
 	const base = report();
-	const { unmount } = render(<HealthView report={base} now={NOW} />);
+	const { unmount } = await renderView(<HealthView report={base} now={NOW} />);
 	expect(screen.getByTestId("health-pool-metadata").textContent).toBe("20% used");
 	unmount();
 
-	render(
+	await renderView(
 		<HealthView
 			report={report({
 				host: base.host && {
@@ -159,9 +183,9 @@ test("metadata use is shown, and warns on its own when it passes 70 percent", ()
 	);
 });
 
-test("metadata use the host has not reported reads as such", () => {
+test("metadata use the host has not reported reads as such", async () => {
 	const base = report();
-	render(
+	await renderView(
 		<HealthView
 			report={report({
 				host: base.host && {
@@ -176,8 +200,8 @@ test("metadata use the host has not reported reads as such", () => {
 	expect(screen.queryByTestId("health-pool-warning")).toBeNull();
 });
 
-test("a stale worker shows a banner with the sample's age", () => {
-	render(
+test("a stale worker shows a banner with the sample's age", async () => {
+	await renderView(
 		<HealthView
 			report={report({ workerStale: true, sampledAt: "2026-09-22T11:57:00.000Z" })}
 			now={NOW}
@@ -196,8 +220,8 @@ test("a stale worker shows a banner with the sample's age", () => {
 	).toBe(true);
 });
 
-test("with no sample at all the banner says so", () => {
-	render(
+test("with no sample at all the banner says so", async () => {
+	await renderView(
 		<HealthView
 			report={report({ workerStale: true, sampledAt: null, host: null })}
 			now={NOW}
@@ -210,8 +234,8 @@ test("with no sample at all the banner says so", () => {
 	expect(screen.getByText("No host figures in the newest sample.")).toBeDefined();
 });
 
-test("an unreachable controller shows its error code", () => {
-	render(
+test("an unreachable controller shows its error code", async () => {
+	await renderView(
 		<HealthView
 			report={report({
 				controller: { reachable: false, errorCode: "CONTROLLER_UNAVAILABLE" },
@@ -233,7 +257,7 @@ test("the tab loads the report from the API", async () => {
 		throw new Error(`unexpected request: ${url}`);
 	});
 
-	renderWithQuery(<HealthTab />);
+	renderTab();
 
 	expect((await screen.findByTestId("health-agents")).textContent).toBe(
 		"1 of 2 running",
@@ -263,11 +287,12 @@ const GUARDED = {
 	},
 };
 
-test("the guard list says when nothing is throttled or flagged", () => {
-	render(<HealthView report={report()} now={NOW} />);
-	expect(screen.getByTestId("health-guard-empty").textContent).toBe(
-		"No workspace is throttled or flagged.",
+test("with nothing to act on, the attention list is one all-clear row", async () => {
+	await renderView(<HealthView report={report(HEALTHY)} now={NOW} />);
+	expect(screen.getByTestId("health-guard-empty").textContent).toContain(
+		"All systems healthy",
 	);
+	expect(screen.queryByTestId("health-guard")).toBeNull();
 });
 
 test("a workspace with both a throttle and a flag gets a row for each", () => {
@@ -319,7 +344,7 @@ test("each guard row links to the owner's detail panel", async () => {
 test("a failed load is announced", async () => {
 	stubFetch(() => json(403, { code: "FORBIDDEN", message: "Administrators only." }));
 
-	renderWithQuery(<HealthTab />);
+	renderTab();
 
 	expect((await screen.findByRole("alert")).textContent).toBe("Administrators only.");
 });
@@ -336,7 +361,7 @@ test("states follow the Workspaces tab's order with zero counts, then newer ones
 	]);
 });
 
-test("the tab puts four cards at a glance, then the trends in four groups", async () => {
+test("the tab leads with what needs attention, then the cards, then the trends in four groups", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/health") return json(200, report());
 		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
@@ -345,7 +370,7 @@ test("the tab puts four cards at a glance, then the trends in four groups", asyn
 		throw new Error(`unexpected request: ${url}`);
 	});
 
-	renderWithQuery(<HealthTab />);
+	renderTab();
 
 	await screen.findByTestId("health-trends");
 	const outline = screen
@@ -354,10 +379,10 @@ test("the tab puts four cards at a glance, then the trends in four groups", asyn
 	expect(outline).toEqual([
 		"H2 Health",
 		"H3 At a glance",
-		"H4 Platform",
+		"H4 Needs attention",
 		"H4 Failures, last 24 hours",
 		"H4 Workspaces by state",
-		"H4 Resource guard",
+		"H4 Platform",
 		"H3 Trends",
 		"H4 Host",
 		"H4 Workspaces",
@@ -365,7 +390,7 @@ test("the tab puts four cards at a glance, then the trends in four groups", asyn
 		"H4 Events",
 	]);
 	const glance = screen.getByTestId("health-glance");
-	expect(glance.querySelectorAll(":scope > section.pk-card")).toHaveLength(4);
+	expect(glance.querySelectorAll(":scope > section.pk-card")).toHaveLength(2);
 });
 
 test("the tab has an intro and help beside the figures that need it", async () => {
@@ -377,7 +402,7 @@ test("the tab has an intro and help beside the figures that need it", async () =
 		throw new Error(`unexpected request: ${url}`);
 	});
 
-	renderWithQuery(<HealthTab />);
+	renderTab();
 
 	await screen.findByTestId("health-trends");
 	const intro = screen.getByTestId("intro-admin-health");
@@ -387,13 +412,45 @@ test("the tab has an intro and help beside the figures that need it", async () =
 			.getByRole("link", { name: /More in Help/ })
 			.getAttribute("href"),
 	).toBe("/admin/help#admin-health");
-	for (const label of [
-		"Agents answering",
-		"Load average",
-		"Storage pool",
-		"Pool metadata",
-		"Workspace limits",
-	]) {
+	for (const label of ["Storage pool", "Pool metadata"]) {
 		expect(screen.getByRole("button", { name: `About ${label}` })).toBeDefined();
 	}
+});
+
+const HEALTHY = {
+	agents: { answering: 2, running: 2 },
+	last24h: {
+		startFailures: 0,
+		stopFailures: 0,
+		forcedStops: 0,
+		provisionFailures: 0,
+		controllerOutages: 0,
+		signInFailures: 0,
+		previewRefusals: 0,
+	},
+};
+
+test("the verdict says all is healthy only when nothing needs attention", async () => {
+	await renderView(<HealthView report={report(HEALTHY)} now={NOW} />);
+	expect(screen.getByTestId("health-verdict").textContent).toContain(
+		"All systems healthy",
+	);
+});
+
+test("the verdict names the problems when no workspace is guarded", async () => {
+	expect(healthProblems(report()).map((problem) => problem.text)).toEqual([
+		"1 workspace agent not answering",
+		"10 failures in the last 24 hours",
+	]);
+	await renderView(<HealthView report={report()} now={NOW} />);
+	const verdict = within(screen.getByTestId("health-verdict"));
+	expect(verdict.getByRole("heading", { name: "Needs attention" })).toBeDefined();
+	const items = verdict.getAllByRole("listitem").map((item) => item.textContent);
+	expect(items).toEqual([
+		"1 workspace agent not answering" + "Open Users",
+		"10 failures in the last 24 hours" + "Open Logs",
+	]);
+	expect(verdict.getByRole("link", { name: "Open Logs" }).getAttribute("href")).toBe(
+		"/admin/logs?level=error%2Cwarn&since=24h",
+	);
 });

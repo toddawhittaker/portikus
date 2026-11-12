@@ -26,7 +26,7 @@ const TONE_BADGE: Record<StateTone, BadgeTone> = {
 	provisioning: "info",
 	starting: "info",
 	running: "success",
-	stopping: "info",
+	stopping: "neutral",
 	stopped: "neutral",
 	error: "danger",
 };
@@ -89,8 +89,11 @@ export function StateBadge({
 	className,
 }: StateBadgeProps): React.ReactElement {
 	const resolved = resolveWorkspaceState(state, desiredState);
-	// A forced spinner takes a transition's tone, never error's or stopped's.
-	const tone = moving && !resolved.moving ? "starting" : resolved.tone;
+	// A forced spinner is a pending operation such as a rebuild: the starting tone, never error's, stopped's or stopping's.
+	const tone =
+		moving && (!resolved.moving || resolved.tone === "stopping")
+			? "starting"
+			: resolved.tone;
 	const glyph =
 		moving || resolved.moving ? (
 			<span className="pk-spin" aria-hidden={true} />

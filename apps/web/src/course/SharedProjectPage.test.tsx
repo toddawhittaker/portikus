@@ -181,6 +181,29 @@ test("a file opens read-only and a change opens its diff", async () => {
 	).toBeDefined();
 });
 
+test("the first changed file is on show until the instructor picks something", async () => {
+	serve();
+	renderApp(PATH);
+
+	expect(
+		await screen.findByRole("heading", { level: 2, name: "src/app.js" }),
+	).toBeDefined();
+
+	// A choice replaces it and is kept.
+	fireEvent.click(await screen.findByTestId("shared-row-README.md"));
+	expect(
+		await screen.findByRole("heading", { level: 2, name: "README.md" }),
+	).toBeDefined();
+});
+
+test("with no changes the viewer waits for a choice", async () => {
+	serve({ [`${BASE}/git/status`]: () => json(200, { ...STATUS, entries: [] }) });
+	renderApp(PATH);
+
+	expect(await screen.findByTestId("shared-changes-empty")).toBeDefined();
+	expect(screen.getByRole("heading", { level: 2, name: "Nothing open" })).toBeDefined();
+});
+
 test("an image is drawn from the inline address, versioned by the listing", async () => {
 	serve();
 	renderApp(PATH);

@@ -24,6 +24,20 @@ export const ADMIN_TABS = [
 ] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
+/**
+ * The tabs in runs that follow ADMIN_TABS, so the strip and the phone menu
+ * list them the same way: who uses the site, what it is doing, the server,
+ * and the site's own settings.
+ */
+export const ADMIN_TAB_GROUPS: readonly { label: string; tabs: readonly AdminTab[] }[] =
+	[
+		{ label: "People", tabs: ["users"] },
+		{ label: "Activity", tabs: ["health", "logs", "audit", "agents"] },
+		{ label: "Server", tabs: ["network", "backups", "image", "certificate", "docker"] },
+		{ label: "Site", tabs: ["signin", "address", "settings"] },
+		{ label: "Shell", tabs: ["shell"] },
+	];
+
 /** Each tab's name: its link text in the header and the start of its page title. */
 export const ADMIN_TAB_LABEL: Record<AdminTab, string> = {
 	users: "Users",

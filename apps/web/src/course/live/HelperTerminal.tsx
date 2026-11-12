@@ -250,7 +250,7 @@ export function HelperTerminal({
 	}
 
 	return (
-		<div className="flex min-w-0 flex-1 flex-col gap-2">
+		<div className="flex min-w-0 flex-1 flex-col">
 			<p className="sr-only" id={modeHintId}>
 				{typing
 					? "What you type goes to the student's shell."
@@ -260,7 +260,7 @@ export function HelperTerminal({
 			    It fills the height its parent leaves, but never less than ten lines. */}
 			<section
 				ref={host}
-				className="pk-helper-term pk-focus-ring min-h-40 max-w-full grow basis-0 overflow-auto bg-terminal-bg p-2"
+				className="pk-helper-term pk-focus-ring min-h-40 max-h-[30rem] max-w-full grow basis-0 overflow-auto bg-terminal-bg p-2"
 				data-testid="helper-terminal"
 				data-connected={connected ? "true" : "false"}
 				data-mode={typing ? "type" : "view"}
@@ -268,11 +268,11 @@ export function HelperTerminal({
 				// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region the keyboard must reach (WCAG 2.1.1)
 				tabIndex={0}
 			/>
-			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<p className="pk-muted m-0 text-[13px]" id={leaveHintId}>
+			<div className="pk-live-foot">
+				<p className="pk-muted m-0 text-[12px]" id={leaveHintId}>
 					<kbd className="pk-mono-body">Alt+Shift+Q</kbd> leaves the terminal.
 				</p>
-				<p className="pk-muted m-0 text-[13px]" role="status">
+				<p className="pk-muted m-0 text-[12px]" role="status">
 					{problem ? PROBLEM_TEXT[problem] : ""}
 				</p>
 				{problem === "lost" || problem === "too-many" ? (

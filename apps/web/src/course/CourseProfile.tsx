@@ -25,9 +25,9 @@ export function CourseProfile({ courseId }: { courseId: string }) {
 			className="flex max-w-[72ch] flex-col gap-3"
 			aria-labelledby="profile-title"
 		>
-			<h2 className="pk-text-heading m-0" id="profile-title">
+			<h3 className="pk-text-heading m-0" id="profile-title">
 				Student interface
-			</h2>
+			</h3>
 			{shown ? (
 				<>
 					<Choice

@@ -2,13 +2,12 @@ import type { LogLine } from "@portikus/contracts";
 import { type SortDirection, type SortState, sortRows } from "../../table/sort.js";
 import { field, SERVICE_LABELS } from "./line.js";
 
-export type LogColumn = "time" | "level" | "service" | "code" | "status";
+export type LogColumn = "time" | "level" | "service" | "status";
 
 export const LOG_COLUMN_LABEL: Record<LogColumn, string> = {
 	time: "Time",
 	level: "Level",
 	service: "Service",
-	code: "Code",
 	status: "Status",
 };
 
@@ -17,7 +16,6 @@ export const LOG_COLUMN_FIRST: Record<LogColumn, SortDirection> = {
 	time: "descending",
 	level: "descending",
 	service: "ascending",
-	code: "ascending",
 	status: "descending",
 };
 
@@ -44,8 +42,6 @@ function key(
 			return SEVERITY[field(line.line, "level")] ?? null;
 		case "service":
 			return SERVICE_LABELS[line.service];
-		case "code":
-			return field(line.line, "code") || null;
 		case "status": {
 			const status = Number.parseInt(field(line.line, "status"), 10);
 			return Number.isNaN(status) ? null : status;

@@ -68,15 +68,16 @@ test("the three charts average the rate per minute and show error shares and per
 	).toBeTruthy();
 });
 
-test("with no requests the charts say so in one line each, with no axis", () => {
+test("with no requests the three charts collapse into one line, with no axis", () => {
 	render(<ApiCharts frame={FRAME} series={series([])} />);
 	expect(screen.queryAllByRole("img")).toHaveLength(0);
 	expect(screen.queryAllByRole("application")).toHaveLength(0);
 	for (const id of ["requests", "errors", "latency"]) {
-		expect(screen.getByTestId(`health-chart-api-${id}-summary`).textContent).toBe(
-			"No requests in this range.",
-		);
+		expect(screen.queryByTestId(`health-chart-api-${id}`)).toBeNull();
 	}
+	expect(screen.getByTestId("health-api-empty").textContent).toContain(
+		"No API requests in this range",
+	);
 });
 
 test("a bucket with only WebSocket upgrades has a rate of zero and no error share", () => {

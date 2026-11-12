@@ -371,13 +371,14 @@ test("a second too-large file mounts a fresh alert, so the same message is read 
 	expect(within(dialog).getByRole("alert").textContent).toBe(first.textContent);
 });
 
-test("the not-downloaded reminder is a warning notice, not a plain card", async () => {
+test("the not-downloaded reminder is an attention row with its action, not a plain card", async () => {
 	stubSite(
 		() => json(200, status()),
 		() => json(500, {}),
 	);
 	renderApp("/admin/backups");
 	const reminder = await screen.findByTestId("backup-key-reminder");
-	expect(reminder.classList.contains("bg-status-warning-soft")).toBe(true);
+	expect(reminder.classList.contains("pk-attention")).toBe(true);
 	expect(reminder.classList.contains("pk-card")).toBe(false);
+	expect(within(reminder).getByTestId("backup-key-download")).toBeTruthy();
 });

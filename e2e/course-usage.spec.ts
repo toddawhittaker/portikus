@@ -48,7 +48,7 @@ test("an instructor sees member usage per agent, daily totals and a period choic
 		await expect(claude).toContainText("$4.50");
 		await expect(claude).toContainText("1,200");
 		const codex = people.getByRole("row", { name: /Sam Student Codex/ });
-		await expect(codex.getByRole("cell").nth(6)).toHaveText("—");
+		await expect(codex.getByRole("cell").nth(5)).toHaveText("—");
 		await expect(course.getByTestId("agent-usage-daily")).toBeVisible();
 		await expectUsageColumnsAligned(course);
 

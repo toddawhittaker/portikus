@@ -6,6 +6,7 @@ import { Skeleton, Toggletip } from "@portikus/ui";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, request } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
+import { TableBox } from "../TableBox.js";
 
 /** "27 September 2026" for a survey day, which is a UTC date. */
 export function surveyDay(day: string): string {
@@ -62,7 +63,7 @@ export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 	}
 	const surveyed = `${survey.surveyed} workspace${survey.surveyed === 1 ? "" : "s"} surveyed on ${surveyDay(survey.day)}`;
 	return (
-		<div className="pk-table-wrap">
+		<TableBox label="Packages added with sudo apt">
 			<table className="pk-table" data-testid="packages-table">
 				<caption className="pk-text-label pk-muted text-left">
 					Packages added with sudo apt, out of {surveyed}.
@@ -106,6 +107,6 @@ export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 					))}
 				</tbody>
 			</table>
-		</div>
+		</TableBox>
 	);
 }

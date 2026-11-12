@@ -223,6 +223,7 @@ test("Google group checks send the key once, and the page only says it is set", 
 		googleKeySet: true,
 	});
 	await page.reload();
+	// While the trial is open there is no form, so the full current settings show.
 	await expect(page.getByTestId("sso-current")).toContainText(
 		"groups-reader@example.edu",
 	);

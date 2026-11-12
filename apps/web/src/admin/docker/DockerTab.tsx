@@ -145,7 +145,7 @@ function CacheCard({ data }: { data: DockerAdminResponse }) {
 					space on the main disk and run <code>sudo dpkg-reconfigure portikus</code>.
 				</Notice>
 			) : cache ? (
-				<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+				<dl className="pk-kv">
 					<dt className="pk-muted">Pull cache space</dt>
 					<dd className="m-0 grid gap-1" data-testid="docker-cache-space">
 						<Meter

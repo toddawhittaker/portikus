@@ -167,7 +167,8 @@ export function UsageHeatMap({
 
 	return (
 		<figure
-			className="col-span-full m-0 min-w-0"
+			// Empty, it is one sentence, so it sits beside the running chart rather than under it.
+			className={`m-0 min-w-0 ${usage.workspaces.length === 0 ? "" : "col-span-full"}`}
 			data-testid="health-heat-map"
 			aria-labelledby={captionId}
 		>

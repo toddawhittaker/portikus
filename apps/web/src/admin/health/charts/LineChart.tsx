@@ -20,6 +20,48 @@ export interface ReferenceLine {
 	label: string;
 }
 
+/**
+ * The runs of a series to draw as one line each. A single missing bucket
+ * between two values is bridged: samples taken less often than the bucket
+ * width land on every other bucket, and that is not an outage (the
+ * availability strip shows real gaps).
+ */
+function runs(
+	values: readonly (number | null)[],
+): { index: number; value: number }[][] {
+	const out: { index: number; value: number }[][] = [];
+	let current: { index: number; value: number }[] = [];
+	values.forEach((value, index) => {
+		if (value !== null) {
+			current.push({ index, value });
+			return;
+		}
+		const before = values[index - 1];
+		const after = values[index + 1];
+		const bridged =
+			before !== null && before !== undefined && after !== null && after !== undefined;
+		if (!bridged && current.length > 0) {
+			out.push(current);
+			current = [];
+		}
+	});
+	if (current.length > 0) out.push(current);
+	return out;
+}
+
+function point(
+	frame: ChartFrame,
+	index: number,
+	value: number,
+	top: number,
+	plot: Plot,
+) {
+	return {
+		x: Math.round(bucketCenterX(frame, index, plot) * 10) / 10,
+		y: Math.round(valueY(value, top) * 10) / 10,
+	};
+}
+
 /** SVG path data for one series: a new `M` after every gap. */
 export function linePath(
 	frame: ChartFrame,
@@ -27,23 +69,38 @@ export function linePath(
 	top: number,
 	plot: Plot,
 ): string {
-	const parts: string[] = [];
-	let drawing = false;
-	values.forEach((value, index) => {
-		if (value === null) {
-			drawing = false;
-			return;
-		}
-		const x = Math.round(bucketCenterX(frame, index, plot) * 10) / 10;
-		const y = Math.round(valueY(value, top) * 10) / 10;
-		// "l0 0" draws a lone point as a dot with the round line cap.
-		const next = values[index + 1];
-		parts.push(
-			`${drawing ? "L" : "M"}${x} ${y}${!drawing && (next === null || next === undefined) ? " l0 0" : ""}`,
-		);
-		drawing = true;
-	});
-	return parts.join(" ");
+	return runs(values)
+		.map((run) =>
+			run
+				.map(({ index, value }, i) => {
+					const { x, y } = point(frame, index, value, top, plot);
+					// "l0 0" draws a lone point as a dot with the round line cap.
+					return `${i === 0 ? "M" : "L"}${x} ${y}${run.length === 1 ? " l0 0" : ""}`;
+				})
+				.join(" "),
+		)
+		.join(" ");
+}
+
+/** The area under each run of a series, closed along the zero line. */
+export function areaPath(
+	frame: ChartFrame,
+	values: readonly (number | null)[],
+	top: number,
+	plot: Plot,
+): string {
+	const base = valueY(0, top);
+	return runs(values)
+		.filter((run) => run.length > 1)
+		.map((run) => {
+			const points = run.map(({ index, value }) =>
+				point(frame, index, value, top, plot),
+			);
+			const first = points[0] as { x: number };
+			const last = points[points.length - 1] as { x: number };
+			return `M${first.x} ${base} ${points.map((p) => `L${p.x} ${p.y}`).join(" ")} L${last.x} ${base} Z`;
+		})
+		.join(" ");
 }
 
 /**
@@ -133,6 +190,14 @@ export function LineChart({
 							</text>
 						</g>
 					))}
+					{series[0] ? (
+						<path
+							d={areaPath(frame, series[0].values, top, plot)}
+							className="fill-accent"
+							fillOpacity="0.1"
+							stroke="none"
+						/>
+					) : null}
 					{series.map((line, index) => (
 						<path
 							key={line.name}

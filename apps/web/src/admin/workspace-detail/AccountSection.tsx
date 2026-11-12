@@ -127,9 +127,10 @@ function GrantChange<V extends { userId: string }>({
 					aria-label={ariaLabel}
 					aria-describedby={note ? noteId : undefined}
 					aria-disabled={note ? true : undefined}
+					aria-haspopup="dialog"
 					onClick={() => (note ? undefined : open(true))}
 				>
-					{`${verb}…`}
+					{verb}
 				</Button>
 			</WithTip>
 			{note ? (
@@ -387,8 +388,12 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 						"Never"
 					)}
 				</dd>
-				<dt>Username</dt>
-				<dd className="pk-mono-small break-all">{user.preferredUsername ?? "—"}</dd>
+				{user.preferredUsername ? (
+					<>
+						<dt>Username</dt>
+						<dd className="pk-mono-small break-all">{user.preferredUsername}</dd>
+					</>
+				) : null}
 				<dt>Email</dt>
 				<dd className="break-all" data-testid="detail-email">
 					{user.email ?? "—"}
@@ -421,6 +426,8 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 				>
 					<Button
 						size="sm"
+						variant={disabled ? "secondary" : "danger-secondary"}
+						aria-haspopup={disabled ? undefined : "dialog"}
 						data-testid="detail-disable"
 						aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
 						aria-describedby={isSelf ? selfNoteId : undefined}
@@ -432,7 +439,7 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 							else setConfirming(true);
 						}}
 					>
-						{disabled ? "Enable account" : "Disable account…"}
+						{disabled ? "Enable account" : "Disable account"}
 					</Button>
 				</WithTip>
 			</div>

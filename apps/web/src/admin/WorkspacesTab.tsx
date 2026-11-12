@@ -8,7 +8,12 @@ import {
 	Checkbox,
 	CONTROL_CLASS,
 	FIELD_CLASS,
+	Icon,
 	LABEL_CLASS,
+	Menu,
+	MenuItem,
+	MenuRoot,
+	MenuTrigger,
 	TextField,
 	Toggletip,
 } from "@portikus/ui";
@@ -43,7 +48,11 @@ import { WorkspaceDetail } from "./WorkspaceDetail.js";
 /** How long typing pauses before the search is sent to the server. */
 const SEARCH_DELAY_MS = 250;
 
-const SELECT_CLASS = `${CONTROL_CLASS} w-44 cursor-pointer`;
+const SELECT_CLASS = `${CONTROL_CLASS} cursor-pointer`;
+// One width for every filter select, held when the bar is tight.
+const SELECT_FIELD_CLASS = `${FIELD_CLASS} w-40 flex-none`;
+/** The image filter also holds its help button, beside the box. */
+const IMAGE_FIELD_CLASS = `${FIELD_CLASS} w-48 flex-none`;
 
 const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 	administrator: "Administrator",
@@ -54,6 +63,13 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 /** One row per account, with its workspace beside it (SPEC.md §20.1). */
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
+	const [moreFilters, setMoreFilters] = useState(false);
+	const activeFilters = [
+		filters.role !== NO_FILTERS.role,
+		filters.state !== NO_FILTERS.state,
+		filters.image !== NO_FILTERS.image,
+		filters.showArchived !== NO_FILTERS.showArchived,
+	].filter(Boolean).length;
 	const { sort, setSort, announcement } = useAnnouncedSort(
 		DEFAULT_ACCOUNT_SORT,
 		ACCOUNT_COLUMN_LABEL,
@@ -162,12 +178,15 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				lead: "Everyone who has signed in, with their workspace.",
 				text: "Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role. Nobody can sign up on their own: invite someone before their first sign-in.",
 			}}
-			count={<span data-testid="admin-account-count">{total} accounts</span>}
+			count={
+				<span data-testid="admin-account-count">
+					{total} {total === 1 ? "account" : "accounts"}
+				</span>
+			}
 			actions={
 				<>
 					{filters.image === "older" ? (
 						<Button
-							size="sm"
 							data-testid="rebuild-older"
 							disabled={olderImageTargets(olderMatches.data?.users ?? []).length === 0}
 							onClick={() =>
@@ -181,99 +200,112 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 							Rebuild all on older images…
 						</Button>
 					) : null}
-					{/* Only when the site runs Dex's own passwords (ADR 0028). */}
-					{users.data?.dexUsers ? <AddDexUser /> : null}
-					<InviteUser />
-					<ImportAccounts />
+					<AddPeople dexUsers={users.data?.dexUsers === true} />
 				</>
 			}
 		>
-			<div className="flex flex-wrap items-end gap-3">
+			<div className="pk-toolbar flex flex-wrap items-end gap-3">
 				<TextField
 					id="admin-filter-text"
 					label="Search"
 					type="search"
-					placeholder="Name, email, username, source or workspace"
-					className="w-80"
+					placeholder="Name, email or workspace"
+					// Grows to 20rem but starts at 14, so Show archived keeps the filters' row at 1280 px.
+					className="pk-filter-search max-w-80 grow basis-56"
 					data-testid="admin-filter-text"
 					value={filters.text}
 					onChange={(event) => set({ text: event.target.value })}
 				/>
-				<div className={FIELD_CLASS}>
-					<label className={LABEL_CLASS} htmlFor="admin-filter-role">
-						Role
-					</label>
-					<select
-						id="admin-filter-role"
-						className={SELECT_CLASS}
-						data-testid="admin-filter-role"
-						value={filters.role}
-						onChange={(event) => set({ role: event.target.value })}
-					>
-						<option value="all">All roles</option>
-						{ROLE_FILTERS.map((role) => (
-							<option key={role} value={role}>
-								{ROLE_OPTION[role]}
-							</option>
-						))}
-					</select>
-				</div>
-				<div className={FIELD_CLASS}>
-					<label className={LABEL_CLASS} htmlFor="admin-filter-state">
-						State
-					</label>
-					<select
-						id="admin-filter-state"
-						className={SELECT_CLASS}
-						data-testid="admin-filter-state"
-						value={filters.state}
-						onChange={(event) => set({ state: event.target.value })}
-					>
-						<option value="all">All states</option>
-						{WorkspaceState.options.map((state) => (
-							<option key={state} value={state}>
-								{state[0]?.toUpperCase()}
-								{state.slice(1)}
-							</option>
-						))}
-						<option value="none">No workspace</option>
-					</select>
-				</div>
-				<div className={FIELD_CLASS}>
-					{/* The help button sits beside the label, never inside it. */}
-					{/* -my-1 keeps the 24 px button from pushing this label above its neighbours'. */}
-					<div className="-my-1 flex min-w-0 items-center gap-1">
+				{/* On a phone the other filters wait behind this button, so the rows start higher. */}
+				<Button
+					className="pk-filter-toggle"
+					iconEnd="chevron-down"
+					aria-expanded={moreFilters}
+					aria-controls="admin-filter-more"
+					onClick={() => setMoreFilters((was) => !was)}
+				>
+					{activeFilters > 0 ? `Filters (${activeFilters})` : "Filters"}
+				</Button>
+				<div
+					className="pk-filter-more contents"
+					id="admin-filter-more"
+					data-open={moreFilters ? "" : undefined}
+				>
+					<div className={SELECT_FIELD_CLASS}>
+						<label className={LABEL_CLASS} htmlFor="admin-filter-role">
+							Role
+						</label>
+						<select
+							id="admin-filter-role"
+							className={SELECT_CLASS}
+							data-testid="admin-filter-role"
+							value={filters.role}
+							onChange={(event) => set({ role: event.target.value })}
+						>
+							<option value="all">All roles</option>
+							{ROLE_FILTERS.map((role) => (
+								<option key={role} value={role}>
+									{ROLE_OPTION[role]}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className={SELECT_FIELD_CLASS}>
+						<label className={LABEL_CLASS} htmlFor="admin-filter-state">
+							State
+						</label>
+						<select
+							id="admin-filter-state"
+							className={SELECT_CLASS}
+							data-testid="admin-filter-state"
+							value={filters.state}
+							onChange={(event) => set({ state: event.target.value })}
+						>
+							<option value="all">All states</option>
+							{WorkspaceState.options.map((state) => (
+								<option key={state} value={state}>
+									{state[0]?.toUpperCase()}
+									{state.slice(1)}
+								</option>
+							))}
+							<option value="none">No workspace</option>
+						</select>
+					</div>
+					<div className={IMAGE_FIELD_CLASS}>
 						<label className={LABEL_CLASS} htmlFor="admin-filter-image">
 							Image
 						</label>
-						<Toggletip label="Image filter">
-							Choose Older to see who needs a rebuild. A button then rebuilds them all
-							at once.
+						{/* The label is hidden in the toolbar, so the help button sits beside the box. */}
+						<div className="flex items-center gap-1">
+							<select
+								id="admin-filter-image"
+								className={`${SELECT_CLASS} min-w-0 flex-1`}
+								data-testid="admin-filter-image"
+								value={filters.image}
+								onChange={(event) => set({ image: event.target.value })}
+							>
+								<option value="all">All images</option>
+								<option value="current">Current</option>
+								<option value="older">Older</option>
+							</select>
+							<Toggletip label="Image filter">
+								Choose Older to see who needs a rebuild. A button then rebuilds them all
+								at once.
+							</Toggletip>
+						</div>
+					</div>
+					{/* Centred on the controls' row, not on the labelled fields. */}
+					<div className="flex h-[var(--pk-control)] items-center gap-1">
+						<Checkbox
+							label="Show archived"
+							checked={filters.showArchived}
+							onChange={(event) => set({ showArchived: event.target.checked })}
+						/>
+						<Toggletip label="Show archived">
+							Archived workspaces are stopped and cannot start until you unarchive them.
+							Their files are kept.
 						</Toggletip>
 					</div>
-					<select
-						id="admin-filter-image"
-						className={SELECT_CLASS}
-						data-testid="admin-filter-image"
-						value={filters.image}
-						onChange={(event) => set({ image: event.target.value })}
-					>
-						<option value="all">All images</option>
-						<option value="current">Current</option>
-						<option value="older">Older</option>
-					</select>
-				</div>
-				{/* Centred on the controls' row, not on the labelled fields. */}
-				<div className="flex h-[var(--pk-control)] items-center gap-1">
-					<Checkbox
-						label="Show archived"
-						checked={filters.showArchived}
-						onChange={(event) => set({ showArchived: event.target.checked })}
-					/>
-					<Toggletip label="Show archived">
-						Archived workspaces are stopped and cannot start until you unarchive them.
-						Their files are kept.
-					</Toggletip>
 				</div>
 			</div>
 			<BulkActions
@@ -295,13 +327,13 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
 					{/* A focusable region, so the keyboard can scroll a narrow box to columns with no control in them (SPEC.md section 25.8). */}
 					<section
-						className="pk-table-wrap min-w-0 flex-1 overflow-clip"
+						className="pk-table-wrap pk-users-wrap min-w-0 flex-1 overflow-clip"
 						aria-labelledby="admin-accounts-caption"
 						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard
 						tabIndex={0}
 						onFocus={revealFocused}
 					>
-						<table className="pk-table" data-testid="admin-accounts">
+						<table className="pk-table pk-table--stack" data-testid="admin-accounts">
 							<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 								Accounts and their workspaces,{" "}
 								{sortText(ACCOUNT_COLUMN_LABEL[sort.column], sort.direction)}. Choose a
@@ -447,5 +479,71 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<SortAnnouncement text={announcement} testId="admin-sort-announce" />
 			<SortAnnouncement text={pageAnnouncement} testId="admin-page-announce" />
 		</AdminSection>
+	);
+}
+
+/**
+ * The ways to add people. One filled action: "Add user…" where the site runs
+ * Dex's own passwords (ADR 0028), with Invite and Import in a More menu;
+ * otherwise "Invite…", with Import beside it.
+ */
+function AddPeople({ dexUsers }: { dexUsers: boolean }) {
+	const [open, setOpen] = useState<"invite" | "import" | null>(null);
+	// A fresh mount per opening, so a dialog never shows the last one's entries.
+	const [round, setRound] = useState(0);
+	function show(which: "invite" | "import") {
+		setRound((n) => n + 1);
+		setOpen(which);
+	}
+	function change(next: boolean) {
+		if (!next) setOpen(null);
+	}
+	return (
+		<>
+			{dexUsers ? (
+				<>
+					<AddDexUser />
+					<MenuRoot>
+						<MenuTrigger asChild>
+							<Button data-testid="users-add-more">
+								More
+								<Icon name="chevron-down" size="sm" />
+							</Button>
+						</MenuTrigger>
+						<Menu label="More ways to add people" align="end">
+							<MenuItem testId="invite-user" onSelect={() => show("invite")}>
+								Invite…
+							</MenuItem>
+							<MenuItem testId="import-users" onSelect={() => show("import")}>
+								Import from CSV…
+							</MenuItem>
+						</Menu>
+					</MenuRoot>
+				</>
+			) : (
+				<>
+					<Button
+						variant="primary"
+						data-testid="invite-user"
+						onClick={() => show("invite")}
+					>
+						Invite…
+					</Button>
+					<Button data-testid="import-users" onClick={() => show("import")}>
+						Import from CSV…
+					</Button>
+				</>
+			)}
+			<InviteUser
+				key={`invite-${round}`}
+				open={open === "invite"}
+				onOpenChange={change}
+			/>
+			<ImportAccounts
+				key={`import-${round}`}
+				open={open === "import"}
+				onOpenChange={change}
+			/>
+		</>
 	);
 }

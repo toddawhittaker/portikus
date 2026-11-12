@@ -42,7 +42,7 @@ export function ServiceLogLevel() {
 
 	return (
 		<form
-			className="flex flex-col gap-1.5"
+			className="pk-loglevel flex flex-col gap-1.5"
 			onSubmit={save}
 			data-testid="log-level-form"
 		>
@@ -57,7 +57,7 @@ export function ServiceLogLevel() {
 						done.
 					</Toggletip>
 				</span>
-				<div className="w-48">
+				<div className="w-40">
 					<select
 						id="log-level"
 						className={`${CONTROL_CLASS} cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}

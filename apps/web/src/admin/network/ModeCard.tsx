@@ -88,14 +88,14 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 			actions={
 				<fieldset
 					aria-labelledby="egress-mode-title"
-					className="pk-segmented text-[13px]"
+					className="pk-segmented text-[13px] @max-xl:mt-1 @max-xl:w-full!"
 					data-testid="egress-mode"
 				>
 					{(["open", "allow-list"] as const).map((mode) => (
 						<button
 							key={mode}
 							type="button"
-							className="px-4! py-1.5!"
+							className="px-4! py-1.5! @max-xl:flex-1"
 							aria-pressed={view.mode === mode}
 							data-testid={`egress-mode-${mode}`}
 							onClick={() => {
@@ -121,7 +121,7 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 				data-tone={status.tone}
 			>
 				<span
-					className={`mt-0.5 flex-none ${status.tone === "error" ? "text-status-error" : ""}`}
+					className={`mt-0.5 flex-none ${status.tone === "error" ? "text-status-error" : status.tone === "applied" ? "text-status-running" : ""}`}
 				>
 					{status.tone === "pending" ? (
 						<span className="pk-spin" aria-hidden={true} />

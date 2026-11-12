@@ -1,5 +1,6 @@
 import { type FocusEvent, type ReactNode, useEffect, useRef } from "react";
 import { AdminGroup } from "../AdminSection.js";
+import { TableBox } from "../TableBox.js";
 
 /**
  * Catches focus when a finished delete removes the focused row, such as its
@@ -50,15 +51,21 @@ export function Table({
 	headers,
 	empty,
 	selectAll,
+	numeric = [],
+	className,
 	children,
 }: {
 	testId: string;
+	/** Extra classes for the table, such as a phone layout of its own. */
+	className?: string;
 	caption: string;
 	/** Column names; "" for the actions column, or a name with its toggletip. */
 	headers: (string | { name: string; help: ReactNode })[];
 	empty: string | null;
 	/** A deletable list's select-all box, heading a first column; each row then starts with a `SELECT_CELL`. */
 	selectAll?: ReactNode;
+	/** Column names whose figures right-align, header and cells alike. */
+	numeric?: readonly string[];
 	children: ReactNode;
 }) {
 	if (empty !== null) {
@@ -69,8 +76,11 @@ export function Table({
 		);
 	}
 	return (
-		<div className="pk-table-wrap">
-			<table className="pk-table" data-testid={testId}>
+		<TableBox label={caption}>
+			<table
+				className={className ? `pk-table ${className}` : "pk-table"}
+				data-testid={testId}
+			>
 				<caption className="sr-only">{caption}</caption>
 				<thead>
 					<tr>
@@ -81,7 +91,11 @@ export function Table({
 						) : null}
 						{headers.map((header) =>
 							typeof header === "string" ? (
-								<th key={header} scope="col">
+								<th
+									key={header}
+									scope="col"
+									className={numeric.includes(header) ? "pk-num" : undefined}
+								>
 									{header || <span className="sr-only">Actions</span>}
 								</th>
 							) : (
@@ -97,6 +111,6 @@ export function Table({
 				</thead>
 				<tbody>{children}</tbody>
 			</table>
-		</div>
+		</TableBox>
 	);
 }

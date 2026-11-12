@@ -1,0 +1,373 @@
+/*
+ * The Logs workbench: one filter bar on the sunken surface, then quiet
+ * single-line rows whose level shows as a strip at the row's start, and the
+ * chosen line in full beside the table. Values are design tokens only.
+ */
+.pk-logbar {
+	display: grid;
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-4);
+	border-radius: var(--radius-md);
+	background: var(--surface-sunken);
+}
+.pk-logbar-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-3) var(--space-4);
+	min-width: 0;
+}
+.pk-logbar-search {
+	flex: 1 1 16rem;
+	min-width: 0;
+}
+.pk-logbar-actions {
+	display: flex;
+	gap: var(--space-2);
+	margin-inline-start: auto;
+}
+.pk-logbar-row--chips {
+	align-items: center;
+	gap: var(--space-2) var(--space-6);
+	padding-block-start: var(--space-3);
+	border-block-start: 1px solid var(--line);
+}
+.pk-logbar-chips {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+/* Floated, so the legend sits on the chips' line instead of over the group. */
+.pk-logbar-legend {
+	float: inline-start;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	margin-inline-end: var(--space-1);
+	padding: 0;
+}
+.pk-logbar-chip-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1\.5);
+}
+
+/*
+ * A filter chip, one look for every chip. Off: the raised face, a strong
+ * edge and muted ink. On: the accent tint, the accent edge, ink and a check
+ * before the label. The level's colour stays in its dot in both states.
+ */
+.pk-chipcheck {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	min-height: 30px;
+	padding-inline: var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	font-weight: 500;
+	cursor: pointer;
+	user-select: none;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.pk-chipcheck:hover {
+	color: var(--ink);
+	background: var(--surface-hover);
+}
+.pk-chipcheck:has(:checked) {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+.pk-chipcheck:has(:focus-visible) {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+/* The box is not drawn: it lies clear over the whole chip, so a tap anywhere on the chip is a tap on the box. */
+.pk-chipcheck-box {
+	position: absolute;
+	inset: 0;
+	inline-size: 100%;
+	block-size: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+.pk-chipcheck-tick {
+	display: none;
+	flex: none;
+	color: var(--accent-text);
+}
+.pk-chipcheck:has(:checked) .pk-chipcheck-tick {
+	display: block;
+}
+.pk-chipcheck-dot {
+	flex: none;
+	inline-size: 8px;
+	block-size: 8px;
+	border-radius: var(--radius-full);
+	background: var(--ink-muted);
+}
+.pk-chipcheck[data-kind="error"] .pk-chipcheck-dot {
+	background: var(--status-error);
+}
+.pk-chipcheck[data-kind="warn"] .pk-chipcheck-dot {
+	background: var(--status-warning);
+}
+.pk-chipcheck[data-kind="info"] .pk-chipcheck-dot {
+	background: var(--status-starting);
+}
+@media (forced-colors: active) {
+	.pk-chipcheck:has(:checked) {
+		border-color: Highlight;
+	}
+}
+
+/* The results toolbar: auto refresh and the count on the left, the service log level at the end. */
+.pk-logs-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-4);
+}
+.pk-logs-count-top {
+	font-variant-numeric: tabular-nums;
+}
+.pk-loglevel {
+	margin-inline-start: auto;
+}
+.pk-loglevel label {
+	white-space: nowrap;
+	color: var(--ink-muted);
+}
+
+/* Auto refresh reads as a live signal: a green dot while the list follows new lines. */
+.pk-logs-live {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+}
+.pk-live-toggle {
+	gap: var(--space-2);
+}
+.pk-live-dot {
+	position: relative;
+	inline-size: 8px;
+	block-size: 8px;
+	border-radius: var(--radius-full);
+	border: 1.5px solid var(--ink-muted);
+}
+.pk-live-toggle[data-live] .pk-live-dot {
+	border-color: var(--status-running);
+	background: var(--status-running);
+}
+.pk-live-toggle[data-live] .pk-live-dot::after {
+	content: "";
+	position: absolute;
+	inset: -1.5px;
+	border-radius: inherit;
+	background: var(--status-running);
+	animation: pk-live-pulse 2.4s var(--ease-standard) infinite;
+}
+@keyframes pk-live-pulse {
+	from {
+		opacity: 0.5;
+		transform: scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: scale(2.4);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-live-toggle[data-live] .pk-live-dot::after {
+		animation: none;
+		display: none;
+	}
+}
+
+/* Log rows: at least 36 px, every cell centred so the chevron, time and message line up. */
+.pk-log-table .pk-log-row {
+	cursor: pointer;
+}
+.pk-log-table .pk-log-row > td {
+	height: 36px;
+	padding-block: var(--space-1);
+	vertical-align: middle;
+	line-height: 18px;
+}
+.pk-log-table .pk-log-row > td:first-child {
+	padding-inline-end: 0;
+}
+.pk-log-table .pk-log-row .pk-mono-small {
+	line-height: 18px;
+}
+.pk-log-table .pk-log-row[data-level="warn"] > td:first-child {
+	box-shadow: inset 3px 0 0 var(--status-warning);
+}
+.pk-log-table
+	.pk-log-row:is([data-level="error"], [data-level="fatal"])
+	> td:first-child {
+	box-shadow: inset 3px 0 0 var(--status-error);
+}
+.pk-log-table .pk-log-row[aria-selected="true"] > td:first-child {
+	box-shadow: inset 3px 0 0 var(--accent);
+}
+.pk-log-table .pk-log-row [data-testid="log-row-toggle"] > .pk-icon {
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+.pk-log-table
+	.pk-log-row[aria-selected="true"]
+	[data-testid="log-row-toggle"]
+	> .pk-icon {
+	transform: rotate(180deg);
+}
+/* Time, service, route and person step back so the message leads the row. */
+.pk-log-time {
+	font-size: var(--text-sm);
+	font-weight: 400;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	color: var(--ink-muted);
+}
+.pk-log-table .pk-log-row > :is(.pk-log-service, .pk-log-user) {
+	font-size: var(--text-sm);
+}
+/*
+ * The table fits its own box rather than clipping its last columns: the
+ * line inspector can take room beside it at any window size, so it folds by
+ * the box's width. Workspace goes first, then the cells tighten, then User;
+ * both stay in the inspector. A long name wraps within its cell.
+ */
+.pk-log-wrap {
+	container: log-table / inline-size;
+}
+.pk-log-table .pk-log-row > .pk-log-user {
+	max-inline-size: 8rem;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+@container log-table (width < 53rem) {
+	.pk-log-table .pk-log-workspace {
+		display: none;
+	}
+}
+@container log-table (width < 46rem) {
+	.pk-log-table :is(th, td):not(:first-child) {
+		padding-inline: var(--space-2);
+	}
+}
+@container log-table (width < 40rem) {
+	.pk-log-table .pk-log-user {
+		display: none;
+	}
+}
+/* Under the plain-words message: the method, route and error code as they were logged. */
+.pk-log-source {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 var(--space-3);
+	margin-block-start: 2px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--ink-muted);
+}
+.pk-log-code {
+	font-weight: 600;
+	color: var(--ink);
+}
+.pk-log-day,
+.pk-log-service,
+.pk-log-level-word {
+	color: var(--ink-muted);
+}
+.pk-log-level-word {
+	font-size: var(--text-xs);
+	font-weight: 500;
+}
+
+/* A phone: each line is two rows, its time, level and status above its message; the rest is in the inspector. */
+@container admin-scroll (width < 35rem) {
+	.pk-logbar-search,
+	.pk-logbar-row > .w-56 {
+		flex: 1 1 100%;
+		width: auto;
+	}
+	.pk-logbar-actions {
+		flex: 1 1 100%;
+		margin-inline-start: 0;
+	}
+	.pk-logbar-actions > * {
+		flex: 1 1 0;
+	}
+	.pk-chipcheck {
+		min-height: var(--size-control-lg);
+	}
+	.pk-log-table,
+	.pk-log-table tbody {
+		display: block;
+	}
+	/*
+	 * As the Users table does stacked: the head row keeps the Time sort, and
+	 * the heads of the folded columns leave it, so no sort button the eye
+	 * cannot see takes focus.
+	 */
+	.pk-log-table thead {
+		display: block;
+	}
+	.pk-log-table thead tr {
+		display: flex;
+		align-items: center;
+	}
+	.pk-log-table thead th:nth-child(n + 3) {
+		display: none;
+	}
+	.pk-log-table .pk-log-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		column-gap: var(--space-2);
+		row-gap: var(--space-1);
+		padding: var(--space-2) var(--space-3) var(--space-2) 0;
+		border-block-end: 1px solid var(--line);
+	}
+	.pk-log-table .pk-log-row > td {
+		display: block;
+		height: auto;
+		padding: 0;
+		border: 0;
+		background: none;
+	}
+	.pk-log-table .pk-log-row > td:first-child {
+		align-self: stretch;
+		display: flex;
+		align-items: center;
+		padding-inline: var(--space-2) 0;
+	}
+	.pk-log-table .pk-log-row > .pk-log-message {
+		order: 10;
+		flex-basis: 100%;
+		padding-inline-start: var(--space-10);
+	}
+	.pk-log-table .pk-log-row > .pk-log-message > div {
+		min-width: 0;
+	}
+	.pk-log-table .pk-log-row > :is(.pk-log-user, .pk-log-workspace) {
+		display: none;
+	}
+	.pk-loglevel {
+		margin-inline-start: 0;
+	}
+}

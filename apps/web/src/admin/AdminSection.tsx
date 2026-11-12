@@ -1,5 +1,6 @@
 import { PageIntro } from "@portikus/ui";
 import { type ReactNode, useId } from "react";
+import { PorticoMark } from "../common/PorticoMark.js";
 
 /**
  * Move focus to the shown tab's heading. Used when the control that had focus
@@ -15,6 +16,7 @@ export function AdminSection({
 	count,
 	actions,
 	intro,
+	measure = "wide",
 	children,
 }: {
 	title: string;
@@ -26,17 +28,31 @@ export function AdminSection({
 	 * state ("admin-users"); `helpAnchor` is the administrator help section.
 	 */
 	intro?: { id: string; lead: string; text: string; helpAnchor: string };
+	/**
+	 * How wide the tab's work runs: "wide" for tables and dashboards, "form"
+	 * for a column of cards that are read and edited top to bottom.
+	 */
+	measure?: "wide" | "form";
 	children: ReactNode;
 }) {
 	const headingId = useId();
 	return (
-		<section className="flex flex-col gap-4" aria-labelledby={headingId}>
+		<section
+			className="pk-admin-page"
+			data-measure={measure}
+			aria-labelledby={headingId}
+		>
 			{/* The title and its lead read as one block above the tab's content. */}
-			<div className="grid gap-1">
-				<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+			<div className="pk-admin-head">
+				<p className="pk-eyebrow" aria-hidden={true}>
+					<PorticoMark />
+					{/* The rail already names the tab's group, so the eyebrow does not repeat it. */}
+					<span>Administration</span>
+				</p>
+				<div className="pk-admin-head-row flex flex-wrap items-center gap-x-4 gap-y-2">
 					<div className="flex min-w-0 items-baseline gap-3">
 						<h2
-							className="pk-text-title m-0"
+							className="pk-admin-title pk-text-display m-0"
 							id={headingId}
 							tabIndex={-1}
 							data-admin-heading
@@ -44,11 +60,13 @@ export function AdminSection({
 							{title}
 						</h2>
 						{count !== undefined ? (
-							<span className="text-[13px] text-ink-muted">{count}</span>
+							<span className="pk-num text-[13px] text-ink-muted">{count}</span>
 						) : null}
 					</div>
 					{actions !== undefined ? (
-						<div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>
+						<div className="pk-admin-actions ml-auto flex flex-wrap items-center gap-2">
+							{actions}
+						</div>
 					) : null}
 				</div>
 				{intro ? (
@@ -71,7 +89,8 @@ export function AdminSection({
 // w-72 text field, shrinks to a narrow card instead of widening it (SPEC.md 25.8).
 const LEVEL = {
 	3: {
-		section: "pk-card @container grid grid-cols-[minmax(0,1fr)] gap-5 p-6",
+		section:
+			"pk-card pk-admin-card @container grid grid-cols-[minmax(0,1fr)] gap-4 p-6",
 		heading: "pk-text-heading m-0",
 	},
 	4: {
@@ -108,7 +127,8 @@ export function AdminGroup({
 	return (
 		<section className={LEVEL[level].section} aria-labelledby={id} data-testid={testId}>
 			<div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-				<div className="grid min-w-0 flex-1 gap-1">
+				{/* A 12rem basis, so the actions wrap under a narrow title rather than draw over it. */}
+				<div className="grid min-w-0 flex-[1_1_12rem] gap-1">
 					<div className="flex items-center gap-1">
 						<Heading className={LEVEL[level].heading} id={id} tabIndex={-1}>
 							{title}

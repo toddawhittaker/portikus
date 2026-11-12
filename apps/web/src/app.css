@@ -4,6 +4,7 @@
 @import "./shell/header.css";
 @import "./tables.css";
 @import "./controls.css";
+@import "./console.css";
 
 /*
  * Screen-level patterns from design/mockups/portikus-screens.css: the shell
@@ -433,7 +434,7 @@ body {
 	color: var(--accent-text);
 }
 .pk-list-row[aria-current="page"] .pk-icon {
-	color: var(--accent);
+	color: var(--accent-text);
 }
 .pk-list-row:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
@@ -456,17 +457,27 @@ body {
 .pk-tag {
 	display: inline-flex;
 	align-items: center;
-	height: 18px;
-	padding: 0 var(--space-1\.5);
+	/* The Badge's shape and type, in its neutral tone, so every status chip is one family. */
+	box-sizing: border-box;
+	height: var(--size-badge);
+	padding: 0 var(--space-2);
 	border-radius: var(--radius-sm);
-	background: var(--surface-sunken);
-	border: 1px solid var(--line);
-	color: var(--ink-muted);
-	font-size: 12px;
-	font-weight: 500;
+	background: var(--status-stopped-soft);
+	border: 0;
+	color: var(--status-stopped);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
 	/* A tag is one word group: it never wraps inside or shrinks. */
 	white-space: nowrap;
 	flex: none;
+}
+/* A success in a list of results: a check and the word, no chip, so only failures stand out. */
+.pk-tag[data-quiet] {
+	gap: var(--space-1);
+	padding: 0;
+	background: none;
+	color: var(--status-running);
 }
 .pk-tag--warning {
 	background: var(--status-warning-soft);
@@ -492,6 +503,17 @@ body {
 	gap: var(--space-3);
 	padding: var(--space-4);
 	border-top: 1px solid var(--line);
+}
+/* A run of related actions in the detail panel, under its small label. */
+.pk-detail-group {
+	display: grid;
+	gap: var(--space-2);
+}
+/* Set apart by a rule and a 24 px gap, so a destructive step is never next to a routine one. */
+.pk-detail-group--danger {
+	margin-block-start: var(--space-3);
+	padding-block-start: var(--space-3);
+	border-block-start: 1px solid var(--line);
 }
 .pk-dl {
 	display: grid;

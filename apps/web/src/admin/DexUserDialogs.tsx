@@ -162,7 +162,7 @@ export function AddDexUser() {
 
 	return (
 		<>
-			<Button size="sm" data-testid="dex-add-user" onClick={() => change(true)}>
+			<Button variant="primary" data-testid="dex-add-user" onClick={() => change(true)}>
 				Add user…
 			</Button>
 			<DialogRoot open={open} onOpenChange={change}>

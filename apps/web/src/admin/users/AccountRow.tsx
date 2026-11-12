@@ -4,7 +4,7 @@ import { imageText, Markers, markerLabels, roleText } from "../markers.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 import { AccountMenu } from "./AccountMenu.js";
 import type { BulkAction } from "./BulkActions.js";
-import { activityText } from "./filters.js";
+import { accountActivityText } from "./filters.js";
 
 /** The Account cell's second line: the email, or the username when there is none. */
 function accountContact(user: Pick<AdminUser, "email" | "preferredUsername">): string {
@@ -38,15 +38,15 @@ export function AccountRow({
 	const labels = markerLabels(user.markers, workspace);
 	return (
 		<tr
-			className={`align-top ${selected ? "bg-surface-hover" : ""}`}
+			className={`align-middle ${selected ? "pk-row-selected" : ""}`}
 			aria-current={selected ? "true" : undefined}
 			data-testid={`account-row-${user.id}`}
 			data-markers={labels.join(",")}
 		>
 			<td
 				className="py-2"
-				// The ink bar marks the selected row without relying on colour.
-				style={selected ? { boxShadow: "var(--row-current-bar)" } : undefined}
+				// The accent bar marks the selected row without relying on the fill alone.
+				style={selected ? { boxShadow: "inset 2px 0 0 var(--accent)" } : undefined}
 				data-testid={`account-cell-${user.id}`}
 			>
 				<Checkbox
@@ -55,13 +55,13 @@ export function AccountRow({
 					onChange={(event) => onCheck(event.target.checked)}
 				/>
 			</td>
-			<td className="py-2 whitespace-normal">
+			<td className="pk-account-cell py-2 whitespace-normal">
 				<div className="pk-cell-stack" data-testid={`account-name-${user.id}`}>
 					<span className="pk-cell-primary flex-wrap gap-x-2 gap-y-1">
 						<button
 							type="button"
 							id={rowButtonId(user.id)}
-							className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink [overflow-wrap:anywhere]"
+							className="pk-account-open pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink [overflow-wrap:anywhere]"
 							aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
 							aria-expanded={selected}
 							aria-controls={selected ? "workspace-detail" : undefined}
@@ -71,10 +71,10 @@ export function AccountRow({
 						</button>
 						<Markers markers={user.markers} workspace={workspace} />
 					</span>
-					{/* w-0 min-w-full: the contact fills the column but never widens it, so a long
-					    email truncates instead of pushing Activity and the menu out at 1024 px. */}
+					{/* w-0 min-w-full: the contact fills the column but never widens it; a long
+					    address wraps rather than pushing Activity and the menu out. */}
 					<span
-						className="pk-cell-secondary block w-0 min-w-full truncate"
+						className="pk-cell-secondary block w-0 min-w-full [overflow-wrap:anywhere]"
 						title={accountContact(user)}
 						data-testid={`account-contact-${user.id}`}
 					>
@@ -83,11 +83,11 @@ export function AccountRow({
 				</div>
 			</td>
 			<td className="py-2 whitespace-normal" data-testid={`account-role-${user.id}`}>
-				{roleText(user)}
+				<RoleCell text={roleText(user)} />
 			</td>
 			<td className="py-2">
 				{workspace ? (
-					<div className="flex flex-col items-start gap-1">
+					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 						<span className="pk-mono-small">{workspace.label}</span>
 						<WorkspaceStateBadge
 							state={workspace.state}
@@ -97,7 +97,7 @@ export function AccountRow({
 						/>
 						{workspace.image.current === false ? (
 							<span
-								className="pk-tag pk-tag--warning"
+								className="pk-tag"
 								title={imageText(workspace.image)}
 								data-testid={`account-image-${user.id}`}
 							>
@@ -110,14 +110,25 @@ export function AccountRow({
 				)}
 			</td>
 			<td
-				className="py-2 whitespace-normal"
+				className="py-2 whitespace-normal text-[13px] text-ink-muted"
 				data-testid={`account-activity-${user.id}`}
 			>
-				{workspace ? activityText(workspace, now) : "—"}
+				{accountActivityText(user, now)}
 			</td>
 			<td className="pk-cell-actions py-2">
 				<AccountMenu user={user} currentUserId={currentUserId} onConfirm={onConfirm} />
 			</td>
 		</tr>
+	);
+}
+
+/** "Administrator (from SSO)": the role on the first line, where it came from under it in the quiet style. */
+function RoleCell({ text }: { text: string }) {
+	const source = text.match(/^(.*?) (\(.*\))$/);
+	if (!source) return text;
+	return (
+		<span className="pk-cell-stack">
+			<span>{source[1]}</span> <span className="pk-cell-secondary">{source[2]}</span>
+		</span>
 	);
 }

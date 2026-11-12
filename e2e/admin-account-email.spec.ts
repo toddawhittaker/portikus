@@ -79,7 +79,12 @@ async function addWithLink(page: Page, options: { checkA11y?: boolean } = {}) {
 async function openDetail(page: Page, name: string) {
 	await page.getByTestId("admin-filter-text").fill(name);
 	await page.getByRole("button", { name: `Show details for ${name}` }).click();
-	return page.getByRole("region", { name });
+	const panel = page.getByRole("region", { name });
+	// The account's actions sit on the inspector's Account tab.
+	const account = panel.getByRole("tab", { name: "Account" });
+	await account.click();
+	await expect(account).toHaveAttribute("aria-selected", "true");
+	return panel;
 }
 
 test("Add user emails a link to choose a password instead of showing one", async ({
@@ -197,7 +202,9 @@ test("Invite emails the invitation when ticked, and Resend sends it again", asyn
 }) => {
 	await openUsers(page);
 	const who = person();
-	await page.getByRole("button", { name: "Invite…" }).click();
+	// Invite and Import sit in the More menu beside "Add user…".
+	await page.getByRole("button", { name: "More", exact: true }).click();
+	await page.getByRole("menuitem", { name: "Invite…" }).click();
 	const dialog = page.getByRole("dialog", { name: "Invite someone" });
 	await dialog.getByLabel("Name", { exact: true }).fill(who.name);
 	await dialog.getByLabel("Email", { exact: true }).fill(who.email);
@@ -227,7 +234,9 @@ test("CSV import emails each person when ticked", async ({ page }) => {
 		`${pat.name},${pat.email},${pat.username},student,password`,
 		`${quinn.name},${quinn.email},,student,invite`,
 	].join("\n");
-	await page.getByRole("button", { name: "Import from CSV…" }).click();
+	// Invite and Import sit in the More menu beside "Add user…".
+	await page.getByRole("button", { name: "More", exact: true }).click();
+	await page.getByRole("menuitem", { name: "Import from CSV…" }).click();
 	const dialog = page.getByRole("dialog", { name: "Import from CSV" });
 	await dialog.getByRole("checkbox", { name: "Email each person" }).check();
 	await expectNoViolations(page, "[data-testid=import-dialog]");

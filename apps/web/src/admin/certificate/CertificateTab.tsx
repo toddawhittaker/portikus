@@ -17,9 +17,11 @@ import {
 import { useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
+import "../backups/backups.css";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
 import { Notice } from "../Notice.js";
+import { TableBox } from "../TableBox.js";
 import {
 	daysText,
 	expiry,
@@ -55,7 +57,7 @@ export function CertificateTab() {
 		const off =
 			certificate.error instanceof ApiError && certificate.error.status === 404;
 		return (
-			<AdminSection title={TITLE} intro={INTRO}>
+			<AdminSection title={TITLE} intro={INTRO} measure="form">
 				{off ? (
 					<div className="pk-card" data-testid="cert-off">
 						<EmptyState icon="info" title="Certificate management is off on this site">
@@ -73,7 +75,7 @@ export function CertificateTab() {
 	}
 	if (!certificate.data) {
 		return (
-			<AdminSection title={TITLE} intro={INTRO}>
+			<AdminSection title={TITLE} intro={INTRO} measure="form">
 				<div className="grid gap-6" aria-busy="true" data-testid="cert-loading">
 					<Skeleton variant="block" height={180} />
 					<Skeleton variant="block" height={320} />
@@ -110,7 +112,7 @@ function CertificateSections({ data }: { data: AdminCertificate }) {
 	}
 
 	return (
-		<AdminSection title={TITLE} intro={INTRO}>
+		<AdminSection title={TITLE} intro={INTRO} measure="form">
 			<Group
 				id="cert-current-title"
 				title="Certificate in use"
@@ -253,7 +255,7 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 					) : null}
 				</Notice>
 			) : null}
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dl className="pk-kv">
 				<dt className="pk-muted">Source</dt>
 				<dd className="m-0 [overflow-wrap:anywhere]" data-testid="cert-source">
 					{settings
@@ -286,10 +288,10 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 				</dd>
 			</dl>
 			{status ? (
-				<div className="pk-table-wrap">
+				<TableBox label="Certificates in use">
 					<table
 						// Long issuers and name lists wrap in their own column, top-aligned so each row reads across.
-						className="pk-table [&_tbody_:is(th,td)]:py-2 [&_tbody_:is(th,td)]:align-top [&_tbody_:is(th,td)]:whitespace-normal"
+						className="pk-table [&_tbody_:is(th,td)]:py-2 [&_tbody_:is(th,td)]:align-middle [&_tbody_:is(th,td)]:whitespace-normal"
 						data-testid="cert-table"
 					>
 						<caption className="sr-only">Certificates in use</caption>
@@ -322,7 +324,7 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 							/>
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			) : (
 				<p className="pk-muted m-0 text-[13px]" data-testid="cert-not-checked">
 					The certificate has not been checked yet. The check runs every hour and after
@@ -425,11 +427,11 @@ function JobGroup({ job }: { job: CertificateJobView }) {
 	const tone = ended
 		? "pk-tag pk-tag--error"
 		: shown.state === "succeeded"
-			? "pk-tag"
+			? "pk-quiet-ok font-medium"
 			: "pk-tag border-transparent bg-status-starting-soft text-status-starting";
 	return (
 		<Group id="cert-job-title" title="Latest job" testId="cert-job">
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dl className="pk-kv">
 				<dt className="pk-muted">Job</dt>
 				<dd className="m-0 [overflow-wrap:anywhere]" data-testid="cert-job-kind">
 					{jobTitle(shown)}
@@ -437,7 +439,8 @@ function JobGroup({ job }: { job: CertificateJobView }) {
 				<dt className="pk-muted">State</dt>
 				<dd className="m-0">
 					<span data-testid="cert-job-state">
-						<span className={tone}>{STATE_LABEL[shown.state]}</span> {shown.step}
+						<span className={tone}>{STATE_LABEL[shown.state]}</span>
+						<span className="pk-muted"> {shown.step}</span>
 					</span>
 				</dd>
 				{shown.message ? (
@@ -491,10 +494,7 @@ function RootGroup() {
 					Download root certificate
 				</a>
 			</div>
-			<dl
-				className="m-0 grid max-w-[96ch] grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
-				data-testid="cert-root-steps"
-			>
+			<dl className="pk-kv max-w-[96ch]" data-testid="cert-root-steps">
 				<dt className="pk-muted">Windows</dt>
 				<dd className="m-0">
 					Open the file, choose Install Certificate, then Local Machine, and place it in
@@ -511,7 +511,11 @@ function RootGroup() {
 					<code className="pk-mono-body [overflow-wrap:anywhere]">
 						/usr/local/share/ca-certificates/
 					</code>{" "}
-					and run <code className="pk-mono-body">sudo update-ca-certificates</code>.
+					and run{" "}
+					<code className="pk-mono-body whitespace-nowrap">
+						sudo update-ca-certificates
+					</code>
+					.
 				</dd>
 				<dt className="pk-muted">Firefox</dt>
 				<dd className="m-0">

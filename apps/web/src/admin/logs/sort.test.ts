@@ -63,13 +63,10 @@ test("Status sorts as a number, and lines with none go last", () => {
 	).toEqual(["d", "c", "b", "a"]);
 });
 
-test("Service and Code sort by their words, ties in journal order", () => {
+test("Service sorts by its words, ties in journal order", () => {
 	expect(
 		cursors(sortLogLines(LINES, { column: "service", direction: "ascending" })),
 	).toEqual(["b", "d", "c", "a"]);
-	expect(
-		cursors(sortLogLines(LINES, { column: "code", direction: "ascending" })),
-	).toEqual(["d", "a", "b", "c"]);
 });
 
 test("the caption says when the loaded lines are in another order", () => {

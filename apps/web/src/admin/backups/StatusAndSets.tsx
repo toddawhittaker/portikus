@@ -3,11 +3,21 @@ import type {
 	BackupRequestView,
 	HostBackupSet,
 } from "@portikus/contracts";
-import { Button, Toggletip } from "@portikus/ui";
+import {
+	Button,
+	IconButton,
+	Menu,
+	MenuItem,
+	MenuRoot,
+	MenuTrigger,
+	Toggletip,
+} from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { sampleAge } from "../health/HealthTab.js";
-import { longTime, runningText, setTime } from "./model.js";
+import "./backups.css";
+import { backupTime, nights, runningText, setTime } from "./model.js";
+import { NightStrip } from "./NightStrip.js";
 import { FocusCatchGroup, SELECT_CELL, Table } from "./parts.js";
 import {
 	DeleteSelectedButton,
@@ -38,54 +48,56 @@ export function StatusPart({
 		<FocusCatchGroup
 			level={4}
 			id="backups-status-title"
-			title="Status"
+			title="Recovery readiness"
 			testId="backups-status"
 		>
-			{/*
-			 * Pairs sit side by side once the card is wide enough, with more room
-			 * between pairs than between a label and its value.
-			 */}
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px] @3xl:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)] @3xl:[&>dt:nth-of-type(2n)]:ps-4">
-				<dt className="pk-muted">Host</dt>
-				<dd className="m-0" data-testid="backups-host">
-					{data.hostReportedAt
-						? `${data.hostStale ? "Not reporting" : "Reporting"}, last report ${sampleAge(data.hostReportedAt, Date.now())}`
-						: "Not reporting"}
-				</dd>
-				<dt className="pk-muted">Running now</dt>
-				<dd className="m-0" data-testid="backups-running">
-					{runningText(host.running, data.requests, data.workspaces)}
-				</dd>
-				<dt className="pk-muted">Last run</dt>
-				<dd className="m-0" data-testid="backups-last-run">
-					{host.lastRun
-						? `${host.lastRun.result === "success" ? "Succeeded" : "Failed"}, started ${longTime(host.lastRun.startedAt)}`
-						: "None yet"}
-				</dd>
-				<dt className="pk-muted">Next scheduled run</dt>
-				<dd className="m-0" data-testid="backups-next-run">
-					{host.nextRunAt ? longTime(host.nextRunAt) : "Not scheduled"}
-				</dd>
-				<dt className="pk-muted">Last failure</dt>
-				<dd className="m-0 [overflow-wrap:anywhere]" data-testid="backups-last-failure">
-					{host.lastFailure
-						? `${longTime(host.lastFailure.at)}: ${host.lastFailure.reason}`
-						: "None"}
-				</dd>
-				<dt className="pk-muted flex items-center gap-1">
-					Restore key
-					<Toggletip label="the restore key">
-						The private key that unlocks backups, kept on{" "}
-						{local ? "this server" : "the backup host"}. Without it, backups still run,
-						but nothing can be restored.
-					</Toggletip>
-				</dt>
-				<dd className="m-0" data-testid="backups-key">
-					{host.keyInstalled
-						? `Installed on ${local ? "this server" : "the host"}`
-						: `Not installed on ${local ? "this server" : "the host"}, so workspaces cannot be restored`}
-				</dd>
-			</dl>
+			<div className="pk-readiness">
+				<NightStrip nights={nights(host, Date.now())} />
+				<dl className="pk-kv">
+					<dt className="pk-muted">Host</dt>
+					<dd className="m-0" data-testid="backups-host">
+						{data.hostReportedAt
+							? `${data.hostStale ? "Not reporting" : "Reporting"}, last report ${sampleAge(data.hostReportedAt, Date.now())}`
+							: "Not reporting"}
+					</dd>
+					<dt className="pk-muted">Running now</dt>
+					<dd className="m-0" data-testid="backups-running">
+						{runningText(host.running, data.requests, data.workspaces)}
+					</dd>
+					<dt className="pk-muted">Last run</dt>
+					<dd className="m-0" data-testid="backups-last-run">
+						{host.lastRun
+							? `${host.lastRun.result === "success" ? "Succeeded" : "Failed"}, started ${backupTime(host.lastRun.startedAt)}`
+							: "None yet"}
+					</dd>
+					<dt className="pk-muted">Next scheduled run</dt>
+					<dd className="m-0" data-testid="backups-next-run">
+						{host.nextRunAt ? backupTime(host.nextRunAt) : "Not scheduled"}
+					</dd>
+					<dt className="pk-muted">Last failure</dt>
+					<dd
+						className="m-0 [overflow-wrap:anywhere]"
+						data-testid="backups-last-failure"
+					>
+						{host.lastFailure
+							? `${backupTime(host.lastFailure.at)}: ${host.lastFailure.reason}`
+							: "None"}
+					</dd>
+					<dt className="pk-muted flex items-center gap-1">
+						Restore key
+						<Toggletip label="the restore key">
+							The private key that unlocks backups, kept on{" "}
+							{local ? "this server" : "the backup host"}. Without it, backups still
+							run, but nothing can be restored.
+						</Toggletip>
+					</dt>
+					<dd className="m-0" data-testid="backups-key">
+						{host.keyInstalled
+							? `Installed on ${local ? "this server" : "the host"}`
+							: `Not installed on ${local ? "this server" : "the host"}, so workspaces cannot be restored`}
+					</dd>
+				</dl>
+			</div>
 		</FocusCatchGroup>
 	);
 }
@@ -124,6 +136,7 @@ export function SetsPart({
 			) : null}
 			<Table
 				testId="backup-sets"
+				className="pk-backup-sets"
 				caption="Backup sets, newest first"
 				headers={[
 					{
@@ -147,6 +160,7 @@ export function SetsPart({
 					"Workspaces",
 					"",
 				]}
+				numeric={["Size", "Workspaces"]}
 				empty={host.sets.length === 0 ? "No backup sets yet." : null}
 				selectAll={<SelectAllBox kind="set" noun="backup sets" selection={selection} />}
 			>
@@ -233,7 +247,7 @@ function SetResult({
 	return (
 		<>
 			{set.complete ? (
-				"Complete"
+				<span className="pk-quiet-ok">Complete</span>
 			) : (
 				<span className="pk-tag pk-tag--warning">Incomplete</span>
 			)}
@@ -280,7 +294,6 @@ function SetRow({
 	selection: ListSelection;
 }) {
 	const when = setTime(set.stamp);
-	const noteId = `backup-set-note-${set.stamp}`;
 	const restoreOff =
 		!keyInstalled || set.verified === false || set.instances.length === 0;
 	return (
@@ -296,12 +309,27 @@ function SetRow({
 			<td>
 				<SetResult set={set} notes={setNotes(set, keyInstalled, keptReason)} />
 			</td>
-			<td className="tabular-nums">{formatBytes(set.sizeBytes)}</td>
-			<td className="tabular-nums">{set.instances.length}</td>
+			<td className="pk-num">{formatBytes(set.sizeBytes)}</td>
+			<td className="pk-num">{set.instances.length}</td>
 			<td className="pk-cell-actions">
-				<div className="flex justify-end gap-2">
+				<div className="pk-backup-actions flex items-center justify-end gap-2">
+					{/* Always mounted, so the word is announced when a delete starts. */}
+					<span
+						className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-ink-muted"
+						aria-live="polite"
+						data-testid="backup-set-deleting"
+					>
+						{deleting ? (
+							<>
+								<span className="pk-dot pk-tone-starting" aria-hidden="true" />
+								Deleting…
+							</>
+						) : null}
+					</span>
 					<Button
 						size="sm"
+						variant="quiet"
+						className="pk-row-action"
 						data-testid="backup-set-restore"
 						aria-label={`Restore a workspace from ${when}`}
 						aria-disabled={restoreOff ? true : undefined}
@@ -312,24 +340,56 @@ function SetRow({
 					>
 						Restore…
 					</Button>
-					{/* Stays mounted while deleting so focus is not lost. */}
-					<Button
-						size="sm"
-						variant="danger-secondary"
-						data-testid="backup-set-delete"
-						aria-label={
-							deleting ? `Deleting the set from ${when}` : `Delete the set from ${when}`
-						}
-						aria-disabled={keptReason || deleting ? true : undefined}
-						aria-describedby={keptReason ? noteId : undefined}
-						onClick={() => {
-							if (!keptReason && !deleting) onDelete({ kind: "set", stamp: set.stamp });
-						}}
-					>
-						{deleting ? "Deleting…" : "Delete…"}
-					</Button>
+					<SetMenu
+						when={when}
+						keptReason={keptReason}
+						deleting={deleting}
+						onDelete={() => onDelete({ kind: "set", stamp: set.stamp })}
+					/>
 				</div>
 			</td>
 		</tr>
+	);
+}
+
+/**
+ * A set's "more" menu, so the one visible row action is Restore and Delete
+ * sits a step away, still confirmed by the delete dialog (SPEC.md section 20.1).
+ * A kept or deleting set shows Delete as unavailable with the reason under it.
+ */
+function SetMenu({
+	when,
+	keptReason,
+	deleting,
+	onDelete,
+}: {
+	when: string;
+	keptReason: string | null;
+	deleting: boolean;
+	onDelete: () => void;
+}) {
+	const label = `More for the set from ${when}`;
+	return (
+		<MenuRoot>
+			<MenuTrigger asChild>
+				<IconButton icon="more" size="sm" label={label} data-testid="backup-set-menu" />
+			</MenuTrigger>
+			<Menu label={label}>
+				<MenuItem
+					icon="trash"
+					danger
+					unavailable={keptReason !== null || deleting}
+					testId="backup-set-delete"
+					onSelect={onDelete}
+				>
+					{deleting ? "Deleting…" : "Delete set…"}
+					{keptReason && !deleting ? (
+						<span className="block text-[12px] font-normal leading-4 text-ink-muted">
+							{` ${keptReason}.`}
+						</span>
+					) : null}
+				</MenuItem>
+			</Menu>
+		</MenuRoot>
 	);
 }
