@@ -77,13 +77,22 @@
 }
 
 /* A ring marks the pane that has the keyboard when there are several to tell
-   apart; a pane alone in its tab shows focus through its cursor or field. */
-.pk-term.is-focused {
-	outline: var(--ring-width) none var(--focus);
-	outline-offset: var(--ring-offset-inset);
+   apart; a pane alone in its tab shows focus through its cursor or field.
+   An inset outline would sit under the pane's positioned children, which
+   paint over it (a chat's body hid all but its top edge), so the ring is a
+   layer of its own above them. The pane is isolated so that layer and its
+   children's own z-indexes stay inside it. */
+.pk-term {
+	isolation: isolate;
 }
-.pk-term.is-focused:not([data-alone]) {
-	outline-style: solid;
+.pk-term.is-focused:not([data-alone])::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	/* Above the drop shade and the subagent view, both at 2. */
+	z-index: 3;
+	border: var(--ring-width) solid var(--focus);
+	pointer-events: none;
 }
 
 .pk-term-bar {
