@@ -5,8 +5,8 @@ import { FAKE_AGENT_URL } from "./ports";
 /**
  * The Agent tool card in the Claude Code (GUI) chat (SPEC.md §8.2, §8.3): a
  * background launch shows a plain status and the prompt, with the text Claude
- * Code wrote for the model behind a closed Raw output; a foreground subagent
- * keeps its reply.
+ * Code wrote for the model never shown; an Agent card has no Raw input or Raw
+ * output; a foreground subagent keeps its reply.
  */
 
 const LAUNCH_TEXT =
@@ -42,7 +42,7 @@ async function setSubagent(
 	if (!response.ok) throw new Error(`the fake agent refused: ${response.status}`);
 }
 
-test("a background Agent card shows its status and prompt, and keeps the launch text closed", async ({
+test("a background Agent card shows its status and prompt, and never shows the launch text or a raw disclosure", async ({
 	page,
 	context,
 }) => {
@@ -118,11 +118,11 @@ test("a background Agent card shows its status and prompt, and keeps the launch 
 		"Started in the background · finished",
 	);
 
-	// Raw output holds the launch text, and opens on request.
-	const raw = card.locator("details.pk-chat-raw", { hasText: "Raw output" });
-	await expect(raw).toHaveJSProperty("open", false);
-	await raw.locator("summary").click();
-	await expect(card.getByText("internal metadata")).toBeVisible();
+	// Neither raw disclosure exists on an Agent card, so the launch text is nowhere.
+	await expect(card.getByText("Raw output")).toHaveCount(0);
+	await expect(card.getByText("Raw input")).toHaveCount(0);
+	await expect(card.locator("details.pk-chat-raw")).toHaveCount(0);
+	await expect(card.getByText("internal metadata")).toHaveCount(0);
 
 	// A foreground subagent keeps showing its reply.
 	const foreground = view.locator('details[data-testid="chat-tool-toolu_fg"]');
@@ -130,4 +130,5 @@ test("a background Agent card shows its status and prompt, and keeps the launch 
 	await expect(foreground.getByText("There are 12 routes.")).toBeVisible();
 	await expect(foreground.getByTestId("chat-agent-status")).toHaveCount(0);
 	await expect(foreground.getByText("Raw output")).toHaveCount(0);
+	await expect(foreground.getByText("Raw input")).toHaveCount(0);
 });
