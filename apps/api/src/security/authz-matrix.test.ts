@@ -391,6 +391,7 @@ const PAYLOADS: Record<string, object> = {
 	},
 	"POST /workspaces/:id/terminals": { name: "another" },
 	"PATCH /workspaces/:id/terminals/:tid": { name: "renamed" },
+	"POST /workspaces/:id/terminals/:tid/question": { id: "toolu_01Q", inTerminal: true },
 	"POST /workspaces/:id/projects": { name: "another", source: "new" },
 	"POST /workspaces/:id/projects/starter": { starterId: crypto.randomUUID() },
 	"PATCH /workspaces/:id/projects/:pid": { name: "renamed" },
