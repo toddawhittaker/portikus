@@ -112,6 +112,7 @@ describe("chat server events (SPEC.md §10.8)", () => {
 		},
 		{ type: "question.requested", ...env, id: "q1", questions: [question()] },
 		{ type: "card.resolved", ...env, id: "q1" },
+		{ type: "card.resolved", ...env, id: "p1", decision: "allowedAlways" },
 		{ type: "turn.finished", ...env, status: "interrupted", at: 1_800_000_001_000 },
 		{ type: "error", ...env, message: "boom" },
 		{
@@ -160,6 +161,17 @@ describe("chat server events (SPEC.md §10.8)", () => {
 			truncated: false,
 		});
 		expect(snapshot).not.toHaveProperty("messages");
+	});
+
+	test("a card.resolved decision must be one of the three fixed words", () => {
+		const resolved = { type: "card.resolved", ...env, id: "p1" };
+		for (const decision of ["allowed", "allowedAlways", "denied"]) {
+			expect(ChatServerEvent.safeParse({ ...resolved, decision }).success).toBe(true);
+		}
+		expect(ChatServerEvent.safeParse(resolved).success).toBe(true);
+		expect(ChatServerEvent.safeParse({ ...resolved, decision: "allow" }).success).toBe(
+			false,
+		);
 	});
 
 	test("an image is accepted at 5 MiB and refused one byte over", () => {
