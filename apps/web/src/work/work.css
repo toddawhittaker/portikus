@@ -77,17 +77,18 @@
 }
 
 /* A ring marks the pane that has the keyboard when there are several to tell
-   apart; a pane alone in its tab shows focus through its cursor or field.
-   It is a layer of its own rather than an outline: an outline sits under
-   the pane's positioned children (a chat's body), and both sit under the
-   splitters, whose hairline lands on the first pixel of the pane after
-   them. So the layer goes just above the splitters; it takes no pointer,
-   so their grab area still works, and menus and dialogs stay above it. */
-.pk-term.is-focused:not([data-alone])::after {
+   apart, whatever it holds; a pane alone in its tab shows focus through its
+   cursor or field. It is a layer of its own rather than an outline: an
+   outline sits under the pane's positioned children (a chat's body), and
+   both sit under the splitters, whose hairline lands on the first pixel of
+   the pane after them. So the layer goes above the splitters and above the
+   sticky heads and the table's own ring inside a pane; it takes no pointer,
+   so the splitters' grab area still works, and menus and dialogs stay above it. */
+:is(.pk-term, .pk-filepane).is-focused:not([data-alone])::after {
 	content: "";
 	position: absolute;
 	inset: 0;
-	z-index: calc(var(--z-pane-handle) + 1);
+	z-index: calc(var(--z-sticky) + 2);
 	border: var(--ring-width) solid var(--focus);
 	pointer-events: none;
 }
