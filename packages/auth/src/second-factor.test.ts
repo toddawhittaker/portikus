@@ -25,6 +25,16 @@ import { generateTotpSecret, totpCode, totpStep } from "./totp.js";
 const key = secondFactorKey("5f".repeat(32));
 const USER = "6f1c1a8e-1d3b-4b7e-9a51-1d2c3b4a5e6f";
 
+// A sealed value is "v1:" plus base64url of a 12-byte nonce, a 16-byte
+// authentication tag, then the ciphertext. Flipping every bit of one byte
+// always changes the value, unlike writing a fixed character over the end.
+function flipByte(sealed: string, offset: number): string {
+	const prefix = "v1:";
+	const raw = Buffer.from(sealed.slice(prefix.length), "base64url");
+	raw[offset] = (raw[offset] ?? 0) ^ 0xff;
+	return prefix + raw.toString("base64url");
+}
+
 describe("sealing secrets (SPEC.md section 24.13)", () => {
 	test("a sealed secret opens with the same key and context only", () => {
 		const secret = generateTotpSecret();
@@ -33,7 +43,8 @@ describe("sealing secrets (SPEC.md section 24.13)", () => {
 		expect(openSecret(key, sealed, "totp:a")).toEqual(secret);
 		expect(openSecret(key, sealed, "totp:b")).toBeNull();
 		expect(openSecret(secondFactorKey("a0".repeat(32)), sealed, "totp:a")).toBeNull();
-		expect(openSecret(key, `${sealed.slice(0, -2)}AA`, "totp:a")).toBeNull();
+		expect(openSecret(key, flipByte(sealed, 12), "totp:a")).toBeNull(); // a tag byte
+		expect(openSecret(key, flipByte(sealed, 12 + 16), "totp:a")).toBeNull(); // a ciphertext byte
 	});
 
 	test("the key comes from 32 bytes of hex and nothing shorter", () => {
