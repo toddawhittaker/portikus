@@ -1,14 +1,53 @@
-/* A subagent's conversation over its chat's log (SPEC.md §8.3). The composer
-   below stays in reach, since asking Claude is how a message gets passed on. */
+/* A subagent's conversation in a sheet docked to the chat's right edge, with
+   the chat's log still usable beside it (SPEC.md §8.3). The composer below
+   stays in reach, since asking Claude is how a message gets passed on. A pane
+   too narrow for both gives the sheet all of it and hides the log, which
+   takes the log out of the keyboard's reach too. */
+.pk-chat-main {
+	--pk-subagent-width: 100%;
+}
+
 .pk-subagent {
 	position: absolute;
-	inset: 0;
+	inset-block: 0;
+	inset-inline-end: 0;
+	inline-size: var(--pk-subagent-width);
 	z-index: 2;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 	background: var(--surface);
 	border-block-end: 1px solid var(--line);
+}
+
+.pk-chat-main[data-subagent] > .pk-chat-scroll,
+.pk-chat-main[data-subagent] > .pk-chat-jump {
+	visibility: hidden;
+}
+
+@container pk-chat (min-width: 36rem) {
+	.pk-chat-main {
+		--pk-subagent-width: clamp(18rem, 50%, 40rem);
+	}
+
+	.pk-subagent {
+		border-inline-start: 1px solid var(--line);
+	}
+
+	/* The log keeps the room the sheet leaves, its column centred in it. */
+	.pk-chat-main[data-subagent] > .pk-chat-scroll {
+		visibility: visible;
+		margin-inline-end: var(--pk-subagent-width);
+		padding-inline: max(
+			var(--space-4),
+			calc((100% - var(--pk-subagent-width) - var(--pk-chat-column)) / 2)
+		);
+	}
+
+	.pk-chat-main[data-subagent] > .pk-chat-jump {
+		visibility: visible;
+		margin-inline-end: calc(var(--pk-subagent-width) + var(--space-4));
+	}
 }
 
 .pk-subagent-head {

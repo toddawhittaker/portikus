@@ -167,9 +167,10 @@ function ChatViewBody({
 	const cardsHadFocus = useRef(false);
 	const ids = useId();
 	const follow = useFollowEnd(log, content, visible);
-	// A subagent picked in the project list opens at its tool row (SPEC.md §8.2).
-	useToolReveal(terminalId, log, visible, state.items);
 	const [subagent, setSubagent] = useState<SubagentTarget | null>(null);
+	// A subagent picked in the project list opens at its tool row (SPEC.md §8.2);
+	// the keyboard stays in its subagent view when that opens too.
+	useToolReveal(terminalId, log, visible, state.items, subagent === null);
 	/** Where the keyboard goes back to when the subagent view closes. */
 	const beforeSubagent = useRef<{
 		element: HTMLElement | null;
@@ -193,10 +194,17 @@ function ChatViewBody({
 	// From the project list, it opens once this chat is on screen, and the
 	// keyboard goes back to the Agent card's row, as the row's link promises.
 	const requested = useSubagentRequest(terminalId);
+	// The chat's own row closes the view; the keyboard stays on the row, as
+	// that row's link leaves it.
 	useEffect(() => {
-		if (!requested || !visible) return;
+		if (requested === undefined || !visible) return;
 		takeSubagentRequest(terminalId);
-		showSubagent(requested, null);
+		if (requested) {
+			showSubagent(requested, null);
+		} else {
+			beforeSubagent.current = null;
+			setSubagent(null);
+		}
 	}, [requested, visible, terminalId, showSubagent]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs as the view closes
 	useLayoutEffect(() => {
@@ -321,14 +329,14 @@ function ChatViewBody({
 				onLeave();
 			}}
 		>
-			<div className="pk-chat-main">
+			{/* With a subagent shown, the log stays usable beside it; the stylesheet
+			    hides the log only in a pane too narrow for both. */}
+			<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
 				<div
 					ref={log}
 					className="pk-chat-scroll"
 					data-testid="chat-scroll"
 					onScroll={follow.onScroll}
-					// The subagent view covers the log; the keyboard stays out from behind it.
-					inert={subagent !== null}
 				>
 					<div ref={content} className="pk-chat-column">
 						{!state.loaded ? (
@@ -379,7 +387,7 @@ function ChatViewBody({
 						onClose={() => setSubagent(null)}
 					/>
 				) : null}
-				{follow.away && !subagent ? (
+				{follow.away ? (
 					<div className="pk-chat-jump">
 						<IconButton
 							icon="chevron-down"

@@ -1,14 +1,39 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { makeChatTab, scriptedChat } from "./chat-helpers";
+import { expectNoViolations, terminalIds } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
+import { splitPane } from "./split-helpers";
 
 /**
  * A subagent's own conversation in the Claude Code (GUI) chat (SPEC.md §8.2,
- * §8.3, §10.8, §25.8): a panel over the chat's log, opened from a background
- * Agent card or the subagent's row in the project list. It is read-only and
- * says how to pass a message on; it updates live, opens a nested subagent
- * with Back, and gives the keyboard back when Escape closes it.
+ * §8.3, §10.8, §25.8): a sheet docked to the right of the chat's log, about
+ * half the pane, opened from a background Agent card or the subagent's row in
+ * the project list. The log stays usable beside it; a pane too narrow for
+ * both gives the sheet all of it. It is read-only and says how to pass a
+ * message on; it updates live, opens a nested subagent with Back, and gives
+ * the keyboard back when Escape closes it. The chat's own row closes it.
  */
+
+/** Below this pane width the sheet takes the whole pane (36rem). */
+const SIDE_BY_SIDE = 36 * 16;
+
+/** Open the background subagent's sheet from its Agent card. */
+async function openBackgroundCard(view: Locator) {
+	await view.getByTestId("chat-worked").locator("> summary").click();
+	await view.getByTestId("chat-tool-group").locator("> summary").click();
+	const card = view.locator('details[data-testid="chat-tool-toolu_bg"]');
+	await card.locator("> summary").click();
+	await card.getByRole("button", { name: "Show its conversation" }).click();
+	const panel = view.getByRole("region", { name: "Subagent Count the routes" });
+	await expect(panel.getByText("Count the routes, please.")).toBeVisible();
+	return panel;
+}
+
+async function box(locator: Locator) {
+	const found = await locator.boundingBox();
+	if (!found) throw new Error("the element has no box");
+	return found;
+}
 
 const SESSION = "00000000-0000-4000-8000-000000000000";
 const LAUNCH_TEXT =
@@ -287,6 +312,99 @@ for (const colorScheme of ["dark", "light"] as const) {
 			const card = view.locator('details[data-testid="chat-tool-toolu_bg"]');
 			await expect(card).toHaveJSProperty("open", true);
 			await expect(card.locator("> summary")).toBeFocused();
+		});
+		test("in a wide pane the sheet takes the right half, the log stays usable, and the chat's row closes it", async ({
+			page,
+			context,
+		}) => {
+			await page.setViewportSize({ width: 1600, height: 900 });
+			const { student, id } = await makeChatTab(page, context);
+			await scriptSubagentChat(page);
+			await page.reload();
+			const view = page.getByTestId(`chat-view-${id}`);
+			await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
+			await setSubagentRow(student.workspaceId, id);
+			const panel = await openBackgroundCard(view);
+
+			const pane = await box(view);
+			expect(pane.width).toBeGreaterThanOrEqual(SIDE_BY_SIDE);
+			const sheet = await box(panel);
+			// min(50%, 40rem), at least 18rem, docked to the pane's right edge and inside it.
+			const wanted = Math.min(Math.max(pane.width / 2, 18 * 16), 40 * 16);
+			expect(Math.abs(sheet.width - wanted)).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(sheet.x + sheet.width - (pane.x + pane.width)),
+			).toBeLessThanOrEqual(1);
+			expect(sheet.x).toBeGreaterThanOrEqual(pane.x);
+			expect(sheet.y).toBeGreaterThanOrEqual(pane.y);
+			expect(sheet.y + sheet.height).toBeLessThanOrEqual(pane.y + pane.height);
+
+			// The conversation stays in view to its left, and answers clicks.
+			const log = view.getByTestId("chat-scroll");
+			await expect(log).not.toHaveAttribute("inert");
+			const reply = log.getByText("Started it.");
+			await expect(reply).toBeVisible();
+			const said = await box(reply);
+			expect(said.x + said.width).toBeLessThanOrEqual(sheet.x);
+			const worked = log.getByTestId("chat-worked");
+			await expect(worked).toHaveJSProperty("open", true);
+			await worked.locator("> summary").click();
+			await expect(worked).toHaveJSProperty("open", false);
+			await expect(panel).toBeVisible();
+			// The composer stays usable below both.
+			const composer = view.getByTestId("chat-composer-input");
+			await composer.click();
+			await page.keyboard.type("Hello");
+			await expect(composer).toContainText("Hello");
+
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+			// The chat's own row in the project list closes the sheet; the
+			// keyboard stays on the row, where following its link leaves it.
+			const row = page.getByTestId(`agent-row-${id}`);
+			await row.click();
+			await expect(view.getByTestId("subagent-panel")).toHaveCount(0);
+			await expect(row).toBeFocused();
+
+			// A subagent row still opens it, and Enter on the chat's row closes it.
+			const rows = page.getByRole("list", { name: "Agents in Dashboard" });
+			await rows.getByRole("link", { name: /^Count the routes/ }).click();
+			await expect(panel.getByRole("heading", { level: 2 })).toBeFocused();
+			await row.focus();
+			await page.keyboard.press("Enter");
+			await expect(view.getByTestId("subagent-panel")).toHaveCount(0);
+			await expect(row).toBeFocused();
+		});
+
+		test("in a narrow pane the sheet takes the whole pane and the log behind is hidden", async ({
+			page,
+			context,
+		}) => {
+			await page.setViewportSize({ width: 1100, height: 900 });
+			const { student, project, id } = await makeChatTab(page, context);
+			await scriptSubagentChat(page);
+			await page.reload();
+			const view = page.getByTestId(`chat-view-${id}`);
+			await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
+			// A terminal beside the chat leaves it a narrow pane.
+			await splitPane(page, id, "right");
+			await expect
+				.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+				.toBe(2);
+			const panel = await openBackgroundCard(view);
+
+			const pane = await box(view);
+			expect(pane.width).toBeLessThan(SIDE_BY_SIDE);
+			const sheet = await box(panel);
+			expect(Math.abs(sheet.x - pane.x)).toBeLessThanOrEqual(1);
+			expect(Math.abs(sheet.width - pane.width)).toBeLessThanOrEqual(1);
+			await expect(view.getByTestId("chat-scroll")).toBeHidden();
+			await expect(view.getByTestId("chat-composer-input")).toBeVisible();
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+			await page.keyboard.press("Escape");
+			await expect(view.getByTestId("subagent-panel")).toHaveCount(0);
+			await expect(view.getByTestId("chat-scroll")).toBeVisible();
 		});
 	});
 }

@@ -10,9 +10,10 @@ import { type RefObject, useLayoutEffect, useSyncExternalStore } from "react";
  * `_` and `-` only, so the id is safe inside the selector as it is.
  *
  * Open the tool row with this id and every folded section around it, scroll it
- * into view and put the keyboard on it. False when the row is not there yet.
+ * into view and, unless told not to, put the keyboard on it. False when the
+ * row is not there yet.
  */
-export function revealTool(root: ParentNode, toolId: string): boolean {
+export function revealTool(root: ParentNode, toolId: string, focus = true): boolean {
 	const row = root.querySelector<HTMLDetailsElement>(
 		`details[data-testid="chat-tool-${toolId}"]`,
 	);
@@ -26,7 +27,7 @@ export function revealTool(root: ParentNode, toolId: string): boolean {
 	}
 	const summary = row.querySelector<HTMLElement>(":scope > summary") ?? row;
 	summary.scrollIntoView({ block: "center" });
-	summary.focus({ preventScroll: true });
+	if (focus) summary.focus({ preventScroll: true });
 	return true;
 }
 
@@ -70,19 +71,21 @@ function subscribe(listener: () => void) {
 /**
  * Carry out a request for this chat once it is on screen and the row has
  * arrived. `content` changes whenever the conversation does, so a row that
- * arrives later is still found, until the request times out.
+ * arrives later is still found, until the request times out. `focus` false
+ * leaves the keyboard where it is.
  */
 export function useToolReveal(
 	terminalId: string,
 	root: RefObject<HTMLElement | null>,
 	visible: boolean,
 	content: unknown,
+	focus: boolean,
 ): void {
 	const toolId = useSyncExternalStore(subscribe, () => pending.get(terminalId));
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `content` is the trigger to look again
 	useLayoutEffect(() => {
 		if (toolId === undefined || !visible || !root.current) return;
-		if (!revealTool(root.current, toolId)) return;
+		if (!revealTool(root.current, toolId, focus)) return;
 		settle(terminalId, toolId);
-	}, [terminalId, toolId, visible, content, root]);
+	}, [terminalId, toolId, visible, content, root, focus]);
 }
