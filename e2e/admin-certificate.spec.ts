@@ -724,7 +724,7 @@ test("the Certificate tab uses the card's width and lists install steps as pairs
 	expect(box?.height ?? 99).toBeLessThan(24);
 });
 
-test("at 1024 pixels the form keeps two columns, and the table splits its width by content", async ({
+test("at 1024 pixels the form stacks the fields under the source, and the table splits its width by content", async ({
 	page,
 }) => {
 	await routePage(page);
@@ -733,10 +733,18 @@ test("at 1024 pixels the form keeps two columns, and the table splits its width 
 	await page.goto("/admin/certificate");
 	await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
 
+	// Beside the navigation rail the card is too narrow for two columns, so the
+	// chosen source's fields follow the choice in one column, never squeezed beside it.
 	const left = await page.getByRole("group", { name: "Source" }).boundingBox();
 	const right = await page.getByLabel("Account email").boundingBox();
-	expect(right?.x ?? 0).toBeGreaterThan((left?.x ?? 0) + (left?.width ?? 0));
-	expect(right?.y ?? 99).toBeLessThan((left?.y ?? 0) + (left?.height ?? 0));
+	expect(right?.y ?? 0).toBeGreaterThanOrEqual((left?.y ?? 0) + (left?.height ?? 0));
+	expect(Math.round(right?.x ?? -1)).toBe(Math.round(left?.x ?? 0));
+	expect(right?.width ?? 0).toBeGreaterThan((left?.width ?? 0) * 0.9);
+	expect(
+		await page
+			.getByTestId("page-admin")
+			.evaluate((main) => main.scrollWidth - main.clientWidth),
+	).toBe(0);
 
 	// Certificate 28 percent, Issuer 24, Covers 28, Expires the rest.
 	const table = page.getByRole("table", { name: "Certificates in use" });

@@ -178,7 +178,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
-test("the admin content's scrollbar sits at the frame's right edge, under the tab strip", async ({
+test("the admin content's scrollbar sits at the frame's right edge, beside the rail and under the header", async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 1280, height: 600 });
@@ -188,12 +188,14 @@ test("the admin content's scrollbar sits at the frame's right edge, under the ta
 	await expect(main.getByRole("heading", { level: 2, name: "Audit" })).toBeVisible({
 		timeout: 15_000,
 	});
-	const [strip, frame, scroller] = await Promise.all([
+	const [rail, header, frame, scroller] = await Promise.all([
 		page.getByRole("navigation", { name: "Administration" }).boundingBox(),
+		page.getByTestId("app-header").boundingBox(),
 		page.getByTestId("admin-frame").boundingBox(),
 		main.boundingBox(),
 	]);
-	if (!strip || !frame || !scroller) throw new Error("the admin frame has no box");
+	if (!rail || !header || !frame || !scroller)
+		throw new Error("the admin frame has no box");
 	const bar = await main.evaluate((el) => ({
 		width: el.offsetWidth - el.clientWidth,
 		gutter: getComputedStyle(el).scrollbarGutter,
@@ -202,7 +204,8 @@ test("the admin content's scrollbar sits at the frame's right edge, under the ta
 	expect(bar.gutter).toBe("stable");
 	// The scroller, scrollbar and all, ends at the frame's right edge.
 	expect(scroller.x + scroller.width).toBeCloseTo(frame.x + frame.width, 0);
-	expect(scroller.y).toBeCloseTo(strip.y + strip.height, 0);
+	expect(scroller.y).toBeCloseTo(header.y + header.height, 0);
+	expect(scroller.x).toBeGreaterThanOrEqual(rail.x + rail.width);
 	// The window has no scrollbar of its own.
 	expect(
 		await page.evaluate(() => window.innerWidth - document.documentElement.clientWidth),

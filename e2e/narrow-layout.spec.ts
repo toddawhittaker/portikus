@@ -358,7 +358,8 @@ for (const viewport of SHORT) {
 				await expect(region).toBeFocused();
 				// The box shows the keyboard where it is.
 				await expect(region).toHaveCSS("outline-style", "solid");
-				const last = page.getByTestId(table).locator("thead th").last();
+				// A phone's stacked Users table hides the heads its rows fold away; the last shown one must show whole.
+				const last = page.getByTestId(table).locator("thead th:visible").last();
 				const box = await boxOf(region);
 				// Arrow keys scroll smoothly, and a live table can grow a column
 				// after a press, so keep pressing until the box rests at its end.

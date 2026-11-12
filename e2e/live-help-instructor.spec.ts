@@ -432,7 +432,9 @@ test("the live help terminal fits the window, and clicking into it keeps the hea
 				.toBeLessThanOrEqual(size.height);
 			// Nothing past the terminal pushes the page into scrolling.
 			await expect
-				.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight))
+				.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight), {
+					message: `main overflow at ${size.width}x${size.height}`,
+				})
 				.toBe(0);
 
 			await terminal.locator(".xterm-screen").click();

@@ -63,6 +63,11 @@ test("an administrator sets limits, sees them pending, then applied", async ({
 	browser,
 }) => {
 	const student = await studentIn(browser, "Limits");
+	// Storage already applied, so the saved note speaks of the limits alone.
+	await query(
+		"update workspaces set quota_config = $2::jsonb, quota_applied = $2::jsonb where id = $1",
+		[student.workspaceId, JSON.stringify({ homeGiB: 10, dockerGiB: 10 })],
+	);
 	await openLimitsAdmin(page);
 	const panel = await openDetail(page, student.name, "Resources");
 	const limits = panel.getByTestId("detail-limits");

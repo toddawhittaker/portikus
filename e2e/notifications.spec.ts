@@ -270,10 +270,21 @@ test("the badge sits after the account button, and the menu stays narrow", async
 	expect(pill.x).toBeGreaterThanOrEqual(account.x + account.width);
 	expect(pill.height).toBeGreaterThanOrEqual(24);
 	expect(pill.width).toBeGreaterThanOrEqual(24);
-	// The visible pill is the whole target, with text no smaller than 12px (SPEC.md 25.8).
+	// The target draws its own outline, so what you see is what you can click, and
+	// the count's pill sits inside it, with text no smaller than 12px (SPEC.md 25.8).
+	const outline = await badge.evaluate((el) => {
+		const style = getComputedStyle(el);
+		return { width: style.borderTopWidth, colour: style.borderTopColor };
+	});
+	expect(outline.width).toBe("1px");
+	expect(outline.colour).not.toBe("rgba(0, 0, 0, 0)");
 	const shown = await page.locator(".pk-account-badge-pill").boundingBox();
-	expect(shown?.height).toBeGreaterThanOrEqual(24);
-	expect(shown?.width).toBeGreaterThanOrEqual(24);
+	expect(shown).toBeTruthy();
+	if (!shown) return;
+	expect(shown.x).toBeGreaterThanOrEqual(pill.x);
+	expect(shown.x + shown.width).toBeLessThanOrEqual(pill.x + pill.width);
+	expect(shown.y).toBeGreaterThanOrEqual(pill.y);
+	expect(shown.y + shown.height).toBeLessThanOrEqual(pill.y + pill.height);
 	const fontSize = await page
 		.locator(".pk-account-badge-pill")
 		.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));

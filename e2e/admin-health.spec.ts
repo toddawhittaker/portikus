@@ -161,7 +161,7 @@ test.describe("admin health", () => {
 	});
 
 	for (const width of [1280, 1920]) {
-		test(`at a glance Platform spans two columns beside the failures and the states, above the trends, at ${width} px`, async ({
+		test(`at a glance the guard leads, the failures and the states share a row, and Platform spans the width below them, above the trends, at ${width} px`, async ({
 			page,
 		}) => {
 			await page.setViewportSize({ width, height: 1000 });
@@ -175,25 +175,23 @@ test.describe("admin health", () => {
 				if (!found) throw new Error(`${name} has no box`);
 				return found;
 			};
-			const [platform, counts, states, guard] = await Promise.all(
-				["platform", "counts", "states", "guard"].map((name) => box(name)),
+			const [platform, counts, states, guard, glance] = await Promise.all(
+				["platform", "counts", "states", "guard", "glance"].map((name) => box(name)),
 			);
-			if (!platform || !counts || !states || !guard)
+			if (!platform || !counts || !states || !guard || !glance)
 				throw new Error("a card is missing");
-			// Platform, the failures and the states share a row, Platform two columns wide
-			// so its figures stay on one line.
-			expect(counts.y).toBe(platform.y);
-			expect(states.y).toBe(platform.y);
-			expect(counts.x).toBeGreaterThan(platform.x);
-			expect(states.x).toBeGreaterThan(counts.x);
+			// The failures and the states share a row, each half the width.
+			expect(counts.y).toBe(states.y);
+			expect(states.x).toBeGreaterThan(counts.x + counts.width - 1);
+			expect(Math.abs(states.width - counts.width)).toBeLessThanOrEqual(1);
+			// The guard is the thing to act on, so it comes first, across the whole grid.
+			expect(guard.y).toBeLessThan(counts.y);
+			expect(guard.width).toBeCloseTo(glance.width, 0);
+			// Platform takes the full width under them, so its figures stay on one line.
+			const pair = Math.max(counts.y + counts.height, states.y + states.height);
+			expect(platform.y).toBeGreaterThan(pair - 1);
+			expect(platform.width).toBeCloseTo(glance.width, 0);
 			expect(platform.width).toBeGreaterThan(2 * counts.width - 1);
-			// Other tests in this run may leave a workspace throttled; then the guard is the
-			// thing to act on, so it comes first, across the whole grid.
-			const glance = await box("glance");
-			if ((await page.getByTestId("health-guard").count()) > 0) {
-				expect(guard.y).toBeLessThan(platform.y);
-				expect(guard.width).toBeCloseTo(glance.width, 0);
-			}
 			const tallest = Math.max(
 				...[platform, counts, states, guard].map((card) => card.y + card.height),
 			);
@@ -218,7 +216,11 @@ test.describe("admin health", () => {
 			.evaluateAll((cells) => cells.some((cell) => cell.textContent !== "0"));
 		// The line shows exactly when every count is zero; a non-zero count is bold.
 		await expect(none).toHaveCount(anyFailure ? 0 : 1);
-		if (!anyFailure) await expect(none).toHaveText("No failures in the last 24 hours");
+		// Its title says exactly that; a calm detail line follows.
+		if (!anyFailure)
+			await expect(none.locator("p").first()).toHaveText(
+				"No failures in the last 24 hours",
+			);
 		const weights = await counts.locator("td").evaluateAll((cells) =>
 			cells.map((cell) => ({
 				zero: cell.textContent === "0",

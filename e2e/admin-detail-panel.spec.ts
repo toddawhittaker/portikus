@@ -21,16 +21,20 @@ import {
  */
 test.use({ viewport: { width: 1920, height: 1080 } });
 
-const SECTIONS = [
-	"Workspace",
-	"Resources",
-	"Resource guard",
-	"Processes",
-	"Ports and connections",
-	"Agent log, reported by the workspace",
-	"Account",
-	"Recent audit events",
-];
+/** The inspector's tabs, in order, and the sections each shows, in order. */
+const TABS = [
+	["Overview", ["Resources", "Resource guard", "Restore and rebuild"]],
+	[
+		"Activity",
+		[
+			"Processes",
+			"Ports and connections",
+			"Agent log, reported by the workspace",
+			"Recent audit events",
+		],
+	],
+	["Account", ["Account", "Destructive"]],
+] as const;
 
 /** A student renamed with a tag, so the Users filter finds only them. */
 async function namedStudent(
@@ -105,20 +109,11 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 		panel.getByRole("button", { name: `Start ${name}'s workspace`, exact: true }),
 	).toHaveCount(0);
 
-	for (const section of SECTIONS) {
-		await expect(
-			panel.getByRole("heading", { level: 4, name: section, exact: true }),
-		).toHaveCount(1);
-	}
-	const order = await panel
-		.getByRole("heading", { level: 4 })
-		.evaluateAll((elements) => elements.map((element) => element.textContent));
-	expect(order).toEqual(SECTIONS);
 	await expect(
 		panel.getByRole("button", { name: `Edit quotas for ${name}'s workspace` }),
 	).toBeVisible();
 
-	// Tab runs from the heading through the head's actions, then into the sections.
+	// Tab runs from the heading through the head's actions, then the tabs, then into the sections.
 	await page.keyboard.press("Tab");
 	await expect(
 		panel.getByRole("button", { name: `Stop ${name}'s workspace` }),
@@ -131,11 +126,24 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(
 		panel.getByRole("button", { name: `Close details for ${name}` }),
 	).toBeFocused();
-	// The Workspace section comes first, starting with Restore from backup.
 	await page.keyboard.press("Tab");
-	await expect(
-		panel.getByRole("button", { name: `Restore from backup: ${name}'s workspace` }),
-	).toBeFocused();
+	await expect(panel.getByRole("tab", { name: "Overview" })).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(panel.getByRole("tabpanel", { name: "Overview" })).toBeFocused();
+	// Resources comes first, then the guard, then Restore and rebuild.
+	for (const control of [
+		`Edit quotas for ${name}'s workspace`,
+		`Edit limits for ${name}'s workspace`,
+		`Edit disconnect grace for ${name}`,
+		"About Last input",
+		`Guard settings for ${name}'s workspace`,
+		`Restore from backup: ${name}'s workspace`,
+	]) {
+		await page.keyboard.press("Tab");
+		await expect(
+			panel.getByRole("button", { name: control, exact: true }),
+		).toBeFocused();
+	}
 	// Rebuild stays focusable while it cannot act, with its toggletip after it.
 	await page.keyboard.press("Tab");
 	await expect(
@@ -145,6 +153,28 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(
 		panel.getByRole("button", { name: "About Rebuild workspace" }),
 	).toBeFocused();
+
+	await expect(panel.getByRole("tablist").getByRole("tab")).toHaveText(
+		TABS.map(([tab]) => tab),
+	);
+	// Each tab shows its own sections, in order, and only those.
+	for (const [tab, sections] of TABS) {
+		await panel.getByRole("tab", { name: tab }).click();
+		for (const section of sections) {
+			await expect(
+				panel.getByRole("heading", { level: 4, name: section, exact: true }),
+			).toHaveCount(1);
+		}
+		const order = await panel
+			.getByRole("heading", { level: 4 })
+			.evaluateAll((elements) =>
+				elements
+					.filter((element) => element.checkVisibility())
+					.map((element) => element.textContent),
+			);
+		expect(order).toEqual(sections);
+	}
+	await panel.getByRole("tab", { name: "Overview" }).click();
 
 	// Scroll the page to the bottom of the long table; the panel stays in view.
 	const main = page.getByTestId("page-admin");
@@ -242,8 +272,17 @@ test.describe("at 1024 px", () => {
 		// The throttle says what it means, without the kernel's allowance.
 		await expect(panel.getByTestId("detail-guard-cpu")).not.toContainText("ms/");
 		await expect(panel.getByTestId("detail-limits")).toContainText("6 GiB memory");
+		// Beside the left rail there is no room for the panel next to the table at
+		// 1024 px, so it sits under the table at the table's full width.
 		const box = await panel.boundingBox();
-		expect(Math.round(box?.width ?? 0)).toBe(400);
+		const tableBox = await page.locator(".pk-table-wrap").boundingBox();
+		expect(Math.abs((box?.x ?? 0) - (tableBox?.x ?? -99))).toBeLessThanOrEqual(1);
+		expect(Math.abs((box?.width ?? 0) - (tableBox?.width ?? -99))).toBeLessThanOrEqual(
+			1,
+		);
+		expect(box?.y ?? 0).toBeGreaterThanOrEqual(
+			(tableBox?.y ?? 0) + (tableBox?.height ?? 0),
+		);
 		// Nothing inside the panel is wider than the panel.
 		const overflow = await panel.evaluate(
 			(element) => element.scrollWidth - element.clientWidth,
@@ -356,6 +395,7 @@ test("promote and make instructor are confirmed without the danger colour; demot
 }) => {
 	const student = await namedStudent(browser, "Confirm");
 	const panel = await openPanel(page, student.name);
+	await panel.getByRole("tab", { name: "Account" }).click();
 	await panel
 		.getByRole("button", { name: `Promote ${student.name} to administrator` })
 		.click();
