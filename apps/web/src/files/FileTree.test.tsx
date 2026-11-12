@@ -531,7 +531,7 @@ describe("the file tree", () => {
 			.getByTestId("file-row-src/app.ts")
 			.querySelector("[data-icon^=file]");
 		expect(md?.getAttribute("data-icon")).toBe("file-markdown");
-		expect(ts?.getAttribute("data-icon")).toBe("file-code");
+		expect(ts?.getAttribute("data-icon")).toBe("file-typescript");
 	});
 
 	/** SPEC.md §11.2: Ctrl-click selects more than one row. */
