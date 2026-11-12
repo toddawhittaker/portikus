@@ -353,9 +353,9 @@ test("while a turn runs, Send stays beside Stop, sends, and marks the message", 
 	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
 		"Enter sends without stopping Claude. Esc stops it.",
 	);
-	// The fake's turn is waiting on its question, so the Working line says so.
+	// The fake's newest running step is its permission card's call, so the Working line says so.
 	await expect(view.getByTestId("chat-working")).toHaveText(
-		/^Waiting for your answer · \d+m \d+s$/,
+		/^Awaiting approval · \d+m \d+s$/,
 	);
 	await box.fill("Skip the docs");
 	await expect(send).not.toHaveAttribute("aria-disabled");
@@ -395,8 +395,8 @@ test("a step still running when the student sends stays on the Working line unti
 		.getByTestId("chat-user-message")
 		.filter({ hasText: "Skip the docs" });
 	await expect(sent.getByTestId("chat-sent-while-working")).toBeVisible();
-	// Claude has not taken it in yet: the step in hand stays named, nothing folds.
-	await expect(working).toHaveText(/^Waiting for your answer · \d+m \d+s$/);
+	// Claude has not taken it in yet: the step in hand, its permission card's call, stays named, nothing folds.
+	await expect(working).toHaveText(/^Awaiting approval · \d+m \d+s$/);
 	await expect(folds).toHaveCount(foldsBefore);
 	expect(await isAfter(working, sent)).toBe(true);
 	// Its next step does, and the work after the message is a new turn below it.
