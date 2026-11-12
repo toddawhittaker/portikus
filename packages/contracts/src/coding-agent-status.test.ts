@@ -13,7 +13,12 @@ import {
 	CodingAgentTitlePost,
 	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENTS_PER_TERMINAL,
+	MAX_TERMINAL_QUESTION_POST_BYTES,
 	PlanUsage,
+	TERMINAL_QUESTION_TIMEOUT_MS,
+	TerminalQuestion,
+	TerminalQuestionAnswer,
+	TerminalQuestionPost,
 } from "./index.js";
 
 const NOW = new Date().toISOString();
@@ -366,5 +371,108 @@ describe("chat titles", () => {
 		expect(
 			ChatClientMessage.safeParse({ type: "rename", title: "a", extra: 1 }).success,
 		).toBe(false);
+	});
+});
+
+describe("terminal questions", () => {
+	const question = {
+		question: "Which database?",
+		header: "Database",
+		multiSelect: false,
+		options: [
+			{ label: "SQLite", description: "A file" },
+			{ label: "Postgres", description: "A server" },
+		],
+	};
+	const asked = { id: "toolu_01AbC", questions: [question], expiresAt: NOW };
+
+	test("the default wait is thirty minutes", () => {
+		expect(TERMINAL_QUESTION_TIMEOUT_MS).toBe(30 * 60 * 1000);
+	});
+
+	test("a status has no question unless one is set", () => {
+		expect(AgentCodingAgentStatus.parse(status()).question).toBeUndefined();
+		expect(
+			AgentCodingAgentStatus.parse({ ...status(), question: asked }).question,
+		).toEqual(asked);
+		const terminal = {
+			...status(),
+			projectId: "00000000-0000-4000-8000-0000000000aa",
+			name: "claude",
+			question: asked,
+		};
+		expect(CodingAgentTerminal.parse(terminal).question?.id).toBe("toolu_01AbC");
+	});
+
+	test("a question holds one to four chat questions and nothing else", () => {
+		const parse = (value: unknown) => TerminalQuestion.safeParse(value).success;
+		expect(parse(asked)).toBe(true);
+		expect(parse({ ...asked, questions: [] })).toBe(false);
+		expect(parse({ ...asked, questions: Array(5).fill(question) })).toBe(false);
+		expect(parse({ ...asked, questions: Array(4).fill(question) })).toBe(true);
+		expect(parse({ ...asked, questions: [{ ...question, options: [] }] })).toBe(false);
+		expect(parse({ ...asked, id: "x".repeat(65) })).toBe(false);
+		expect(parse({ ...asked, id: "bad id" })).toBe(false);
+		expect(parse({ ...asked, expiresAt: "soon" })).toBe(false);
+		expect(parse({ ...asked, extra: 1 })).toBe(false);
+	});
+
+	test("an answer carries picks with optional notes, or says answer in the terminal", () => {
+		const parse = (value: unknown) => TerminalQuestionAnswer.safeParse(value).success;
+		expect(parse({ id: "t1", answers: { "Which database?": "SQLite" } })).toBe(true);
+		expect(
+			parse({
+				id: "t1",
+				answers: { "Which database?": "SQLite" },
+				notes: { "Which database?": "for tests" },
+			}),
+		).toBe(true);
+		expect(parse({ id: "t1", inTerminal: true })).toBe(true);
+	});
+
+	test("an answer rejects mixed, extra, empty and oversized fields", () => {
+		const parse = (value: unknown) => TerminalQuestionAnswer.safeParse(value).success;
+		expect(parse({ id: "t1" })).toBe(false);
+		expect(parse({ id: "t1", inTerminal: false })).toBe(false);
+		expect(parse({ id: "t1", inTerminal: true, answers: {} })).toBe(false);
+		expect(parse({ id: "t1", answers: {}, extra: 1 })).toBe(false);
+		expect(parse({ id: "", answers: {} })).toBe(false);
+		expect(parse({ answers: {} })).toBe(false);
+		expect(parse({ id: "t1", answers: { "": "x" } })).toBe(false);
+		expect(parse({ id: "t1", answers: { q: "x".repeat(16 * 1024 + 1) } })).toBe(false);
+		expect(parse({ id: "t1", answers: { q: "a" }, notes: { q: 5 } })).toBe(false);
+		const five = Object.fromEntries(["a", "b", "c", "d", "e"].map((k) => [k, "x"]));
+		expect(parse({ id: "t1", answers: five })).toBe(false);
+		expect(parse({ id: "t1", answers: { a: "x" }, notes: five })).toBe(false);
+	});
+
+	test("the hook post keeps three fields and caps its size", () => {
+		const post = {
+			tool_name: "AskUserQuestion",
+			tool_use_id: "toolu_01",
+			tool_input: { questions: [question] },
+		};
+		const parse = (value: unknown) => TerminalQuestionPost.safeParse(value).success;
+		expect(parse(post)).toBe(true);
+		expect(parse({ ...post, tool_input: undefined })).toBe(true);
+		expect(parse({ ...post, prompt: "secret" })).toBe(false);
+		expect(parse({ ...post, tool_name: "" })).toBe(false);
+		expect(parse({ ...post, tool_name: "x".repeat(16 * 1024 + 1) })).toBe(false);
+		expect(parse({ ...post, tool_use_id: "a b" })).toBe(false);
+		expect(parse({ tool_name: "AskUserQuestion", tool_input: {} })).toBe(false);
+		const filler = (bytes: number) => ({ text: "x".repeat(bytes) });
+		const base = JSON.stringify({ ...post, tool_input: filler(0) }).length;
+		const room = MAX_TERMINAL_QUESTION_POST_BYTES - base;
+		expect(parse({ ...post, tool_input: filler(room) })).toBe(true);
+		expect(parse({ ...post, tool_input: filler(room + 1) })).toBe(false);
+	});
+
+	test("the post cap counts bytes, not characters", () => {
+		const post = { tool_name: "t", tool_use_id: "i" };
+		const parse = (input: unknown) =>
+			TerminalQuestionPost.safeParse({ ...post, tool_input: input }).success;
+		// Each "é" is two bytes and "€" three, so 30,000 of them pass by characters only.
+		expect(parse({ text: "é".repeat(30_000) })).toBe(true);
+		expect(parse({ text: "€".repeat(30_000) })).toBe(false);
 	});
 });
