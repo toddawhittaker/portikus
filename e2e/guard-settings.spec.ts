@@ -30,7 +30,10 @@ async function liftSettings(): Promise<LiftRow> {
 
 /** The quiet time and the hold sit under "Advanced rules", closed until asked for. */
 async function openAdvanced(page: Page): Promise<void> {
-	const advanced = page.getByTestId("guard-advanced");
+	// The loading skeleton draws its own closed copy, which the loaded form replaces.
+	const form = page.getByRole("region", { name: "Resource guard" }).locator("form");
+	await expect(form).toBeVisible({ timeout: 15_000 });
+	const advanced = form.getByTestId("guard-advanced");
 	await expect(advanced).toBeVisible({ timeout: 15_000 });
 	if ((await advanced.getAttribute("open")) === null) {
 		await advanced.locator(":scope > summary").click();

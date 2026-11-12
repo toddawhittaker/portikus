@@ -623,6 +623,12 @@
 	text-decoration: underline;
 	text-underline-offset: 3px;
 }
+/* On a phone a page link is a thumb target too. */
+@media (width < 35rem) {
+	.pk-nav-link {
+		min-height: 44px;
+	}
+}
 
 /* The selected row takes the student project list's selected look: the soft accent fill and an accent bar. */
 .pk-table tbody tr.pk-row-selected > td {
