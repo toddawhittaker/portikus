@@ -3,22 +3,22 @@ import { chmod, unlink } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import type {
 	PermissionMode,
-	PermissionResult,
 	Query,
 	SDKMessage,
 	SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
-	CHAT_START_EFFORT,
+	CHAT_START_SETTINGS,
 	ChatClientMessage,
 	type ChatClientMessage as ChatClientMessageType,
 	type ChatCommand,
 	type ChatEffort,
 	type ChatMessage,
-	type ChatOpenCard,
+	type ChatModelInfo,
 	type ChatPermissionMode,
 	type ChatQuestion,
 	type ChatShellItem,
+	chatStartMode,
 	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
@@ -31,12 +31,7 @@ import {
 	type ChatEventBody,
 	type ClaudeLimitWindows,
 	ClaudeMessageMapper,
-	cardForTool,
-	PERMISSION_OPTION,
-	type PermissionAnswerExtras,
-	permissionResult,
 	questionResult,
-	type ToolAsk,
 	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
 import {
@@ -46,7 +41,8 @@ import {
 	windowFromModelUsage,
 } from "./context-usage.js";
 import { InputQueue } from "./input-queue.js";
-import { splitSuggestions } from "./permission-rules.js";
+import { ModelList } from "./model-list.js";
+import { OpenCards } from "./open-cards.js";
 import { PlanUsage } from "./plan-usage.js";
 import { type ChatSdk, realSdk } from "./sdk.js";
 import { writeChatSession } from "./session-record.js";
@@ -60,7 +56,12 @@ import {
 } from "./shell-command.js";
 import { SlashCommandList } from "./slash-commands.js";
 import { buildSnapshot, replayHistory } from "./snapshot.js";
+import { SubagentStreams } from "./subagents.js";
+import { ChatTitle } from "./titles.js";
 import { chatSocketPath, privateDirectory, readLines, writeLine } from "./wire.js";
+
+/** The longest the host waits to read the model list before it opens its socket. */
+const MODELS_WAIT_MS = 3000;
 
 /** The shared, unmodified Claude Code binary (SPEC.md §10.1). */
 const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
@@ -77,21 +78,16 @@ export interface ChatHostOptions {
 	homeDir: string;
 	socketDir: string;
 	log: Logger;
-	/** Posts plan limits to the loopback receiver (SPEC.md §10.8). */
+	/** Posts plan limits to the loopback receiver (SPEC.md §10.1). */
 	postLimits: (windows: ClaudeLimitWindows) => Promise<void>;
+	/** Posts the conversation title to the loopback receiver (ADR 0074). */
+	postTitle: (title: string | null) => Promise<void>;
 	/** For tests only: another Claude Code binary. */
 	claudePath?: string;
 	/** For tests only: a stand-in for the SDK. */
 	sdk?: ChatSdk;
 	/** For tests only: the `!` command time limit. */
 	shellTimeoutMs?: number;
-}
-
-interface OpenCard {
-	card: ChatOpenCard;
-	input: Record<string, unknown>;
-	ask: ToolAsk;
-	settle: (result: PermissionResult) => void;
 }
 
 interface Client {
@@ -113,7 +109,10 @@ export type { ChatSdk };
 
 export class ChatHost {
 	private readonly clients = new Set<Client>();
-	private readonly cards = new Map<string, OpenCard>();
+	private readonly cards = new OpenCards(
+		(event) => this.broadcast(event),
+		(rules) => this.rules.grant(rules),
+	);
 	private readonly sdk: ChatSdk;
 	private server: Server | null = null;
 	private session: Query | null = null;
@@ -136,16 +135,18 @@ export class ChatHost {
 	/** Appends kept back while a turn runs, so they never land mid-turn (ADR 0073). */
 	private heldAppends: SDKUserMessage[] = [];
 	private readonly planUsage: PlanUsage;
+	private readonly title: ChatTitle;
 	private readonly commands = new SlashCommandList((commands) =>
 		this.broadcast(this.commandsEvent(commands)),
 	);
 	private context = new ContextTracker();
 	/** The session's init said a skipped question may be marked so. */
 	private reportSkipped = false;
+	private readonly modelList = new ModelList((models) =>
+		this.broadcast(this.modelsEvent(models)),
+	);
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
-		model: "default",
-		effort: CHAT_START_EFFORT,
-		mode: "default",
+		...CHAT_START_SETTINGS,
 	};
 
 	private readonly rules = new SessionRules(
@@ -160,10 +161,18 @@ export class ChatHost {
 
 	/** The Claude session in force; /clear moves the tab to a new one. */
 	private sessionId: string;
+	private readonly subagents: SubagentStreams;
 
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
+		this.subagents = new SubagentStreams({
+			sdk: this.sdk,
+			projectDir: options.projectDir,
+			terminalId: options.terminalId,
+			sessionId: () => this.sessionId,
+		});
 		this.planUsage = new PlanUsage(options.postLimits);
+		this.title = new ChatTitle(this.sdk, options.projectDir, options.postTitle);
 		this.sessionId = options.sessionId ?? options.terminalId;
 	}
 
@@ -175,6 +184,10 @@ export class ChatHost {
 	async start(): Promise<void> {
 		await privateDirectory(this.options.socketDir);
 		await unlink(this.socketPath).catch(() => undefined);
+		await this.ensureSession();
+		// The socket opens once the model list is read (or has taken too long), so a
+		// first attach gets the list ahead of the settings that use it.
+		await this.modelList.settled(MODELS_WAIT_MS);
 		const server = createServer((socket) => {
 			void this.attach(socket);
 		});
@@ -185,7 +198,6 @@ export class ChatHost {
 		await chmod(this.socketPath, 0o600);
 		this.server = server;
 		this.options.log.info("chat host listening");
-		await this.ensureSession();
 	}
 
 	/** Stop Claude and close every attachment. The transcript stays. */
@@ -225,13 +237,15 @@ export class ChatHost {
 				...(exists ? { resume: sessionId } : { sessionId }),
 				pathToClaudeCodeExecutable: this.options.claudePath ?? CLAUDE_PATH,
 				includePartialMessages: true,
+				// A subagent's whole conversation, for its read-only view.
+				forwardSubagentText: true,
 				effort: this.settings.effort,
 				permissionMode: this.settings.mode,
 				// The picker offers bypass, so the SDK must allow switching to it.
 				allowDangerouslySkipPermissions: true,
 				...(this.settings.model === "default" ? {} : { model: this.settings.model }),
 				canUseTool: (toolName, toolInput, ask) =>
-					this.askCard(toolName, toolInput, ask),
+					this.cards.ask(toolName, toolInput, ask),
 				// Claude Code's own messages may quote the student's work.
 				stderr: () => undefined,
 			},
@@ -245,6 +259,29 @@ export class ChatHost {
 		void this.refreshCommands(session);
 		void this.refreshPlanUsage(session);
 		void this.refreshWindow(session, undefined);
+		void this.refreshModels(session);
+		void this.title.refresh(sessionId);
+	}
+
+	/**
+	 * Read the models Claude Code offers. A new chat on a model without
+	 * Auto starts at Ask, not Auto (SPEC.md §10.8).
+	 */
+	private async refreshModels(session: Query): Promise<void> {
+		const models = await this.modelList.refresh(
+			() => session.supportedModels(),
+			() => this.session === session,
+		);
+		if (!models || this.settings.mode !== CHAT_START_SETTINGS.mode) return;
+		const mode = chatStartMode(models, this.settings.model);
+		if (mode === this.settings.mode) return;
+		await session.setPermissionMode(mode).catch(() => undefined);
+		this.settings.mode = mode;
+		this.broadcastSettings();
+	}
+
+	private modelsEvent(models: ChatModelInfo[]): ChatEventBody {
+		return { type: "models", models };
 	}
 
 	/** A main-thread request finished: tell every attachment how full the context is. */
@@ -305,11 +342,8 @@ export class ChatHost {
 		if (this.session !== session) return;
 		this.session = null;
 		this.input = null;
-		for (const [id, open] of this.cards) {
-			open.settle({ behavior: "deny", message: "The session ended." });
-			this.cards.delete(id);
-			this.broadcast({ type: "card.resolved", id });
-		}
+		this.cards.denyAll("The session ended.");
+		this.subagents.ended();
 		if (this.turnRunning) this.finishTurn("error");
 		this.broadcast({
 			type: "error",
@@ -319,6 +353,7 @@ export class ChatHost {
 
 	private handle(message: SDKMessage): void {
 		this.followSession(message);
+		if (this.subagents.handle(message)) return;
 		if (message.type === "system" && message.subtype === "init") {
 			this.sessionStarted(message);
 			return;
@@ -354,6 +389,8 @@ export class ChatHost {
 	}
 
 	private resultArrived(message: Extract<SDKMessage, { type: "result" }>): void {
+		// `/rename` and Claude Code's own summary change the title with no event.
+		void this.title.refresh(this.sessionId);
 		// A transcript append's empty result ends no turn (ADR 0073).
 		if (this.quietResults > 0 && message.num_turns === 0) {
 			this.quietResults -= 1;
@@ -379,7 +416,6 @@ export class ChatHost {
 		this.reportSkipped = message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
 		this.commands.initKnown(message.slash_commands, message.terminal_slash_commands);
 		if (this.session) void this.refreshCommands(this.session);
-		this.settings.model = message.model || this.settings.model;
 		this.settings.mode =
 			message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
 		this.broadcastSettings();
@@ -405,6 +441,10 @@ export class ChatHost {
 		this.mapper = new ClaudeMessageMapper();
 		this.partial = null;
 		this.context.figures = null;
+		this.title.reset();
+		void this.title.refresh(sessionId);
+		this.subagents.reset();
+		const context = this.context.current();
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
 			if (client.held) {
@@ -414,13 +454,14 @@ export class ChatHost {
 			const snapshot = buildSnapshot({
 				sessionId: this.options.terminalId,
 				seq: this.seq,
-				cards: [...this.cards.values()].map((open) => open.card),
+				cards: this.cards.current,
 				turnRunning: this.turnRunning,
 				truncated: false,
 			});
 			writeLine(client.socket, JSON.stringify(snapshot));
 			writeLine(client.socket, this.frame(this.settingsEvent()));
 			writeLine(client.socket, this.frame(this.rulesEvent()));
+			if (context) writeLine(client.socket, this.frame(this.contextEvent(context)));
 		}
 	}
 
@@ -452,78 +493,6 @@ export class ChatHost {
 		}
 	}
 
-	/**
-	 * Raise a card and wait, with no time limit, for the first answer from
-	 * any attachment. An aborted call clears the card.
-	 */
-	private askCard(
-		toolName: string,
-		input: Record<string, unknown>,
-		ask: ToolAsk & { signal: AbortSignal },
-	): Promise<PermissionResult> {
-		const card = cardForTool(toolName, input, ask);
-		return new Promise<PermissionResult>((resolve) => {
-			const settle = (result: PermissionResult) => {
-				ask.signal.removeEventListener("abort", onAbort);
-				resolve(result);
-			};
-			const onAbort = () => {
-				if (!this.cards.delete(card.id)) return;
-				this.broadcast({ type: "card.resolved", id: card.id });
-				resolve({ behavior: "deny", message: "Cancelled." });
-			};
-			ask.signal.addEventListener("abort", onAbort);
-			this.cards.set(card.id, { card, input, ask, settle });
-			this.broadcast(
-				card.type === "question"
-					? { type: "question.requested", id: card.id, questions: card.questions }
-					: { ...card, type: "permission.requested" },
-			);
-		});
-	}
-
-	/** First answer wins; a late or unknown answer is ignored. */
-	private answer(
-		id: string,
-		result: (open: OpenCard) => PermissionResult | null,
-	): void {
-		const open = this.cards.get(id);
-		if (!open) return;
-		const decided = result(open);
-		if (!decided) return;
-		this.cards.delete(id);
-		open.settle(decided);
-		this.broadcast({ type: "card.resolved", id });
-	}
-
-	/**
-	 * Like `answer`, but Always allow first grants the session rules, so the
-	 * card is claimed before the wait and a second answer cannot also win.
-	 */
-	private async answerPermission(
-		id: string,
-		optionId: string,
-		extras: PermissionAnswerExtras,
-	): Promise<void> {
-		const open = this.cards.get(id);
-		if (open?.card.type !== "permission") return;
-		if (!open.card.options.some((option) => option.id === optionId)) return;
-		this.cards.delete(id);
-		try {
-			if (optionId === PERMISSION_OPTION.allowAlways && open.ask.suggestions) {
-				await this.rules.grant(splitSuggestions(open.ask.suggestions).sessionRules);
-			}
-		} catch {
-			// The student chose to allow, so the tool still runs this once.
-			throw new Error(
-				"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
-			);
-		} finally {
-			open.settle(permissionResult(optionId, open.input, open.ask, extras));
-			this.broadcast({ type: "card.resolved", id });
-		}
-	}
-
 	private async attach(socket: Socket): Promise<void> {
 		if (this.clients.size >= MAX_ATTACHMENTS_PER_TERMINAL) {
 			writeLine(
@@ -535,7 +504,10 @@ export class ChatHost {
 		}
 		const client: Client = { socket, held: [] };
 		this.clients.add(client);
-		socket.on("close", () => this.clients.delete(client));
+		socket.on("close", () => {
+			this.clients.delete(client);
+			this.subagents.drop(socket);
+		});
 		socket.on("error", () => socket.destroy());
 		readLines(socket, MAX_CHAT_CLIENT_FRAME_BYTES, (line) => {
 			void this.onLine(client, line);
@@ -545,7 +517,7 @@ export class ChatHost {
 		// The state as of now; anything that changes during the read below
 		// arrives as a held event after the replay.
 		const partial = this.partial;
-		const cards = [...this.cards.values()].map((open) => open.card);
+		const cards = this.cards.current;
 		const turnRunning = this.turnRunning;
 		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
 		let context = this.context.figures;
@@ -558,6 +530,12 @@ export class ChatHost {
 			context ??= fromTranscript(messages, this.context.windowTokens);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
+		}
+		context ??= this.context.current();
+		// What is not known yet arrives as its own event once Claude Code answers.
+		if (this.session && !this.modelList.current) void this.refreshModels(this.session);
+		if (this.session && this.context.windowTokens === null) {
+			void this.refreshWindow(this.session, undefined);
 		}
 		const snapshot = buildSnapshot({
 			sessionId: this.options.terminalId,
@@ -589,6 +567,10 @@ export class ChatHost {
 			const line = this.fitted(event);
 			if (line !== null) writeLine(socket, line);
 		}
+		const models = this.modelList.current;
+		if (models && !held.some((event) => event.type === "models")) {
+			writeLine(socket, this.frame(this.modelsEvent(models)));
+		}
 		writeLine(socket, this.frame(this.settingsEvent()));
 		writeLine(socket, this.frame(this.rulesEvent()));
 		const commands = this.commands.current;
@@ -610,6 +592,17 @@ export class ChatHost {
 			return;
 		}
 		try {
+			if (parsed.type === "subagent.watch") {
+				return await this.subagents.watch(client.socket, parsed.toolUseId);
+			}
+			if (parsed.type === "subagent.unwatch") {
+				return this.subagents.unwatch(client.socket, parsed.toolUseId);
+			}
+			if (parsed.type === "rename") {
+				// The asker alone hears the answer: a broadcast `error` could be another's.
+				const result = await this.title.answerRename(this.sessionId, parsed.title);
+				return writeLine(client.socket, JSON.stringify(result));
+			}
 			await this.onMessage(parsed);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "That did not work.";
@@ -622,13 +615,13 @@ export class ChatHost {
 			case "send":
 				return this.send(message.text, message.attachments);
 			case "permission.answer":
-				return this.answerPermission(message.id, message.optionId, {
+				return this.cards.answerPermission(message.id, message.optionId, {
 					message: message.message,
 				});
 			case "rule.revoke":
 				return this.rules.revoke(message.rule);
 			case "question.answer":
-				return this.answer(message.id, (open) =>
+				return this.cards.answer(message.id, (open) =>
 					open.card.type === "question"
 						? questionResult(
 								open.input,
@@ -739,14 +732,22 @@ export class ChatHost {
 		if (change.model !== undefined) {
 			await session?.setModel(change.model);
 			this.settings.model = change.model;
+			// Another model may have another context window.
+			if (session) void this.refreshWindow(session, undefined);
 		}
 		if (change.effort !== undefined) {
 			await session?.applyFlagSettings({ effortLevel: change.effort });
 			this.settings.effort = change.effort;
 		}
-		if (change.mode !== undefined) {
-			await session?.setPermissionMode(change.mode);
-			this.settings.mode = change.mode;
+		// A model without Auto takes the chat to Ask, as a new chat on it starts.
+		const mode =
+			change.mode ??
+			(change.model !== undefined && this.settings.mode === "auto"
+				? chatStartMode(this.modelList.current ?? [], change.model)
+				: undefined);
+		if (mode !== undefined) {
+			await session?.setPermissionMode(mode);
+			this.settings.mode = mode;
 		}
 		this.broadcastSettings();
 	}

@@ -159,11 +159,11 @@ export const STUDENT_HELP: HelpPart = {
 				<p>
 					On a phone or a narrow window the work area fills the screen, and the side
 					panes become drawers. The bar along the foot of the screen has three buttons.{" "}
-					<strong>Projects</strong> opens your project list on the left,{" "}
-					<strong>Files</strong> opens the right pane on the right, and{" "}
-					<strong>Work</strong> shows the work area again. Choosing a project or opening
-					a file closes the drawer, and so do Escape, its close button and a tap outside
-					it.
+					<strong>Projects</strong> (named Show projects to a screen reader) opens your
+					project list on the left, <strong>Files</strong> (Show files) opens the right
+					pane on the right, and <strong>Work</strong> shows the work area again.
+					Choosing a project or opening a file closes the drawer, and so do Escape, its
+					close button and a tap outside it.
 				</p>
 			),
 		},
@@ -228,6 +228,16 @@ export const STUDENT_HELP: HelpPart = {
 							refused.
 						</li>
 						<li>
+							Each terminal zooms on its own, from 50% to 300%. Hold{" "}
+							<kbd className="pk-mono-body">Ctrl</kbd> (
+							<kbd className="pk-mono-body">Cmd</kbd> on a Mac) and turn the mouse wheel
+							over a terminal, pinch on a trackpad, or use the zoom buttons in its title
+							bar; the percentage between them goes back to 100%. A terminal leaves{" "}
+							<kbd className="pk-mono-body">Ctrl+=</kbd> and{" "}
+							<kbd className="pk-mono-body">Ctrl+-</kbd> to the shell. The zoom is kept
+							for this browser tab only.
+						</li>
+						<li>
 							After the workspace stops or restarts, an old terminal says it ended.
 							Choose <strong>New terminal here</strong> to open a fresh one in its
 							place.
@@ -278,10 +288,14 @@ export const STUDENT_HELP: HelpPart = {
 					</li>
 					<li>A Markdown file shows a preview beside the source.</li>
 					<li>
-						A letter beside a file shows its Git state: <strong>M</strong> modified,{" "}
-						<strong>A</strong> added, <strong>D</strong> deleted, <strong>R</strong>{" "}
-						renamed, <strong>?</strong> new and not yet tracked, <strong>!</strong> in
-						conflict. <strong>Diff</strong> shows what changed since your last commit.
+						A coloured letter beside a file shows its Git state: <strong>M</strong>{" "}
+						modified, <strong>A</strong> added, <strong>D</strong> deleted,{" "}
+						<strong>R</strong> renamed, <strong>U</strong> new and not yet tracked,{" "}
+						<strong>!</strong> in conflict. A dot beside a folder means it contains
+						changes; its colour follows the most important one. Hover over a letter or a
+						dot for the words. Each kind of file, such as code, web pages, styles, data,
+						Markdown, images and archives, has its own icon. <strong>Diff</strong> shows
+						what changed since your last commit.
 					</li>
 					<li>
 						Right-click a file, or press <kbd className="pk-mono-body">Shift+F10</kbd>,
@@ -296,6 +310,12 @@ export const STUDENT_HELP: HelpPart = {
 					</li>
 					<li>
 						<strong>Find in files</strong> is the magnifier at the top of Files.
+					</li>
+					<li>
+						The editor zooms like a terminal: hold{" "}
+						<kbd className="pk-mono-body">Ctrl</kbd> (
+						<kbd className="pk-mono-body">Cmd</kbd> on a Mac) and turn the wheel over
+						it, pinch, or use the zoom buttons beside the bar under the file.
 					</li>
 				</ul>
 			),
@@ -539,8 +559,8 @@ export const STUDENT_HELP: HelpPart = {
 					Checks are commands your project lists in{" "}
 					<code className="pk-mono-body">.portikus/checks.json</code>, such as{" "}
 					<code className="pk-mono-body">npm test</code>. Open <strong>Checks</strong>{" "}
-					and press the run button beside one to see its real output. The three-dots
-					button, <strong>Edit checks</strong>, changes the list.
+					and press the run button beside one to see its real output. The pencil button,{" "}
+					<strong>Edit checks</strong>, changes the list.
 				</p>
 			),
 		},

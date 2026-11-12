@@ -35,9 +35,9 @@ function extras(entry: SessionMessage): EntryExtras {
 	return entry as unknown as EntryExtras;
 }
 
-/** The text of a top-level user entry that holds no tool result, else null. */
-function userText(entry: SessionMessage): string | null {
-	if (entry.type !== "user" || entry.parent_tool_use_id !== null) return null;
+/** The text of a user entry that holds no tool result, else null. */
+function plainText(entry: SessionMessage | undefined): string | null {
+	if (entry?.type !== "user") return null;
 	const content = ((entry.message ?? {}) as Block).content;
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return null;
@@ -47,6 +47,11 @@ function userText(entry: SessionMessage): string | null {
 		.filter((block) => block?.type === "text" && typeof block.text === "string")
 		.map((block) => block.text as string)
 		.join("");
+}
+
+/** The text of a top-level user entry that holds no tool result, else null. */
+function userText(entry: SessionMessage): string | null {
+	return entry.parent_tool_use_id === null ? plainText(entry) : null;
 }
 
 function isInterruptMarker(entry: SessionMessage): boolean {
@@ -203,6 +208,48 @@ export function replayHistory(
 		}
 	});
 	return { events, truncated: turns.length > kept.length };
+}
+
+/** Most entries of a subagent's transcript replayed when it is watched. */
+export const REPLAY_SUBAGENT_ENTRIES = 500;
+/** The newest entries whose images a subagent replay keeps; older ones say `imageOmitted`. */
+export const REPLAY_SUBAGENT_IMAGE_ENTRIES = 20;
+
+/**
+ * A subagent's transcript replayed as one turn: the prompt it was given as a
+ * user message, then its messages and tool events, then `turn.finished`
+ * unless it is still running. Only the last REPLAY_SUBAGENT_ENTRIES entries
+ * are replayed. An image older than the last REPLAY_SUBAGENT_IMAGE_ENTRIES
+ * entries, or too large for one frame, becomes `imageOmitted`.
+ */
+export function replaySubagent(
+	entries: readonly SessionMessage[],
+	running: boolean,
+	now: number,
+	maxBytes = MAX_CHAT_SERVER_FRAME_BYTES,
+): { events: ChatEventBody[]; truncated: boolean } {
+	const kept = entries.slice(-REPLAY_SUBAGENT_ENTRIES);
+	const truncated = kept.length < entries.length;
+	const mapper = new ClaudeMessageMapper();
+	const events: ChatEventBody[] = [{ type: "turn.started", at: timeOf(kept[0], now) }];
+	kept.forEach((entry, index) => {
+		// The first entry is the prompt the subagent was given.
+		const prompt = index === 0 && !truncated ? plainText(entry) : null;
+		if (prompt !== null) {
+			events.push({ type: "message", id: entry.uuid, role: "user", markdown: prompt });
+			return;
+		}
+		const keepImages = index >= kept.length - REPLAY_SUBAGENT_IMAGE_ENTRIES;
+		events.push(...entryEvents(entry, mapper, keepImages, maxBytes));
+	});
+	if (!running) {
+		events.push({
+			type: "turn.finished",
+			status: statusOf(kept),
+			at: timeOf(kept.at(-1), now),
+		});
+	}
+	return { events, truncated };
 }
 
 /** The snapshot sent first on every attach (SPEC.md §10.8). History follows it as replayed events. */

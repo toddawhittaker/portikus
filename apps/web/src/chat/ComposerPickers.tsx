@@ -16,7 +16,14 @@
  * chosen (SPEC.md §25.8). The panel is a disclosure, not a menu: it holds
  * those buttons, and their menus portal above it.
  */
-import { CHAT_START_EFFORT, ChatEffort, ChatPermissionMode } from "@portikus/contracts";
+
+import type { ChatModelInfo } from "@portikus/contracts";
+import {
+	CHAT_START_SETTINGS,
+	ChatEffort,
+	ChatPermissionMode,
+	chatStartMode,
+} from "@portikus/contracts";
 import {
 	Icon,
 	Menu,
@@ -34,9 +41,9 @@ import { ContextMeter } from "./ContextMeter.js";
 import {
 	type ChatSettings,
 	type ChatStore,
-	modelChoice,
 	selectSessionRulesActive,
 } from "./chatStore.js";
+import { familyChoices, modelSummary, resolveModel, versionChoices } from "./models.js";
 import type { ReadAloud } from "./readAloud.js";
 import "./pickers.css";
 
@@ -66,29 +73,6 @@ const AGENTS: Choice[] = [
 		label: "Codex",
 		description: "Coming soon.",
 		unavailable: true,
-	},
-];
-
-const MODELS: Choice[] = [
-	{
-		value: "default",
-		label: "Default",
-		description: "The model Claude Code picks for your account.",
-	},
-	{
-		value: "opus",
-		label: "Opus",
-		description: "Most capable, for hard problems. Uses your limits fastest.",
-	},
-	{
-		value: "sonnet",
-		label: "Sonnet",
-		description: "Fast and capable, for most coding.",
-	},
-	{
-		value: "haiku",
-		label: "Haiku",
-		description: "Fastest, for small, simple changes.",
 	},
 ];
 
@@ -143,9 +127,10 @@ const MODES: Choice[] = [
 
 /**
  * The values a chat starts with, as the host sets them. The model is left
- * out: the host reports the model Claude chose, so any model may be the start.
+ * out of the menus' "Default" marker, since a model row of that name exists;
+ * the start mode is Ask on a model that cannot run Auto.
  */
-const START = { agent: "claude", effort: CHAT_START_EFFORT, mode: "default" } as const;
+const START = { agent: "claude", effort: CHAT_START_SETTINGS.effort } as const;
 
 type Change = Partial<Pick<ChatSettings, "model" | "effort" | "mode">>;
 
@@ -193,9 +178,11 @@ function Pick({
 				>
 					{/* The space keeps the name "Model Opus", not "ModelOpus". */}
 					<span className="pk-picker-label">{label}</span>{" "}
-					{warning ? <Icon name="alert" size="sm" /> : null}
-					<span className="pk-picker-value">{shown}</span>
-					<Icon name="chevron-down" size="sm" />
+					<span className="pk-picker-current">
+						{warning ? <Icon name="alert" size="sm" /> : null}
+						<span className="pk-picker-value">{shown}</span>
+						<Icon name="chevron-down" size="sm" />
+					</span>
 				</button>
 			</MenuTrigger>
 			<Menu label={label} align="start" className="pk-picker-menu">
@@ -243,21 +230,21 @@ function Pick({
 	);
 }
 
-/** The "Read replies aloud" switch (ADR 0071), a row of the options panel. */
+/** The "Read replies aloud" switch (ADR 0071), in the options panel's heading row. */
 function ReadAloudSwitch({ readAloud }: { readAloud: ReadAloud }) {
 	return (
 		<button
 			type="button"
 			role="switch"
 			aria-checked={readAloud.on}
-			className={`pk-picker pk-picker-switch${readAloud.on ? " is-changed" : ""}`}
+			className="pk-picks-aloud"
 			data-testid="composer-read-aloud"
 			onClick={() => readAloud.set(!readAloud.on)}
 		>
-			<span className="pk-picker-label">Read replies aloud</span>
-			<Icon name="speaker" size="sm" />
-			{/* The state is the switch's own; the words are for the eye. */}
-			<span className="pk-picker-value" aria-hidden={true}>
+			<span>Read replies aloud</span>
+			{/* The state is the switch's own; the track and the word are for the eye. */}
+			<span className="pk-picks-aloud-track" aria-hidden={true} />
+			<span className="pk-picks-aloud-state" aria-hidden={true}>
 				{readAloud.on ? "On" : "Off"}
 			</span>
 		</button>
@@ -288,12 +275,8 @@ interface PickersProps {
 }
 
 /** The short summary on the Options button: agent or model, effort, permissions. */
-function summaryOf(shown: ChatSettings): string {
-	const model = modelChoice(shown.model);
-	const first =
-		model === "default"
-			? "Claude"
-			: (MODELS.find((choice) => choice.value === model)?.label ?? model);
+function summaryOf(shown: ChatSettings, models: ChatModelInfo[]): string {
+	const first = modelSummary(models, shown.model);
 	const effort = EFFORTS.find((choice) => choice.value === shown.effort)?.label;
 	const mode = MODES.find((choice) => choice.value === shown.mode)?.label;
 	return [first, effort ?? shown.effort, mode ?? shown.mode].join(" \u00b7 ");
@@ -309,6 +292,7 @@ export function ComposerPickers({
 	onOpenChange,
 }: PickersProps) {
 	const settings = useStore(store, (state) => state.settings);
+	const models = useStore(store, (state) => state.models);
 	const lastError = useStore(store, (state) => state.lastError);
 	const [pending, setPending] = useState<Change>({});
 	const pendingNow = useRef(pending);
@@ -356,6 +340,9 @@ export function ComposerPickers({
 
 	const shown = settings ? { ...settings, ...pending } : null;
 	const bypass = shown?.mode === "bypassPermissions";
+	const startMode = shown ? chatStartMode(models, shown.model) : "default";
+	const current = shown ? resolveModel(models, shown.model) : null;
+	const versions = current ? versionChoices(models, current.family) : [];
 	// The host's own mode, not one still waiting, decides whether Ask is the whole story.
 	const askWithRules = settings?.mode === "default" && rulesActive;
 
@@ -373,7 +360,7 @@ export function ComposerPickers({
 				<Icon name={bypass ? "alert" : "agent"} size="sm" />
 				<span className="sr-only">Chat options: </span>
 				<span className="pk-composer-options-summary">
-					{shown ? summaryOf(shown) : <Skeleton width="6rem" />}
+					{shown ? summaryOf(shown, models) : <Skeleton width="6rem" />}
 				</span>
 				<Icon name={open ? "chevron-up" : "chevron-down"} size="sm" />
 			</button>
@@ -394,52 +381,66 @@ export function ComposerPickers({
 				}}
 			>
 				<legend className="pk-composer-picks-title">Chat options</legend>
-				<Pick
-					label="Agent"
-					testId="composer-agent"
-					value="claude"
-					choices={AGENTS}
-					start={START.agent}
-					onChoose={() => {}}
-				/>
-				{shown ? (
-					<>
-						<Pick
-							label="Model"
-							testId="composer-model"
-							value={modelChoice(shown.model)}
-							choices={MODELS}
-							onChoose={(model) => ask({ model })}
-						/>
-						<Pick
-							label="Effort"
-							testId="composer-effort"
-							value={shown.effort}
-							choices={EFFORTS}
-							start={START.effort}
-							changed={shown.effort !== START.effort}
-							onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
-						/>
-						<Pick
-							label="Permissions"
-							testId="composer-mode"
-							value={shown.mode}
-							choices={MODES}
-							start={START.mode}
-							changed={shown.mode !== START.mode}
-							warning={bypass}
-							describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
-							onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
-						/>
-					</>
-				) : (
-					<>
-						<Waiting label="Model" />
-						<Waiting label="Effort" />
-						<Waiting label="Permissions" />
-					</>
-				)}
 				{isSpeechSupported() ? <ReadAloudSwitch readAloud={readAloud} /> : null}
+				<div className="pk-composer-picks-fields">
+					<Pick
+						label="Agent"
+						testId="composer-agent"
+						value="claude"
+						choices={AGENTS}
+						start={START.agent}
+						onChoose={() => {}}
+					/>
+					{shown ? (
+						<>
+							{/* One unit, so Version never wraps away from Model. */}
+							<div className="pk-picker-pair">
+								<Pick
+									label="Model"
+									testId="composer-model"
+									value={current?.family ?? shown.model}
+									choices={familyChoices(models, shown.model)}
+									onChoose={(model) => ask({ model })}
+								/>
+								{versions.length > 0 ? (
+									<Pick
+										label="Version"
+										testId="composer-version"
+										value={current?.pinned ?? current?.family ?? shown.model}
+										choices={versions}
+										onChoose={(model) => ask({ model })}
+									/>
+								) : null}
+							</div>
+							<Pick
+								label="Effort"
+								testId="composer-effort"
+								value={shown.effort}
+								choices={EFFORTS}
+								start={START.effort}
+								changed={shown.effort !== START.effort}
+								onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
+							/>
+							<Pick
+								label="Permissions"
+								testId="composer-mode"
+								value={shown.mode}
+								choices={MODES}
+								start={startMode}
+								changed={shown.mode !== startMode}
+								warning={bypass}
+								describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
+								onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
+							/>
+						</>
+					) : (
+						<>
+							<Waiting label="Model" />
+							<Waiting label="Effort" />
+							<Waiting label="Permissions" />
+						</>
+					)}
+				</div>
 			</fieldset>
 			{/* Outside the panel, so Ask never reads as the whole story while it is closed. */}
 			{askWithRules ? (

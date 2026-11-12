@@ -11,6 +11,7 @@ import {
 	buildAgentUsageReceiver,
 	CLAUDE_LIMITS_PATH,
 	CODING_AGENT_STATE_PATH,
+	CODING_AGENT_TITLE_PATH,
 	MAX_SIGNAL_BODY_BYTES,
 } from "./agent-usage.js";
 import { CodingAgentBoard } from "./coding-agent-status.js";
@@ -236,6 +237,71 @@ describe("the state route", () => {
 		);
 		expect(response.statusCode).toBe(413);
 		expect(board.current()).toEqual([]);
+	});
+});
+
+describe("chat titles", () => {
+	test("a title rides on its terminal's entry, survives state changes, and goes with remove", () => {
+		const board = new CodingAgentBoard({ now: () => NOW });
+		const seen = vi.fn();
+		board.subscribe(seen);
+		board.title(ID, "Fix the login redirect");
+		// No entry yet, so nothing to show or announce.
+		expect(seen).not.toHaveBeenCalled();
+		board.set(ID, "claude", "working", 1);
+		board.set(ID, "claude", "finished", 2);
+		expect(board.current()[0]?.title).toBe("Fix the login redirect");
+		board.remove(ID);
+		board.title(ID, "Too late");
+		expect(board.current()).toEqual([]);
+	});
+
+	test("a changed title is announced, a repeat is not, and null clears it", () => {
+		const board = new CodingAgentBoard({ now: () => NOW });
+		board.set(ID, "claude", "working", 1);
+		const seen = vi.fn();
+		board.subscribe(seen);
+		board.title(ID, "One");
+		board.title(ID, "One");
+		board.title(ID, null);
+		expect(seen).toHaveBeenCalledTimes(2);
+		expect(board.current()[0]).not.toHaveProperty("title");
+	});
+
+	test("titles are kept for a bounded number of terminals", () => {
+		const board = new CodingAgentBoard({ now: () => NOW });
+		for (let n = 0; n <= 2 * MAX_CODING_AGENT_TERMINALS; n++) {
+			board.title(terminalId(n), `Chat ${n}`);
+		}
+		board.set(terminalId(0), "claude", "working", 1);
+		board.set(terminalId(1), "claude", "working", 1);
+		expect(board.current().map((entry) => entry.title)).toEqual([undefined, "Chat 1"]);
+	});
+
+	test("the title route cleans the title, and null clears it", async () => {
+		const { board, post } = receiver();
+		board.set(ID, "claude", "working", 1);
+		const set = await post(CODING_AGENT_TITLE_PATH, {
+			terminal: ID,
+			title: "Fix\nthe   build",
+		});
+		expect(set.statusCode).toBe(204);
+		expect(board.current()[0]?.title).toBe("Fix the build");
+		await post(CODING_AGENT_TITLE_PATH, { terminal: ID, title: null });
+		expect(board.current()[0]?.title).toBeUndefined();
+	});
+
+	test.each([
+		["a terminal that is not a uuid", { terminal: "pk-1", title: "x" }],
+		["an extra field", { terminal: ID, title: "x", prompt: "y" }],
+		["no title field", { terminal: ID }],
+		["an over-long title", { terminal: ID, title: "x".repeat(321) }],
+	])("%s is refused", async (_name, body) => {
+		const { board, post } = receiver();
+		board.set(ID, "claude", "working", 1);
+		const response = await post(CODING_AGENT_TITLE_PATH, body);
+		expect(response.statusCode).toBe(400);
+		expect(board.current()[0]?.title).toBeUndefined();
 	});
 });
 

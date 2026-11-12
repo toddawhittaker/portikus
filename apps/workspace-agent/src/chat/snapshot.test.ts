@@ -4,8 +4,11 @@ import { describe, expect, test } from "vitest";
 import {
 	buildSnapshot,
 	REPLAY_IMAGE_TURNS,
+	REPLAY_SUBAGENT_ENTRIES,
+	REPLAY_SUBAGENT_IMAGE_ENTRIES,
 	REPLAY_TURNS,
 	replayHistory,
+	replaySubagent,
 } from "./snapshot.js";
 
 const SESSION = "0b7e0a8e-3c1e-4c38-9a4e-2f0f6f7d1a11";
@@ -307,5 +310,133 @@ describe("shell commands on replay", () => {
 	test("a command first in the transcript replays on its own", () => {
 		const { events } = replayHistory([input("pwd"), output("/p\n")], false);
 		expect(events.map((event) => event.type)).toEqual(["shell"]);
+	});
+});
+
+describe("replaySubagent", () => {
+	const CALL = "toolu_agent";
+	const prompt = entry("user", { role: "user", content: "Count the routes." }, CALL);
+	const work = [
+		entry(
+			"assistant",
+			{
+				id: "s1",
+				content: [
+					{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "a.png" } },
+				],
+			},
+			CALL,
+		),
+		entry(
+			"user",
+			{
+				role: "user",
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "t1",
+						content: [
+							{
+								type: "image",
+								source: { type: "base64", media_type: "image/png", data: PNG },
+							},
+						],
+					},
+				],
+			},
+			CALL,
+		),
+		entry(
+			"assistant",
+			{ id: "s2", content: [{ type: "text", text: "There are 4." }] },
+			CALL,
+		),
+	];
+
+	test("a finished subagent replays as one turn: its prompt, its work with images, its reply", () => {
+		const { events, truncated } = replaySubagent([prompt, ...work], false, 1000);
+		expect(truncated).toBe(false);
+		expect(events.map((event) => event.type)).toEqual([
+			"turn.started",
+			"message",
+			"tool.started",
+			"tool.output",
+			"tool.finished",
+			"message",
+			"turn.finished",
+		]);
+		expect(events[1]).toMatchObject({ role: "user", markdown: "Count the routes." });
+		expect(events[3]).toMatchObject({ part: { type: "image" } });
+		expect(events.at(-1)).toMatchObject({ status: "done" });
+	});
+
+	test("a running subagent's turn is left open", () => {
+		const { events } = replaySubagent([prompt], true, 1000);
+		expect(events.map((event) => event.type)).toEqual(["turn.started", "message"]);
+	});
+
+	test("an empty transcript of a running subagent starts its turn now", () => {
+		expect(replaySubagent([], true, 1234).events).toEqual([
+			{ type: "turn.started", at: 1234 },
+		]);
+	});
+
+	test("only the newest entries replay, without the prompt, and say older ones exist", () => {
+		const reply = (n: number) =>
+			entry(
+				"assistant",
+				{ id: `r${n}`, content: [{ type: "text", text: `${n}` }] },
+				CALL,
+			);
+		const many = [
+			prompt,
+			...Array.from({ length: REPLAY_SUBAGENT_ENTRIES }, (_, n) => reply(n)),
+		];
+		const { events, truncated } = replaySubagent(many, false, 1000);
+		expect(truncated).toBe(true);
+		const messages = events.filter((event) => event.type === "message");
+		expect(messages).toHaveLength(REPLAY_SUBAGENT_ENTRIES);
+		expect(messages.every((event) => event.role === "assistant")).toBe(true);
+	});
+
+	test(`images older than the last ${REPLAY_SUBAGENT_IMAGE_ENTRIES} entries are omitted`, () => {
+		const read = (n: number) =>
+			entry(
+				"user",
+				{
+					role: "user",
+					content: [
+						{
+							type: "tool_result",
+							tool_use_id: `t${n}`,
+							content: [
+								{
+									type: "image",
+									source: { type: "base64", media_type: "image/png", data: PNG },
+								},
+							],
+						},
+					],
+				},
+				CALL,
+			);
+		const reads = Array.from({ length: REPLAY_SUBAGENT_IMAGE_ENTRIES + 3 }, (_, n) =>
+			read(n),
+		);
+		const { events } = replaySubagent([prompt, ...reads], false, 1000);
+		const parts = events.flatMap((event) =>
+			event.type === "tool.output" ? [event.part.type] : [],
+		);
+		expect(parts).toEqual([
+			...Array(3).fill("imageOmitted"),
+			...Array(REPLAY_SUBAGENT_IMAGE_ENTRIES).fill("image"),
+		]);
+	});
+
+	test("an image too large for a frame becomes imageOmitted", () => {
+		const { events } = replaySubagent([prompt, ...work], false, 1000, 250);
+		expect(events.find((event) => event.type === "tool.output")).toMatchObject({
+			part: { type: "imageOmitted" },
+		});
 	});
 });

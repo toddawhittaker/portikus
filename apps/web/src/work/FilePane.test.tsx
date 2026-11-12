@@ -7,12 +7,12 @@ afterEach(() => {
 	document.body.replaceChildren();
 });
 
-function renderPane(path = "src/app.ts") {
+function renderPane(path = "src/app.ts", { alone = false, focused = true } = {}) {
 	return render(
 		<FilePane
 			path={path}
-			alone={false}
-			focused={true}
+			alone={alone}
+			focused={focused}
 			dropEdge={null}
 			moveTargets={[]}
 			onFocus={() => {}}
@@ -44,6 +44,23 @@ test("a focused pane mounting while the keyboard is elsewhere leaves it there", 
 	elsewhere.focus();
 	renderPane();
 	expect(document.activeElement).toBe(elsewhere);
+});
+
+/**
+ * SPEC.md §25.8: the pane with the keyboard is marked for the focus ring, as
+ * a terminal's is, and a pane alone in its tab says so, since it shows none.
+ */
+test("the focused pane is marked for its ring, and a pane alone in its tab says so", () => {
+	const { unmount } = renderPane();
+	const pane = screen.getByTestId("file-frame-src/app.ts");
+	expect(pane.classList.contains("is-focused")).toBe(true);
+	expect(pane.hasAttribute("data-alone")).toBe(false);
+	unmount();
+
+	renderPane("src/app.ts", { alone: true, focused: false });
+	const alone = screen.getByTestId("file-frame-src/app.ts");
+	expect(alone.classList.contains("is-focused")).toBe(false);
+	expect(alone.getAttribute("data-alone")).toBe("true");
 });
 
 /** SPEC.md §8.3: the name, the view's controls and the menu share one line, in that order. */

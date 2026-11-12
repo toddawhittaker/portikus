@@ -12,6 +12,31 @@ describe("Icon", () => {
 		expect(container.querySelectorAll("path")).toHaveLength(2);
 	});
 
+	it("draws the pencil as a barrel outline and a tip stroke", () => {
+		const { container } = render(<Icon name="pencil" />);
+		expect(container.querySelectorAll("path")).toHaveLength(2);
+	});
+
+	it("draws each file family as its own glyph", () => {
+		const families = [
+			"file",
+			"file-code",
+			"file-web",
+			"file-style",
+			"file-data",
+			"file-markdown",
+			"file-image",
+			"file-archive",
+			"file-config",
+		] as const;
+		const drawn = families.map((name) => {
+			const { container } = render(<Icon name={name} />);
+			return container.querySelector("svg")?.innerHTML;
+		});
+		// No two families share a drawing, the web and style ones above all.
+		expect(new Set(drawn).size).toBe(families.length);
+	});
+
 	it("becomes an image with a name when labelled", () => {
 		render(<Icon name="alert" label="Error" />);
 		expect(screen.getByRole("img", { name: "Error" })).toBeDefined();

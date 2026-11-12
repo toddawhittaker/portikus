@@ -4,8 +4,11 @@ import { stopTime } from "../shell/useCountdown.js";
 import {
 	COMPACT_HINT,
 	ContextMeter,
+	contextLevel,
 	contextPercent,
 	formatClock,
+	formatTokens,
+	spokenTokens,
 } from "./ContextMeter.js";
 import { type ChatState, type ChatStore, createChatStore } from "./chatStore.js";
 
@@ -62,59 +65,126 @@ test("formats the percent and the clock", () => {
 	expect(formatClock(-4)).toBe("0:00");
 });
 
+test("tokens are short: plain under 1,000, one decimal under 100k, none after, 1M for a million", () => {
+	const cases: [number, string][] = [
+		[0, "0"],
+		[640, "640"],
+		[999, "999"],
+		[1000, "1.0k"],
+		[8_400, "8.4k"],
+		[34_200, "34.2k"],
+		[99_949, "99.9k"],
+		// 99.95k rounds up to the next form, not "100.0k".
+		[99_950, "100k"],
+		[182_300, "182k"],
+		[200_000, "200k"],
+		[999_499, "999k"],
+		[999_500, "1M"],
+		[1_000_000, "1M"],
+		[1_500_000, "1.5M"],
+	];
+	for (const [tokens, short] of cases)
+		expect(formatTokens(tokens), `${tokens}`).toBe(short);
+});
+
+test("tokens are spelled out for a screen reader", () => {
+	expect(spokenTokens(640)).toBe("640");
+	expect(spokenTokens(34_200)).toBe("34 thousand");
+	expect(spokenTokens(200_000)).toBe("200 thousand");
+	expect(spokenTokens(1_000_000)).toBe("1 million");
+	expect(spokenTokens(1_500_000)).toBe("1.5 million");
+});
+
+test("the look steps at 25, 50, 75 and 90 percent", () => {
+	expect(contextLevel(0)).toBe("low");
+	expect(contextLevel(24)).toBe("low");
+	expect(contextLevel(25)).toBe("rising");
+	expect(contextLevel(49)).toBe("rising");
+	expect(contextLevel(50)).toBe("half");
+	expect(contextLevel(74)).toBe("half");
+	expect(contextLevel(75)).toBe("warning");
+	expect(contextLevel(89)).toBe("warning");
+	expect(contextLevel(90)).toBe("full");
+	expect(contextLevel(100)).toBe("full");
+});
+
 test("shows nothing before the host reports", () => {
 	expect(screen.queryByTestId("composer-context")).toBeNull();
 	expect(screen.queryByTestId("composer-cache")).toBeNull();
 });
 
-test("the context shows once over half full, with the /compact hint", () => {
-	show(report(500, 1000, null));
-	expect(screen.queryByTestId("composer-context")).toBeNull();
-	show(report(720, 1000, null));
+test("the context is always shown, with both figures, even before the first reply", () => {
+	show(report(0, 1_000_000, null));
 	const meter = screen.getByTestId("composer-context");
-	expect(meter.textContent).toContain("Context 72%");
+	expect(meter.textContent).toContain("Context 0 / 1M");
+	expect(meter.getAttribute("data-level")).toBe("low");
+	show(report(34_200, 1_000_000, null));
+	expect(screen.getByTestId("composer-context").textContent).toContain("34.2k / 1M");
 	expect(meter.getAttribute("title")).toBe(COMPACT_HINT);
 	expect(meter.textContent).toContain(COMPACT_HINT);
-	expect(meter.getAttribute("data-level")).toBe("ok");
-	// A native meter, named and valued, beside its figure.
+	// A native meter, named Context, whose value is spelled out for a screen reader.
 	const bar = meter.querySelector("meter");
 	expect(bar?.getAttribute("aria-label")).toBe("Context");
-	expect(bar?.getAttribute("aria-valuetext")).toBe("72% used");
+	expect(bar?.getAttribute("aria-valuetext")).toBe(
+		"about 34 thousand of 1 million tokens",
+	);
 	expect(meter.querySelector("svg")).toBeNull();
 });
 
-test("an unknown window hides the percentage", () => {
-	show(report(900_000, null, null));
-	expect(screen.queryByTestId("composer-context")).toBeNull();
-});
-
-test("near full the context carries the alert icon, not colour alone", () => {
-	show(report(860, 1000, null));
+test("the figures are hidden from assistive technology; the meter says them", () => {
+	show(report(34_200, 1_000_000, null));
 	const meter = screen.getByTestId("composer-context");
-	expect(meter.getAttribute("data-level")).toBe("warning");
-	expect(meter.querySelector("svg")).not.toBeNull();
-	expect(meter.querySelector("meter")?.getAttribute("aria-valuetext")).toBe(
-		"86% used, nearly full",
-	);
+	const text = meter.querySelector(".pk-meter-text");
+	expect(text?.getAttribute("aria-hidden")).toBe("true");
+	expect(text?.textContent).toBe("34.2k / 1M");
 });
 
-test("from 90% the context meter turns to the error level", () => {
-	show(report(890, 1000, null));
-	expect(screen.getByTestId("composer-context").getAttribute("data-level")).toBe(
-		"warning",
-	);
-	show(report(900, 1000, null));
-	expect(screen.getByTestId("composer-context").getAttribute("data-level")).toBe(
-		"full",
-	);
+test("an unknown window shows the used count alone, with no bar", () => {
+	show(report(34_200, null, null));
+	const meter = screen.getByTestId("composer-context");
+	expect(meter.textContent).toContain("34.2k tokens");
+	expect(meter.querySelector("meter")).toBeNull();
+	expect(meter.getAttribute("data-level")).toBe("unknown");
+	expect(meter.textContent).toContain("Context: about 34 thousand tokens.");
 });
 
-test("the context is announced once as it passes 80%", () => {
-	show(report(600, 1000, null));
+test("each step has its own look, and the top two carry the alert icon, not colour alone", () => {
+	const level = (used: number) => {
+		show(report(used, 1000, null));
+		return screen.getByTestId("composer-context");
+	};
+	expect(level(240).getAttribute("data-level")).toBe("low");
+	expect(level(250).getAttribute("data-level")).toBe("rising");
+	expect(level(500).getAttribute("data-level")).toBe("half");
+	expect(level(500).querySelector("svg")).toBeNull();
+	const warning = level(750);
+	expect(warning.getAttribute("data-level")).toBe("warning");
+	expect(warning.querySelector("svg")).not.toBeNull();
+	expect(warning.querySelector("meter")?.getAttribute("aria-valuetext")).toBe(
+		"about 750 of 1 thousand tokens, nearly full",
+	);
+	const full = level(900);
+	expect(full.getAttribute("data-level")).toBe("full");
+	expect(full.querySelector("svg")).not.toBeNull();
+});
+
+test("only crossing 75 and 90 percent is announced, once each", () => {
+	show(report(100, 1000, null));
+	show(report(260, 1000, null));
+	show(report(300, 1000, null));
+	show(report(520, 1000, null));
+	show(report(760, 1000, null));
 	show(report(790, 1000, null));
-	expect(announced).toEqual([]);
+	show(report(910, 1000, null));
+	expect(announced).toEqual([
+		`Context is now 76% full. ${COMPACT_HINT}`,
+		`Context is now 91% full. ${COMPACT_HINT}`,
+	]);
+});
+
+test("a jump over several steps is announced once, and a fall then a climb is news again", () => {
+	show(report(100, 1000, null));
 	show(report(810, 1000, null));
-	show(report(850, 1000, null));
 	expect(announced).toEqual([`Context is now 81% full. ${COMPACT_HINT}`]);
 	// After /compact it falls, and the next climb is news again.
 	show(report(300, 1000, null));
@@ -122,7 +192,7 @@ test("the context is announced once as it passes 80%", () => {
 	expect(announced).toHaveLength(2);
 });
 
-test("a first figure already past 80% is not announced", () => {
+test("a first figure already past a step is not announced", () => {
 	show(report(950, 1000, null));
 	expect(announced).toEqual([]);
 });

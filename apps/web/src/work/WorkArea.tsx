@@ -125,6 +125,20 @@ export interface WorkAreaProps {
 	onSelectedFromUrl?: () => void;
 }
 
+/**
+ * A terminal tab's label and hover text: a chat's conversation title once it
+ * has one (ADR 0074), else the agent's name or the terminal's.
+ */
+export function terminalTabText(
+	terminal: Terminal | undefined,
+	named: string | null,
+	chatTitles: ReadonlyMap<string, string>,
+): { label: string; title?: string } {
+	const label = named ?? terminal?.name ?? "Terminal";
+	const chatTitle = terminal?.kind === "chat" ? chatTitles.get(terminal.id) : undefined;
+	return chatTitle ? { label: chatTitle, title: `${label}: ${chatTitle}` } : { label };
+}
+
 export function WorkArea({
 	workspaceId,
 	projectId,
@@ -291,6 +305,17 @@ export function WorkArea({
 		);
 	}
 
+	/** A fresh chat in an ended chat's place; the ended record stays in the history. */
+	async function newChat(terminalId: string) {
+		await createAndPlace(
+			(created) => {
+				store.getState().replaceLeaf(terminalId, created.id);
+				store.getState().setFocused(created.id);
+			},
+			{ kind: "chat", agent: "claude" },
+		);
+	}
+
 	async function replace(terminalId: string) {
 		await createAndPlace((created) => {
 			store.getState().replaceLeaf(terminalId, created.id);
@@ -393,7 +418,14 @@ export function WorkArea({
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, []);
 
-	const agentMarks = marksByTerminal(useAgentStatus());
+	const agentSnapshot = useAgentStatus();
+	const agentMarks = marksByTerminal(agentSnapshot);
+	// A chat's tab shows its conversation title once it has one (ADR 0074).
+	const chatTitles = new Map(
+		agentSnapshot.terminals.flatMap((item) =>
+			item.title ? [[item.terminalId, item.title] as const] : [],
+		),
+	);
 	const agentStatus = useAgentStatusStore();
 	// The terminals in the tab on screen are the ones the student is looking at.
 	const activeTab = layout.tabs.find((tab) => tab.id === activeTabId);
@@ -453,7 +485,7 @@ export function WorkArea({
 			kind: agent ?? "terminal",
 			agentState: mark?.state,
 			unread: mark?.unread,
-			label: named ?? first?.name ?? "Terminal",
+			...terminalTabText(first, named, chatTitles),
 			testId: `tab-${tab.id}`,
 			ended: ids.length > 0 && ids.every((id) => byId.get(id)?.endedAt != null),
 			dirty,
@@ -601,6 +633,7 @@ export function WorkArea({
 							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
 							onResume={(id) => void resume(id)}
+							onNewChat={(id) => void newChat(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onShowRunning={() => showRightPane("running")}
 							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}

@@ -108,10 +108,16 @@ class FakeQuery {
 		return this.usage;
 	}
 	/** What `getContextUsage()` answers; null makes it fail, as an older SDK would. */
-	contextWindow: number | null = null;
+	contextWindow: number | null = startWindow;
 	async getContextUsage() {
 		if (this.contextWindow === null) throw new Error("unsupported");
 		return { maxTokens: this.contextWindow };
+	}
+	/** What `supportedModels()` answers; null makes it fail. */
+	modelRows: Record<string, unknown>[] | null = startModels;
+	async supportedModels() {
+		if (this.modelRows === null) throw new Error("unsupported");
+		return this.modelRows;
 	}
 	close() {
 		this.ended = true;
@@ -141,6 +147,10 @@ interface Client {
 	closed: Promise<void>;
 }
 
+/** What a query started now answers for its window and its models. */
+let startWindow: number | null;
+let startModels: Record<string, unknown>[] | null;
+
 let dir: string;
 let host: ChatHost;
 let queries: FakeQuery[];
@@ -149,6 +159,10 @@ let exists: boolean;
 /** The transcript reads, by session id, and what each returns. */
 let reads: string[];
 let transcript: () => Promise<SessionMessage[]>;
+/** Each session's title in the fake session files, and the titles posted. */
+let titles: Map<string, string>;
+let subagentTranscripts: Map<string, SessionMessage[]>;
+let postedTitles: (string | null)[];
 
 const EARLIER: SessionMessage[] = [
 	{
@@ -174,6 +188,13 @@ function sdk(): ChatSdk {
 			reads.push(id);
 			return transcript();
 		},
+		sessionTitle: async (id) => titles.get(id) ?? null,
+		renameSession: async (id, title) => {
+			titles.set(id, title);
+		},
+		subagentIds: async () => [...subagentTranscripts.keys()],
+		subagentMessages: async (_id, agentId, _dir, limit) =>
+			(subagentTranscripts.get(agentId) ?? []).slice(0, limit),
 	};
 }
 
@@ -204,6 +225,11 @@ function delta(text: string) {
 	} as never;
 }
 
+/** The stand-in SDK a host holds, so a test can slow or count one call. */
+function sdkOf(chat: ChatHost): ChatSdk {
+	return (chat as unknown as { sdk: ChatSdk }).sdk;
+}
+
 function ofType<T extends ChatServerEvent["type"]>(client: Client, type: T) {
 	return client.events.filter(
 		(e): e is Extract<ChatServerEvent, { type: T }> => e.type === type,
@@ -218,7 +244,17 @@ beforeEach(async () => {
 	exists = false;
 	reads = [];
 	transcript = async () => EARLIER;
-	host = new ChatHost({
+	startWindow = null;
+	startModels = null;
+	titles = new Map();
+	subagentTranscripts = new Map();
+	postedTitles = [];
+	host = makeHost();
+	await host.start();
+});
+
+function makeHost(): ChatHost {
+	return new ChatHost({
 		terminalId: ID,
 		projectDir: join(dir, "projects", "demo"),
 		homeDir: dir,
@@ -227,10 +263,12 @@ beforeEach(async () => {
 		postLimits: async (windows) => {
 			posted.push(windows);
 		},
+		postTitle: async (title) => {
+			postedTitles.push(title);
+		},
 		sdk: sdk(),
 	});
-	await host.start();
-});
+}
 
 afterEach(async () => {
 	await host.stop();
@@ -261,6 +299,7 @@ describe("starting", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -280,6 +319,7 @@ describe("starting", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -334,6 +374,7 @@ describe("starting", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -367,12 +408,14 @@ describe("attaching", () => {
 			{ type: "message", id: "u1", role: "user", markdown: "earlier question" },
 			{ type: "turn.finished", status: "done", at },
 		]);
-		const seqs = client.events.map((event) => event.seq);
+		const seqs = client.events.map((event) => (event as { seq: number }).seq);
 		expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
 		expect(client.events[4]).toMatchObject({
 			type: "settings",
 			agent: "claude",
-			effort: "high",
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
 		});
 		expect(client.events[5]).toMatchObject({ type: "rules", rules: [] });
 	});
@@ -401,7 +444,7 @@ describe("attaching", () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		release();
 		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
-		const seqs = client.events.slice(1).map((event) => event.seq);
+		const seqs = client.events.slice(1).map((event) => (event as { seq: number }).seq);
 		expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
 		expect(new Set(seqs).size).toBe(seqs.length);
 		const types = client.events.map((event) => event.type);
@@ -507,7 +550,7 @@ describe("cards", () => {
 				capabilities: [...capabilities],
 			} as never);
 			await vi.waitFor(() =>
-				expect(ofType(a, "settings").at(-1)?.model).toBe("claude-haiku-4-5"),
+				expect(ofType(a, "settings").at(-1)?.mode).toBe("default"),
 			);
 			const options = [
 				{ label: "A", description: "" },
@@ -1253,11 +1296,76 @@ describe("context usage", () => {
 		});
 	});
 
-	test("an attach to a chat with no requests yet gets no context event", async () => {
+	test("an attach to a chat whose window is not known yet gets no context event", async () => {
 		const a = await attach();
 		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(ofType(a, "context")).toEqual([]);
+	});
+
+	test("the window is read at start, so the context is empty in a known window before any reply", async () => {
+		await host.stop();
+		queries = [];
+		host = makeHost();
+		startWindow = 1_000_000;
+		await host.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		expect(ofType(a, "context")[0]).toMatchObject({
+			usedTokens: 0,
+			windowTokens: 1_000_000,
+			cache: null,
+		});
+		// The first reply keeps the window.
+		(queries[0] as FakeQuery).emit(assistant({ input_tokens: 10, output_tokens: 5 }));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		expect(ofType(a, "context")[1]).toMatchObject({
+			usedTokens: 15,
+			windowTokens: 1_000_000,
+		});
+	});
+
+	test("an attach that finds the window unknown asks again, and a model change reads the new window", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		expect(ofType(a, "context")).toEqual([]);
+		fake.contextWindow = 200_000;
+		const b = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(b, "context").at(-1)).toMatchObject({
+				usedTokens: 0,
+				windowTokens: 200_000,
+			}),
+		);
+		fake.contextWindow = 1_000_000;
+		b.send({ type: "set", model: "claude-opus-4-8" });
+		await vi.waitFor(() =>
+			expect(ofType(b, "context").at(-1)).toMatchObject({ windowTokens: 1_000_000 }),
+		);
+	});
+
+	test("after /clear every attachment gets an empty context in the same window", async () => {
+		const NEW = "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e";
+		const fake = queries[0] as FakeQuery;
+		fake.contextWindow = 200_000;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		fake.emit(assistant({ input_tokens: 10, output_tokens: 5 }));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: NEW,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "snapshot")).toHaveLength(2));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(3));
+		expect(ofType(a, "context")[2]).toMatchObject({
+			usedTokens: 0,
+			windowTokens: 200_000,
+		});
 	});
 });
 
@@ -1408,6 +1516,7 @@ describe("shell commands", () => {
 			socketDir: join(dir, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 			shellTimeoutMs: 2000,
 		});
@@ -1436,6 +1545,7 @@ describe("shell commands", () => {
 			socketDir: join(dir, "chat"),
 			log: logger,
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			sdk: sdk(),
 		});
 		await host.start();
@@ -1445,5 +1555,513 @@ describe("shell commands", () => {
 		await vi.waitFor(() => expect(ofType(a, "shell")).toHaveLength(2));
 		expect(ofType(a, "shell")[1]?.output).toBe("SECRET-42-MARK\n");
 		expect(JSON.stringify(lines)).not.toMatch(/SECRET/);
+	});
+});
+
+describe("models", () => {
+	const row = (value: string, extra: Record<string, unknown> = {}) => ({
+		value,
+		resolvedModel: `claude-${value}-5-5`,
+		displayName: `${value} 5.5`,
+		description: "A model",
+		supportsEffort: true,
+		supportsAutoMode: true,
+		...extra,
+	});
+
+	async function startWith(models: Record<string, unknown>[] | null) {
+		await host.stop();
+		queries = [];
+		startModels = models;
+		host = makeHost();
+		await host.start();
+		return queries[0] as FakeQuery;
+	}
+
+	test("a new chat starts at Opus, Medium and Auto, and starts Claude with them", async () => {
+		const options = queries[0]?.options;
+		expect(options?.model).toBe("opus");
+		expect(options?.effort).toBe("medium");
+		expect(options?.permissionMode).toBe("auto");
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		expect(ofType(a, "settings")[0]).toMatchObject({
+			model: "opus",
+			effort: "medium",
+			mode: "auto",
+		});
+	});
+
+	test("the list Claude Code gives arrives before the settings, trimmed to what the contract takes", async () => {
+		await startWith([
+			row("opus"),
+			row("Not Valid"),
+			row("haiku", { supportsAutoMode: undefined, description: "d".repeat(500) }),
+		]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const [models] = ofType(a, "models");
+		expect(models?.models.map((m) => m.value)).toEqual(["opus", "haiku"]);
+		expect(models?.models[0]).toMatchObject({
+			resolvedModel: "claude-opus-5-5",
+			displayName: "opus 5.5",
+			supportsAutoMode: true,
+		});
+		expect(models?.models[1]?.supportsAutoMode).toBe(false);
+		expect(models?.models[1]?.description).toHaveLength(300);
+		const kinds = a.events.map((e) => e.type);
+		expect(kinds.indexOf("models")).toBeLessThan(kinds.indexOf("settings"));
+	});
+
+	test("at most 50 rows are sent", async () => {
+		await startWith(Array.from({ length: 60 }, (_, index) => row(`m${index}`)));
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		expect(ofType(a, "models")[0]?.models).toHaveLength(50);
+	});
+
+	test("when the list cannot be read no models event is sent, and a later attach tries again", async () => {
+		const fake = await startWith(null);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "models")).toEqual([]);
+		fake.modelRows = [row("opus")];
+		const b = await attach();
+		await vi.waitFor(() => expect(ofType(b, "models")).toHaveLength(1));
+		// The earlier attachment hears of it too.
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+	});
+
+	test("a new chat on a model without Auto starts at Ask", async () => {
+		const fake = await startWith([row("opus", { supportsAutoMode: false })]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings").at(-1)?.mode).toBe("default"));
+		expect(fake.calls).toContain("mode:default");
+	});
+
+	test("Auto stays when the model supports it, and a mode the student chose is not undone", async () => {
+		const fake = await startWith([row("opus")]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		expect(fake.calls).not.toContain("mode:default");
+		a.send({ type: "set", mode: "plan" });
+		await vi.waitFor(() => expect(ofType(a, "settings").at(-1)?.mode).toBe("plan"));
+	});
+
+	test("switching to a model without Auto while in Auto drops the chat to Ask", async () => {
+		const fake = await startWith([
+			row("opus"),
+			row("haiku", { supportsAutoMode: false }),
+		]);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		a.send({ type: "set", model: "haiku" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)).toMatchObject({
+				model: "haiku",
+				mode: "default",
+			}),
+		);
+		expect(fake.calls).toContain("mode:default");
+		// Out of Auto, a switch leaves the mode the student chose.
+		a.send({ type: "set", mode: "plan" });
+		a.send({ type: "set", model: "opus" });
+		a.send({ type: "set", model: "haiku" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)).toMatchObject({
+				model: "haiku",
+				mode: "plan",
+			}),
+		);
+	});
+
+	test("a model the init message reports does not replace the value the student chose", async () => {
+		const fake = await startWith([row("opus")]);
+		const a = await attach();
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			model: "claude-opus-5-5[1m]",
+			permissionMode: "auto",
+		} as never);
+		await vi.waitFor(() => expect(ofType(a, "settings").length).toBeGreaterThan(0));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(ofType(a, "settings").at(-1)?.model).toBe("opus");
+	});
+
+	test("choosing a pinned version sets that exact value", async () => {
+		const a = await attach();
+		a.send({ type: "set", model: "claude-opus-4-8" });
+		const fake = queries[0] as FakeQuery;
+		await vi.waitFor(() => expect(fake.calls).toContain("model:claude-opus-4-8"));
+		await vi.waitFor(() =>
+			expect(ofType(a, "settings").at(-1)?.model).toBe("claude-opus-4-8"),
+		);
+	});
+});
+
+describe("titles", () => {
+	const result = { type: "result", subtype: "success", is_error: false } as never;
+
+	test("a resumed chat publishes its title at start", async () => {
+		await host.stop();
+		queries = [];
+		titles.set(ID, "Fix the login redirect");
+		host = makeHost();
+		await host.start();
+		await vi.waitFor(() =>
+			expect(postedTitles).toEqual([null, "Fix the login redirect"]),
+		);
+	});
+
+	test("a title set with /rename is read back after the result and published once", async () => {
+		const fake = queries[0] as FakeQuery;
+		await vi.waitFor(() => expect(postedTitles).toEqual([null]));
+		titles.set(ID, "Tidy\nthe   tests");
+		fake.emit(result);
+		await vi.waitFor(() => expect(postedTitles).toEqual([null, "Tidy the tests"]));
+		fake.emit(result);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(postedTitles).toEqual([null, "Tidy the tests"]);
+	});
+
+	test("rename cleans the title, renames the session and publishes it", async () => {
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		client.send({ type: "rename", title: "  Grade\u0007 the\tquiz " });
+		await vi.waitFor(() => expect(postedTitles.at(-1)).toBe("Grade the quiz"));
+		expect(titles.get(ID)).toBe("Grade the quiz");
+	});
+
+	test("a title of only control characters and spaces is refused to the asker alone", async () => {
+		const client = await attach();
+		const other = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		await vi.waitFor(() => expect(ofType(other, "settings")).toHaveLength(1));
+		client.send({ type: "rename", title: " \u0001 " });
+		await vi.waitFor(() => expect(ofType(client, "rename.result")).toHaveLength(1));
+		expect(ofType(client, "rename.result")[0]).toEqual({
+			type: "rename.result",
+			ok: false,
+			message: "A title needs at least one letter or number.",
+		});
+		expect(ofType(client, "error")).toEqual([]);
+		expect(ofType(other, "rename.result")).toEqual([]);
+		expect(titles.has(ID)).toBe(false);
+	});
+
+	test("a rename that worked is confirmed to the asker alone, after the title is published", async () => {
+		const client = await attach();
+		const other = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		await vi.waitFor(() => expect(ofType(other, "settings")).toHaveLength(1));
+		client.send({ type: "rename", title: "Quiz" });
+		await vi.waitFor(() => expect(ofType(client, "rename.result")).toHaveLength(1));
+		expect(ofType(client, "rename.result")[0]).toEqual({
+			type: "rename.result",
+			ok: true,
+		});
+		expect(postedTitles.at(-1)).toBe("Quiz");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(ofType(other, "rename.result")).toEqual([]);
+	});
+
+	test("after /clear the new session's title is published, even when none", async () => {
+		const NEW = "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e";
+		titles.set(ID, "Old chat");
+		const fake = queries[0] as FakeQuery;
+		fake.emit(result);
+		await vi.waitFor(() => expect(postedTitles.at(-1)).toBe("Old chat"));
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: NEW,
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() => expect(postedTitles.at(-1)).toBeNull());
+	});
+});
+
+describe("subagents", () => {
+	const AGENT_CALL = "toolu_agent";
+	const subagentEntry = (
+		uuid: string,
+		type: "user" | "assistant",
+		message: unknown,
+	): SessionMessage =>
+		({
+			type,
+			uuid,
+			session_id: ID,
+			message,
+			parent_tool_use_id: AGENT_CALL,
+			parent_agent_id: null,
+			timestamp: "2026-11-11T10:00:00.000Z",
+		}) as SessionMessage;
+	const TRANSCRIPT = [
+		subagentEntry("s1", "user", { role: "user", content: "Count the routes." }),
+		subagentEntry("s2", "assistant", {
+			id: "msg_s2",
+			role: "assistant",
+			content: [{ type: "text", text: "Counting now." }],
+		}),
+	];
+	const frames = (client: Client) =>
+		ofType(client, "subagent").map((frame) => frame.event);
+
+	test("the session forwards each subagent's whole conversation", () => {
+		expect(queries[0]?.options.forwardSubagentText).toBe(true);
+	});
+
+	test("a watch replays the transcript, then streams live events to that attachment only", async () => {
+		subagentTranscripts.set("agent-1", TRANSCRIPT);
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const watching = await attach();
+		const other = await attach();
+		await vi.waitFor(() => expect(ofType(other, "settings")).toHaveLength(1));
+		watching.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(watching)).toHaveLength(4));
+		expect(frames(watching)).toMatchObject([
+			{ type: "snapshot", seq: 0, cards: [], turnRunning: true, truncated: false },
+			{ type: "turn.started", seq: 1 },
+			{ type: "message", seq: 2, role: "user", markdown: "Count the routes." },
+			{ type: "message", seq: 3, role: "assistant", markdown: "Counting now." },
+		]);
+		expect(ofType(watching, "subagent")[0]).toMatchObject({
+			sessionId: ID,
+			toolUseId: AGENT_CALL,
+		});
+
+		const before = other.events.length;
+		fake.emit({
+			type: "assistant",
+			parent_tool_use_id: AGENT_CALL,
+			agent_id: "agent-1",
+			message: {
+				id: "msg_live",
+				role: "assistant",
+				content: [
+					{
+						type: "tool_use",
+						id: "toolu_inner",
+						name: "Bash",
+						input: { command: "ls" },
+					},
+				],
+			},
+		} as never);
+		fake.emit({
+			type: "system",
+			subtype: "task_notification",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			status: "completed",
+		} as never);
+		await vi.waitFor(() => expect(frames(watching)).toHaveLength(6));
+		expect(frames(watching).slice(4)).toMatchObject([
+			{ type: "tool.started", seq: 4, id: "toolu_inner", name: "Bash" },
+			{ type: "turn.finished", seq: 5, status: "done" },
+		]);
+		// The other attachment sees none of it, and the chat starts no turn.
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(other.events.slice(before)).toEqual([]);
+	});
+
+	test("after unwatching, nothing more arrives", async () => {
+		const fake = queries[0] as FakeQuery;
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(1));
+		client.send({ type: "subagent.unwatch", toolUseId: AGENT_CALL });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		fake.emit({
+			type: "assistant",
+			parent_tool_use_id: AGENT_CALL,
+			message: {
+				id: "msg_x",
+				role: "assistant",
+				content: [{ type: "text", text: "hi" }],
+			},
+		} as never);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(frames(client)).toHaveLength(1);
+	});
+
+	test("a subagent not seen live, as after a restart, is found by its transcript's first entry", async () => {
+		subagentTranscripts.set("agent-other", [
+			{ ...subagentEntry("o1", "user", "other"), parent_tool_use_id: "toolu_other" },
+		]);
+		subagentTranscripts.set("agent-1", TRANSCRIPT);
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client).at(-1)?.type).toBe("turn.finished"));
+		expect(frames(client)[0]).toMatchObject({ type: "snapshot", turnRunning: false });
+		expect(frames(client).filter((event) => event.type === "message")).toHaveLength(2);
+	});
+
+	test("an unknown Agent call gets an empty view", async () => {
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(1));
+		expect(frames(client)[0]).toMatchObject({ type: "snapshot", turnRunning: false });
+	});
+
+	test("a tool output that reached the transcript during the replay's read is sent once", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const result = (id: string) => ({
+			role: "user",
+			content: [{ type: "tool_result", tool_use_id: id, content: "routes: 3" }],
+		});
+		subagentTranscripts.set("agent-1", [
+			...TRANSCRIPT,
+			subagentEntry("s3", "user", result("toolu_done")),
+		]);
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		// The live copy of the same result arrives while the transcript is read.
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const read = sdkOf(host).subagentMessages;
+		sdkOf(host).subagentMessages = async (...args) => {
+			await gate;
+			return read(...args);
+		};
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		for (const id of ["toolu_done", "toolu_new"]) {
+			fake.emit({
+				type: "user",
+				parent_tool_use_id: AGENT_CALL,
+				agent_id: "agent-1",
+				message: result(id),
+			} as never);
+		}
+		release();
+		await vi.waitFor(() =>
+			expect(
+				frames(client).filter((event) => event.type === "tool.finished"),
+			).toHaveLength(3),
+		);
+		const outputs = frames(client).flatMap((event) =>
+			event.type === "tool.output" ? [event.id] : [],
+		);
+		expect(outputs).toEqual(["toolu_done", "toolu_new"]);
+	});
+
+	test("/clear ends a running subagent's view as interrupted", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(2));
+		fake.emit({
+			type: "system",
+			subtype: "init",
+			session_id: "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e",
+			model: "m",
+			permissionMode: "default",
+		} as never);
+		await vi.waitFor(() =>
+			expect(frames(client).at(-1)).toMatchObject({
+				type: "turn.finished",
+				status: "interrupted",
+			}),
+		);
+	});
+
+	test("a new watch abandons the last one's scan, and an unknown call is not scanned for twice", async () => {
+		subagentTranscripts.set("agent-other", [
+			{ ...subagentEntry("o1", "user", "other"), parent_tool_use_id: "toolu_other" },
+		]);
+		subagentTranscripts.set("agent-1", TRANSCRIPT);
+		const client = await attach();
+		await vi.waitFor(() => expect(ofType(client, "settings")).toHaveLength(1));
+		const sdk = sdkOf(host);
+		let listings = 0;
+		const list = sdk.subagentIds;
+		sdk.subagentIds = async (...args) => {
+			listings += 1;
+			return list(...args);
+		};
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const read = sdk.subagentMessages;
+		const reads: string[] = [];
+		sdk.subagentMessages = async (session, agentId, ...rest) => {
+			reads.push(agentId);
+			if (reads.length === 1) await gate;
+			return read(session, agentId, ...rest);
+		};
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(reads).toHaveLength(1));
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(1));
+		release();
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		// The first scan stopped after the read it was in; the second ran whole.
+		expect(reads).toEqual(["agent-other", "agent-other", "agent-1"]);
+		expect(frames(client)).toHaveLength(1);
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(2));
+		expect(listings).toBe(2);
+		expect(reads).toHaveLength(3);
+		// A new subagent may be the one asked for, so the next watch looks again.
+		(queries[0] as FakeQuery).emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-2",
+			tool_use_id: "toolu_later",
+			description: "Later",
+		} as never);
+		client.send({ type: "subagent.watch", toolUseId: "toolu_nobody" });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(3));
+		expect(listings).toBe(3);
+	});
+
+	test("a running subagent is ended when Claude Code stops", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.emit({
+			type: "system",
+			subtype: "task_started",
+			task_id: "agent-1",
+			tool_use_id: AGENT_CALL,
+			description: "Count the routes",
+		} as never);
+		const client = await attach();
+		client.send({ type: "subagent.watch", toolUseId: AGENT_CALL });
+		await vi.waitFor(() => expect(frames(client)).toHaveLength(2));
+		fake.close();
+		await vi.waitFor(() =>
+			expect(frames(client).at(-1)).toMatchObject({
+				type: "turn.finished",
+				status: "error",
+			}),
+		);
 	});
 });

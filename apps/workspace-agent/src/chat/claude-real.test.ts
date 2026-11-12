@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type { ChatServerEvent } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
 import { expect, test, vi } from "vitest";
@@ -62,6 +63,7 @@ test.skipIf(!existsSync(CLAUDE))(
 			socketDir: join(home, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			claudePath: CLAUDE,
 		});
 		await host.start();
@@ -88,7 +90,8 @@ test.skipIf(!existsSync(CLAUDE))(
 			await vi.waitFor(() =>
 				expect(events.some((e) => e.type === "snapshot")).toBe(true),
 			);
-			send({ type: "set", model: "haiku" });
+			// A new chat starts in Auto; this one needs Ask to raise the card.
+			send({ type: "set", model: "haiku", mode: "default" });
 			send({
 				type: "send",
 				text: "First run `touch probe.txt` with the Bash tool. Then use the AskUserQuestion tool to ask me one single-select question, header 'Colour', options 'Red' and 'Blue'. Then reply with exactly what I picked and the note I gave.",
@@ -153,6 +156,65 @@ test.skipIf(!existsSync(CLAUDE))(
 );
 
 /**
+ * The model list comes from Claude Code itself, before any message, with a
+ * Latest row per family and pinned versions after it, and the window is
+ * known before the first reply (SPEC.md §10.8).
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"the model list and context window arrive before any message",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		const host = new ChatHost({
+			terminalId: ID,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async () => undefined,
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		readLines(socket, 16 * 1024 * 1024, (line) => {
+			events.push(JSON.parse(line) as ChatServerEvent);
+		});
+		try {
+			await vi.waitFor(
+				() => {
+					expect(events.some((e) => e.type === "models")).toBe(true);
+					expect(events.some((e) => e.type === "context")).toBe(true);
+				},
+				{ timeout: 60_000, interval: 200 },
+			);
+			const listed = events.find((e) => e.type === "models");
+			const models = listed?.type === "models" ? listed.models : [];
+			const values = models.map((row) => row.value);
+			expect(values).toContain("default");
+			expect(values).toContain("opus");
+			// A family's pinned versions are the rows named claude-<family>-….
+			expect(values.some((value) => value.startsWith("claude-opus-"))).toBe(true);
+			for (const row of models) expect(row.displayName).not.toBe("");
+			// Nothing was sent, so the context is empty in a known window.
+			const context = events.find((e) => e.type === "context");
+			expect(context).toMatchObject({ usedTokens: 0 });
+			expect((context as { windowTokens: number | null }).windowTokens).toBeGreaterThan(
+				100_000,
+			);
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	120_000,
+);
+
+/**
  * A message sent while a turn runs (SPEC.md §10.8): Claude Code takes it in,
  * and the host's turn.started and turn.finished events still come in pairs,
  * ending finished, so the composer's Working state ends with the work.
@@ -170,6 +232,7 @@ test.skipIf(!existsSync(CLAUDE))(
 			socketDir: join(home, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			claudePath: CLAUDE,
 		});
 		await host.start();
@@ -258,6 +321,7 @@ test.skipIf(!existsSync(CLAUDE))(
 				socketDir: join(home, "chat"),
 				log: silentLogger(),
 				postLimits: async () => undefined,
+				postTitle: async () => undefined,
 				claudePath: CLAUDE,
 			});
 			await host.start();
@@ -325,6 +389,7 @@ test.skipIf(!existsSync(CLAUDE))(
 			socketDir: join(home, "chat"),
 			log: silentLogger(),
 			postLimits: async () => undefined,
+			postTitle: async () => undefined,
 			claudePath: CLAUDE,
 		});
 		await host.start();
@@ -396,4 +461,176 @@ test.skipIf(!existsSync(CLAUDE))(
 		}
 	},
 	200_000,
+);
+
+test.skipIf(!existsSync(CLAUDE))(
+	"a rename from the pencil survives a later turn, and /rename in the chat is read back",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "titles");
+		await mkdir(project, { recursive: true });
+		const titleId = "6a2d9e4b-1c3f-4a5e-8b7d-9c0e1f2a3b4c";
+		const posted: (string | null)[] = [];
+		const host = new ChatHost({
+			terminalId: titleId,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async (title) => {
+				posted.push(title);
+			},
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		readLines(socket, 16 * 1024 * 1024, (line) => events.push(JSON.parse(line)));
+		const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+		const finished = () => events.filter((e) => e.type === "turn.finished").length;
+		const turn = async (text: string) => {
+			const before = finished();
+			send({ type: "send", text, attachments: [] });
+			await vi.waitFor(() => expect(finished()).toBeGreaterThan(before), {
+				timeout: 120_000,
+				interval: 500,
+			});
+		};
+		try {
+			await vi.waitFor(() =>
+				expect(events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			send({ type: "set", model: "haiku" });
+			await turn("Reply with the single word: ready");
+			// Claude Code's summary falls back to the first prompt.
+			await vi.waitFor(() => expect(posted.at(-1)).toBeTruthy(), { timeout: 10_000 });
+
+			send({ type: "rename", title: "Pelican plans" });
+			await vi.waitFor(() => expect(posted.at(-1)).toBe("Pelican plans"), {
+				timeout: 10_000,
+			});
+			await turn("Reply with the single word: again");
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+			expect(posted.at(-1)).toBe("Pelican plans");
+			const info = await getSessionInfo(titleId, { dir: project });
+			expect(info?.customTitle).toBe("Pelican plans");
+
+			await turn("/rename Heron notes");
+			await vi.waitFor(() => expect(posted.at(-1)).toBe("Heron notes"), {
+				timeout: 10_000,
+			});
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	300_000,
+);
+
+/**
+ * A subagent's own conversation reaches an attachment that watches its Agent
+ * call, outside the chat's own events, and a later watch replays it from the
+ * subagent's transcript (SPEC.md §10.8).
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"a watched subagent's conversation streams to the watcher and replays from disk",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		const host = new ChatHost({
+			terminalId: ID,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async () => undefined,
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+		readLines(socket, 16 * 1024 * 1024, (line) => {
+			const event = JSON.parse(line) as ChatServerEvent;
+			events.push(event);
+			// Watch the subagent as soon as its Agent call shows.
+			if (event.type === "tool.started" && event.name === "Agent") {
+				send({ type: "subagent.watch", toolUseId: event.id });
+			}
+		});
+		const subagentEvents = () =>
+			events.flatMap((e) => (e.type === "subagent" ? [e.event] : []));
+		try {
+			await vi.waitFor(() =>
+				expect(events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			send({ type: "set", model: "haiku", mode: "bypassPermissions" });
+			send({
+				type: "send",
+				text: "Use the Agent tool once, with subagent_type general-purpose and the prompt: 'Run `echo hi` with the Bash tool, then reply with exactly the word sparrow.' Wait for it, then tell me its reply.",
+				attachments: [],
+			});
+			await vi.waitFor(
+				() => {
+					const finished = subagentEvents().find((e) => e.type === "turn.finished");
+					expect(finished).toBeTruthy();
+				},
+				{ timeout: 150_000, interval: 500 },
+			);
+			const watched = subagentEvents();
+			expect(watched[0]?.type).toBe("snapshot");
+			expect(watched.some((e) => e.type === "tool.started" && e.name === "Bash")).toBe(
+				true,
+			);
+			const said = watched
+				.filter((e) => e.type === "message" && e.role === "assistant")
+				.map((e) => (e as { markdown: string }).markdown)
+				.join(" ");
+			expect(said.toLowerCase()).toContain("sparrow");
+			// The subagent's Bash call never shows in the chat's own events.
+			expect(events.some((e) => e.type === "tool.started" && e.name === "Bash")).toBe(
+				false,
+			);
+
+			// A second attachment watching later gets the run from the transcript.
+			const agentCall = events.find(
+				(e) => e.type === "tool.started" && e.name === "Agent",
+			);
+			const late = connect(host.socketPath);
+			const lateEvents: ChatServerEvent[] = [];
+			readLines(late, 16 * 1024 * 1024, (line) => {
+				lateEvents.push(JSON.parse(line) as ChatServerEvent);
+			});
+			try {
+				late.write(
+					`${JSON.stringify({ type: "subagent.watch", toolUseId: (agentCall as { id: string }).id })}\n`,
+				);
+				await vi.waitFor(
+					() => {
+						const replayed = lateEvents.flatMap((e) =>
+							e.type === "subagent" ? [e.event] : [],
+						);
+						expect(replayed.at(-1)?.type).toBe("turn.finished");
+						expect(
+							replayed.some((e) => e.type === "message" && e.role === "user"),
+						).toBe(true);
+					},
+					{ timeout: 30_000, interval: 200 },
+				);
+			} finally {
+				late.destroy();
+			}
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	240_000,
 );

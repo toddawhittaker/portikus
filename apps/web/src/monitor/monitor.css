@@ -47,6 +47,8 @@
 }
 
 .pk-monitor-procs {
+	/* 24 px, the smallest target SPEC.md §25.8 allows, so a row is 26 px; the Running pane keeps 28. */
+	--size-control-sm: 24px;
 	width: 100%;
 	border-collapse: collapse;
 	font-family: var(--font-mono);
@@ -79,7 +81,7 @@
 /* An 8 px gap between columns keeps headers apart and leaves room for the sort hint. */
 .pk-monitor-procs th,
 .pk-monitor-procs td {
-	padding-block: 2px;
+	padding-block: 1px;
 	padding-inline: 0 var(--space-2);
 	white-space: nowrap;
 }
@@ -93,6 +95,28 @@
 	overflow-wrap: anywhere;
 	width: 100%;
 	max-width: 0;
+}
+
+/*
+ * A heavy figure is amber, and one near the limit red, both bold so colour is
+ * not the only cue (SPEC.md §25.8). The status tokens meet 4.5:1 in both themes.
+ */
+.pk-monitor-procs td[data-load] {
+	font-weight: 700;
+}
+.pk-monitor-procs td[data-load="high"] {
+	color: var(--status-warning);
+}
+.pk-monitor-procs td[data-load="near-limit"] {
+	color: var(--status-danger);
+}
+
+/* Inline and sized to the text, so the 26 px row stays 26 px. */
+.pk-monitor-load-icon {
+	display: inline-block;
+	vertical-align: -2px;
+	margin-inline-end: 2px;
+	line-height: 0;
 }
 
 .pk-monitor-procs :is(th, td):last-child {

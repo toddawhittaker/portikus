@@ -66,12 +66,14 @@
 
 /* The panel is a tray in the box's own flow, above the row that opens it, like the
    `/` menu: the pane's scrolling wrapper can never clip it, and the box grows upward.
-   The settings flow into as many columns as the box has room for. */
+   A heading row (the title, and the read-aloud switch at its end), then the settings. */
 .pk-composer-picks {
 	box-sizing: border-box;
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
-	gap: var(--space-1);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
 	min-inline-size: 0;
 	margin: 0 0 var(--space-2);
 	padding: var(--space-2);
@@ -84,26 +86,42 @@
 	display: none;
 }
 
-/* Floated, so it is a plain item of the grid rather than drawn on the border. */
+/* Floated, so it is a plain item of the panel rather than drawn on the border. */
 .pk-composer-picks-title {
 	float: inline-start;
-	grid-column: 1 / -1;
 	margin: 0;
-	padding: 0 var(--space-2) var(--space-1);
+	padding-inline: var(--space-2);
 	color: var(--ink-muted);
 	font-size: var(--text-xs);
 	line-height: var(--leading-xs);
 	font-weight: 600;
 }
 
-/* Each picker is a full-width row: what it sets, then its value and chevron. */
-.pk-picker {
+/* The settings take one line when it fits and wrap from the end when it does not;
+   each field is as wide as its content, so no cell is ever left empty. */
+.pk-composer-picks-fields,
+.pk-picker-pair {
 	display: flex;
-	align-items: center;
-	gap: var(--space-1\.5);
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-1) var(--space-3);
 	min-inline-size: 0;
-	block-size: var(--size-control-md);
-	padding-inline: var(--space-2);
+}
+
+.pk-composer-picks-fields {
+	flex: 1 0 100%;
+}
+
+/* Each picker is a field: what it sets, small, over its value and chevron. */
+.pk-picker {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: center;
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	min-block-size: var(--size-control-md);
+	padding: var(--space-1) var(--space-2);
 	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
@@ -125,18 +143,26 @@
 	outline-offset: var(--ring-offset-inset);
 }
 
-.pk-picker > svg {
+.pk-picker-label {
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+}
+
+.pk-picker-current {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-inline-size: 0;
+	max-inline-size: 100%;
+}
+
+.pk-picker-current > svg {
 	flex: none;
 	color: var(--ink-muted);
 }
 
-.pk-picker-label {
-	flex: 1;
-	min-inline-size: 0;
-	color: var(--ink-muted);
-}
-
-/* A long value gives way before the label does. */
+/* A long value gives way before the chevron does. */
 .pk-picker-value {
 	min-inline-size: 0;
 	max-inline-size: 12rem;
@@ -157,8 +183,9 @@
 }
 
 .pk-picker.is-warning,
+.pk-picker.is-warning .pk-picker-label,
 .pk-picker.is-warning .pk-picker-value,
-.pk-picker.is-warning > .pk-icon {
+.pk-picker.is-warning .pk-icon {
 	color: var(--status-warning);
 }
 
@@ -166,11 +193,85 @@
 	cursor: default;
 }
 
+/* Read replies aloud: the words, a drawn switch and its state, at the heading row's end. */
+.pk-picks-aloud {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: var(--size-control-sm);
+	padding-inline: var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.pk-picks-aloud:hover {
+	background: var(--surface-raised);
+	color: var(--ink);
+}
+
+.pk-picks-aloud:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
+/* The track and thumb of the Settings dialog's switches, drawn from tokens. */
+.pk-picks-aloud-track {
+	position: relative;
+	flex: none;
+	box-sizing: border-box;
+	inline-size: var(--space-8);
+	block-size: var(--space-5);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-full);
+	background: var(--surface);
+}
+
+.pk-picks-aloud-track::after {
+	content: "";
+	position: absolute;
+	inset-block: var(--space-0\.5);
+	inset-inline-start: var(--space-0\.5);
+	aspect-ratio: 1;
+	border-radius: var(--radius-full);
+	background: var(--ink-muted);
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.pk-picks-aloud[aria-checked="true"] {
+	color: var(--ink);
+}
+
+.pk-picks-aloud[aria-checked="true"] .pk-picks-aloud-track {
+	border-color: var(--accent);
+	background: var(--accent);
+}
+
+.pk-picks-aloud[aria-checked="true"] .pk-picks-aloud-track::after {
+	background: var(--on-accent);
+	transform: translateX(var(--space-3));
+}
+
+/* "Off" and "On" take the same room, so the switch never shifts. */
+.pk-picks-aloud-state {
+	min-inline-size: 3ch;
+	font-weight: 600;
+}
+
 /* Touch size on a phone (WCAG 2.5.5). */
 @media (width < 40rem) {
-	.pk-composer-options,
-	.pk-picker {
+	.pk-composer-options {
 		block-size: var(--size-control-lg);
+	}
+	.pk-picker,
+	.pk-picks-aloud {
+		min-block-size: var(--size-control-lg);
 	}
 }
 
@@ -231,6 +332,24 @@
 .pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
 .pk-ctx-meter.pk-meter--full .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
 	background: var(--status-error);
+}
+
+/* The look steps up as the window fills: plain, then ink at 25%, the agent tint at 50%,
+   the warning look at 75% (with the Meter's alert icon) and the error look from 90%. */
+.pk-ctx-meter[data-level="rising"] {
+	color: var(--ink);
+}
+.pk-ctx-meter[data-level="half"] {
+	background: var(--agent-soft);
+	color: var(--agent-text);
+}
+.pk-ctx-meter[data-level="warning"] {
+	background: var(--status-warning-soft);
+	color: var(--status-warning);
+}
+.pk-ctx-meter[data-level="full"] {
+	background: var(--status-error-soft);
+	color: var(--status-error);
 }
 
 /* The cache's last minute: colour plus the icon and the word "soon". */

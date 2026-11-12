@@ -405,6 +405,8 @@ for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_oth
     bad "${step} runs before the request reaches Dex"
   fi
 done
+has "the Dex theme files are served with Cache-Control no-cache" \
+  '^[[:space:]]+header @dex_theme Cache-Control no-cache$' "${app}"
 lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${rendered}"
 
 # The API trusts any /edge request from loopback, and everything Caddy

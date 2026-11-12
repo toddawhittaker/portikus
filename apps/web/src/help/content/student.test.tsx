@@ -155,6 +155,37 @@ test("the chat topic names the five permission modes", () => {
 	}
 });
 
+test("the chat topic covers versions, titles, subagents, zoom and the ended tab's choices", () => {
+	const text = topicText("student-claude-chat");
+	for (const phrase of [
+		"34.2k / 1M",
+		"Version",
+		"Latest",
+		"/rename",
+		"read-only",
+		"Show its conversation",
+		"closes it too",
+		"switch at the top of the Chat options panel",
+		"send a message first",
+		"New terminal here",
+		"Ctrl+Shift+=",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the terminals topic says a terminal leaves Ctrl+= and Ctrl+- to the shell", () => {
+	expect(topicText("student-terminals")).toContain(
+		"leaves Ctrl+= and Ctrl+- to the shell",
+	);
+});
+
+test("the files topic describes Git letters with U for new files", () => {
+	const text = topicText("student-files");
+	expect(text).toContain("U new and not yet tracked");
+	expect(text).toContain("A dot beside a folder");
+});
+
 test("the chat topic explains Resume and not running a GUI and a TUI on one session", () => {
 	const text = topicText("student-claude-chat");
 	expect(text).toContain("Resume chat");

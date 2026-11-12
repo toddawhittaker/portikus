@@ -1,12 +1,13 @@
 /**
  * What this chat tab has used up, on the line under its pickers (SPEC.md §10.8): how full
- * Claude's context is, once it is over half, and the time until the prompt
- * cache goes cold, always while the host reports one. Both come from the
- * `context` event, so each chat tab shows its own conversation.
+ * Claude's context is, always, as "34.2k / 1M" with a bar, and the time until the prompt
+ * cache goes cold, while the host reports one. Both come from the
+ * `context` event, so each chat tab shows its own conversation. The look steps
+ * up as the window fills, at 25, 50 and 75%, and turns to the error look from 90%.
  *
  * The ticking digits are hidden from assistive technology; a stable sentence
- * carries the same meaning, and the row's status region announces the two
- * moments that matter once each (SPEC.md §25.8).
+ * carries the same meaning, and the row's status region announces crossing
+ * 75 and 90% once each, the steps worth acting on (SPEC.md §25.8).
  */
 import { Icon, Meter } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
@@ -16,16 +17,53 @@ import type { ChatState, ChatStore } from "./chatStore.js";
 
 type Cache = NonNullable<NonNullable<ChatState["context"]>["cache"]>;
 
-/** The meter appears once more than this share of the window is used. */
-const SHOW_OVER_PERCENT = 50;
-/** The student is told once when the context reaches this share, and the meter warns. */
-const ANNOUNCE_AT_PERCENT = 80;
-/** From this share the meter turns to the error colour: the next turns may not fit. */
-const FULL_AT_PERCENT = 90;
+/** The looks the meter steps through, from this share of the window up. */
+const STEPS = [
+	{ from: 90, level: "full" },
+	{ from: 75, level: "warning" },
+	{ from: 50, level: "half" },
+	{ from: 25, level: "rising" },
+	{ from: 0, level: "low" },
+] as const;
+/** The nearly-full look: the Meter adds the alert icon and the words from here, and so does the announcement. */
+const WARN_AT_PERCENT = STEPS.find((step) => step.level === "warning")?.from ?? 75;
 /** The cache timer turns to a warning for this long before it goes cold. */
 const SOON_SECONDS = 60;
 
 export const COMPACT_HINT = "Run /compact to free up space.";
+
+/** The look for this share of the window in use. */
+export function contextLevel(percent: number): (typeof STEPS)[number]["level"] {
+	return STEPS.find((step) => percent >= step.from)?.level ?? "low";
+}
+
+/** The announced step a share first reached (75 or 90); null below them. */
+function stepReached(percent: number): number | null {
+	const step = STEPS.find((one) => percent >= one.from && one.from >= WARN_AT_PERCENT);
+	return step ? step.from : null;
+}
+
+/**
+ * Tokens in short form: "640", "8.4k", "34.2k", "182k", "1M". One decimal
+ * place below 100k, none from there, so exact counts are not shown.
+ */
+export function formatTokens(tokens: number): string {
+	const count = Math.max(0, Math.round(tokens));
+	if (count < 1000) return String(count);
+	if (count < 99_950) return `${(Math.round(count / 100) / 10).toFixed(1)}k`;
+	if (count < 999_500) return `${Math.round(count / 1000)}k`;
+	const millions = Math.round(count / 100_000) / 10;
+	return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`;
+}
+
+/** The same figure for a screen reader, which reads "34.2k" badly: "34 thousand". */
+export function spokenTokens(tokens: number): string {
+	const count = Math.max(0, Math.round(tokens));
+	if (count < 1000) return String(count);
+	if (count < 999_500) return `${Math.round(count / 1000)} thousand`;
+	const millions = Math.round(count / 100_000) / 10;
+	return `${Number.isInteger(millions) ? millions : millions.toFixed(1)} million`;
+}
 
 /** Whole percent of the window in use, never past 100. */
 export function contextPercent(usedTokens: number, windowTokens: number): number {
@@ -54,6 +92,18 @@ function useNow(until: number): number {
 	return now;
 }
 
+function useAnnounceSteps(percent: number, onAnnounce: (text: string) => void) {
+	// The first figure seen is a starting point, not news, so it is never announced.
+	const before = useRef(percent);
+	useEffect(() => {
+		const reached = stepReached(percent);
+		if (reached !== null && reached > (stepReached(before.current) ?? 0)) {
+			onAnnounce(`Context is now ${percent}% full. ${COMPACT_HINT}`);
+		}
+		before.current = percent;
+	}, [percent, onAnnounce]);
+}
+
 function ContextUse({
 	usedTokens,
 	windowTokens,
@@ -64,25 +114,12 @@ function ContextUse({
 	onAnnounce: (text: string) => void;
 }) {
 	const percent = contextPercent(usedTokens, windowTokens);
-	// The first figure seen is a starting point, not news, so it is never announced.
-	const before = useRef(percent);
-	useEffect(() => {
-		if (before.current < ANNOUNCE_AT_PERCENT && percent >= ANNOUNCE_AT_PERCENT) {
-			onAnnounce(`Context is now ${percent}% full. ${COMPACT_HINT}`);
-		}
-		before.current = percent;
-	}, [percent, onAnnounce]);
-
-	if (percent <= SHOW_OVER_PERCENT) return null;
-	const level =
-		percent >= FULL_AT_PERCENT
-			? "full"
-			: percent >= ANNOUNCE_AT_PERCENT
-				? "warning"
-				: "ok";
+	useAnnounceSteps(percent, onAnnounce);
+	const level = contextLevel(percent);
+	const alarm = level === "warning" || level === "full";
 	return (
 		<span
-			className={`pk-ctx pk-ctx-meter${level === "ok" ? "" : ` pk-meter--${level}`}`}
+			className={`pk-ctx pk-ctx-meter${alarm ? ` pk-meter--${level}` : ""}`}
 			data-level={level}
 			title={COMPACT_HINT}
 			data-testid="composer-context"
@@ -95,13 +132,33 @@ function ContextUse({
 				label="Context"
 				value={percent}
 				max={100}
-				// The Meter warns strictly past `high`, so this warns from 80% itself.
-				high={ANNOUNCE_AT_PERCENT - 1}
-				valueText={`${percent}% used`}
-				shortText={`${percent}%`}
+				// The Meter warns strictly past `high`, so this warns from the top step itself.
+				high={WARN_AT_PERCENT - 1}
+				valueText={`about ${spokenTokens(usedTokens)} of ${spokenTokens(windowTokens)} tokens`}
+				shortText={`${formatTokens(usedTokens)} / ${formatTokens(windowTokens)}`}
 				className="pk-meter-line--slim"
 			/>
 			<span className="sr-only">. {COMPACT_HINT}</span>
+		</span>
+	);
+}
+
+/** The used count alone, when Claude Code has not yet said how large the window is. */
+function ContextCount({ usedTokens }: { usedTokens: number }) {
+	return (
+		<span
+			className="pk-ctx pk-ctx-meter"
+			data-level="unknown"
+			title={COMPACT_HINT}
+			data-testid="composer-context"
+		>
+			<span className="pk-meter-label" aria-hidden={true}>
+				Context
+			</span>{" "}
+			<span aria-hidden={true}>{formatTokens(usedTokens)} tokens</span>
+			<span className="sr-only">
+				Context: about {spokenTokens(usedTokens)} tokens. {COMPACT_HINT}
+			</span>
 		</span>
 	);
 }
@@ -171,7 +228,9 @@ export function ContextMeter({ store, onAnnounce }: Props) {
 		<div className="pk-ctx-row" data-testid="composer-meters">
 			{context ? (
 				<>
-					{context.windowTokens === null ? null : (
+					{context.windowTokens === null ? (
+						<ContextCount usedTokens={context.usedTokens} />
+					) : (
 						<ContextUse
 							usedTokens={context.usedTokens}
 							windowTokens={context.windowTokens}

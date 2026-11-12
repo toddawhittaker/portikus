@@ -1,8 +1,19 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { useContext } from "react";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { PaneZoomContext } from "../editor/zoom";
+import { createLayoutStore, LayoutStoreContext } from "../layout/store";
 import { PaneFrame, type PaneFrameProps } from "./PaneFrame";
 
 afterEach(cleanup);
+beforeEach(() => sessionStorage.clear());
 
 function frameProps(): PaneFrameProps {
 	return {
@@ -217,4 +228,160 @@ test("a chat's frame and menu say chat", () => {
 	expect(screen.queryByLabelText("Terminal: root · /")).toBeNull();
 	openMenu();
 	expect(screen.getByTestId("terminal-leave").textContent).toBe("Leave chat");
+});
+
+/** Shows the zoom the frame hands to what runs inside it. */
+function ZoomProbe() {
+	return <p data-testid="inside-zoom">{useContext(PaneZoomContext)}</p>;
+}
+
+function renderInWorkspace(
+	overrides: Partial<PaneFrameProps> = {},
+	layout = createLayoutStore(),
+) {
+	const props: PaneFrameProps = {
+		...frameProps(),
+		children: <ZoomProbe />,
+		...overrides,
+	};
+	const view = render(
+		<LayoutStoreContext.Provider value={layout}>
+			<PaneFrame {...props} />
+		</LayoutStoreContext.Provider>,
+	);
+	return { view, layout };
+}
+
+const shown = () => screen.getByTestId("pane-zoom-t1").textContent;
+
+/** Each pane zooms on its own (SPEC.md §13.1). */
+test("outside a workspace the pane offers no zoom", () => {
+	renderFrame({ children: <ZoomProbe /> });
+	expect(screen.queryByTestId("pane-zoom-t1")).toBeNull();
+	expect(screen.getByTestId("inside-zoom").textContent).toBe("100");
+});
+
+test("the buttons zoom the pane, the value goes back to 100%, and sessionStorage keeps it", () => {
+	renderInWorkspace();
+	expect(shown()).toBe("100%");
+	fireEvent.click(screen.getByLabelText("Zoom root in"));
+	fireEvent.click(screen.getByLabelText("Zoom root in"));
+	expect(shown()).toBe("120%");
+	expect(screen.getByTestId("inside-zoom").textContent).toBe("120");
+	expect(JSON.parse(sessionStorage.getItem("portikus.paneZoom") ?? "{}")).toEqual({
+		t1: 120,
+	});
+	fireEvent.click(screen.getByLabelText("Zoom root out"));
+	expect(shown()).toBe("110%");
+	fireEvent.click(screen.getByLabelText("Zoom root to 100%, now 110%"));
+	expect(shown()).toBe("100%");
+});
+
+test("a pane that mounts again, as a split or a move does, keeps its zoom", () => {
+	sessionStorage.setItem("portikus.paneZoom", JSON.stringify({ t1: 70 }));
+	renderInWorkspace();
+	expect(shown()).toBe("70%");
+	expect(
+		screen.getByTestId("terminal-leaf-t1").style.getPropertyValue("--pane-zoom"),
+	).toBe("0.7");
+});
+
+test("a pane's zoom outlives its workspace's layout store for the browser session", () => {
+	const { view } = renderInWorkspace();
+	fireEvent.click(screen.getByLabelText("Zoom root in"));
+	view.unmount();
+	renderInWorkspace();
+	expect(shown()).toBe("110%");
+});
+
+const announced = () => screen.getByRole("status").textContent;
+
+test("a zoom button or key says the new zoom in a polite status region", () => {
+	renderInWorkspace({ chat: true });
+	const status = screen.getByRole("status");
+	expect(status.textContent).toBe("");
+	fireEvent.click(screen.getByLabelText("Zoom root in"));
+	expect(announced()).toBe("root zoom 110%");
+	fireEvent.click(screen.getByLabelText("Zoom root to 100%, now 110%"));
+	expect(announced()).toBe("root zoom 100%");
+	fireEvent.keyDown(screen.getByTestId("inside-zoom"), {
+		code: "Equal",
+		key: "+",
+		ctrlKey: true,
+		shiftKey: true,
+	});
+	expect(announced()).toBe("root zoom 110%");
+});
+
+test("Ctrl + wheel does not announce a zoom", () => {
+	renderInWorkspace();
+	act(() => {
+		screen.getByTestId("inside-zoom").dispatchEvent(
+			new WheelEvent("wheel", {
+				deltaY: -100,
+				ctrlKey: true,
+				bubbles: true,
+				cancelable: true,
+			}),
+		);
+	});
+	expect(shown()).toBe("110%");
+	expect(announced()).toBe("");
+});
+
+test("a refused or corrupt sessionStorage starts the pane at 100%", () => {
+	sessionStorage.setItem("portikus.paneZoom", "not json");
+	renderInWorkspace();
+	expect(shown()).toBe("100%");
+	fireEvent.click(screen.getByLabelText("Zoom root in"));
+	expect(shown()).toBe("110%");
+});
+
+test("Ctrl + wheel anywhere over the pane zooms it, focused or not, and takes the event", () => {
+	renderInWorkspace();
+	const event = new WheelEvent("wheel", {
+		deltaY: -100,
+		ctrlKey: true,
+		bubbles: true,
+		cancelable: true,
+	});
+	act(() => {
+		screen.getByTestId("inside-zoom").dispatchEvent(event);
+	});
+	expect(event.defaultPrevented).toBe(true);
+	expect(shown()).toBe("110%");
+	const plain = new WheelEvent("wheel", {
+		deltaY: -100,
+		bubbles: true,
+		cancelable: true,
+	});
+	screen.getByTestId("inside-zoom").dispatchEvent(plain);
+	expect(plain.defaultPrevented).toBe(false);
+	expect(shown()).toBe("110%");
+});
+
+test("a chat takes the editor's zoom keys", () => {
+	renderInWorkspace({ chat: true });
+	const inside = screen.getByTestId("inside-zoom");
+	fireEvent.keyDown(inside, { code: "Equal", key: "+", ctrlKey: true, shiftKey: true });
+	expect(shown()).toBe("110%");
+	fireEvent.keyDown(inside, { code: "Minus", key: "_", ctrlKey: true, shiftKey: true });
+	fireEvent.keyDown(inside, { code: "Minus", key: "_", ctrlKey: true, shiftKey: true });
+	expect(shown()).toBe("90%");
+	fireEvent.keyDown(inside, { code: "Digit0", key: "0", ctrlKey: true });
+	expect(shown()).toBe("100%");
+});
+
+test("a terminal leaves the zoom keys to the shell", () => {
+	renderInWorkspace();
+	const inside = screen.getByTestId("inside-zoom");
+	const sent = fireEvent.keyDown(inside, {
+		code: "Equal",
+		key: "+",
+		ctrlKey: true,
+		shiftKey: true,
+	});
+	expect(sent).toBe(true);
+	fireEvent.keyDown(inside, { code: "Digit0", key: "0", ctrlKey: true });
+	expect(shown()).toBe("100%");
 });

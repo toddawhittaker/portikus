@@ -337,6 +337,6 @@ test("every role gets Help after Settings, opening in a new tab", () => {
 
 test("pages outside a workspace have no drawer buttons", () => {
 	renderHeader();
-	expect(screen.queryByRole("button", { name: "Projects" })).toBeNull();
-	expect(screen.queryByRole("button", { name: "Files" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Show projects" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Show files" })).toBeNull();
 });

@@ -77,13 +77,20 @@
 }
 
 /* A ring marks the pane that has the keyboard when there are several to tell
-   apart; a pane alone in its tab shows focus through its cursor or field. */
-.pk-term.is-focused {
-	outline: var(--ring-width) none var(--focus);
-	outline-offset: var(--ring-offset-inset);
-}
-.pk-term.is-focused:not([data-alone]) {
-	outline-style: solid;
+   apart, whatever it holds; a pane alone in its tab shows focus through its
+   cursor or field. It is a layer of its own rather than an outline: an
+   outline sits under the pane's positioned children (a chat's body), and
+   both sit under the splitters, whose hairline lands on the first pixel of
+   the pane after them. So the layer goes above the splitters and above the
+   sticky heads and the table's own ring inside a pane; it takes no pointer,
+   so the splitters' grab area still works, and menus and dialogs stay above it. */
+:is(.pk-term, .pk-filepane).is-focused:not([data-alone])::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: calc(var(--z-sticky) + 2);
+	border: var(--ring-width) solid var(--focus);
+	pointer-events: none;
 }
 
 .pk-term-bar {
@@ -180,6 +187,13 @@
 	flex-wrap: wrap;
 	justify-content: center;
 	gap: var(--space-2);
+}
+
+.pk-term-ended-note {
+	margin: 0;
+	max-width: 36ch;
+	color: var(--terminal-muted);
+	font-size: var(--text-sm);
 }
 
 /* Dragging a pane (SPEC.md §9.3). The pane itself never moves: the title

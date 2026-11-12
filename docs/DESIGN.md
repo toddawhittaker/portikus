@@ -135,6 +135,10 @@ border with its sentence and actions (section 11).
   limited by their libraries and must be documented, not papered over.
 - Previews live on a separate origin, inside a sandboxed iframe, with no
   shared cookies. Always provide "open in new tab". Never a public link.
+- Colour is never the only cue (SPEC 25.8). A folder's dot in the Files
+  tree means "contains changes"; its hue, which follows the most important
+  change below it, is a bonus, and a conflict folder also draws the alert
+  shape.
 - Access can be revoked at any moment; design a graceful "your access
   ended" state, including a closed WebSocket.
 - Performance budgets (SPEC 25.1): shell under 2 s; workspace connectable
@@ -387,7 +391,12 @@ never reads as an enabled secondary button.
 status bar and the chat composer it is the slim meter, a 56 px rounded
 track. Memory and Disk fill with the accent, the plan meters and the
 composer's context with the agent violet; past a warning mark the fill
-turns amber with the alert icon, and at the critical mark red.
+turns amber with the alert icon, and at the critical mark red. The
+composer's context meter is always shown ("34.2k / 1M") and its look steps
+at 25% (ink text), 50% (agent tint), 75% (warning look, alert icon and
+"nearly full") and 90% (error look). Monitor's process rows are 26 px with
+24 px buttons, and a CPU or memory figure turns amber and bold from 50% and
+red and bold from 80%, with the state also in words for screen readers.
 
 **Spacing and shape.** A 4 px scale; components never set their own outer
 margin. Corners are small: 4 px for controls and badges, 6 px for cards
@@ -396,9 +405,12 @@ editor.
 
 **Badges.** Every status is one `Badge` (22 px tall, 12 px semibold, 4 px
 corners) in one of seven tones: success, warning, danger, info, neutral,
-accent, agent. Workspace states, check results, Git letters and the
+accent, agent. Workspace states, check results and the
 needs-input tag all use it. A new status picks a tone rather than a new
-pill, and always carries a word or letter, never colour alone.
+pill, and always carries a word or letter, never colour alone. Git marks are
+not badges: each is a 12 px semibold letter in the kind's colour (M amber,
+U and A green, D red, R blue, and a conflict magenta with the alert icon),
+and a file-type icon is a distinct glyph per family, lightly tinted.
 
 **Cards and elevation.** A card resting in the flow of the work area (the
 composer, a chat's step groups and shell boxes, check output) has a 1 px
@@ -421,6 +433,18 @@ bar, so it never reads as a passed check or an added file. An agent's
 state shows only in its tab's mark (a turning violet ring, an amber
 triangle, a check), so the selected tab always looks the same.
 
+**Pane focus ring.** In a split, the one pane that holds the keyboard (a
+terminal, a chat or a file) is outlined by a 2 px ring drawn above its
+contents and the splitters, so all four edges read evenly at any zoom. It
+takes the colour of the pane's own scheme; a chat uses the page's focus
+colour. A pane alone in its tab, and the side panes, have none.
+
+**The subagent card.** A subagent's conversation opens as a bordered card
+(`line-strong` edge, `radius-md`, `shadow-lg`) floating over the chat's log,
+inset by `clamp(1rem, 4cqi, 2rem)` on every side so the pane's focus ring
+stays whole, at most 48rem wide and centred. The log behind it is dimmed by
+the `--scrim` token at 60% and is inert; the composer below stays usable.
+
 **The right pane's tabs.** Files, Checks, Running, Monitor and Problems
 show an icon and a name when the pane is wide, the names alone at desktop
 width, and only the chosen name when the pane is under 22rem, the others
@@ -429,8 +453,9 @@ the side panes start at 264 and 360 px; narrower, at 240 and 280 px.
 
 **The composer.** Its bottom row holds only attach, the Chat options
 summary, the microphone, Stop and Send. The summary (for example "Opus ·
-Extra high · Plan") opens the Chat options panel with the model, effort,
-permission and read-aloud pickers. A value other than the starting one is
+Extra high · Plan") opens the Chat options panel with the model, version,
+effort and permission fields, each a small muted label over its value on one wrapping line, and the
+Read replies aloud switch in the panel's heading row. A value other than the starting one is
 bold, and Bypass permissions shows the warning colour and icon on the
 summary too. Send is the accent circle while there is something to send,
 and a flat sunken circle while the box is empty, a file is still saving or a send is under way.

@@ -15,6 +15,7 @@ import {
 	Checkbox,
 	ConfirmDialog,
 	ConfirmDialogRoot,
+	Icon,
 	IconButton,
 	Toggletip,
 	useToast,
@@ -43,7 +44,7 @@ import {
 	stopProcessTree,
 } from "./stop.js";
 import { descendantsOf } from "./tree.js";
-import { useWorkspaceUsage } from "./usage.js";
+import { cpuLoad, type LoadLevel, loadLevel, useWorkspaceUsage } from "./usage.js";
 
 export function MonitorPane({ workspaceId }: { workspaceId: string }) {
 	const query = useWorkspaceUsage(workspaceId, true);
@@ -359,6 +360,7 @@ function Figures({
 							<ProcessRow
 								key={processKey(process)}
 								process={process}
+								memoryLimit={usage.memory.totalBytes}
 								expanded={expanded.has(processKey(process))}
 								onToggle={() => toggleExpanded(processKey(process))}
 								onStop={() =>
@@ -480,13 +482,49 @@ function treeLine({ process, stillRunning }: Stopping, children: number): string
 		: `PID ${process.pid} and its ${childProcesses(children)} are asked to stop.`;
 }
 
+const LOAD_WORDS: Record<Exclude<LoadLevel, "normal">, string> = {
+	high: "high",
+	"near-limit": "near limit",
+};
+
+/**
+ * A heavy figure turns amber or red and bold, and says so in words. Near the
+ * limit also carries the alert icon, so it differs from high by more than
+ * colour on screen (SPEC.md §25.8).
+ */
+function LoadCell({
+	level,
+	className,
+	children,
+}: {
+	level: LoadLevel;
+	className?: string;
+	children: string;
+}) {
+	return (
+		<td className={className} data-load={level === "normal" ? undefined : level}>
+			{level === "near-limit" ? (
+				<span className="pk-monitor-load-icon" aria-hidden="true">
+					<Icon name="alert" size="sm" />
+				</span>
+			) : null}
+			{children}
+			{level === "normal" ? null : (
+				<span className="sr-only"> ({LOAD_WORDS[level]})</span>
+			)}
+		</td>
+	);
+}
+
 function ProcessRow({
 	process,
+	memoryLimit,
 	expanded,
 	onToggle,
 	onStop,
 }: {
 	process: UsageProcess;
+	memoryLimit: number;
 	expanded: boolean;
 	onToggle: () => void;
 	onStop: () => void;
@@ -499,8 +537,15 @@ function ProcessRow({
 				data-key={`${process.pid}:${process.startTicks}`}
 			>
 				<td className="pk-monitor-pid">{process.pid}</td>
-				<td>{formatCpu(process.cpuPercent)}</td>
-				<td className="pk-monitor-mem">{formatBytes(process.residentBytes)}</td>
+				<LoadCell level={cpuLoad(process.cpuPercent)}>
+					{formatCpu(process.cpuPercent)}
+				</LoadCell>
+				<LoadCell
+					className="pk-monitor-mem"
+					level={loadLevel(process.residentBytes, memoryLimit)}
+				>
+					{formatBytes(process.residentBytes)}
+				</LoadCell>
 				<td className="pk-monitor-command" title={process.command}>
 					{process.command}
 				</td>

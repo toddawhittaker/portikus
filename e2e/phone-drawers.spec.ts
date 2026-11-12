@@ -37,12 +37,12 @@ function focusIsIn(container: Locator): Promise<boolean> {
 function drawers(page: Page) {
 	return {
 		projectsButton: page.getByRole("button", {
-			name: "Projects",
+			name: "Show projects",
 			exact: true,
 			includeHidden: true,
 		}),
 		filesButton: page.getByRole("button", {
-			name: "Files",
+			name: "Show files",
 			exact: true,
 			includeHidden: true,
 		}),
@@ -71,6 +71,13 @@ for (const width of WIDTHS) {
 				await page.goto(workspacePath(student.workspaceId, project.id));
 				await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 				const d = drawers(page);
+
+				// The buttons say what they do, so no button shares a name with a pane or dialog.
+				for (const name of ["Projects", "Files"]) {
+					await expect(
+						page.getByRole("button", { name, exact: true, includeHidden: true }),
+					).toHaveCount(0);
+				}
 
 				// The work area takes the whole width; the panes and their handles are gone.
 				const work = await boxOf(page.getByRole("main", { name: "Work area" }));
@@ -290,7 +297,7 @@ for (const width of [360, 800]) {
 				expect(await page.locator("[inert]").count()).toBe(0);
 				// The header behind is hidden from the screen reader; the live region below stays heard.
 				await expect(
-					page.getByRole("button", { name: "Projects", exact: true }),
+					page.getByRole("button", { name: "Show projects", exact: true }),
 				).toHaveCount(0);
 				send?.("permission.requested", {
 					id: "p1",

@@ -12,7 +12,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store";
 import { meSettingsBody } from "../profile-test-utils";
-import { WorkArea } from "./WorkArea";
+import { terminalTabText, WorkArea } from "./WorkArea";
 
 vi.mock("../terminal/TerminalPane", () => ({
 	TerminalPane: ({
@@ -862,6 +862,45 @@ test("a chat tab reads GUI, and Resume continues an ended chat in its place", as
 	);
 });
 
+test("New chat on an ended chat starts a fresh chat in its place and keeps the ended record", async () => {
+	const { fetchMock, created } = stubFetch({
+		layout: { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] },
+		terminals: [
+			{
+				...terminal(ONE, "Terminal 1", "2026-01-02T00:00:00.000Z"),
+				agent: "claude",
+				kind: "chat",
+			},
+		],
+	});
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId(`terminal-ended-${ONE}`)).toBeTruthy());
+	fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+	const calls = () =>
+		fetchMock.mock.calls.filter((call) => String(call[0]).includes("/terminals"));
+	await waitFor(() =>
+		expect(
+			calls().some((call) => (call[1] as RequestInit | undefined)?.method === "POST"),
+		).toBe(true),
+	);
+	const post = calls().find(
+		(call) => (call[1] as RequestInit | undefined)?.method === "POST",
+	);
+	// No resumeChatOf: the new chat starts with no earlier conversation.
+	expect(JSON.parse(String((post?.[1] as RequestInit | undefined)?.body))).toEqual({
+		projectId: PROJECT,
+		kind: "chat",
+		agent: "claude",
+	});
+	await waitFor(() =>
+		expect(screen.getByTestId(`terminal-leaf-${created.id}`)).toBeTruthy(),
+	);
+	expect(screen.queryByTestId(`terminal-ended-${ONE}`)).toBeNull();
+	expect(
+		calls().some((call) => (call[1] as RequestInit | undefined)?.method === "DELETE"),
+	).toBe(false);
+});
+
 const chatLayout = { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] };
 const liveChat: Terminal = {
 	...terminal(ONE, "Terminal 1"),
@@ -1020,4 +1059,20 @@ test("a terminal tab has no tool rows to show, and an unknown tab changes nothin
 	});
 	await waitFor(() => expect(again).toHaveBeenCalledTimes(1));
 	expect(second.store.getState().activeTabId).toBe("tab1");
+});
+
+test("a chat tab is labelled with its conversation title once it has one; a terminal tab never is", () => {
+	const titles = new Map([[ONE, "Fix the login redirect"]]);
+	expect(terminalTabText(liveChat, "Claude Code (GUI)", titles)).toEqual({
+		label: "Fix the login redirect",
+		title: "Claude Code (GUI): Fix the login redirect",
+	});
+	expect(terminalTabText(liveChat, "Claude Code (GUI)", new Map())).toEqual({
+		label: "Claude Code (GUI)",
+	});
+	const tui = { ...liveChat, kind: "terminal" as const };
+	expect(terminalTabText(tui, "Claude Code (TUI)", titles)).toEqual({
+		label: "Claude Code (TUI)",
+	});
+	expect(terminalTabText(undefined, null, titles)).toEqual({ label: "Terminal" });
 });

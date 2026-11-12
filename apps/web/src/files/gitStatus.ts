@@ -48,10 +48,11 @@ export const LETTER: Record<GitDecorationKind, string> = {
 	modified: "M",
 	deleted: "D",
 	renamed: "R",
-	// Git's own porcelain marks: "?" for a path it does not track and "!" for
-	// one it cannot merge. The tree, the Changes list and a diff header all
+	// U for untracked, as editors mark it, because Git's "?" means nothing to
+	// a student. A conflict keeps "!" so it never reads as a letter of its own
+	// kind (SPEC.md §12.8). The tree, the Changes list and a diff header all
 	// read this table, so one path never wears two letters.
-	untracked: "?",
+	untracked: "U",
 	conflict: "!",
 };
 
@@ -62,6 +63,36 @@ export const WORD: Record<GitDecorationKind, string> = {
 	renamed: "Renamed",
 	untracked: "Untracked",
 	conflict: "Conflict",
+};
+
+/** The hover and screen-reader text for each kind, before any staged note. */
+const TITLE: Record<GitDecorationKind, string> = {
+	added: "Added since the last commit",
+	modified: "Modified since the last commit",
+	deleted: "Deleted since the last commit",
+	renamed: "Renamed since the last commit",
+	untracked: "New file, not yet tracked by Git",
+	conflict: "Conflict: Git could not merge this file",
+};
+
+/** What a directory's dot says, for the most important change below it. */
+export const DIR_TITLE: Record<GitDecorationKind, string> = {
+	conflict: "Contains a conflict",
+	deleted: "Contains deleted files",
+	modified: "Contains modified files",
+	renamed: "Contains renamed files",
+	added: "Contains new files",
+	untracked: "Contains new files",
+};
+
+/** Which change a directory's dot shows when it holds several: lower wins. */
+const DIR_RANK: Record<GitDecorationKind, number> = {
+	conflict: 0,
+	deleted: 1,
+	modified: 2,
+	renamed: 3,
+	added: 4,
+	untracked: 5,
 };
 
 /**
@@ -78,7 +109,7 @@ export function decorate(entry: GitEntry): GitDecoration {
 				? kindForCode(entry.y)
 				: kindForCode(entry.x);
 	const staged = !entry.unmerged && entry.x !== "." && entry.x !== "?";
-	const parts = [WORD[kind]];
+	const parts = [TITLE[kind]];
 	if (staged) parts.push(entry.y === "." ? "(staged)" : "(staged and changed since)");
 	if (entry.origPath) parts.push(`from ${entry.origPath}`);
 	return { letter: LETTER[kind], kind, title: parts.join(" ") };
@@ -89,8 +120,8 @@ export interface GitDecorations {
 	repo: boolean;
 	/** The decoration of each changed path, by its current path. */
 	byPath: Map<string, GitDecoration>;
-	/** Directories with a change somewhere underneath them. */
-	changedDirs: Set<string>;
+	/** Directories with a change underneath, and the most important such change. */
+	changedDirs: Map<string, GitDecorationKind>;
 	ignored: IgnoredPaths;
 }
 
@@ -124,18 +155,22 @@ export function ignoredPaths(ignored: readonly string[]): IgnoredPaths {
 export const NO_DECORATIONS: GitDecorations = {
 	repo: false,
 	byPath: new Map(),
-	changedDirs: new Set(),
+	changedDirs: new Map(),
 	ignored: { exact: new Set(), prefixes: [] },
 };
 
 export function decorations(status: GitStatus | undefined): GitDecorations {
 	if (!status?.repo) return NO_DECORATIONS;
 	const byPath = new Map<string, GitDecoration>();
-	const changedDirs = new Set<string>();
+	const changedDirs = new Map<string, GitDecorationKind>();
 	for (const entry of status.entries) {
-		byPath.set(entry.path, decorate(entry));
+		const decoration = decorate(entry);
+		byPath.set(entry.path, decoration);
 		for (let dir = parentOf(entry.path); dir !== ""; dir = parentOf(dir)) {
-			changedDirs.add(dir);
+			const held = changedDirs.get(dir);
+			if (held === undefined || DIR_RANK[decoration.kind] < DIR_RANK[held]) {
+				changedDirs.set(dir, decoration.kind);
+			}
 		}
 	}
 	return { repo: true, byPath, changedDirs, ignored: ignoredPaths(status.ignored) };

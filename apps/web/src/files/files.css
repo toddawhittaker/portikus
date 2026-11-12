@@ -80,6 +80,30 @@
 .pk-tree-row .pk-icon {
 	color: var(--ink-muted);
 }
+/* File-type icons carry a slight tint of a palette hue, so the families
+   tell apart at a glance; the glyph says the type, the tint only helps. */
+:where(.pk-tree-row, .pk-changes-row) .pk-icon[data-icon^="file"] {
+	color: color-mix(
+		in srgb,
+		var(--pk-file-tint, var(--ink-muted)) 55%,
+		var(--ink-muted)
+	);
+}
+.pk-icon[data-icon="file-web"] {
+	--pk-file-tint: var(--status-error);
+}
+.pk-icon[data-icon="file-style"] {
+	--pk-file-tint: var(--status-starting);
+}
+.pk-icon[data-icon="file-data"] {
+	--pk-file-tint: var(--status-warning);
+}
+.pk-icon[data-icon="file-markdown"] {
+	--pk-file-tint: var(--accent);
+}
+.pk-icon[data-icon="file-image"] {
+	--pk-file-tint: var(--status-running);
+}
 .pk-tree-twisty {
 	flex: none;
 	width: 14px;
@@ -132,25 +156,51 @@
 	gap: var(--space-1\.5);
 }
 
-/* Git decorations (SPEC.md §12.1, §12.6): the shared Badge (GitLetter.tsx),
-   amber for modified, green for added or untracked, red for deleted and a
-   conflict's own hue. */
+/* Git decorations (SPEC.md §12.1, §12.6): a coloured letter per changed
+   path and a dot on each folder above one (GitLetter.tsx). Each kind has its
+   hue; a conflict keeps its own (§12.8). The marks take a little ink so they
+   meet 4.5:1 on the pane, hovered and selected rows in both themes (§25.8). */
+.pk-git-letter,
 .pk-git-dot {
+	--pk-git-mark: var(--git-modified);
 	flex: none;
-	width: 6px;
-	height: 6px;
+	color: color-mix(in srgb, var(--pk-git-mark) 85%, var(--ink));
+}
+.pk-git-letter {
+	min-inline-size: 1.5ch;
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1;
+	text-align: center;
+}
+:is(.pk-git-letter, .pk-git-dot)[data-kind="added"],
+:is(.pk-git-letter, .pk-git-dot)[data-kind="untracked"] {
+	--pk-git-mark: var(--git-added);
+}
+:is(.pk-git-letter, .pk-git-dot)[data-kind="deleted"] {
+	--pk-git-mark: var(--git-deleted);
+}
+:is(.pk-git-letter, .pk-git-dot)[data-kind="renamed"] {
+	--pk-git-mark: var(--status-starting);
+}
+:is(.pk-git-letter, .pk-git-dot)[data-kind="conflict"] {
+	--pk-git-mark: var(--git-conflict);
+}
+.pk-git-dot {
+	display: grid;
+	place-items: center;
+	inline-size: 1.5ch;
+}
+.pk-git-dot:empty::before {
+	content: "";
+	inline-size: 6px;
+	block-size: 6px;
 	border-radius: var(--radius-full);
-	background: var(--git-modified);
+	background: currentColor;
 }
-/* Untracked entries read as not-yet-part-of-the-project. */
-.pk-tree-item[data-git="untracked"] .pk-tree-name {
-	font-style: italic;
-	opacity: 0.75;
+.pk-git-dot > .pk-icon {
+	color: inherit;
 }
-[data-git="conflict"] .pk-git-letter {
-	background: var(--git-conflict-soft);
-}
-[data-git="conflict"] .pk-git-letter,
 [data-git="conflict"] .pk-icon {
 	color: var(--git-conflict);
 }
@@ -158,8 +208,10 @@
 .pk-changes-row[data-git="conflict"] {
 	background: var(--status-warning-soft);
 }
-/* Muted colour plus a word, not opacity, which failed contrast. */
-.pk-tree-row.is-ignored .pk-tree-name {
+/* Muted colour, not opacity, which failed contrast: an ignored name with a
+   word beside it, and an untracked one, which the U marks as new. */
+.pk-tree-row.is-ignored .pk-tree-name,
+.pk-tree-item[data-git="untracked"] > .pk-tree-row .pk-tree-name {
 	color: var(--ink-muted);
 }
 .pk-tree-tag {

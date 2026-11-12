@@ -7,7 +7,6 @@ import {
 	initialChatState,
 	isNewChat,
 	lastSettingsOf,
-	modelChoice,
 	receiveChatEvent,
 	receiveChatFrame,
 	selectSessionRulesActive,
@@ -527,11 +526,35 @@ test("the session rules the host reports are kept, and revoking one sends it", (
 function startSettings(seq: number): string {
 	return frame("settings", seq, {
 		agent: "claude",
-		model: "default",
-		effort: "high",
-		mode: "default",
+		model: "opus",
+		effort: "medium",
+		mode: "auto",
 	});
 }
+
+const LIST = [
+	{
+		value: "opus",
+		resolvedModel: "claude-opus-5-5",
+		displayName: "Opus 5.5",
+		description: "",
+		supportsAutoMode: true,
+	},
+	{
+		value: "claude-opus-4-8",
+		resolvedModel: "claude-opus-4-8",
+		displayName: "Opus 4.8",
+		description: "",
+		supportsAutoMode: true,
+	},
+	{
+		value: "default",
+		resolvedModel: "claude-opus-5-5",
+		displayName: "Default",
+		description: "",
+		supportsAutoMode: true,
+	},
+];
 
 test("a chat with no turns at the host's start values is new; anything else is not", () => {
 	expect(isNewChat(initialChatState)).toBe(false);
@@ -541,9 +564,9 @@ test("a chat with no turns at the host's start values is new; anything else is n
 		[
 			frame("settings", 3, {
 				agent: "claude",
-				model: "opus",
-				effort: "high",
-				mode: "default",
+				model: "sonnet",
+				effort: "medium",
+				mode: "auto",
 			}),
 		],
 		fresh,
@@ -557,29 +580,88 @@ test("a chat with no turns at the host's start values is new; anything else is n
 	expect(isNewChat(used)).toBe(false);
 });
 
+test("on a model that cannot run Auto, Ask is the start mode", () => {
+	const noAuto = LIST.map((row) => ({ ...row, supportsAutoMode: false }));
+	const settings = frame("settings", 3, {
+		agent: "claude",
+		model: "opus",
+		effort: "medium",
+		mode: "default",
+	});
+	expect(isNewChat(feed([snapshot(1), settings]))).toBe(false);
+	const withList = feed([
+		snapshot(1),
+		frame("models", 2, { models: noAuto }),
+		settings,
+	]);
+	expect(isNewChat(withList)).toBe(true);
+});
+
+test("a models event replaces the list, and a new snapshot keeps it", () => {
+	const state = feed([snapshot(1), frame("models", 2, { models: LIST })]);
+	expect(state.models.map((row) => row.value)).toEqual([
+		"opus",
+		"claude-opus-4-8",
+		"default",
+	]);
+	expect(feed([snapshot(1)], state).models).toHaveLength(3);
+});
+
 test("the change toward the last-used values names only what differs", () => {
 	const start = {
 		agent: "claude" as const,
-		model: "default",
-		effort: "high" as const,
-		mode: "default" as const,
-	};
-	expect(changeToward(start, { model: "opus", effort: "high", mode: "auto" })).toEqual({
 		model: "opus",
-		mode: "auto",
-	});
+		effort: "medium" as const,
+		mode: "auto" as const,
+	};
 	expect(
-		changeToward(start, { model: "default", effort: "high", mode: "default" }),
+		changeToward(start, { model: "default", effort: "medium", mode: "plan" }, LIST),
+	).toEqual({ model: "default", mode: "plan" });
+	expect(
+		changeToward(start, { model: "opus", effort: "medium", mode: "auto" }, LIST),
 	).toBeNull();
+	// The full ID the short name resolves to is the same choice.
 	expect(
 		changeToward(
-			{ ...start, model: "claude-opus-4-1" },
-			{ model: "opus", effort: "low", mode: "default" },
+			{ ...start, model: "claude-opus-5-5[1m]" },
+			{ model: "opus", effort: "low", mode: "auto" },
+			LIST,
 		),
 	).toEqual({ effort: "low" });
 });
 
-test("what is kept is the picker's model choice and the host's effort and mode", () => {
+test("a saved model the list no longer offers falls back to its family, then the default", () => {
+	const start = {
+		agent: "claude" as const,
+		model: "opus",
+		effort: "medium" as const,
+		mode: "auto" as const,
+	};
+	const last = (model: string) => ({
+		model,
+		effort: "medium" as const,
+		mode: "auto" as const,
+	});
+	// A retired version of a family still on offer: that family's newest.
+	expect(
+		changeToward({ ...start, model: "sonnet" }, last("claude-opus-4-1"), LIST),
+	).toEqual({
+		model: "opus",
+	});
+	// A family that is gone: the default.
+	expect(changeToward(start, last("claude-fable-5-1"), LIST)).toEqual({
+		model: "default",
+	});
+	expect(changeToward(start, last("fable"), LIST)).toEqual({ model: "default" });
+	// A pinned version that is still offered stays.
+	expect(changeToward(start, last("claude-opus-4-8"), LIST)).toEqual({
+		model: "claude-opus-4-8",
+	});
+	// With no list to check against the saved model stands.
+	expect(changeToward(start, last("fable"), [])).toEqual({ model: "fable" });
+});
+
+test("what is kept is the host's model, effort and mode", () => {
 	expect(
 		lastSettingsOf({
 			agent: "claude",
@@ -587,9 +669,12 @@ test("what is kept is the picker's model choice and the host's effort and mode",
 			effort: "max",
 			mode: "bypassPermissions",
 		}),
-	).toEqual({ model: "haiku", effort: "max", mode: "bypassPermissions" });
-	expect(modelChoice("something-new")).toBe("default");
-	expect(modelChoice("sonnet")).toBe("sonnet");
+	).toEqual({ model: "claude-haiku-4-5", effort: "max", mode: "bypassPermissions" });
+	// Bad stored values are the stored-settings schema's to refuse, not this function's.
+	expect(
+		lastSettingsOf({ agent: "claude", model: "Not Valid", effort: "low", mode: "plan" })
+			.model,
+	).toBe("Not Valid");
 });
 
 const SHELL = {
@@ -672,4 +757,54 @@ test("the latest context event is kept per tab, and a new snapshot clears it", (
 	expect(state.context).toEqual({ ...next, clockOffsetMs: 0 });
 	state = feed([snapshot(4)], state);
 	expect(state.context).toBeNull();
+});
+
+test("a subagent frame is kept apart and never moves the chat's sequence", () => {
+	let state = receiveChatFrame(
+		initialChatState,
+		JSON.stringify({
+			type: "snapshot",
+			sessionId: SESSION,
+			seq: 4,
+			cards: [],
+			turnRunning: false,
+			truncated: false,
+		}),
+		0,
+	);
+	const frame = {
+		type: "subagent",
+		sessionId: SESSION,
+		toolUseId: "toolu_a",
+		event: {
+			type: "message",
+			sessionId: SESSION,
+			seq: 9,
+			id: "m",
+			role: "assistant",
+			markdown: "hi",
+		},
+	};
+	state = receiveChatFrame(state, JSON.stringify(frame), 0);
+	expect(state.subagentFrame).toEqual(frame);
+	expect(state.lastSeq).toBe(4);
+	expect(state.items).toEqual([]);
+	// A frame whose event is not one a subagent sends is dropped.
+	const bad = { ...frame, event: { type: "settings", sessionId: SESSION, seq: 1 } };
+	expect(receiveChatFrame(state, JSON.stringify(bad), 0).invalidFrames).toBe(1);
+});
+
+test("watching a subagent sends the watch and the unwatch", () => {
+	const sent: ChatClientMessage[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	expect(store.getState().watchSubagent("toolu_a")).toBe(true);
+	expect(store.getState().unwatchSubagent("toolu_a")).toBe(true);
+	expect(store.getState().watchSubagent("")).toBe(false);
+	expect(sent).toEqual([
+		{ type: "subagent.watch", toolUseId: "toolu_a" },
+		{ type: "subagent.unwatch", toolUseId: "toolu_a" },
+	]);
 });

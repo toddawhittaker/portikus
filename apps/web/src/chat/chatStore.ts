@@ -6,22 +6,24 @@
  * the conversation lives in the workspace only (SPEC.md §25.10).
  */
 import {
-	CHAT_START_EFFORT,
+	CHAT_START_SETTINGS,
 	type ChatAttachment,
 	ChatClientMessage,
 	type ChatCommand,
 	type ChatEffort,
 	type ChatLastSettings,
-	ChatModelChoice,
+	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
 	type ChatSessionRule,
 	type ChatToolOutputPart,
+	chatStartMode,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { offeredModel, sameModel } from "./models.js";
 
 export interface ChatMessageItem {
 	kind: "message";
@@ -119,6 +121,8 @@ export interface ChatState {
 	truncated: boolean;
 	/** The latest `settings` event; null until one arrives. */
 	settings: ChatSettings | null;
+	/** The models Claude Code offers, as the host last listed them; empty until it does. */
+	models: ChatModelInfo[];
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
 	/** The slash commands on offer, as the host last listed them; empty until it does. */
@@ -137,7 +141,16 @@ export interface ChatState {
 	lastUserMessageSeq: number;
 	/** The newest `error` event, which tells the composer a send or change was refused. */
 	lastError: { seq: number; message: string } | null;
+	/**
+	 * The newest frame of a watched subagent's conversation. The subagent view
+	 * applies each one to a store of its own; the chat's sequence ignores them.
+	 */
+	subagentFrame: SubagentFrame | null;
 }
+
+type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
+/** Every event but a subagent's or a rename's answer, which never enter the chat's own sequence. */
+type ChatEvent = Exclude<ChatServerEvent, SubagentFrame | { type: "rename.result" }>;
 
 type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
@@ -157,6 +170,7 @@ export const initialChatState: ChatState = {
 	cards: [],
 	truncated: false,
 	settings: null,
+	models: [],
 	sessionRules: [],
 	commands: [],
 	context: null,
@@ -166,6 +180,7 @@ export const initialChatState: ChatState = {
 	awaitingSnapshot: true,
 	lastUserMessageSeq: -1,
 	lastError: null,
+	subagentFrame: null,
 };
 
 /** Parse one raw socket frame; null when it is not a valid server event. */
@@ -199,17 +214,16 @@ export function receiveChatEvent(
 	event: ChatServerEvent,
 	now: number,
 ): ChatState {
+	if (event.type === "subagent") return { ...state, subagentFrame: event };
+	// Only the left pane's rename reads its answer.
+	if (event.type === "rename.result") return state;
 	if (event.type === "snapshot") return applySnapshot(state, event, now);
 	// The contract puts the snapshot first, so anything earlier is stale.
 	if (state.awaitingSnapshot) return state;
 	return applyInOrder(state, event, now);
 }
 
-function applyInOrder(
-	state: ChatState,
-	event: ChatServerEvent,
-	now: number,
-): ChatState {
+function applyInOrder(state: ChatState, event: ChatEvent, now: number): ChatState {
 	if (event.seq <= state.lastSeq) return state;
 	return { ...applyChatEvent(state, event, now), lastSeq: event.seq };
 }
@@ -265,11 +279,7 @@ function replaceItem(
 }
 
 /** One live event applied to the state, with no ordering checks. */
-function applyChatEvent(
-	state: ChatState,
-	event: ChatServerEvent,
-	now: number,
-): ChatState {
+function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatState {
 	const turnId = state.currentTurnId;
 	switch (event.type) {
 		case "snapshot":
@@ -444,6 +454,8 @@ function applyChatEvent(
 					mode: event.mode,
 				},
 			};
+		case "models":
+			return { ...state, models: event.models };
 		case "rules":
 			return { ...state, sessionRules: event.rules };
 		case "shell": {
@@ -544,16 +556,6 @@ export function selectSessionRulesActive(state: ChatState): boolean {
 	return state.sessionRules.length > 0;
 }
 
-/** The picker entry for the model id the host reports, which may be a full name. */
-export function modelChoice(model: string): ChatModelChoice {
-	const known = ChatModelChoice.options.find((choice) => choice === model);
-	if (known) return known;
-	const family = ChatModelChoice.options.find(
-		(choice) => choice !== "default" && model.includes(choice),
-	);
-	return family ?? "default";
-}
-
 /**
  * A chat nobody has used yet: no turn has run and the host still reports
  * its start values, so the last-used settings may be applied (SPEC.md §10.8).
@@ -565,28 +567,34 @@ export function isNewChat(state: ChatState): boolean {
 		settings !== null &&
 		state.items.length === 0 &&
 		Object.keys(state.turns).length === 0 &&
-		settings.model === "default" &&
-		settings.effort === CHAT_START_EFFORT &&
-		settings.mode === "default"
+		settings.model === CHAT_START_SETTINGS.model &&
+		settings.effort === CHAT_START_SETTINGS.effort &&
+		settings.mode === chatStartMode(state.models, settings.model)
 	);
 }
 
 /** The values worth keeping from what the host confirmed. */
 export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
 	return {
-		model: modelChoice(settings.model),
+		model: settings.model,
 		effort: settings.effort,
 		mode: settings.mode,
 	};
 }
 
-/** The change that brings a new chat to the last-used values; null when there is none. */
+/**
+ * The change that brings a new chat to the last-used values; null when
+ * there is none. A saved model the list no longer offers is replaced by its
+ * family's newest version, or the default.
+ */
 export function changeToward(
 	settings: ChatSettings,
 	last: ChatLastSettings,
+	models: readonly ChatModelInfo[],
 ): Partial<ChatLastSettings> | null {
 	const change: Partial<ChatLastSettings> = {};
-	if (modelChoice(settings.model) !== last.model) change.model = last.model;
+	const model = offeredModel(models, last.model);
+	if (!sameModel(models, settings.model, model)) change.model = model;
 	if (settings.effort !== last.effort) change.effort = last.effort;
 	if (settings.mode !== last.mode) change.mode = last.mode;
 	return Object.keys(change).length > 0 ? change : null;
@@ -641,6 +649,9 @@ interface ChatActions {
 	) => boolean;
 	/** Take back a session rule; the list updates when the host confirms. */
 	revokeRule: (rule: string) => boolean;
+	/** Ask for a subagent's conversation as `subagentFrame`s; a new watch replaces the last. */
+	watchSubagent: (toolUseId: string) => boolean;
+	unwatchSubagent: (toolUseId: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -666,6 +677,8 @@ export function createChatStore(
 		answerPermission: (id, optionId, extras = {}) =>
 			deliver({ type: "permission.answer", id, optionId, ...extras }),
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
+		watchSubagent: (toolUseId) => deliver({ type: "subagent.watch", toolUseId }),
+		unwatchSubagent: (toolUseId) => deliver({ type: "subagent.unwatch", toolUseId }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

@@ -4,14 +4,17 @@ import {
 	type ChatCommand,
 	type ChatEffort,
 	type ChatMessage,
+	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	chatStartMode,
 	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	shellCommandText,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { setCodingAgentTitle } from "./coding-agents.js";
 import type { FakeAgentState } from "./state.js";
 
 /** A 1 by 1 pixel PNG, small enough to sit inside a frame. */
@@ -87,6 +90,46 @@ const DEFAULT_COMMANDS: ChatCommand[] = [
 	{ name: "config", description: "Open the settings menu", terminalOnly: true },
 ];
 
+/** The models a fake chat offers, shaped like Claude Code's own list. */
+const row = (
+	value: string,
+	displayName: string,
+	description: string,
+	resolvedModel = value,
+	supportsAutoMode = true,
+): ChatModelInfo => ({
+	value,
+	resolvedModel,
+	displayName,
+	description,
+	supportsAutoMode,
+});
+
+const DEFAULT_MODELS: ChatModelInfo[] = [
+	row(
+		"default",
+		"Default (recommended)",
+		"Opus 5.5 · Best for everyday, complex tasks",
+		"claude-opus-5-5",
+	),
+	row("opus", "Opus 5.5", "For complex work and everyday tasks", "claude-opus-5-5"),
+	row("fable", "Fable 5.2", "For your toughest challenges", "claude-fable-5-2"),
+	row("sonnet", "Sonnet 5.5", "Most efficient for simpler tasks", "claude-sonnet-5-5"),
+	row("haiku", "Haiku 5.5", "Fastest for quick answers", "claude-haiku-5-5"),
+	row("claude-fable-5-1", "Fable 5.1", "Most capable for your hardest tasks"),
+	row(
+		"claude-haiku-4-5-20251001",
+		"Haiku 4.5",
+		"Fastest for quick answers",
+		undefined,
+		false,
+	),
+	row("claude-opus-5", "Opus 5", "Best for everyday, complex tasks"),
+	row("claude-opus-4-8", "Opus 4.8", "Best for everyday, complex tasks"),
+	row("claude-opus-4-7", "Opus 4.7", "Best for everyday, complex tasks"),
+	row("claude-sonnet-4-6", "Sonnet 4.6", "Efficient for routine tasks"),
+];
+
 /** What a test reads back: one answer, as the browser sent it. */
 type FakeChatAnswer = Extract<
 	ChatClientMessage,
@@ -103,6 +146,8 @@ interface FakeChat {
 	received: string[];
 	settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode };
 	commands: ChatCommand[];
+	/** The models on offer; sent on attach, before the settings. */
+	models: ChatModelInfo[];
 	/** The last `context` event body a test set; sent on attach. */
 	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
@@ -143,8 +188,9 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				openCards: [],
 				answers: [],
 				received: [],
-				settings: { model: "claude-sonnet-4-5", effort: "medium", mode: "default" },
+				settings: { model: "sonnet", effort: "medium", mode: "default" },
 				commands: DEFAULT_COMMANDS,
+				models: DEFAULT_MODELS,
 				context: null,
 				sockets: new Set(),
 			};
@@ -245,10 +291,39 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
-	function handle(id: string, message: ChatClientMessage): void {
+	function handle(
+		id: string,
+		key: string,
+		message: ChatClientMessage,
+		from: WebSocket,
+	): void {
 		const chat = chatOf(id);
 		switch (message.type) {
 			case "send": {
+				// Claude Code's /rename retitles the session; the host reads it back after the result.
+				const renamed = /^\/rename\s+(.+)$/s.exec(message.text.trim());
+				if (renamed?.[1]) {
+					record(id, chat.sockets, { type: "turn.started", at: Date.now() });
+					record(id, chat.sockets, {
+						type: "message",
+						id: `m-user-${chat.seq}`,
+						role: "user",
+						markdown: message.text,
+					});
+					record(id, chat.sockets, {
+						type: "message",
+						id: `m-reply-${chat.seq}`,
+						role: "assistant",
+						markdown: `Session renamed to: ${renamed[1]}`,
+					});
+					record(id, chat.sockets, {
+						type: "turn.finished",
+						at: Date.now(),
+						status: "done",
+					});
+					setCodingAgentTitle(s, key, id, renamed[1]);
+					return;
+				}
 				// Claude Code's /clear starts a new session; the host sends a fresh snapshot.
 				if (message.text.trim() === "/clear") {
 					chat.history = [];
@@ -313,13 +388,25 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			case "question.answer":
 				answer(id, message);
 				return;
-			case "set":
+			case "set": {
+				// As the host does: a model without Auto takes a chat in Auto to Ask.
+				const mode =
+					message.mode ??
+					(message.model !== undefined && chat.settings.mode === "auto"
+						? chatStartMode(chat.models, message.model)
+						: chat.settings.mode);
 				chat.settings = {
 					model: message.model ?? chat.settings.model,
 					effort: message.effort ?? chat.settings.effort,
-					mode: message.mode ?? chat.settings.mode,
+					mode,
 				};
 				emit(id, chat.sockets, { type: "settings", agent: "claude", ...chat.settings });
+				return;
+			}
+			case "rename":
+				setCodingAgentTitle(s, key, id, message.title);
+				// The answer goes to the asker alone, with no seq, as the host sends it.
+				from.send(JSON.stringify({ type: "rename.result", ok: true }));
 				return;
 			case "interrupt":
 				record(id, chat.sockets, {
@@ -351,7 +438,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				const text = data.toString();
 				chat.received.push(text);
 				try {
-					handle(id, JSON.parse(text) as ChatClientMessage);
+					handle(id, s.keyOf(request), JSON.parse(text) as ChatClientMessage, socket);
 				} catch {
 					// A frame the script cannot read is ignored, like an unknown type.
 				}
@@ -365,6 +452,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			for (const event of chat.history) emit(id, [socket], event);
 			// Before the settings, which tests wait for as the end of an attach.
 			emit(id, [socket], { type: "commands", commands: chat.commands });
+			emit(id, [socket], { type: "models", models: chat.models });
 			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
 			emit(id, [socket], { type: "settings", agent: "claude", ...chat.settings });
 		},
@@ -376,6 +464,15 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		chat.commands = (request.body as { commands: ChatCommand[] }).commands;
 		emit(id, chat.sockets, { type: "commands", commands: chat.commands });
+		return reply.status(204).send();
+	});
+
+	// Replace the model list and send it to every attachment, as the host does.
+	app.post("/__test/chats/:id/models", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.models = (request.body as { models: ChatModelInfo[] }).models;
+		emit(id, chat.sockets, { type: "models", models: chat.models });
 		return reply.status(204).send();
 	});
 

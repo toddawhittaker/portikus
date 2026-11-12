@@ -117,11 +117,16 @@ export class ClaudeMessageMapper {
 	/** The API message whose deltas are streaming now. */
 	private streaming: string | null = null;
 
+	/**
+	 * `parent` is the Agent tool call whose subagent this maps, or null for
+	 * the main conversation, where a subagent's messages stay inside its card.
+	 */
+	constructor(private readonly parent: string | null = null) {}
+
 	map(message: SDKMessage): ChatEventBody[] {
-		// A subagent's own messages stay inside its Task card, as on replay.
-		if ("parent_tool_use_id" in message && message.parent_tool_use_id !== null) {
-			return [];
-		}
+		const parent =
+			"parent_tool_use_id" in message ? (message.parent_tool_use_id ?? null) : null;
+		if (parent !== this.parent) return [];
 		switch (message.type) {
 			case "stream_event":
 				return this.streamEvent(message.event as unknown as Block);

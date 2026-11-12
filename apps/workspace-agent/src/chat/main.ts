@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { AGENT_USAGE_PORT, TerminalId } from "@portikus/contracts";
 import { createLogger } from "@portikus/observability";
-import { CLAUDE_LIMITS_PATH } from "../agent-usage.js";
+import { CLAUDE_LIMITS_PATH, CODING_AGENT_TITLE_PATH } from "../agent-usage.js";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
 import { ChatHost } from "./host.js";
 import { recordChatSession } from "./session-record.js";
@@ -38,6 +38,15 @@ const host = new ChatHost({
 			body: JSON.stringify(windows),
 			signal: AbortSignal.timeout(1000),
 		});
+	},
+	postTitle: async (title: string | null) => {
+		const response = await fetch(`${receiver}${CODING_AGENT_TITLE_PATH}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ terminal: terminalId, title }),
+			signal: AbortSignal.timeout(1000),
+		});
+		if (!response.ok) throw new Error("title refused");
 	},
 });
 

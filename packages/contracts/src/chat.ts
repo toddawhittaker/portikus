@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_AGENT_TITLE_CHARS } from "./coding-agent-status.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
@@ -38,12 +39,50 @@ export type ChatPermissionMode = z.infer<typeof ChatPermissionMode>;
 export const ChatEffort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export type ChatEffort = z.infer<typeof ChatEffort>;
 
-/** The effort a new chat starts at, for the host and the pickers alike. */
-export const CHAT_START_EFFORT: ChatEffort = "high";
+/**
+ * A model as Claude Code names it: a short name such as `opus`, which means
+ * the newest version, or a full ID such as `claude-opus-4-8`, which pins one.
+ * The characters allowed include the brackets of a suffix like `[1m]`.
+ */
+export const ChatModel = z
+	.string()
+	.max(100)
+	.regex(/^[a-z0-9][a-z0-9.\-[\]]*$/);
+export type ChatModel = z.infer<typeof ChatModel>;
 
-/** The model choices the picker offers; the host may report a fuller name. */
-export const ChatModelChoice = z.enum(["default", "opus", "sonnet", "haiku"]);
-export type ChatModelChoice = z.infer<typeof ChatModelChoice>;
+/** What a chat starts at when the project has no last-used settings (SPEC.md §10.8). */
+export const CHAT_START_SETTINGS: {
+	model: ChatModel;
+	effort: ChatEffort;
+	mode: ChatPermissionMode;
+} = { model: "opus", effort: "medium", mode: "auto" };
+
+/** Most models one `models` event lists. */
+export const MAX_CHAT_MODELS = 50;
+
+/** One model Claude Code offers the account, as `supportedModels()` lists it. */
+export const ChatModelInfo = z.object({
+	value: ChatModel,
+	/** The full ID the value means today; a short name's current version. */
+	resolvedModel: z.string().max(100).optional(),
+	displayName: z.string().max(100),
+	description: z.string().max(300),
+	supportsAutoMode: z.boolean(),
+});
+export type ChatModelInfo = z.infer<typeof ChatModelInfo>;
+
+/**
+ * The permission mode a new chat starts at on this model: Auto, or Ask when
+ * the model says it does not support Auto (SPEC.md §10.8).
+ */
+export function chatStartMode(
+	models: readonly ChatModelInfo[],
+	model: string,
+): ChatPermissionMode {
+	const unsupported =
+		models.find((row) => row.value === model)?.supportsAutoMode === false;
+	return unsupported ? "default" : CHAT_START_SETTINGS.mode;
+}
 
 /**
  * The picker values a student last used in one project, which a new chat
@@ -51,7 +90,7 @@ export type ChatModelChoice = z.infer<typeof ChatModelChoice>;
  */
 export const ChatLastSettings = z
 	.object({
-		model: ChatModelChoice,
+		model: ChatModel,
 		effort: ChatEffort,
 		mode: ChatPermissionMode,
 		/** Read each reply aloud; optional so a client from before it still saves. */
@@ -61,15 +100,15 @@ export const ChatLastSettings = z
 export type ChatLastSettings = z.infer<typeof ChatLastSettings>;
 
 /**
- * A stored value read back: a model no longer offered becomes the default,
- * and Bypass permissions is never carried into a new chat, so it comes back
- * as Auto (SPEC.md §10.8).
+ * A stored value read back: a missing or unreadable one becomes the value a
+ * new chat starts with, and Bypass permissions is never carried into a new
+ * chat, so it comes back as Auto (SPEC.md §10.8).
  */
 export const StoredChatSettings = z
 	.object({
-		model: ChatModelChoice.catch("default"),
-		effort: ChatEffort.catch(CHAT_START_EFFORT),
-		mode: ChatPermissionMode.catch("default"),
+		model: ChatModel.catch(CHAT_START_SETTINGS.model),
+		effort: ChatEffort.catch(CHAT_START_SETTINGS.effort),
+		mode: ChatPermissionMode.catch(CHAT_START_SETTINGS.mode),
 		readAloud: z.boolean().catch(false),
 	})
 	.transform((value) => ({
@@ -237,60 +276,104 @@ const Envelope = {
 	seq: z.number().int().nonnegative(),
 };
 
+/**
+ * Sent first on every attach. It holds the open cards and whether a turn
+ * is running.
+ * History follows it as ordinary events, one frame each with rising
+ * `seq`: per turn `turn.started`, `message`, the `tool.*` events, then
+ * `turn.finished` (left out for a turn still running). At most the last
+ * 20 turns are replayed, and `truncated` says older turns exist. Tool
+ * images older than the last 5 turns, or too large for one frame, are
+ * replayed as `imageOmitted`. A reply streaming now follows as one
+ * `text.delta` holding its text so far, then live events, then
+ * `settings`.
+ */
+const SnapshotEvent = z.object({
+	type: z.literal("snapshot"),
+	...Envelope,
+	cards: z.array(ChatOpenCard),
+	turnRunning: z.boolean(),
+	/** Turns older than the replayed ones exist. */
+	truncated: z.boolean(),
+});
+const TurnStartedEvent = z.object({
+	type: z.literal("turn.started"),
+	...Envelope,
+	/** Epoch milliseconds the turn started, from the transcript on replay. */
+	at: z.number().int().nonnegative(),
+});
+const TextDeltaEvent = z.object({
+	type: z.literal("text.delta"),
+	...Envelope,
+	messageId: z.string().min(1),
+	text: z.string(),
+});
+const MessageEvent = z.object({
+	type: z.literal("message"),
+	...Envelope,
+	...ChatMessage.shape,
+});
+const ToolStartedEvent = z.object({
+	type: z.literal("tool.started"),
+	...Envelope,
+	id: z.string().min(1),
+	name: z.string().min(1),
+	title: z.string(),
+	input: z.json(),
+});
+const ToolOutputEvent = z.object({
+	type: z.literal("tool.output"),
+	...Envelope,
+	id: z.string().min(1),
+	part: ChatToolOutputPart,
+});
+const ToolFinishedEvent = z.object({
+	type: z.literal("tool.finished"),
+	...Envelope,
+	id: z.string().min(1),
+	isError: z.boolean(),
+});
+const TurnFinishedEvent = z.object({
+	type: z.literal("turn.finished"),
+	...Envelope,
+	status: z.enum(["done", "interrupted", "error"]),
+	/** Epoch milliseconds the turn finished, from the transcript on replay. */
+	at: z.number().int().nonnegative(),
+});
+
+/** Longest reason a rename failed. */
+export const MAX_CHAT_RENAME_MESSAGE_CHARS = 200;
+
+/** Longest Agent tool call id a watch may name. */
+export const MAX_CHAT_TOOL_ID_CHARS = 200;
+const ToolUseId = z.string().min(1).max(MAX_CHAT_TOOL_ID_CHARS);
+
+/**
+ * One event of a subagent's own conversation, numbered on a sequence of its
+ * own that starts at each watch with a snapshot (no cards; `turnRunning`
+ * while the subagent runs). Its whole run is one turn, which a
+ * `turn.finished` ends.
+ */
+export const ChatSubagentEvent = z.discriminatedUnion("type", [
+	SnapshotEvent,
+	TurnStartedEvent,
+	TextDeltaEvent,
+	MessageEvent,
+	ToolStartedEvent,
+	ToolOutputEvent,
+	ToolFinishedEvent,
+	TurnFinishedEvent,
+]);
+export type ChatSubagentEvent = z.infer<typeof ChatSubagentEvent>;
+
 export const ChatServerEvent = z.discriminatedUnion("type", [
-	/**
-	 * Sent first on every attach. It holds the open cards and whether a turn
-	 * is running.
-	 * History follows it as ordinary events, one frame each with rising
-	 * `seq`: per turn `turn.started`, `message`, the `tool.*` events, then
-	 * `turn.finished` (left out for a turn still running). At most the last
-	 * 20 turns are replayed, and `truncated` says older turns exist. Tool
-	 * images older than the last 5 turns, or too large for one frame, are
-	 * replayed as `imageOmitted`. A reply streaming now follows as one
-	 * `text.delta` holding its text so far, then live events, then
-	 * `settings`.
-	 */
-	z.object({
-		type: z.literal("snapshot"),
-		...Envelope,
-		cards: z.array(ChatOpenCard),
-		turnRunning: z.boolean(),
-		/** Turns older than the replayed ones exist. */
-		truncated: z.boolean(),
-	}),
-	z.object({
-		type: z.literal("turn.started"),
-		...Envelope,
-		/** Epoch milliseconds the turn started, from the transcript on replay. */
-		at: z.number().int().nonnegative(),
-	}),
-	z.object({
-		type: z.literal("text.delta"),
-		...Envelope,
-		messageId: z.string().min(1),
-		text: z.string(),
-	}),
-	z.object({ type: z.literal("message"), ...Envelope, ...ChatMessage.shape }),
-	z.object({
-		type: z.literal("tool.started"),
-		...Envelope,
-		id: z.string().min(1),
-		name: z.string().min(1),
-		title: z.string(),
-		input: z.json(),
-	}),
-	z.object({
-		type: z.literal("tool.output"),
-		...Envelope,
-		id: z.string().min(1),
-		part: ChatToolOutputPart,
-	}),
-	z.object({
-		type: z.literal("tool.finished"),
-		...Envelope,
-		id: z.string().min(1),
-		isError: z.boolean(),
-	}),
+	SnapshotEvent,
+	TurnStartedEvent,
+	TextDeltaEvent,
+	MessageEvent,
+	ToolStartedEvent,
+	ToolOutputEvent,
+	ToolFinishedEvent,
 	z.object({
 		type: z.literal("permission.requested"),
 		...Envelope,
@@ -302,14 +385,29 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		...QuestionCardFields,
 	}),
 	z.object({ type: z.literal("card.resolved"), ...Envelope, id: z.string().min(1) }),
+	TurnFinishedEvent,
+	/**
+	 * A subagent's conversation, sent only to an attachment watching that
+	 * Agent tool call. It carries no `seq` of the chat's own: the watch
+	 * numbers its events itself, so watching never leaves a gap in another
+	 * attachment's sequence.
+	 */
 	z.object({
-		type: z.literal("turn.finished"),
-		...Envelope,
-		status: z.enum(["done", "interrupted", "error"]),
-		/** Epoch milliseconds the turn finished, from the transcript on replay. */
-		at: z.number().int().nonnegative(),
+		type: z.literal("subagent"),
+		sessionId: TerminalId,
+		toolUseId: ToolUseId,
+		event: ChatSubagentEvent,
 	}),
 	z.object({ type: z.literal("error"), ...Envelope, message: z.string() }),
+	/**
+	 * The answer to a `rename`, sent only to the attachment that asked. Like a
+	 * subagent frame it carries no `seq`, so other attachments see no gap.
+	 */
+	z.object({
+		type: z.literal("rename.result"),
+		ok: z.boolean(),
+		message: z.string().max(MAX_CHAT_RENAME_MESSAGE_CHARS).optional(),
+	}),
 	z.object({
 		type: z.literal("settings"),
 		...Envelope,
@@ -346,6 +444,15 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 	}),
 	/** A `!` shell command: sent when it starts and again, same id, when it ends. */
 	z.object({ type: z.literal("shell"), ...Envelope, ...ShellCommandFields }),
+	/**
+	 * The models Claude Code offers this account; sent on attach, before the
+	 * settings, once the host has read them.
+	 */
+	z.object({
+		type: z.literal("models"),
+		...Envelope,
+		models: z.array(ChatModelInfo).max(MAX_CHAT_MODELS),
+	}),
 	/** Every session rule now in force; sent on attach and on each change. */
 	z.object({
 		type: z.literal("rules"),
@@ -395,9 +502,22 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 	z
 		.object({
 			type: z.literal("set"),
-			model: z.string().min(1).optional(),
+			model: ChatModel.optional(),
 			effort: ChatEffort.optional(),
 			mode: ChatPermissionMode.optional(),
+		})
+		.strict(),
+	/**
+	 * Watch the subagent an Agent tool call started, read-only. One watch per
+	 * attachment: a new one replaces the last.
+	 */
+	z.object({ type: z.literal("subagent.watch"), toolUseId: ToolUseId }).strict(),
+	z.object({ type: z.literal("subagent.unwatch"), toolUseId: ToolUseId }).strict(),
+	/** Retitle the conversation; the host cleans the title (ADR 0074). */
+	z
+		.object({
+			type: z.literal("rename"),
+			title: z.string().min(1).max(MAX_AGENT_TITLE_CHARS),
 		})
 		.strict(),
 ]);

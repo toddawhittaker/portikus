@@ -683,3 +683,50 @@ test("Processes explains what Stop may end", async () => {
 	fireEvent.click(tip);
 	expect(openToggletip().textContent).toContain("busiest first");
 });
+
+test("heavy CPU and memory are tinted and named in words, measured against the workspace", async () => {
+	const limit = USAGE.memory.totalBytes;
+	stubStops(
+		[
+			{ ...OWN, pid: 20, cpuPercent: 10, residentBytes: 1024 },
+			{ ...OWN, pid: 21, cpuPercent: 50, residentBytes: limit * 0.5 },
+			{ ...OWN, pid: 22, cpuPercent: 80, residentBytes: Math.round(limit * 0.8) },
+		],
+		[],
+	);
+	renderPane();
+	await screen.findByTestId("monitor-process-20");
+	const cells = (pid: number) => {
+		const [cpu, mem] = Array.from(
+			screen.getByTestId(`monitor-process-${pid}`).querySelectorAll("td"),
+		).slice(1, 3);
+		return { cpu, mem };
+	};
+	expect(cells(20).cpu?.getAttribute("data-load")).toBeNull();
+	expect(cells(20).mem?.getAttribute("data-load")).toBeNull();
+	expect(cells(20).cpu?.textContent).toBe("10.0%");
+	expect(cells(21).cpu?.getAttribute("data-load")).toBe("high");
+	expect(cells(21).cpu?.textContent).toBe("50.0% (high)");
+	expect(cells(21).mem?.getAttribute("data-load")).toBe("high");
+	expect(cells(22).cpu?.getAttribute("data-load")).toBe("near-limit");
+	expect(cells(22).cpu?.textContent).toBe("80.0% (near limit)");
+	expect(cells(22).mem?.textContent).toContain("(near limit)");
+});
+
+test("a missing CPU sample or a zero memory limit leaves the row plain", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () =>
+			json({
+				...USAGE,
+				memory: { usedBytes: 0, totalBytes: 0 },
+				processes: [{ ...OWN, pid: 30, cpuPercent: null, residentBytes: 1 << 30 }],
+			}),
+		),
+	);
+	renderPane();
+	await screen.findByTestId("monitor-process-30");
+	expect(
+		screen.getByTestId("monitor-process-30").querySelector("[data-load]"),
+	).toBeNull();
+});

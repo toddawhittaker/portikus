@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	readSeededFile,
 	seedFile,
 	type TestProject,
@@ -177,6 +178,31 @@ test.describe("checks", () => {
 			{ id: "tests", name: "Tests", command: "npm test" },
 			{ id: "build", name: "Build", command: "npm run build" },
 		]);
+	});
+
+	test("the pencil opens Edit checks by mouse and keyboard, with a visible tooltip and a matching hint", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openChecks(page, student.workspaceId, "Pencil", CHECKS);
+
+		await expect(page.getByTestId("checks-note")).toContainText(
+			"To add one, choose the pencil above.",
+		);
+		await expectNoViolations(page, ".pk-pane-head--actions");
+		const pencil = page.getByRole("button", { name: "Edit checks" });
+		await pencil.hover();
+		await expect(page.getByRole("tooltip")).toContainText("Edit checks");
+		await pencil.click();
+		await expect(page.getByTestId("dialog-edit-checks")).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("dialog-edit-checks")).toHaveCount(0);
+
+		await pencil.focus();
+		await expect(page.getByRole("tooltip")).toContainText("Edit checks");
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("dialog-edit-checks")).toBeVisible();
 	});
 
 	test("a check that keeps going can be stopped", async ({ page, context }) => {
