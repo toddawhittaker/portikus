@@ -9,6 +9,8 @@
 	inset: 0;
 	z-index: 1;
 	background: var(--scrim);
+	/* Lighter than a dialog's scrim: the chat is still the place to reply. */
+	opacity: 0.6;
 }
 
 .pk-subagent {
