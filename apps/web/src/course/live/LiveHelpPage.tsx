@@ -1,8 +1,9 @@
 import { Icon, PageIntro, StateBadge } from "@portikus/ui";
 import { Link, useParams } from "@tanstack/react-router";
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { QuietState } from "../../common/QuietState.js";
+import { useMediaQuery } from "../../common/useMediaQuery.js";
 import { usePageTitle } from "../../pageTitle.js";
 import { timeAgo } from "../../text.js";
 import { CourseFrame } from "../CourseFrame.js";
@@ -20,20 +21,9 @@ const NARROW_ONLY = "hidden @max-2xl:block";
 /** course.css repeats 64rem, since a media query cannot read a variable. */
 const WIDE_QUERY = "(width >= 64rem)";
 
-function subscribeWide(onChange: () => void): () => void {
-	if (typeof window.matchMedia !== "function") return () => {};
-	const query = window.matchMedia(WIDE_QUERY);
-	query.addEventListener("change", onChange);
-	return () => query.removeEventListener("change", onChange);
-}
-
 /** True while the window is wide enough to show the chosen request beside the queue. */
 function useWideLayout(): boolean {
-	return useSyncExternalStore(
-		subscribeWide,
-		() =>
-			typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches,
-	);
+	return useMediaQuery(WIDE_QUERY);
 }
 
 /** `/course/:courseId/live`: the live help sessions students opened with the caller (ADR 0063). */

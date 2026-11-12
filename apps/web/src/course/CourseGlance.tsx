@@ -1,11 +1,17 @@
 import type { CourseLiveHelpSession, CourseMember } from "@portikus/contracts";
-import { Icon } from "@portikus/ui";
+import { buttonClass, Icon } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import * as React from "react";
 import { QuietState } from "../common/QuietState.js";
 import { initials } from "../settings/ProfilePane.js";
 import { timeAgo } from "../text.js";
-import { ClassDots, ClassDotsKey, plural } from "./ClassDots.js";
+import {
+	ClassDots,
+	ClassDotsKey,
+	type DotKind,
+	dotCounts,
+	plural,
+} from "./ClassDots.js";
 import { waitingText } from "./memberFilter.js";
 import { dateTimeText } from "./time.js";
 
@@ -24,9 +30,12 @@ function sessionsText(count: number): string {
 export function LiveHelpCard({
 	courseId,
 	sessions,
+	failed,
 }: {
 	courseId: string;
 	sessions: CourseLiveHelpSession[] | undefined;
+	/** The read failed, so there is no queue to show; it says so rather than load for ever. */
+	failed: boolean;
 }) {
 	const queue = sessions
 		?.slice()
@@ -47,7 +56,11 @@ export function LiveHelpCard({
 						Live help
 					</h2>
 					<p className="pk-muted m-0 text-[13px]">
-						{count === undefined ? (
+						{failed && count === undefined ? (
+							<span data-testid="course-live-error">
+								Portikus could not load live help. Reload the page to try again.
+							</span>
+						) : count === undefined ? (
 							"Loading live help sessions…"
 						) : (
 							<>
@@ -97,7 +110,7 @@ export function LiveHelpCard({
 							<Link
 								to="/course/$courseId/live/$sessionId"
 								params={{ courseId, sessionId: session.id }}
-								className="pk-btn pk-focus-ring inline-flex h-[var(--pk-control)] items-center justify-center whitespace-nowrap rounded-sm border border-line-strong bg-surface-raised px-3 font-semibold text-[length:var(--pk-font)] text-ink hover:bg-surface-hover"
+								className={buttonClass("secondary")}
 							>
 								Join
 								<span className="sr-only">
@@ -118,10 +131,16 @@ export function LiveHelpCard({
 	);
 }
 
+/** The counts that need someone stand out in the sentence, as their dots do. */
+const COUNT_TONE: Partial<Record<DotKind, "warning" | "error">> = {
+	waiting: "warning",
+	error: "error",
+};
+
 /**
- * The class in one line: how many students, how many are working, and how
- * many are waiting, with a dot per student. Every figure counts students
- * only, as the Members filters do; instructors have a filter of their own.
+ * The class in one line: how many students, then each kind of dot with its
+ * count, with a dot per student. Every figure counts students only, as the
+ * Members filters do; instructors have a filter of their own.
  */
 export function MemberCounts({
 	members,
@@ -131,28 +150,8 @@ export function MemberCounts({
 	waiting: ReadonlySet<string>;
 }) {
 	const students = members.filter((member) => member.role === "student");
-	const running = students.filter((m) => m.workspaceState === "running").length;
-	const stopped = students.filter((m) => m.workspaceState === "stopped").length;
-	const trouble = students.filter((m) => m.workspaceState === "error").length;
-	const notStarted = students.filter((m) => m.status === "not_started").length;
-	const asking = students.filter(
-		(m) => m.userId !== null && waiting.has(m.userId),
-	).length;
-	const parts: { key: string; text: string; tone?: "warning" | "error" }[] = [
-		{ key: "running", text: `${running} running` },
-		{ key: "stopped", text: `${stopped} stopped` },
-	];
-	if (notStarted > 0) parts.push({ key: "new", text: `${notStarted} not started` });
-	if (trouble > 0) {
-		parts.push({
-			key: "error",
-			text: plural(trouble, "workspace error", "workspace errors"),
-			tone: "error",
-		});
-	}
-	if (asking > 0) {
-		parts.push({ key: "asking", text: `${asking} waiting for help`, tone: "warning" });
-	}
+	// Grouped exactly as the dots are, so the words say what the dots show.
+	const parts = dotCounts(students, waiting);
 	return (
 		<section
 			className="pk-class-summary"
@@ -167,12 +166,12 @@ export function MemberCounts({
 					{plural(students.length, "student", "students")}
 				</strong>
 				{parts.map((part) => (
-					<React.Fragment key={part.key}>
+					<React.Fragment key={part.kind}>
 						<span className="pk-class-sep" aria-hidden="true">
 							·
 						</span>
 						<span className="sr-only">, </span>
-						<span className="pk-num" data-tone={part.tone}>
+						<span className="pk-num" data-tone={COUNT_TONE[part.kind]}>
 							{part.text}
 						</span>
 					</React.Fragment>
