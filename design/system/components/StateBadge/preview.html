@@ -1,4 +1,4 @@
-<!-- @dsCard group="Feedback" height=200 -->
+<!-- @dsCard group="Feedback" height=230 -->
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>StateBadge</title>
@@ -25,7 +25,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padd
    h(P.StateBadge,{state:'stopping',desiredState:'stopped'}),
    h(P.StateBadge,{state:'running',desiredState:'restarting'}))),
  h('div',null,h('p',{className:'demo-cap'},'Plain, inside a status bar'),
-  h('div',{style:{display:'flex',gap:'16px'}},h(P.StateBadge,{state:'running',plain:true}),h(P.StateBadge,{state:'stopped',desiredState:'running',plain:true})))
+  h('div',{style:{display:'flex',gap:'16px'}},h(P.StateBadge,{state:'running',plain:true}),h(P.StateBadge,{state:'stopped',desiredState:'running',plain:true}))),
+ h('div',null,h('p',{className:'demo-cap'},'An administrator table: normal states plain, the error filled'),
+  h('div',{style:{display:'flex',gap:'16px',alignItems:'center'}},h(P.StateBadge,{state:'running',plain:true,statusRole:false}),h(P.StateBadge,{state:'stopped',plain:true,statusRole:false}),h(P.StateBadge,{state:'stopped',moving:true,plain:true,label:'Rebuilding…',statusRole:false}),h(P.StateBadge,{state:'error',statusRole:false})))
 ));
 </script>
 </body>

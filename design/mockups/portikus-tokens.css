@@ -87,12 +87,16 @@
   --line-strong: #807868;
   --ink: #221f1a;
   --ink-muted: #57514a;
-  --ink-faint: #675f53;
+  --ink-faint: #5f574c;
   --ink-inverse: #fffdf8;
   --accent: #1d6e67;
   --accent-hover: #155851;
   --accent-active: #10443f;
   --on-accent: #ffffff;
+  --accent-fill: #1d6e67;
+  --accent-fill-hover: #155851;
+  --accent-fill-active: #10443f;
+  --on-accent-fill: #ffffff;
   --accent-soft: #cce9e2;
   --accent-text: #17625b;
   --agent: #6a4cc2;
@@ -118,10 +122,11 @@
   --status-stopped-soft: #ebe6dc;
   --status-error: #b0372b;
   --status-error-soft: #f8dcd6;
-  --status-warning: #8a5a00;
+  --status-warning: #7d5200;
   --status-warning-soft: #fae3ad;
   --status-danger: #b0372b;
   --status-danger-soft: #f8dcd6;
+  --danger-fill: #b0372b;
   --danger-hover: #8f2b21;
   --on-danger: #ffffff;
   --git-added: #2b7336;
@@ -150,13 +155,17 @@
   --line: #36332e;
   --line-strong: #8a8478;
   --ink: #f0ebe1;
-  --ink-muted: #bdb6aa;
-  --ink-faint: #aaa396;
+  --ink-muted: #c9c2b6;
+  --ink-faint: #b8b1a4;
   --ink-inverse: #1b1a18;
-  --accent: #5fcfbf;
-  --accent-hover: #82dccf;
-  --accent-active: #a6e8de;
+  --accent: #2f9e8a;
+  --accent-hover: #38b09a;
+  --accent-active: #46c2ab;
   --on-accent: #062421;
+  --accent-fill: #14776b;
+  --accent-fill-hover: #168073;
+  --accent-fill-active: #0f6459;
+  --on-accent-fill: #ffffff;
   --accent-soft: #183f3a;
   --accent-text: #7fd9cc;
   --agent: #b4a2ff;
@@ -179,15 +188,16 @@
   --status-stopping: #98b6f0;
   --status-stopping-soft: #1d2a45;
   --status-stopped: #b3ab9e;
-  --status-stopped-soft: #2a2824;
+  --status-stopped-soft: #34322e;
   --status-error: #f59a8e;
   --status-error-soft: #45201b;
   --status-warning: #f2c35a;
   --status-warning-soft: #432b12;
   --status-danger: #f59a8e;
   --status-danger-soft: #45201b;
-  --danger-hover: #f8b4aa;
-  --on-danger: #1f0d0b;
+  --danger-fill: #c23b30;
+  --danger-hover: #a8322a;
+  --on-danger: #ffffff;
   --git-added: #7fd18a;
   --git-modified: #f2c35a;
   --git-deleted: #f59a8e;
@@ -251,6 +261,7 @@
 /* The bundle's Tailwind theme maps --color-<name> to var(--<name>) on :root, where only the light values are in scope.
    Repeat the mapping on the artboard root and the body so components follow the artboard's data-theme. */
 .pk-root, body:has(.pk-root) {
+  --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
   --color-surface-sunken: var(--surface-sunken);
   --color-surface-hover: var(--surface-hover);
@@ -266,6 +277,10 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-active: var(--accent-active);
   --color-on-accent: var(--on-accent);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-fill-hover: var(--accent-fill-hover);
+  --color-accent-fill-active: var(--accent-fill-active);
+  --color-on-accent-fill: var(--on-accent-fill);
   --color-accent-soft: var(--accent-soft);
   --color-accent-text: var(--accent-text);
   --color-agent-soft: var(--agent-soft);
@@ -283,6 +298,8 @@
   --color-status-warning-soft: var(--status-warning-soft);
   --color-status-danger: var(--status-danger);
   --color-status-danger-soft: var(--status-danger-soft);
+  --color-danger-fill: var(--danger-fill);
   --color-danger-hover: var(--danger-hover);
   --color-on-danger: var(--on-danger);
+  --color-terminal-bg: var(--terminal-bg);
 }

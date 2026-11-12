@@ -21,13 +21,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(h(F,null,
   h(P.Button,{variant:'danger'},'Revoke access'),
   h(P.Button,{variant:'danger-secondary'},'Delete…'),
   h(P.Button,{variant:'primary',loading:true},'Starting…'),
-  h(P.Button,{variant:'secondary',disabled:true},'Rebuild workspace')),
+  h(P.Button,{variant:'secondary',disabled:true},'Rebuild workspace'),
+  h(P.Button,{variant:'primary','aria-disabled':true},'Save changes')),
  h('div',{className:'demo','data-density':'compact',style:{paddingTop:0}},
-  h('span',{className:'demo-cap',style:{margin:0,width:'100%'}},'Compact density (administrators)'),
+  h('span',{className:'demo-cap',style:{margin:0,width:'100%'}},'Compact density: dialogs and dense tools opened from an administrator page'),
   h(P.Button,{variant:'primary'},'Start'),
   h(P.Button,{variant:'secondary',iconStart:'restart'},'Restart'),
   h(P.Button,{variant:'quiet'},'Cancel'),
-  h(P.Button,{variant:'danger'},'Archive'))
+  h(P.Button,{variant:'danger'},'Archive'),
+  h('a',{href:'#',className:P.buttonClass('secondary'),onClick:function(e){e.preventDefault();}},'Open Logs'))
 ));
 </script>
 </body>

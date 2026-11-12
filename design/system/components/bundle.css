@@ -31,8 +31,8 @@
       --tw-ring-offset-width: 0px;
       --tw-ring-offset-color: #fff;
       --tw-ring-offset-shadow: 0 0 #0000;
-      --tw-duration: initial;
       --tw-outline-style: solid;
+      --tw-duration: initial;
     }
   }
 }
@@ -76,9 +76,11 @@
     --color-ink-faint: var(--ink-faint);
     --color-ink-inverse: var(--ink-inverse);
     --color-accent: var(--accent);
-    --color-accent-hover: var(--accent-hover);
-    --color-accent-active: var(--accent-active);
     --color-on-accent: var(--on-accent);
+    --color-accent-fill: var(--accent-fill);
+    --color-accent-fill-hover: var(--accent-fill-hover);
+    --color-accent-fill-active: var(--accent-fill-active);
+    --color-on-accent-fill: var(--on-accent-fill);
     --color-accent-soft: var(--accent-soft);
     --color-accent-text: var(--accent-text);
     --color-agent-soft: var(--agent-soft);
@@ -96,6 +98,7 @@
     --color-status-warning-soft: var(--status-warning-soft);
     --color-status-danger: var(--status-danger);
     --color-status-danger-soft: var(--status-danger-soft);
+    --color-danger-fill: var(--danger-fill);
     --color-danger-hover: var(--danger-hover);
     --color-on-danger: var(--on-danger);
   }
@@ -910,6 +913,10 @@
     background-color: var(--color-accent);
   }
 
+  .bg-accent-fill {
+    background-color: var(--color-accent-fill);
+  }
+
   .bg-accent-soft {
     background-color: var(--color-accent-soft);
   }
@@ -922,8 +929,8 @@
     background-color: currentColor;
   }
 
-  .bg-status-danger {
-    background-color: var(--color-status-danger);
+  .bg-danger-fill {
+    background-color: var(--color-danger-fill);
   }
 
   .bg-status-error-soft {
@@ -1206,6 +1213,10 @@
     color: var(--color-on-accent);
   }
 
+  .text-on-accent-fill {
+    color: var(--color-on-accent-fill);
+  }
+
   .text-on-danger {
     color: var(--color-on-danger);
   }
@@ -1259,6 +1270,11 @@
   .ring {
     --tw-ring-shadow: var(--tw-ring-inset, ) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
+
+  .outline {
+    outline-style: var(--tw-outline-style);
+    outline-width: 1px;
   }
 
   .transition {
@@ -1411,8 +1427,8 @@
       border-color: var(--color-ink-muted);
     }
 
-    .hover\:bg-accent-hover:hover {
-      background-color: var(--color-accent-hover);
+    .hover\:bg-accent-fill-hover:hover {
+      background-color: var(--color-accent-fill-hover);
     }
 
     .hover\:bg-danger-hover:hover {
@@ -1436,8 +1452,8 @@
     }
   }
 
-  .active\:bg-accent-active:active {
-    background-color: var(--color-accent-active);
+  .active\:bg-accent-fill-active:active {
+    background-color: var(--color-accent-fill-active);
   }
 
   .disabled\:border-line:disabled {
@@ -1508,8 +1524,8 @@
 .pk-btn:is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
   cursor: not-allowed;
   color: var(--ink-faint);
-  border-style: dashed;
-  border-color: var(--line-strong);
+  border-style: solid;
+  border-color: var(--line);
   background: none;
 }
 
@@ -1638,8 +1654,9 @@
   gap: var(--space-1\.5);
   border-radius: var(--radius-sm);
   min-height: 24px;
-  font-size: var(--text-md);
-  line-height: var(--leading-md);
+  color: var(--ink-faint);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   cursor: pointer;
   list-style: none;
   display: inline-flex;
@@ -1813,7 +1830,7 @@
 .pk-art--error {
   --art-tint: var(--status-error-soft);
   --art-badge: var(--status-error);
-  --art-on-badge: var(--on-danger);
+  --art-on-badge: var(--ink-inverse);
 }
 
 .pk-art-scene {
@@ -2125,7 +2142,7 @@
 }
 
 .pk-tab:not(.pk-tab--agent)[data-state="active"] > svg:first-child {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .pk-tab[data-state="active"]:before, .pk-tab[aria-current="page"]:before {
@@ -2634,13 +2651,13 @@
   initial-value: 0 0 #0000;
 }
 
-@property --tw-duration {
-  syntax: "*";
-  inherits: false
-}
-
 @property --tw-outline-style {
   syntax: "*";
   inherits: false;
   initial-value: solid;
+}
+
+@property --tw-duration {
+  syntax: "*";
+  inherits: false
 }

@@ -2,33 +2,61 @@
   "v": 3,
   "attachments": {},
   "boards": {
+    "AdminHealth.dc.html": {
+      "h": 900,
+      "title": "Admin: Health · 1440",
+      "w": 1440,
+      "x": 0,
+      "y": 5049
+    },
+    "AdminHealthDark.dc.html": {
+      "h": 900,
+      "title": "Admin: Health · 1440 · dark",
+      "w": 1440,
+      "x": 1520,
+      "y": 5049
+    },
     "AdminWorkspaces.dc.html": {
       "h": 900,
-      "title": "Admin: workspaces with row actions · 1440",
+      "title": "Admin: Users with the inspector · 1440",
       "w": 1440,
       "x": 0,
       "y": 4029
     },
     "AdminWorkspaces1024.dc.html": {
       "h": 768,
-      "title": "Admin: Reset Docker confirmation · 1024",
+      "title": "Admin: Users, Reset Docker confirmation · 1024",
       "w": 1024,
       "x": 1520,
       "y": 4029
     },
     "AdminWorkspaces1024Dark.dc.html": {
       "h": 768,
-      "title": "Admin: Reset Docker confirmation · 1024 · dark",
+      "title": "Admin: Users, Reset Docker confirmation · 1024 · dark",
       "w": 1024,
       "x": 4144,
       "y": 4029
     },
     "AdminWorkspacesDark.dc.html": {
       "h": 900,
-      "title": "Admin: workspaces with row actions · 1440 · dark",
+      "title": "Admin: Users with the inspector · 1440 · dark",
       "w": 1440,
       "x": 2624,
       "y": 4029
+    },
+    "CourseInstructor.dc.html": {
+      "h": 900,
+      "title": "Instructor: Course page · 1440",
+      "w": 1440,
+      "x": 0,
+      "y": 6395
+    },
+    "CourseInstructorDark.dc.html": {
+      "h": 900,
+      "title": "Instructor: Course page · 1440 · dark",
+      "w": 1440,
+      "x": 1520,
+      "y": 6395
     },
     "DisconnectCountdown.dc.html": {
       "h": 900,
@@ -156,7 +184,7 @@
     "handoff": {
       "color": "teal",
       "maxH": 900,
-      "text": "Handoff: names for packages/ui\n\nMounted from the Portikus system: NameMark, Icon, Button, IconButton, Menu/MenuItem/MenuLabel/MenuSeparator, Tabs, StateBadge, Table (markup + pk-table classes), TextField, Select, Checkbox, Skeleton, ShortcutHint, PaneHandle, ConfirmDialog.\n\nProposed additions (portikus-screens.css, data-component on each): AppHeader, AccountMenuTrigger, WorkspaceStatusButton, AppShell, Pane (+ overlay at 1024), Rail, ProjectList, FileTree, TerminalPane, PreviewPane, StatusBar, DisconnectNotice (Notice), WorkspaceProgress, StorageMeter, ErrorState, StandalonePage, AdminNav, WorkspaceDetailPanel.\n\nProposed token: terminal-line (#2a2824), the hairline on terminal-bg.\nType utilities: pk-text-display … pk-text-caption, pk-mono-body, pk-mono-small map 1:1 to type tokens.\n\nCanvas-only: is-focus-demo / is-focus-demo-inset draw the focus-visible ring on static comps.\n\nLeave-terminal shortcut (Alt+Shift+Q) is a proposal; confirm it against browser and shell bindings.",
+      "text": "Handoff: names for packages/ui\n\nMounted from the Portikus system: NameMark, Icon, Button, IconButton, Menu/MenuItem/MenuLabel/MenuSeparator, Tabs, StateBadge, Table (markup + pk-table classes), TextField, Select, Checkbox, Skeleton, ShortcutHint, PaneHandle, ConfirmDialog.\n\nAdministration and Instructor course: these screens are the app's own markup, captured from the end-to-end stack, and load portikus-console.css (the apps/web stylesheet for the admin and course pages, compiled with the repo's Tailwind) in place of portikus-screens.css. Their patterns are in the design system as PageFrame, Inspector, AttentionStrip, StatusDots, SegmentedControl, MoreMenu, SaveBar, FilterChips and TableBox; they live in apps/web, not packages/ui. The earlier AdminNav (a header strip) and WorkspaceDetailPanel proposals were built as the section rail and the Inspector.\n\nProposed additions (portikus-screens.css, data-component on each): AppHeader, AccountMenuTrigger, WorkspaceStatusButton, AppShell, Pane (+ overlay at 1024), Rail, ProjectList, FileTree, TerminalPane, PreviewPane, StatusBar, DisconnectNotice (Notice), WorkspaceProgress, StorageMeter, ErrorState, StandalonePage.\n\nProposed token: terminal-line (#2a2824), the hairline on terminal-bg.\nType utilities: pk-text-display … pk-text-caption, pk-mono-body, pk-mono-small map 1:1 to type tokens.\n\nCanvas-only: is-focus-demo / is-focus-demo-inset draw the focus-visible ring on static comps.\n\nLeave-terminal shortcut (Alt+Shift+Q) is a proposal; confirm it against browser and shell bindings.",
       "w": 520,
       "x": 2624,
       "y": 2686
@@ -168,6 +196,14 @@
       "w": 240,
       "x": 0,
       "y": 3806
+    },
+    "t-course": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "Instructor course",
+      "w": 240,
+      "x": 0,
+      "y": 6172
     },
     "t-entry": {
       "kind": "title1",
@@ -213,7 +249,11 @@
     "AdminWorkspaces.dc.html",
     "AdminWorkspaces1024.dc.html",
     "AdminWorkspacesDark.dc.html",
-    "AdminWorkspaces1024Dark.dc.html"
+    "AdminWorkspaces1024Dark.dc.html",
+    "AdminHealth.dc.html",
+    "AdminHealthDark.dc.html",
+    "CourseInstructor.dc.html",
+    "CourseInstructorDark.dc.html"
   ],
   "pages": [],
   "title": "Portikus UI"
