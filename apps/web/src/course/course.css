@@ -50,7 +50,7 @@
 	color: var(--ink-faint);
 }
 
-/* Filter chips: aria-pressed buttons; the pressed one takes the accent edge and text, never the filled primary look. */
+/* Filter chips: aria-pressed buttons, one chosen at a time. */
 .pk-chips {
 	display: flex;
 	flex-wrap: wrap;
@@ -60,31 +60,16 @@
 	border: 0;
 	min-width: 0;
 }
+/* A member filter at the page's control size; its look is the shared chip's (console.css). */
 .pk-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1\.5);
 	block-size: var(--size-control-md);
 	padding-inline: var(--space-3);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-md);
-	background: var(--surface-raised);
-	color: var(--ink-muted);
 	font: inherit;
 	font-size: var(--text-md);
-	font-weight: 500;
 	white-space: nowrap;
-	cursor: pointer;
-}
-.pk-chip:hover {
-	background: var(--surface-hover);
-	color: var(--ink);
-}
-.pk-chip[aria-pressed="true"] {
-	border-color: var(--accent);
-	background: var(--accent-soft);
-	color: var(--accent-text);
-	font-weight: 600;
 }
 .pk-chip-count {
 	min-inline-size: 1.25rem;

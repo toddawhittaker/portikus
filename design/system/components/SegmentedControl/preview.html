@@ -1,0 +1,53 @@
+<!-- @dsCard group="Forms" height=150 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>SegmentedControl</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+</style>
+<style>
+/* Copied from apps/web: these classes are not part of packages/ui, so bundle.css does not carry them. */
+/* apps/web/src/admin/health/health.css */
+.pk-range button {
+	min-height: var(--size-control-sm);
+	padding-inline: var(--space-3);
+	font-size: var(--text-sm);
+	font-variant-numeric: tabular-nums;
+	background: var(--surface-raised);
+}
+.pk-range button[aria-pressed="true"] {
+	font-weight: 600;
+	box-shadow: inset 0 0 0 1px var(--accent);
+}
+@media (width < 35rem) {
+	.pk-segmented.pk-range {
+		inline-size: 100%;
+	}
+	.pk-adminframe-scroll .pk-range.pk-segmented button {
+		flex: 1 1 0;
+		min-width: 0;
+		min-height: var(--size-control-lg);
+		padding-inline: var(--space-1);
+	}
+}
+</style>
+</head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
+function Seg(props){
+ var st=React.useState(props.value), v=st[0], set=st[1];
+ return h('fieldset',{className:'pk-segmented'+(props.range?' pk-range':'')},h('legend',{className:'sr-only'},props.legend),
+  props.options.map(function(o){return h('button',{key:o,type:'button','aria-pressed':o===v,onClick:function(){set(o);}},o);}));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gap:'16px'}},
+ h('div',null,h('p',{className:'demo-cap'},'Health: the time range, one view of the same data'),h(Seg,{legend:'Time range',options:['1 hour','6 hours','1 day','7 days'],value:'1 day',range:true})),
+ h('div',null,h('p',{className:'demo-cap'},'Elsewhere: the base control, as the student search panel uses it'),h(Seg,{legend:'Search in',options:['Names','Contents'],value:'Names'}))));
+</script>
+</body>
+</html>

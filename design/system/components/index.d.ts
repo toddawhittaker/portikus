@@ -19,13 +19,20 @@ export declare function Badge({ tone, plain, className, ...rest }: BadgeProps): 
 
 // ---- Button (packages/ui/src/primitives/Button.tsx)
 declare const VARIANT_CLASS: {
-    readonly primary: "border-transparent bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-active";
+    readonly primary: "border-transparent bg-accent-fill text-on-accent-fill hover:bg-accent-fill-hover active:bg-accent-fill-active";
     readonly secondary: "bg-surface-raised text-ink border-line-strong hover:bg-surface-hover";
     readonly quiet: "border-transparent bg-transparent text-ink hover:bg-surface-hover";
-    readonly danger: "border-transparent bg-status-danger text-on-danger hover:bg-danger-hover";
+    readonly danger: "border-transparent bg-danger-fill text-on-danger hover:bg-danger-hover";
     /** A row's own destructive action, such as Delete…, beside quieter ones. */
     readonly "danger-secondary": "bg-surface-raised text-status-danger border-status-danger hover:bg-status-danger-soft";
 };
+declare const SIZE_CLASS: {
+    readonly sm: "h-[var(--size-control-sm)] px-2 text-[13px]";
+    readonly md: "h-[var(--pk-control)] px-[var(--pk-pad)] text-[length:var(--pk-font)]";
+    readonly lg: "h-[var(--size-control-lg)] px-5 text-[15px]";
+};
+/** A Button's look, for a link that leads somewhere but should read as an action. */
+export declare function buttonClass(variant?: keyof typeof VARIANT_CLASS, size?: keyof typeof SIZE_CLASS): string;
 export interface ButtonProps extends React.ComponentPropsWithRef<"button"> {
     variant?: keyof typeof VARIANT_CLASS;
     size?: "sm" | "md" | "lg";
@@ -145,6 +152,7 @@ declare const PATHS: {
     external: string[];
     alert: string[];
     check: string[];
+    bell: string[];
     info: string[];
     help: string[];
     "arrow-left": string[];
@@ -164,6 +172,8 @@ declare const PATHS: {
     "sign-out": string[];
     users: string[];
     activity: string[];
+    shield: string[];
+    school: string[];
     list: string[];
     "clipboard-list": string[];
     globe: string[];
@@ -206,7 +216,6 @@ export interface IconProps {
     className?: string;
 }
 export declare function Icon({ name, size, label, className, }: IconProps): React.ReactElement;
-export {};
 
 // ---- IconButton (packages/ui/src/primitives/IconButton.tsx)
 export interface IconButtonProps extends Omit<React.ComponentPropsWithRef<"button">, "children"> {

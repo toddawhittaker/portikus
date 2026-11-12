@@ -415,6 +415,22 @@ describe("Resource guard", () => {
 		);
 		expect(writes).toEqual([]);
 	});
+
+	test("a refused advanced box opens the fold even after it was closed by hand", async () => {
+		stubSettings();
+		await openSettings();
+		const fold = screen.getByTestId("guard-advanced") as HTMLDetailsElement;
+		fireEvent.change(input("settings-cpuIdleLiftMinutes"), { target: { value: "61" } });
+		// Closed again while a box inside holds a change.
+		fold.open = false;
+		fireEvent(fold, new Event("toggle"));
+		expect(fold.open).toBe(false);
+		fireEvent.click(screen.getByRole("button", { name: "Save resource guard" }));
+		await waitFor(() =>
+			expect(document.activeElement?.id).toBe("settings-cpuIdleLiftMinutes"),
+		);
+		expect(fold.open).toBe(true);
+	});
 });
 
 describe("Save with nothing to save", () => {

@@ -95,7 +95,7 @@ function ChipCheck({
 				checked={checked}
 				onChange={(event) => onChange(event.target.checked)}
 			/>
-			<Icon name="check" size="sm" className="pk-chipcheck-tick" />
+			<Icon name="check" size="sm" className="pk-chip-tick" />
 			{kind === "service" ? null : (
 				<span className="pk-chipcheck-dot" aria-hidden={true} />
 			)}

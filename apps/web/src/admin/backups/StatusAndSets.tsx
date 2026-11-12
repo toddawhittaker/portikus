@@ -16,7 +16,13 @@ import { Fragment, type ReactNode } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { sampleAge } from "../health/HealthTab.js";
 import "./backups.css";
-import { backupTime, nights, runningText, setTime } from "./model.js";
+import {
+	backupTime,
+	failedBackupTimes,
+	nights,
+	runningText,
+	setTime,
+} from "./model.js";
 import { NightStrip } from "./NightStrip.js";
 import { FocusCatchGroup, SELECT_CELL, Table } from "./parts.js";
 import {
@@ -52,7 +58,9 @@ export function StatusPart({
 			testId="backups-status"
 		>
 			<div className="pk-readiness">
-				<NightStrip nights={nights(host, Date.now())} />
+				<NightStrip
+					nights={nights(host, Date.now(), undefined, failedBackupTimes(data.requests))}
+				/>
 				<dl className="pk-kv">
 					<dt className="pk-muted">Host</dt>
 					<dd className="m-0" data-testid="backups-host">

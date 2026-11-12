@@ -56,12 +56,17 @@ function fail(toast: ReturnType<typeof useToast>, title: string) {
 		toast.show({ tone: "danger", title, children: errorText(error) });
 }
 
-/** Why an operation's button is off: the release lacks it, or another operation is running. */
-function useOffReason(detail: AdminWorkspaceDetail) {
+/**
+ * Why an operation's button is off: the release lacks it, or another
+ * operation is running. Each section draws its own notes beside its buttons,
+ * since the two sections sit on different tabs; `part` keeps their ids apart.
+ */
+function useOffReason(detail: AdminWorkspaceDetail, part: "recovery" | "destructive") {
 	const { workspace } = detail;
 	const operationPending = workspace.pendingOperation !== null;
-	const noteId = `capability-note-${workspace.id}`;
-	const pendingId = `pending-operation-${workspace.id}`;
+	const suffix = part === "recovery" ? "" : "-destructive";
+	const noteId = `capability-note-${workspace.id}${suffix}`;
+	const pendingId = `pending-operation-${workspace.id}${suffix}`;
 	return {
 		operationPending,
 		noteId,
@@ -88,7 +93,10 @@ function RecoveryActions({
 	const [restoring, setRestoring] = useState<string | null>(null);
 	useRefreshUsersWhenDone(workspace.pendingOperation);
 	const note = capabilityNote(capabilities);
-	const { operationPending, noteId, pendingId, offReason } = useOffReason(detail);
+	const { operationPending, noteId, pendingId, offReason } = useOffReason(
+		detail,
+		"recovery",
+	);
 	const rebuildOff = !capabilities.rebuild || operationPending;
 
 	return (
@@ -178,7 +186,8 @@ function RecoveryActions({
 
 /**
  * Reset Docker and Archive, last in the panel and set apart, so a destructive
- * step is never next to a routine one (SPEC.md section 20.1).
+ * step is never next to a routine one (SPEC.md section 20.1). Unarchive is
+ * not destructive; it is in the panel's head (HeadState).
  */
 export function DestructiveSection({
 	detail,
@@ -193,20 +202,15 @@ export function DestructiveSection({
 	const archive = useSetArchived();
 	const [dialog, setDialog] = useState<"reset" | "archive" | null>(null);
 	const archived = workspace.archivedAt !== null;
-	const { operationPending, offReason } = useOffReason(detail);
+	const { operationPending, noteId, pendingId, offReason } = useOffReason(
+		detail,
+		"destructive",
+	);
 	const resetOff = !capabilities.resetDocker || operationPending;
 	const close = () => setDialog(null);
-
-	function unarchive() {
-		if (archive.isPending) return;
-		archive.mutate(
-			{ workspaceId: workspace.id, archived: false },
-			{
-				onSuccess: () => toast.show({ tone: "success", title: "Workspace unarchived" }),
-				onError: fail(toast, "Could not unarchive the workspace"),
-			},
-		);
-	}
+	// Unarchive is not destructive, so it sits in the panel's head; with the
+	// workspace archived and Reset Docker not in this release, nothing is left here.
+	if (archived && !capabilities.resetDocker) return null;
 
 	return (
 		<section
@@ -232,26 +236,40 @@ export function DestructiveSection({
 						Reset Docker
 					</Button>
 				</WithTip>
-				<WithTip label="Archive workspace" tip={archived ? null : PANEL_HELP.archive}>
-					<Button
-						size="sm"
-						variant={archived ? "secondary" : "danger-secondary"}
-						data-testid="detail-archive"
-						aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
-						aria-haspopup={archived ? undefined : "dialog"}
-						loading={archived && archive.isPending}
-						aria-disabled={archive.isPending ? true : undefined}
-						onClick={() => {
-							// A second dialog mid-request would only race the first.
-							if (archive.isPending) return;
-							if (archived) unarchive();
-							else setDialog("archive");
-						}}
-					>
-						{archived ? "Unarchive" : "Archive workspace"}
-					</Button>
-				</WithTip>
+				{archived ? null : (
+					<WithTip label="Archive workspace" tip={PANEL_HELP.archive}>
+						<Button
+							size="sm"
+							variant="danger-secondary"
+							data-testid="detail-archive"
+							aria-label={`Archive workspace for ${ownerName}`}
+							aria-haspopup="dialog"
+							aria-disabled={archive.isPending ? true : undefined}
+							onClick={() => {
+								// A second dialog mid-request would only race the first.
+								if (!archive.isPending) setDialog("archive");
+							}}
+						>
+							Archive workspace
+						</Button>
+					</WithTip>
+				)}
 			</div>
+			{operationPending && workspace.pendingOperation ? (
+				<p id={pendingId} className="pk-text-compact pk-muted m-0">
+					{PENDING_LABEL[workspace.pendingOperation]} Reset Docker is off until it
+					finishes.
+				</p>
+			) : null}
+			{capabilities.resetDocker ? null : (
+				<p
+					id={noteId}
+					className="pk-text-compact pk-muted m-0"
+					data-testid="capability-note-reset"
+				>
+					Reset Docker is not available in this release.
+				</p>
+			)}
 
 			<ConfirmDialogRoot
 				open={dialog === "archive"}
