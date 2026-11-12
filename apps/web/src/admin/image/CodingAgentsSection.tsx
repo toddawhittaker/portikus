@@ -8,6 +8,7 @@ import { Button, ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
 import { useState } from "react";
 import { CODING_AGENT_NAME } from "../../agents/codingAgentName.js";
 import { AdminGroup as Group } from "../AdminSection.js";
+import { TableBox } from "../TableBox.js";
 import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 
 const TOOLS: CodingAgentTool[] = ["claude", "codex"];
@@ -66,7 +67,7 @@ export function CodingAgentsSection({
 				</p>
 			) : null}
 			{agents ? (
-				<div className="pk-table-wrap">
+				<TableBox label="Coding agent versions">
 					<table className="pk-table" data-testid="image-agents-table">
 						<caption className="sr-only">Coding agent versions</caption>
 						<thead>
@@ -124,7 +125,7 @@ export function CodingAgentsSection({
 							})}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			) : (
 				<p className="pk-muted m-0 text-[13px]" data-testid="image-agents-none">
 					Claude Code and Codex are not set up on this host yet. Run{" "}

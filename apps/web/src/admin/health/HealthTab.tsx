@@ -282,13 +282,23 @@ export function HealthView({
 						</dd>
 						<dt>Last sample</dt>
 						<dd>{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}</dd>
-						<dt>Agents answering</dt>
+						<dt>
+							<Term
+								label="Agents answering"
+								help="Each running workspace has a small agent that serves its files and terminals. Fewer answering than running means some workspaces cannot be reached."
+							/>
+						</dt>
 						<dd data-testid="health-agents">
 							{report.agents.answering} of {report.agents.running} running
 						</dd>
 						{host ? (
 							<>
-								<dt>Load average</dt>
+								<dt>
+									<Term
+										label="Load average"
+										help="How many processes wanted a CPU, averaged over 1, 5 and 15 minutes. Above the CPU count means work is waiting."
+									/>
+								</dt>
 								<dd className="pk-num-inline">
 									{host.loadAverage.map((load) => load.toFixed(2)).join(", ")} across{" "}
 									{host.cpuCount} CPU{host.cpuCount === 1 ? "" : "s"}
@@ -304,7 +314,12 @@ export function HealthView({
 										? "Not reported"
 										: `${Math.round(host.pool.metadataPercent)}% used`}
 								</dd>
-								<dt>Workspace limits</dt>
+								<dt>
+									<Term
+										label="Workspace limits"
+										help="The site values every workspace gets unless its panel on the Users tab sets its own."
+									/>
+								</dt>
 								<dd>
 									CPU {host.profileLimits.cpu ?? "not set"}, memory{" "}
 									{host.profileLimits.memory ?? "not set"}, processes{" "}

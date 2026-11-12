@@ -44,9 +44,13 @@
 	.pk-adminframe {
 		height: auto;
 	}
-	/* Its height follows its content now, so only sideways overflow still scrolls in it. */
+	/*
+	 * Its height follows its content now, so only sideways overflow still
+	 * scrolls in it; it still takes the row's width beside the rail.
+	 */
 	.pk-adminframe-scroll {
-		flex: none;
+		flex: 1 1 0;
+		min-inline-size: 0;
 		container-type: inline-size;
 	}
 	/* The rail stays in view while the page scrolls past it, scrolling itself if taller than the window. */
@@ -286,11 +290,16 @@
 }
 
 /*
- * On a phone the Users table becomes a stack of rows: the name and its menu
- * on top, the address under it, then the workspace and its state, so no
- * column is cut off. Sorting and select-all keep their places in the head row.
+ * Where its own box is too narrow for every column (a phone, or beside the
+ * open detail panel) the Users table becomes a stack of rows: the name and
+ * its menu on top, the address under it, then the workspace and its state,
+ * so no column is cut off. Sorting and select-all keep their places in the
+ * head row; Activity is in the panel.
  */
-@container admin-scroll (width < 35rem) {
+.pk-users-wrap {
+	container: users-table / inline-size;
+}
+@container users-table (width < 42rem) {
 	.pk-table--stack thead tr {
 		display: flex;
 		align-items: center;
@@ -350,8 +359,8 @@
 		grid-column: 3;
 		grid-row: 1 / span 3;
 	}
-	.pk-filter-more:not([data-open]) {
-		display: none;
+	.pk-table--stack .pk-account-cell {
+		min-width: 0;
 	}
 }
 .pk-filter-toggle {
@@ -360,6 +369,9 @@
 @container admin-scroll (width < 35rem) {
 	.pk-filter-toggle {
 		display: inline-flex;
+	}
+	.pk-filter-more:not([data-open]) {
+		display: none;
 	}
 }
 
@@ -481,14 +493,13 @@
 	cursor: not-allowed;
 }
 
-/* The Account column holds a full email address on one line where the table has room. */
+/* The Account column gives a name and a short address a line each; a longer address wraps. */
 .pk-table--stack .pk-account-cell {
-	min-width: 15rem;
+	min-width: 12rem;
 }
 @container admin-scroll (width < 35rem) {
 	.pk-table--stack .pk-account-cell {
 		position: relative;
-		min-width: 0;
 	}
 	/*
 	 * On a phone the name's button keeps the look of the name, and an

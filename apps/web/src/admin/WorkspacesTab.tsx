@@ -51,6 +51,8 @@ const SEARCH_DELAY_MS = 250;
 const SELECT_CLASS = `${CONTROL_CLASS} cursor-pointer`;
 // One width for every filter select, held when the bar is tight.
 const SELECT_FIELD_CLASS = `${FIELD_CLASS} w-40 flex-none`;
+/** The image filter also holds its help button, beside the box. */
+const IMAGE_FIELD_CLASS = `${FIELD_CLASS} w-48 flex-none`;
 
 const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 	administrator: "Administrator",
@@ -208,7 +210,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					label="Search"
 					type="search"
 					placeholder="Name, email or workspace"
-					className="pk-filter-search w-80 max-w-full"
+					// Grows to 20rem but starts at 14, so Show archived keeps the filters' row at 1280 px.
+					className="pk-filter-search max-w-80 grow basis-56"
 					data-testid="admin-filter-text"
 					value={filters.text}
 					onChange={(event) => set({ text: event.target.value })}
@@ -268,21 +271,28 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 							<option value="none">No workspace</option>
 						</select>
 					</div>
-					<div className={SELECT_FIELD_CLASS}>
+					<div className={IMAGE_FIELD_CLASS}>
 						<label className={LABEL_CLASS} htmlFor="admin-filter-image">
 							Image
 						</label>
-						<select
-							id="admin-filter-image"
-							className={SELECT_CLASS}
-							data-testid="admin-filter-image"
-							value={filters.image}
-							onChange={(event) => set({ image: event.target.value })}
-						>
-							<option value="all">All images</option>
-							<option value="current">Current</option>
-							<option value="older">Older</option>
-						</select>
+						{/* The label is hidden in the toolbar, so the help button sits beside the box. */}
+						<div className="flex items-center gap-1">
+							<select
+								id="admin-filter-image"
+								className={`${SELECT_CLASS} min-w-0 flex-1`}
+								data-testid="admin-filter-image"
+								value={filters.image}
+								onChange={(event) => set({ image: event.target.value })}
+							>
+								<option value="all">All images</option>
+								<option value="current">Current</option>
+								<option value="older">Older</option>
+							</select>
+							<Toggletip label="Image filter">
+								Choose Older to see who needs a rebuild. A button then rebuilds them all
+								at once.
+							</Toggletip>
+						</div>
 					</div>
 					{/* Centred on the controls' row, not on the labelled fields. */}
 					<div className="flex h-[var(--pk-control)] items-center gap-1">
@@ -291,6 +301,10 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 							checked={filters.showArchived}
 							onChange={(event) => set({ showArchived: event.target.checked })}
 						/>
+						<Toggletip label="Show archived">
+							Archived workspaces are stopped and cannot start until you unarchive them.
+							Their files are kept.
+						</Toggletip>
 					</div>
 				</div>
 			</div>
@@ -313,7 +327,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
 					{/* A focusable region, so the keyboard can scroll a narrow box to columns with no control in them (SPEC.md section 25.8). */}
 					<section
-						className="pk-table-wrap min-w-0 flex-1 overflow-clip"
+						className="pk-table-wrap pk-users-wrap min-w-0 flex-1 overflow-clip"
 						aria-labelledby="admin-accounts-caption"
 						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard
 						tabIndex={0}
@@ -356,20 +370,39 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 											in.
 										</Toggletip>
 									</SortHeader>
-									<SortHeader column="role" label="Role" sort={sort} onSort={sortBy} />
+									<SortHeader column="role" label="Role" sort={sort} onSort={sortBy}>
+										<Toggletip label="Role">
+											From SSO means the role comes from your sign-in provider's groups.
+											Granted means an administrator gave it here, and only a granted
+											role can be taken away here. Only SSO accounts can be granted a
+											role.
+										</Toggletip>
+									</SortHeader>
 									<SortHeader
 										column="workspace"
 										label="Workspace"
 										sort={sort}
 										onSort={sortBy}
-									/>
+									>
+										<Toggletip label="Old image">
+											Old image means the workspace runs an image other than the
+											default. Rebuild it to move it to the default image. Projects and
+											home stay.
+										</Toggletip>
+									</SortHeader>
 									<SortHeader
 										column="activity"
 										label="Activity"
 										sort={sort}
 										onSort={sortBy}
 										first="descending"
-									/>
+									>
+										<Toggletip label="Activity">
+											Now means the workspace is open, with the number of pages and
+											terminals attached to it. Otherwise, how long ago someone last
+											opened it.
+										</Toggletip>
+									</SortHeader>
 									<th scope="col" className="pk-cell-actions">
 										<span className="sr-only">Actions</span>
 									</th>

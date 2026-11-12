@@ -605,6 +605,38 @@
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
 }
+/* The fold's row: a phone's only view of the pane until opened; beside the terminal it is not needed. */
+.pk-live-context-summary {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: var(--size-control-lg);
+	padding-inline: var(--space-4);
+	font-size: var(--text-md);
+	font-weight: 600;
+	cursor: pointer;
+	list-style: none;
+}
+.pk-live-context-summary::-webkit-details-marker {
+	display: none;
+}
+.pk-live-context-chevron {
+	color: var(--ink-muted);
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+.pk-live-context[open] > .pk-live-context-summary {
+	border-block-end: 1px solid var(--line);
+}
+@media (width >= 56rem) {
+	.pk-live-context > .pk-live-context-summary {
+		display: none;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-live-context-chevron {
+		transition: none;
+	}
+}
 .pk-live-context-part {
 	display: grid;
 	gap: var(--space-2);

@@ -16,6 +16,7 @@ import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { useAdminImage } from "../image/queries.js";
 import { Notice } from "../Notice.js";
+import { TableBox } from "../TableBox.js";
 import { ImageSizeText } from "./DownloadSize.js";
 import {
 	dockerKey,
@@ -517,7 +518,7 @@ function ImageTable({
 	action?: (name: string) => ReactNode;
 }) {
 	return (
-		<div className="pk-table-wrap">
+		<TableBox label={caption}>
 			<table className="pk-table" data-testid={testId}>
 				<caption className="sr-only">{caption}</caption>
 				<thead>
@@ -550,7 +551,7 @@ function ImageTable({
 					))}
 				</tbody>
 			</table>
-		</div>
+		</TableBox>
 	);
 }
 

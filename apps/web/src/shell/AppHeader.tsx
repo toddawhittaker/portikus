@@ -96,7 +96,12 @@ function AccountPicture({
 			/>
 		);
 	}
-	return <span className="pk-initials">{initials(displayName)}</span>;
+	// The name beside it says the same, so the initials are only a picture.
+	return (
+		<span className="pk-initials" aria-hidden="true">
+			{initials(displayName)}
+		</span>
+	);
 }
 
 /**

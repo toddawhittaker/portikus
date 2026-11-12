@@ -6,6 +6,7 @@ import {
 import { Button, Toggletip } from "@portikus/ui";
 import { QuietState } from "../../common/QuietState.js";
 import { AdminGroup } from "../AdminSection.js";
+import { TableBox } from "../TableBox.js";
 
 /**
  * The names workspaces were refused most in the last 7 days, counted for the
@@ -45,7 +46,7 @@ export function BlockedCard({
 					}
 				/>
 			) : (
-				<div className="pk-table-wrap">
+				<TableBox label="Refused names, last 7 days">
 					<table className="pk-table" data-testid="egress-blocked">
 						<caption className="sr-only">Refused names, last 7 days</caption>
 						<thead>
@@ -96,7 +97,7 @@ export function BlockedCard({
 							})}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			)}
 		</AdminGroup>
 	);

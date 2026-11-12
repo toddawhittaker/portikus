@@ -1,5 +1,6 @@
 import { type FocusEvent, type ReactNode, useEffect, useRef } from "react";
 import { AdminGroup } from "../AdminSection.js";
+import { TableBox } from "../TableBox.js";
 
 /**
  * Catches focus when a finished delete removes the focused row, such as its
@@ -75,7 +76,7 @@ export function Table({
 		);
 	}
 	return (
-		<div className="pk-table-wrap">
+		<TableBox label={caption}>
 			<table
 				className={className ? `pk-table ${className}` : "pk-table"}
 				data-testid={testId}
@@ -110,6 +111,6 @@ export function Table({
 				</thead>
 				<tbody>{children}</tbody>
 			</table>
-		</div>
+		</TableBox>
 	);
 }

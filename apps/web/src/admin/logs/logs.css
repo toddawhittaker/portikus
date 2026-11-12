@@ -244,6 +244,35 @@
 .pk-log-table .pk-log-row > :is(.pk-log-service, .pk-log-user) {
 	font-size: var(--text-sm);
 }
+/*
+ * The table fits its own box rather than clipping its last columns: the
+ * line inspector can take room beside it at any window size, so it folds by
+ * the box's width. Workspace goes first, then the cells tighten, then User;
+ * both stay in the inspector. A long name wraps within its cell.
+ */
+.pk-log-wrap {
+	container: log-table / inline-size;
+}
+.pk-log-table .pk-log-row > .pk-log-user {
+	max-inline-size: 8rem;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+@container log-table (width < 53rem) {
+	.pk-log-table .pk-log-workspace {
+		display: none;
+	}
+}
+@container log-table (width < 46rem) {
+	.pk-log-table :is(th, td):not(:first-child) {
+		padding-inline: var(--space-2);
+	}
+}
+@container log-table (width < 40rem) {
+	.pk-log-table .pk-log-user {
+		display: none;
+	}
+}
 /* Under the plain-words message: the method, route and error code as they were logged. */
 .pk-log-source {
 	display: flex;

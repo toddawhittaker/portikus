@@ -524,8 +524,10 @@ test("each editable value has its own Edit beside it, named for what it edits", 
 	stubDetail(detail());
 	const panel = await openAlice();
 	const resources = within(panel).getByRole("region", { name: "Resources" });
+	// Each value's help button sits with its term; the Edits are the rest.
 	const actions = within(resources)
 		.getAllByRole("button")
+		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
 		.map((button) => [button.textContent, button.getAttribute("aria-label")]);
 	expect(actions).toEqual([
 		["Edit", "Edit quotas for Alice Example's workspace"],
@@ -1813,12 +1815,22 @@ test("the panel's toggletips are named after what they explain and open on click
 	const names = within(panel)
 		.getAllByRole("button", { name: /^About / })
 		.map((button) => button.getAttribute("aria-label"));
-	// Only the terms a reader cannot guess have a tip.
+	// Every explanation the panel has ever offered stays a tip (SPEC.md section 20.1).
 	expect(names).toEqual([
+		"About Storage",
+		"About Limits",
+		"About Disconnect grace",
+		"About CPU throttle",
+		"About High memory",
 		"About Last input",
 		"About Rebuild workspace",
 		"About Preview column",
 		"About Agent log",
+		"About Promote",
+		"About Make instructor",
+		"About Disable account",
+		"About Reset Docker",
+		"About Archive workspace",
 	]);
 	fireEvent.click(within(panel).getByRole("button", { name: "About Last input" }));
 	const tip = openToggletip();

@@ -110,7 +110,7 @@ export function AccountRow({
 				)}
 			</td>
 			<td
-				className="py-2 whitespace-nowrap text-[13px] text-ink-muted"
+				className="py-2 whitespace-normal text-[13px] text-ink-muted"
 				data-testid={`account-activity-${user.id}`}
 			>
 				{accountActivityText(user, now)}

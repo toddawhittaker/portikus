@@ -7,6 +7,7 @@ import { announced } from "../../common/announced.js";
 import { AdminGroup } from "../AdminSection.js";
 import { SiteJobLine, useSiteList } from "../site-job.js";
 import "./network.css";
+import { TableBox } from "../TableBox.js";
 
 const BUSY_NOTE = "A change is being applied. Wait until it ends.";
 const BUSY_NOTE_ID = "proxy-hosts-busy-note";
@@ -178,7 +179,7 @@ function HostList({
 		);
 	}
 	return (
-		<div className="pk-table-wrap">
+		<TableBox label="Hosts added on this page">
 			<table className="pk-table pk-host-table" data-testid="proxy-hosts-list">
 				<caption className="sr-only">Hosts added on this page</caption>
 				<thead>
@@ -213,6 +214,6 @@ function HostList({
 					))}
 				</tbody>
 			</table>
-		</div>
+		</TableBox>
 	);
 }
