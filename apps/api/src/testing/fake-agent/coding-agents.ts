@@ -3,6 +3,7 @@ import {
 	type AgentCodingAgentStatus,
 	agentTitleText,
 	type PlanUsage,
+	TerminalQuestionAnswer,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { FakeAgentState } from "./state.js";
@@ -65,6 +66,41 @@ export function registerCodingAgentRoutes(
 		return reply.status(204).send();
 	});
 
+	// Answers the API forwarded, by workspace key, for a test to read back.
+	const questionAnswers = new Map<string, TerminalQuestionAnswer[]>();
+
+	/**
+	 * The API's forward of a terminal question's answer. 204 when that
+	 * terminal's entry holds the question (set through `/__test/coding-agents`
+	 * with a `question`); the question then clears, as the real agent's does.
+	 * 409 when none waits.
+	 */
+	app.post("/terminals/:id/question", async (request, reply) => {
+		const key = keyOf(request);
+		const { id } = request.params as { id: string };
+		const answer = TerminalQuestionAnswer.safeParse(request.body);
+		if (!answer.success) return reply.status(400).send();
+		const list = codingAgents.get(key) ?? [];
+		const waiting = list.find((one) => one.terminalId === id)?.question;
+		if (!waiting || waiting.id !== answer.data.id) return reply.status(409).send();
+		questionAnswers.set(key, [...(questionAnswers.get(key) ?? []), answer.data]);
+		const next = list.map((one) =>
+			one.terminalId === id ? { ...one, question: undefined } : one,
+		);
+		codingAgents.set(key, next);
+		if (!codingAgentsHeld.has(key)) {
+			for (const socket of listeningSockets.get(key) ?? [])
+				sendCodingAgents(socket, next);
+		}
+		return reply.status(204).send();
+	});
+
+	/** The answers forwarded for a workspace key, oldest first. */
+	app.get("/__test/terminal-questions", async (request) => {
+		const { key } = request.query as { key?: string };
+		return { answers: questionAnswers.get(key ?? "") ?? [] };
+	});
+
 	app.get(
 		"/agent-limits",
 		async (request) => agentLimits.get(keyOf(request)) ?? { providers: [] },
@@ -73,6 +109,7 @@ export function registerCodingAgentRoutes(
 	/**
 	 * Set the whole list of agent states for a workspace key and push it to
 	 * the listening sockets. Each `since` defaults to now, and `subagents` to none.
+	 * An entry may carry a `question` (a terminal question for the browser's card).
 	 */
 	app.post("/__test/coding-agents", async (request, reply) => {
 		const body = (request.body ?? {}) as {
