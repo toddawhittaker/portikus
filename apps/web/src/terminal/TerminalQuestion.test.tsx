@@ -21,7 +21,6 @@ const ROUTE = `/workspaces/${WORKSPACE}/terminals/${TERMINAL}/question`;
 
 const QUESTION: Question = {
 	id: "toolu_01",
-	expiresAt: "2026-11-12T05:00:00.000Z",
 	questions: [
 		{
 			question: "Which database?",
@@ -170,6 +169,45 @@ test("an answer that fails to send says so and keeps the question", async () => 
 	expect(
 		screen.getByRole("button", { name: /Submit/ }).getAttribute("aria-busy"),
 	).toBeNull();
+});
+
+test("a failed send keeps the picked answer and the note, and can send again", async () => {
+	const fetchMock = respond(503, {
+		code: "AGENT_UNAVAILABLE",
+		message: "The workspace is not reachable.",
+	});
+	draw();
+	await card();
+	fireEvent.click(screen.getByRole("radio", { name: "SQLite" }));
+	fireEvent.click(screen.getByRole("button", { name: /Add a note/ }));
+	fireEvent.change(screen.getByRole("textbox", { name: /note/i }), {
+		target: { value: "for tests" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: /Submit/ }));
+	expect(await screen.findByText("Your answer was not sent")).toBeTruthy();
+	await waitFor(() =>
+		expect(
+			screen.getByRole("button", { name: /Submit/ }).getAttribute("aria-busy"),
+		).toBeNull(),
+	);
+	expect(
+		(screen.getByRole("radio", { name: "SQLite" }) as HTMLInputElement).checked,
+	).toBe(true);
+	expect(
+		(screen.getByRole("textbox", { name: /note/i }) as HTMLTextAreaElement).value,
+	).toBe("for tests");
+	fireEvent.click(screen.getByRole("button", { name: /Submit/ }));
+	await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+	expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+		id: "toolu_01",
+		answers: { "Which database?": "SQLite" },
+		notes: { "Which database?": "for tests" },
+	});
+});
+
+test("the gone message is announced politely", () => {
+	draw({ question: null });
+	expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
 });
 
 test("a question answered elsewhere leaves, and the keyboard goes back to the terminal", async () => {

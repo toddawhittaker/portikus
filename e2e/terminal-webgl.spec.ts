@@ -6,6 +6,7 @@ import {
 	newTerminal,
 	projectIds,
 	terminalIds,
+	WEB_ORIGIN,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -201,6 +202,25 @@ test("box-drawing characters fill their cells on the WebGL canvas", async ({
 	expect(coverage.horizontal).toBeGreaterThan(0.99);
 	// Dark background, #171614.
 	expect(coverage.background).toBe("23,22,20");
+});
+
+test("with screen-reader mode on, the canvas terminal keeps its accessibility tree", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const stored = await page.request.put("/me/settings", {
+		data: { screenReaderMode: true },
+		headers: { origin: WEB_ORIGIN },
+	});
+	expect(stored.status()).toBe(200);
+	const { id } = await openTerminal(page, student.workspaceId);
+	test.skip(!(await browserHasWebgl(page)), "this browser has no WebGL");
+	await expect.poll(() => webglCanvasCount(page, id)).toBe(1);
+	await printLines(id, ["read-aloud-line"]);
+	const tree = pane(page, id).locator(".xterm-accessibility-tree");
+	await expect(tree).toHaveCount(1);
+	await expect(tree).toContainText("read-aloud-line");
 });
 
 test("a terminal's own theme, zoom and size still apply on the canvas", async ({
