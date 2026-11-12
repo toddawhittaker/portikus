@@ -37,3 +37,42 @@
 .pk-term-voice-error {
 	color: var(--ink);
 }
+
+/*
+ * Claude Code's question over the bottom of the pane (SPEC.md §10.8). It
+ * overlays the terminal rather than resizing it, and is capped so a short
+ * pane still shows the terminal above it; the card scrolls inside. It is
+ * platform UI, so it takes the page's theme and focus colour, not the
+ * terminal scheme's.
+ */
+.pk-term-question {
+	position: absolute;
+	inset-inline: 0;
+	inset-block-end: var(--space-2);
+	z-index: calc(var(--z-sticky) + 1);
+	display: flex;
+	flex-direction: column;
+	inline-size: min(calc(100% - 2 * var(--space-2)), 46rem);
+	max-block-size: min(60%, 32rem);
+	margin-inline: auto;
+	color: var(--ink);
+	font-size: var(--pk-font);
+	line-height: var(--pk-leading);
+	--focus: var(--focus-on-light);
+}
+
+[data-theme="dark"] .pk-term-question {
+	--focus: var(--focus-on-dark);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) .pk-term-question {
+		--focus: var(--focus-on-dark);
+	}
+}
+
+.pk-term-question-gone {
+	top: auto;
+	inset-block-end: var(--space-2);
+	z-index: calc(var(--z-sticky) + 1);
+}

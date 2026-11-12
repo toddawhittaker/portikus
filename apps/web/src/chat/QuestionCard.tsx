@@ -13,6 +13,7 @@ import { Button, IconButton, ShortcutHint } from "@portikus/ui";
 import {
 	type FormEvent,
 	type KeyboardEvent,
+	type ReactNode,
 	type RefObject,
 	useEffect,
 	useId,
@@ -43,6 +44,8 @@ export interface QuestionCardProps {
 	takeFocus: () => boolean;
 	/** Cards waiting behind this one. */
 	waiting: number;
+	/** A control of the caller's, first in the footer. */
+	extraAction?: ReactNode;
 }
 
 const NOT_SENT =
@@ -64,6 +67,7 @@ export function QuestionCard({
 	onAnswer,
 	takeFocus,
 	waiting,
+	extraAction,
 }: QuestionCardProps) {
 	const id = useId();
 	const form = useRef<HTMLFormElement | null>(null);
@@ -281,6 +285,7 @@ export function QuestionCard({
 					{count > 1 ? `Question ${page + 1} of ${count}: ${question.question}` : ""}
 				</p>
 				<footer className="pk-chat-qfoot">
+					{extraAction}
 					{count > 1 ? (
 						<Button
 							variant="quiet"
