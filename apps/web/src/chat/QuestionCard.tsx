@@ -46,6 +46,11 @@ export interface QuestionCardProps {
 	waiting: number;
 	/** A control of the caller's, first in the footer. */
 	extraAction?: ReactNode;
+	/**
+	 * Raised by a caller whose send fails after `onAnswer` returned true, so
+	 * the card can be sent again with the student's choices kept (WCAG 3.3.7).
+	 */
+	failedSends?: number;
 }
 
 const NOT_SENT =
@@ -68,6 +73,7 @@ export function QuestionCard({
 	takeFocus,
 	waiting,
 	extraAction,
+	failedSends = 0,
 }: QuestionCardProps) {
 	const id = useId();
 	const form = useRef<HTMLFormElement | null>(null);
@@ -80,6 +86,11 @@ export function QuestionCard({
 	const [reached, setReached] = useState(0);
 	const [error, setError] = useState("");
 	const [sent, setSent] = useState(false);
+	const [failedSeen, setFailedSeen] = useState(failedSends);
+	if (failedSends !== failedSeen) {
+		setFailedSeen(failedSends);
+		setSent(false);
+	}
 	/** Set by the student's own move to another question, so focus follows it. */
 	const moved = useRef(false);
 	const count = card.questions.length;

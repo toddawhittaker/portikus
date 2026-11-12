@@ -1,8 +1,8 @@
 import {
-	ChatQuestion,
-	MAX_CHAT_QUESTIONS,
 	MAX_CODING_AGENT_TERMINALS,
+	MAX_TERMINAL_QUESTIONS_HELD_BYTES,
 	TERMINAL_QUESTION_TIMEOUT_MS,
+	TerminalChatQuestions,
 	TerminalId,
 	type TerminalQuestion,
 	TerminalQuestionAnswer,
@@ -23,9 +23,7 @@ import { ERROR_STATUS } from "./errors.js";
 /** The hook's own wait is the contract's limit less 5 seconds; this gives up 5 sooner. */
 export const TERMINAL_QUESTION_WAIT_MS = TERMINAL_QUESTION_TIMEOUT_MS - 10_000;
 
-const QuestionInput = z.object({
-	questions: z.array(ChatQuestion).min(1).max(MAX_CHAT_QUESTIONS),
-});
+const QuestionInput = z.object({ questions: TerminalChatQuestions });
 
 /** What Claude Code reads from a PreToolUse hook's output to answer the call itself. */
 export interface QuestionHookReply {
@@ -39,6 +37,8 @@ export interface QuestionHookReply {
 interface Waiting {
 	question: TerminalQuestion;
 	input: Record<string, unknown>;
+	/** The question's JSON size, counted against the held-bytes cap. */
+	bytes: number;
 	/** Null lets Claude Code ask in the terminal itself. */
 	settle: (reply: QuestionHookReply | null) => void;
 }
@@ -46,7 +46,8 @@ interface Waiting {
 export interface TerminalQuestionsOptions {
 	/** Told when a terminal's question appears or goes, to show it on the board. */
 	onChange: (terminalId: string, question: TerminalQuestion | undefined) => void;
-	now?: () => Date;
+	/** Whether a terminal is open; a question for any other id is asked in the terminal. */
+	isOpen: (terminalId: string) => Promise<boolean>;
 	/** Overrides how long a question waits. For tests. */
 	waitMs?: number;
 }
@@ -55,12 +56,13 @@ export interface TerminalQuestionsOptions {
 export class TerminalQuestions {
 	private readonly waiting = new Map<string, Waiting>();
 	private readonly onChange: TerminalQuestionsOptions["onChange"];
-	private readonly now: () => Date;
+	private readonly isOpen: TerminalQuestionsOptions["isOpen"];
 	private readonly waitMs: number;
+	private heldBytes = 0;
 
 	constructor(options: TerminalQuestionsOptions) {
 		this.onChange = options.onChange;
-		this.now = options.now ?? (() => new Date());
+		this.isOpen = options.isOpen;
 		this.waitMs = options.waitMs ?? TERMINAL_QUESTION_WAIT_MS;
 	}
 
@@ -68,42 +70,49 @@ export class TerminalQuestions {
 	 * Hold a hook's question until the student answers, the hook goes away, or
 	 * the wait ends. Null, at once or later, means Claude Code asks in the
 	 * terminal: anything but an AskUserQuestion that fits the contract, a
-	 * terminal already waiting, or too many terminals waiting.
+	 * terminal that is not open or already waiting, too many terminals
+	 * waiting, or too many bytes of questions held.
 	 */
-	ask(
+	async ask(
 		terminalId: string,
 		post: TerminalQuestionPost,
 		signal: AbortSignal,
 	): Promise<QuestionHookReply | null> {
-		if (post.tool_name !== "AskUserQuestion") return Promise.resolve(null);
-		if (signal.aborted) return Promise.resolve(null);
-		if (this.waiting.has(terminalId)) return Promise.resolve(null);
-		if (this.waiting.size >= MAX_CODING_AGENT_TERMINALS) return Promise.resolve(null);
+		if (post.tool_name !== "AskUserQuestion") return null;
 		const parsed = QuestionInput.safeParse(post.tool_input);
-		if (!parsed.success) return Promise.resolve(null);
+		if (!parsed.success) return null;
+		if (!(await this.isOpen(terminalId).catch(() => false))) return null;
+		// Checked after the await, so two posts racing cannot both pass.
+		if (signal.aborted) return null;
+		if (this.waiting.has(terminalId)) return null;
+		if (this.waiting.size >= MAX_CODING_AGENT_TERMINALS) return null;
 		const input = post.tool_input as Record<string, unknown>;
 		const question: TerminalQuestion = {
 			id: post.tool_use_id,
 			questions: parsed.data.questions,
-			expiresAt: new Date(this.now().getTime() + this.waitMs).toISOString(),
 		};
+		const bytes = new TextEncoder().encode(JSON.stringify(question)).length;
+		if (this.heldBytes + bytes > MAX_TERMINAL_QUESTIONS_HELD_BYTES) return null;
 		return new Promise((resolve) => {
 			const timer = setTimeout(() => entry.settle(null), this.waitMs);
 			const onAbort = () => entry.settle(null);
 			const entry: Waiting = {
 				question,
 				input,
+				bytes,
 				settle: (reply) => {
 					if (this.waiting.get(terminalId) !== entry) return;
 					clearTimeout(timer);
 					signal.removeEventListener("abort", onAbort);
 					this.waiting.delete(terminalId);
+					this.heldBytes -= bytes;
 					this.onChange(terminalId, undefined);
 					resolve(reply);
 				},
 			};
 			signal.addEventListener("abort", onAbort, { once: true });
 			this.waiting.set(terminalId, entry);
+			this.heldBytes += bytes;
 			this.onChange(terminalId, question);
 		});
 	}
@@ -125,15 +134,11 @@ export class TerminalQuestions {
 			answer.answers,
 			answer.notes,
 		);
-		if (result.behavior !== "allow") {
-			entry.settle(null);
-			return true;
-		}
 		entry.settle({
 			hookSpecificOutput: {
 				hookEventName: "PreToolUse",
 				permissionDecision: "allow",
-				updatedInput: result.updatedInput ?? entry.input,
+				updatedInput: result.updatedInput,
 			},
 		});
 		return true;

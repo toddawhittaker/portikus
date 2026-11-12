@@ -21,7 +21,6 @@ import { FAKE_AGENT_URL } from "./ports";
 
 const QUESTION = {
 	id: "toolu_e2e_question",
-	expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
 	questions: [
 		{
 			question: "Which database should the API use?",
@@ -169,20 +168,37 @@ test("an answer that cannot be sent says so and keeps the question", async ({
 }) => {
 	const { workspaceId, terminalId } = await openTerminal(page, context);
 	// No fake for an agent that cannot be reached, so the browser's request fails here.
-	await routeApi(page, "**/workspaces/*/terminals/*/question", (route) =>
-		route.fulfill({
+	let sends = 0;
+	await routeApi(page, "**/workspaces/*/terminals/*/question", (route) => {
+		sends += 1;
+		return route.fulfill({
 			status: 503,
 			contentType: "application/json",
 			body: JSON.stringify({
 				code: "AGENT_UNAVAILABLE",
 				message: "The workspace is not reachable.",
 			}),
-		}),
-	);
+		});
+	});
 	await setQuestion(workspaceId, terminalId, QUESTION);
 	await page.getByRole("button", { name: "Answer in the terminal" }).click();
 	await expect(toast(page, "Your answer was not sent")).toBeVisible();
 	await expect(card(page)).toBeVisible();
+	expect(await forwarded(workspaceId)).toEqual([]);
+
+	// A failed submit keeps the student's pick and note (WCAG 3.3.7).
+	await page.getByRole("radio", { name: "SQLite" }).check();
+	await page.getByRole("button", { name: /Add a note/ }).click();
+	const note = card(page).getByRole("textbox", { name: /note/i });
+	await note.fill("one file is enough");
+	await page.getByRole("button", { name: /Submit/ }).click();
+	await expect.poll(() => sends).toBe(2);
+	await expect(page.getByRole("button", { name: /Submit/ })).not.toHaveAttribute(
+		"aria-busy",
+		"true",
+	);
+	await expect(page.getByRole("radio", { name: "SQLite" })).toBeChecked();
+	await expect(note).toHaveValue("one file is enough");
 	expect(await forwarded(workspaceId)).toEqual([]);
 });
 

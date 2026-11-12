@@ -71,6 +71,40 @@ export const MAX_TERMINAL_QUESTION_POST_BYTES = 64 * 1024;
 /** Longest answer, note or tool name in these bodies; the post cap bounds the sum. */
 const MAX_TERMINAL_QUESTION_TEXT_CHARS = 16 * 1024;
 
+/** Longest question, option label, description or preview a terminal question carries. */
+export const MAX_TERMINAL_QUESTION_STRING_CHARS = 4 * 1024;
+
+/**
+ * Most bytes of question JSON the workspace agent holds across all its
+ * terminals, so the coding-agents frame stays well under the API's 1 MiB
+ * frame cap. A question past it is asked in the terminal instead.
+ */
+export const MAX_TERMINAL_QUESTIONS_HELD_BYTES = 512 * 1024;
+
+const fitsString = (text: string | undefined) =>
+	(text ?? "").length <= MAX_TERMINAL_QUESTION_STRING_CHARS;
+
+/** A chat question with every string capped; the chat's own are bounded by its frame. */
+const TerminalChatQuestion = ChatQuestion.refine(
+	(item) =>
+		fitsString(item.question) &&
+		item.options.every(
+			(option) =>
+				fitsString(option.label) &&
+				fitsString(option.description) &&
+				fitsString(option.preview),
+		),
+	{
+		message: `strings must be at most ${MAX_TERMINAL_QUESTION_STRING_CHARS} characters`,
+	},
+);
+
+/** The questions an AskUserQuestion call may carry for a terminal's card. */
+export const TerminalChatQuestions = z
+	.array(TerminalChatQuestion)
+	.min(1)
+	.max(MAX_CHAT_QUESTIONS);
+
 /**
  * The question a terminal's Claude Code is waiting on, shaped as the chat's
  * question card takes it. The id is the AskUserQuestion tool call id.
@@ -78,9 +112,7 @@ const MAX_TERMINAL_QUESTION_TEXT_CHARS = 16 * 1024;
 export const TerminalQuestion = z
 	.object({
 		id: ToolCallId,
-		questions: z.array(ChatQuestion).min(1).max(MAX_CHAT_QUESTIONS),
-		/** When the hook gives up and Claude Code asks in the terminal. */
-		expiresAt: z.string().datetime(),
+		questions: TerminalChatQuestions,
 	})
 	.strict();
 export type TerminalQuestion = z.infer<typeof TerminalQuestion>;

@@ -95,7 +95,7 @@ test.skipIf(skip)(
 		const ta = await terminal(ws, a);
 		const tb = await terminal(ws, b, "chat");
 
-		const joined = await withProjects(tdb.db, ws, [state(ta), state(tb)], true);
+		const joined = await withProjects(tdb.db, ws, [state(ta), state(tb)]);
 		expect(joined).toEqual([
 			{ ...state(ta), projectId: a, name: "Terminal", kind: "terminal" },
 			{ ...state(tb), projectId: b, name: "Terminal", kind: "chat" },
@@ -114,12 +114,11 @@ test.skipIf(skip)(
 		const foreign = await terminal(theirs, theirProject);
 		const unknown = crypto.randomUUID();
 
-		const joined = await withProjects(
-			tdb.db,
-			mine,
-			[state(foreign), state(unknown), state(own)],
-			true,
-		);
+		const joined = await withProjects(tdb.db, mine, [
+			state(foreign),
+			state(unknown),
+			state(own),
+		]);
 		expect(joined.map((one) => one.terminalId)).toEqual([own]);
 	},
 );
@@ -127,11 +126,11 @@ test.skipIf(skip)(
 test.skipIf(skip)("a terminal outside any project is dropped", async () => {
 	const ws = await workspace("loose");
 	const loose = await terminal(ws, null);
-	expect(await withProjects(tdb.db, ws, [state(loose)], true)).toEqual([]);
+	expect(await withProjects(tdb.db, ws, [state(loose)])).toEqual([]);
 });
 
 test.skipIf(skip)("an empty list needs no query", async () => {
-	expect(await withProjects(tdb.db, crypto.randomUUID(), [], true)).toEqual([]);
+	expect(await withProjects(tdb.db, crypto.randomUUID(), [])).toEqual([]);
 });
 
 test.skipIf(skip)(
@@ -149,7 +148,7 @@ test.skipIf(skip)(
 				since: "2026-11-01T12:00:01.000Z",
 			},
 		];
-		const joined = await withProjects(tdb.db, ws, [{ ...state(t), subagents }], true);
+		const joined = await withProjects(tdb.db, ws, [{ ...state(t), subagents }]);
 		expect(joined[0]?.subagents).toEqual(subagents);
 	},
 );
@@ -167,13 +166,12 @@ const question = {
 			multiSelect: false,
 		},
 	],
-	expiresAt: "2026-11-01T12:30:00.000Z",
 } satisfies NonNullable<AgentCodingAgentStatus["question"]>;
 
 test.skipIf(skip)("a terminal tab's question reaches its owner", async () => {
 	const ws = await workspace("question-owner");
 	const t = await terminal(ws, await project(ws, "alpha"));
-	const joined = await withProjects(tdb.db, ws, [{ ...state(t), question }], true);
+	const joined = await withProjects(tdb.db, ws, [{ ...state(t), question }]);
 	expect(joined[0]?.question).toEqual(question);
 });
 
@@ -182,18 +180,7 @@ test.skipIf(skip)(
 	async () => {
 		const ws = await workspace("question-chat");
 		const chat = await terminal(ws, await project(ws, "alpha"), "chat");
-		const joined = await withProjects(tdb.db, ws, [{ ...state(chat), question }], true);
-		expect(joined).toHaveLength(1);
-		expect(joined[0]).not.toHaveProperty("question");
-	},
-);
-
-test.skipIf(skip)(
-	"a question is dropped for a viewer who is not the owner",
-	async () => {
-		const ws = await workspace("question-viewer");
-		const t = await terminal(ws, await project(ws, "alpha"));
-		const joined = await withProjects(tdb.db, ws, [{ ...state(t), question }], false);
+		const joined = await withProjects(tdb.db, ws, [{ ...state(chat), question }]);
 		expect(joined).toHaveLength(1);
 		expect(joined[0]).not.toHaveProperty("question");
 	},

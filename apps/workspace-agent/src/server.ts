@@ -47,7 +47,7 @@ import { searchRoutes } from "./search-routes.js";
 import { TerminalQuestions, terminalQuestionRoute } from "./terminal-questions.js";
 import { TerminalRegistry } from "./terminals.js";
 import { terminalsRoutes } from "./terminals-route.js";
-import { listSessions, serverPid, type TmuxServer } from "./tmux.js";
+import { hasSession, listSessions, serverPid, type TmuxServer } from "./tmux.js";
 import { UsageSampler, type UsageSamplerOptions } from "./usage.js";
 import { ProjectWatchers } from "./watch.js";
 
@@ -242,6 +242,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	registry.onClosed((id) => codingAgents.remove(id));
 	const questions = new TerminalQuestions({
 		onChange: (id, question) => codingAgents.question(id, question),
+		isOpen: (id) => hasSession(id, tmuxServer),
 	});
 	registry.onClosed((id) => questions.remove(id));
 	let agentLimits = options.agentLimits;

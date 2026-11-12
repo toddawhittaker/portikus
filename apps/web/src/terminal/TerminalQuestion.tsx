@@ -46,8 +46,8 @@ export function TerminalQuestion({
 	const [settled, setSettled] = useState<string | null>(null);
 	const [sending, setSending] = useState(false);
 	const [gone, setGone] = useState(false);
-	/** Bumped when an answer fails to send, so the card starts afresh. */
-	const [attempt, setAttempt] = useState(0);
+	/** Bumped when an answer fails to send, so the card can send again with its choices kept. */
+	const [failedSends, setFailedSends] = useState(0);
 
 	useEffect(() => {
 		if (!gone) return;
@@ -71,7 +71,7 @@ export function TerminalQuestion({
 					title: "Your answer was not sent",
 					children: errorText(error),
 				});
-				setAttempt((was) => was + 1);
+				setFailedSends((was) => was + 1);
 			}
 		} finally {
 			setSending(false);
@@ -83,14 +83,15 @@ export function TerminalQuestion({
 		<>
 			{shown ? (
 				<QuestionOverlay
-					key={`${shown.id}-${attempt}`}
+					key={shown.id}
 					question={shown}
 					visible={visible}
 					sending={sending}
+					failedSends={failedSends}
 					onSend={(answer) => void send(answer)}
 				/>
 			) : null}
-			<div role="status">
+			<div role="status" aria-live="polite">
 				{gone ? (
 					<p
 						className="pk-term-flag pk-term-question-gone"
@@ -108,11 +109,13 @@ function QuestionOverlay({
 	question,
 	visible,
 	sending,
+	failedSends,
 	onSend,
 }: {
 	question: WaitingQuestion;
 	visible: boolean;
 	sending: boolean;
+	failedSends: number;
 	onSend: (answer: TerminalQuestionAnswer) => void;
 }) {
 	const box = useRef<HTMLDivElement | null>(null);
@@ -144,6 +147,7 @@ function QuestionOverlay({
 				<QuestionCard
 					card={{ type: "question", id: question.id, questions: question.questions }}
 					waiting={0}
+					failedSends={failedSends}
 					takeFocus={takeFocus}
 					onAnswer={(answers, notes) => {
 						onSend(

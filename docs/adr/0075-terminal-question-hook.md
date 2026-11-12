@@ -44,8 +44,9 @@ as usual. Both were checked on Claude Code 2.1.322.
 5. **Anything else asks in the terminal.** The receiver replies 204, and
    Claude Code draws its own dialog, when the student picks "Answer in the
    terminal", the tool is not AskUserQuestion, the questions do not fit the
-   contract, the terminal already has a waiting question, too many
-   terminals are waiting, or the wait ends. If the hook's connection drops,
+   contract, the terminal is not open or already has a waiting question,
+   too many terminals or too many bytes of questions are waiting, or the
+   wait ends. If the hook's connection drops,
    the question is cleared.
 6. **Questions and answers are never logged or stored.** No audit row,
    and the routes log only status codes and ids.
@@ -54,7 +55,11 @@ as usual. Both were checked on Claude Code 2.1.322.
 
 The loopback post is unauthenticated, as every loopback route is
 (ADR 0068 item 5). A forged post can only show the owner a question card
-on their own screen; it is capped at 64 KiB and one per terminal. It cannot
+on their own screen; it is capped at 64 KiB, 4 KiB per string, one per
+open terminal, and 512 KiB held across all terminals, so the status frame
+stays under the API's 1 MiB cap. A workspace process can post a made-up
+question for an open terminal and the student would see a card; this is
+accepted, as it is the same trust as a process writing to that terminal. It cannot
 answer a question, because answers arrive only on the authenticated port,
 from the API, for the owner. A secret per terminal would not help: every
 process in the terminal, the student's own code among them, could read it
