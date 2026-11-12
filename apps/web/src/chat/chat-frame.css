@@ -13,6 +13,11 @@
 	overflow: clip;
 }
 
+/* Its focus colour too: the page's, not the terminal scheme's. */
+.pk-term[data-terminal-theme]:has(> .pk-chat) {
+	--focus: inherit;
+}
+
 /*
  * The chat zooms with its pane (SPEC.md §13.1): its type uses fixed pixel
  * sizes, so the whole chat scales, and its column, measure and card widths
