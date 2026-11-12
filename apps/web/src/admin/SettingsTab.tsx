@@ -20,6 +20,7 @@ export function SettingsTab() {
 	return (
 		<AdminSection
 			title="Settings"
+			actions={<LastChanged />}
 			intro={{
 				id: "admin-settings",
 				helpAnchor: "admin-settings",
@@ -27,15 +28,11 @@ export function SettingsTab() {
 				text: "Each section saves on its own, with its own button. Settings marked as changeable for one workspace are changed from that workspace's panel on the Users tab.",
 			}}
 		>
-			<LastChanged />
 			<UnsavedChanges>
 				<div className="@container/settings">
-					<div className="grid grid-cols-[minmax(0,1fr)] gap-4 @min-[62rem]/settings:grid-cols-[11rem_minmax(0,58rem)] @min-[62rem]/settings:gap-6">
+					<div className="grid grid-cols-[minmax(0,1fr)] gap-4 @min-[62rem]/settings:grid-cols-[11rem_minmax(0,68rem)] @min-[62rem]/settings:gap-8">
 						<SectionIndex />
-						<div
-							className="grid min-w-0 max-w-[58rem] gap-4"
-							data-testid="settings-sections"
-						>
+						<div className="grid min-w-0 gap-4" data-testid="settings-sections">
 							<StopSection />
 							<GuardSection />
 							<ToolsSection />
@@ -59,7 +56,7 @@ function LastChanged() {
 	return (
 		// Reserved while loading, so the sections do not move when it arrives.
 		<p
-			className="pk-text-compact pk-muted m-0 min-h-[18px]"
+			className="pk-muted m-0 min-h-[18px] text-[13px] leading-[18px]"
 			data-testid="settings-last-changed"
 		>
 			{updatedAt ? (

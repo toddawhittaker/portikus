@@ -353,15 +353,16 @@ test("the panel's sections come in their set order", async () => {
 	expect(headings).toEqual([
 		"H3 Alice Example",
 		"H4 Error",
-		"H4 Workspace",
 		"H4 Resources",
 		"H4 Resource guard",
+		"H4 Restore and rebuild",
 		"H4 Processes",
 		"H4 Ports and connections",
 		"H4 Agent log, reported by the workspace",
+		"H4 Recent audit events",
 		"H4 Account",
 		"H5 Linked course accounts",
-		"H4 Recent audit events",
+		"H4 Destructive",
 	]);
 });
 
@@ -376,7 +377,7 @@ test("an account without a workspace shows its workspace note, grace and account
 	const headings = within(panel)
 		.getAllByRole("heading", { level: 4 })
 		.map((heading) => heading.textContent);
-	expect(headings).toEqual(["Workspace", "Resources", "Account"]);
+	expect(headings).toEqual(["Resources", "Workspace", "Account"]);
 	expect(within(panel).queryByTestId("detail-quota-edit")).toBeNull();
 	expect(within(panel).getByTestId("detail-grace-edit")).toBeDefined();
 });
@@ -519,18 +520,22 @@ test("the panel reads the site limits once and does not poll the health report",
 	}
 });
 
-test("each section's actions sit in one row after its content (S5)", async () => {
+test("each editable value has its own Edit beside it, named for what it edits", async () => {
 	stubDetail(detail());
 	const panel = await openAlice();
 	const resources = within(panel).getByRole("region", { name: "Resources" });
 	const actions = within(resources)
 		.getAllByRole("button")
-		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
-		.map((button) => button.textContent);
-	expect(actions).toEqual(["Edit quotas…", "Edit limits…", "Edit disconnect grace…"]);
-	const row = within(resources).getByTestId("detail-quota-edit").parentElement;
-	expect(row?.className).toContain("pk-actions");
-	expect(row?.nextElementSibling).toBeNull();
+		.map((button) => [button.textContent, button.getAttribute("aria-label")]);
+	expect(actions).toEqual([
+		["Edit", "Edit quotas for Alice Example's workspace"],
+		["Edit", "Edit limits for Alice Example's workspace"],
+		["Edit", "Edit disconnect grace for Alice Example"],
+	]);
+	// The Edit sits in the value's own cell, after the value it changes.
+	const cell = within(resources).getByTestId("detail-quota-edit").parentElement;
+	expect(cell?.tagName).toBe("DD");
+	expect(cell?.firstElementChild?.getAttribute("data-testid")).toBe("detail-quota");
 	for (const heading of within(panel).getAllByRole("heading", { level: 4 })) {
 		expect(heading.className).toContain("pk-group-label");
 		expect(heading.className).not.toContain("pk-text-label");
@@ -979,9 +984,9 @@ test("opening a panel focuses its heading and marks the row (Gate E)", async () 
 	expect(rowButton.getAttribute("aria-expanded")).toBe("true");
 	expect(rowButton.getAttribute("aria-controls")).toBe(panel.id);
 	expect(rowButton.className).toContain("pk-focus-inset");
-	// The selected row carries the ink bar, not only a background colour.
+	// The selected row carries the accent bar, not only a background colour.
 	expect(screen.getByTestId(`account-cell-${USER.id}`).style.boxShadow).toBe(
-		"var(--row-current-bar)",
+		"inset 2px 0 0 var(--accent)",
 	);
 	const carol = screen.getByRole("button", { name: /^Show details for Carol Admin, / });
 	expect(carol.getAttribute("aria-expanded")).toBe("false");
@@ -1808,21 +1813,12 @@ test("the panel's toggletips are named after what they explain and open on click
 	const names = within(panel)
 		.getAllByRole("button", { name: /^About / })
 		.map((button) => button.getAttribute("aria-label"));
+	// Only the terms a reader cannot guess have a tip.
 	expect(names).toEqual([
-		"About Rebuild workspace",
-		"About Reset Docker",
-		"About Archive workspace",
-		"About Storage",
-		"About Limits",
-		"About Disconnect grace",
-		"About CPU throttle",
-		"About High memory",
 		"About Last input",
+		"About Rebuild workspace",
 		"About Preview column",
 		"About Agent log",
-		"About Promote",
-		"About Make instructor",
-		"About Disable account",
 	]);
 	fireEvent.click(within(panel).getByRole("button", { name: "About Last input" }));
 	const tip = openToggletip();
@@ -1853,7 +1849,7 @@ test("Restore from backup opens the restore dialog preset to this workspace", as
 	const open = within(panel).getByRole("button", {
 		name: "Restore from backup: Alice Example's workspace",
 	});
-	expect(open.textContent).toBe("Restore from backup…");
+	expect(open.textContent).toBe("Restore from backup");
 	fireEvent.click(open);
 	const dialog = await screen.findByRole("dialog", { name: "Restore from backup" });
 	expect(

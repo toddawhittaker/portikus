@@ -180,7 +180,8 @@ export function AvailabilityStrip({
 									key={`${bucketStart(frame, index)}-${part.key}`}
 									x={x}
 									y={y}
-									width={slot}
+									// A hairline between buckets, so a day reads as blocks rather than a solid field.
+									width={slot > 3 ? slot - 1 : slot}
 									height={Math.min(PLOT_HEIGHT, bottom - y)}
 									className={STRIP_STYLES[part.key].className}
 									data-part={part.key}

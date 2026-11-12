@@ -9,9 +9,7 @@ export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 			<h4 id="detail-ports" className={SECTION_HEADING}>
 				Ports and connections
 			</h4>
-			{detail.ports.length === 0 ? (
-				<p className="pk-text-compact pk-muted m-0">No listening ports.</p>
-			) : (
+			{detail.ports.length === 0 ? null : (
 				<div className="pk-table-wrap">
 					<table className="pk-table" data-testid="detail-ports">
 						<caption className="sr-only">Listening ports</caption>
@@ -44,15 +42,20 @@ export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 					</table>
 				</div>
 			)}
-			<p className="pk-text-compact m-0" data-testid="detail-sessions">
-				{detail.previewSessions.length === 0
-					? "No open preview sessions."
-					: `Open preview sessions: ${detail.previewSessions
-							.map(
-								(session) =>
-									`port ${session.port} since ${shortTime(session.openedAt)}`,
-							)
-							.join(", ")}.`}
+			<p className="pk-text-compact m-0">
+				{detail.ports.length === 0 ? (
+					<span className="pk-muted">No listening ports. </span>
+				) : null}
+				<span data-testid="detail-sessions">
+					{detail.previewSessions.length === 0
+						? "No open preview sessions."
+						: `Open preview sessions: ${detail.previewSessions
+								.map(
+									(session) =>
+										`port ${session.port} since ${shortTime(session.openedAt)}`,
+								)
+								.join(", ")}.`}
+				</span>
 			</p>
 		</section>
 	);

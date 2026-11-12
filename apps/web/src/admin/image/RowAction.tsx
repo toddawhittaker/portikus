@@ -13,6 +13,7 @@ export function RowAction({
 	ariaLabel,
 	testId,
 	primary,
+	quiet,
 	reason,
 	busy,
 	busyNoteId = "image-busy-note",
@@ -22,6 +23,8 @@ export function RowAction({
 	ariaLabel: string;
 	testId: string;
 	primary?: boolean;
+	/** A row's own action in a table: the quiet text button, so the page's main action stays loudest. */
+	quiet?: boolean;
 	reason: string | null;
 	busy: boolean;
 	busyNoteId?: string;
@@ -32,7 +35,9 @@ export function RowAction({
 	return (
 		<span className="inline-flex flex-col items-start gap-1">
 			<Button
-				variant={primary ? "primary" : "secondary"}
+				variant={primary ? "primary" : quiet ? "quiet" : "secondary"}
+				size={quiet ? "sm" : undefined}
+				className={quiet ? "pk-row-action" : undefined}
 				data-testid={testId}
 				aria-label={ariaLabel}
 				aria-disabled={off ? true : undefined}

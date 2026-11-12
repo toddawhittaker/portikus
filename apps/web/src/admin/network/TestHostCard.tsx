@@ -63,19 +63,19 @@ export function TestHostCard({
 			>
 				{host !== null && answer ? (
 					<div
-						className={`flex items-start gap-2 rounded-sm px-3 py-2 text-[13px] ${
-							answer.allowed ? "bg-status-running-soft" : "bg-surface-sunken"
+						className={`flex items-start gap-3 rounded-md border border-line border-s-[3px] bg-surface-sunken px-3 py-2.5 text-[14px] ${
+							answer.allowed ? "border-s-status-running" : "border-s-status-error"
 						}`}
 						data-testid="egress-test-result"
 						data-reason={answer.reason}
 					>
 						<span
-							className={`mt-0.5 flex-none ${answer.allowed ? "text-status-running" : "text-ink-muted"}`}
+							className={`mt-0.5 flex-none ${answer.allowed ? "text-status-running" : "text-status-error"}`}
 						>
-							<Icon name={answer.allowed ? "check" : "x"} size="sm" />
+							<Icon name={answer.allowed ? "check" : "x"} />
 						</span>
 						<div className="grid min-w-0 gap-2">
-							<p className="m-0 text-ink [overflow-wrap:anywhere]">
+							<p className="m-0 font-medium text-ink [overflow-wrap:anywhere]">
 								{verdictText(host, answer)}
 							</p>
 							{answer.reason === "not-listed" ? (

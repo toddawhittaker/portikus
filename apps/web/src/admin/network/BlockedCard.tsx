@@ -4,6 +4,7 @@ import {
 	isEgressHostName,
 } from "@portikus/contracts";
 import { Button, Toggletip } from "@portikus/ui";
+import { QuietState } from "../../common/QuietState.js";
 import { AdminGroup } from "../AdminSection.js";
 
 /**
@@ -30,14 +31,19 @@ export function BlockedCard({
 			description="The sites workspaces were refused most in the last 7 days, for the whole site. They are never tied to a student."
 		>
 			{view.blocked.length === 0 ? (
-				<p
-					className="m-0 text-[13px] text-ink-muted"
-					data-testid="egress-blocked-empty"
-				>
-					{view.mode === "open" && view.blockedSites.length === 0
-						? "Open mode is on and nothing is blocked, so no site is refused."
-						: "No workspace was refused a site in the last 7 days."}
-				</p>
+				<QuietState
+					testId="egress-blocked-empty"
+					title={
+						view.mode === "open" && view.blockedSites.length === 0
+							? "Open mode is on and nothing is blocked, so no site is refused."
+							: "No workspace was refused a site in the last 7 days."
+					}
+					detail={
+						view.mode === "allow-list"
+							? "A course tool that needs a site allowed shows up here first."
+							: undefined
+					}
+				/>
 			) : (
 				<div className="pk-table-wrap">
 					<table className="pk-table" data-testid="egress-blocked">

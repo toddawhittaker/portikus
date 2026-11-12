@@ -38,6 +38,7 @@ export function WorkspaceStateBadge({
 			<StateBadge
 				state={known.data ?? "starting"}
 				moving={true}
+				plain={true}
 				label={PENDING_LABEL[pendingOperation]}
 				statusRole={statusRole}
 			/>
@@ -47,6 +48,8 @@ export function WorkspaceStateBadge({
 	return (
 		<StateBadge
 			state={known.data}
+			// An ordinary state is a dot and a word; only an error is a filled badge.
+			plain={known.data !== "error"}
 			statusRole={statusRole}
 			desiredState={DesiredState.safeParse(desiredState).data}
 		/>

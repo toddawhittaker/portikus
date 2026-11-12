@@ -94,8 +94,11 @@ test("the newest complete set cannot be deleted; an older one can", async () => 
 	const writes = stubBackups(backups());
 	renderApp("/admin/backups");
 	const newest = await screen.findByTestId(`backup-set-${NEW}`);
-	const refused = within(newest).getByTestId("backup-set-delete");
+	// Restore is the row's one visible action; Delete waits in the row's menu.
+	expect(within(newest).queryByTestId("backup-set-delete")).toBeNull();
+	const refused = await openSetMenu(newest);
 	expect(refused.getAttribute("aria-disabled")).toBe("true");
+	expect(refused.textContent).toContain("The newest complete set is always kept.");
 	expect(newest.textContent).toContain("The newest complete set is always kept.");
 	expect(within(newest).getByTestId(`backup-set-skipped-${NEW}`).textContent).toBe(
 		" 2 volumes of no workspace skipped",
@@ -103,11 +106,13 @@ test("the newest complete set cannot be deleted; an older one can", async () => 
 	expect(screen.queryByTestId(`backup-set-skipped-${OLD}`)).toBeNull();
 	fireEvent.click(refused);
 	expect(screen.queryByTestId("backup-delete-dialog")).toBeNull();
+	fireEvent.keyDown(refused, { key: "Escape" });
+	await waitFor(() => expect(screen.queryByTestId("backup-set-delete")).toBeNull());
 
 	const failed = screen.getByTestId(`backup-set-${FAILED}`);
 	expect(failed.textContent).toContain("Incomplete");
 	expect(failed.textContent).toContain("1 volume failed");
-	fireEvent.click(within(failed).getByTestId("backup-set-delete"));
+	fireEvent.click(await openSetMenu(failed));
 	const dialog = await screen.findByTestId("backup-delete-dialog");
 	fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
 	await waitFor(() =>
@@ -125,9 +130,9 @@ test("a set with a delete waiting shows Deleting", async () => {
 	});
 	renderApp("/admin/backups");
 	const row = await screen.findByTestId(`backup-set-${OLD}`);
-	// The button stays mounted, so focus on it is not lost (SPEC.md §25.8).
-	const button = within(row).getByTestId("backup-set-delete");
+	const button = await openSetMenu(row);
 	expect(button.textContent).toBe("Deleting…");
+	expect(button.getAttribute("data-testid")).toBe("backup-set-delete");
 	expect(button.getAttribute("aria-disabled")).toBe("true");
 	fireEvent.click(button);
 	expect(screen.queryByTestId("backup-delete-dialog")).toBeNull();
@@ -243,7 +248,7 @@ test("the page reads as Backups, Restores, Recent requests, then Clean up", asyn
 	expect(outline).toEqual([
 		"H2 Backups",
 		"H3 Status and sets",
-		"H4 Status",
+		"H4 Recovery readiness",
 		"H4 Backup sets",
 		"H3 Restores",
 		"H3 Recent requests",
@@ -371,3 +376,9 @@ test("a failed request shows its error in the recent list", async () => {
 	const list = await screen.findByTestId("backup-requests");
 	expect(list.textContent).toContain("refused by the host: no such set");
 });
+
+/** Opens a set's row menu and returns its Delete item. */
+async function openSetMenu(row: HTMLElement): Promise<HTMLElement> {
+	fireEvent.keyDown(within(row).getByTestId("backup-set-menu"), { key: "Enter" });
+	return screen.findByTestId("backup-set-delete");
+}

@@ -67,33 +67,437 @@
 }
 
 /*
- * The tab strip, with the right pane's tab look: tabs on the chrome with no
- * rules between them, the chosen one raised with the accent bar at its foot
- * (`pk-tab`). Tabs keep their whole names and wrap to a second row in a
- * fixed order when they do not fit, so a row never moves when a tab is
- * chosen. Each tab draws the rule above it, and the strip draws the one
- * under its last row, so the rows read as one strip. The first row's rule
- * lies on the header's own line.
+ * The section rail: a column beside the content, the way a settings pane
+ * lists its sections. Groups carry a small caps label; the open section
+ * takes the selected ground with the accent bar at its start edge. The root
+ * shell sits last, under a rule, as the one section that is not a page.
  */
+.pk-adminframe {
+	flex-direction: row;
+	gap: var(--space-6);
+}
 .pk-adminnav {
 	flex: none;
-	display: flex;
-	flex-wrap: wrap;
-	margin-block-start: -1px;
-	background: var(--surface);
-	border-block-end: 1px solid var(--line);
+	inline-size: 12rem;
+	min-height: 0;
+	overflow-y: auto;
+	padding-block: var(--space-4);
+	padding-inline-end: var(--space-3);
+	border-inline-end: 1px solid var(--line);
+	scrollbar-width: thin;
 }
-.pk-adminnav > .pk-tab {
-	flex: none;
-	max-width: none;
+@media (width >= 64rem) {
+	.pk-adminnav {
+		inline-size: 14.5rem;
+	}
+}
+.pk-adminnav-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-5);
+}
+.pk-adminnav-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-0\.5);
 	min-width: 0;
-	height: var(--density-comfortable-tab);
-	/* The compact type step, a tight gap and space-2, so the tabs fit one row
-	   at 1366 px (SPEC.md section 20.1). */
-	gap: var(--space-1\.5);
-	padding-inline: var(--space-2);
-	font-size: var(--text-sm);
+}
+.pk-adminnav-group-label {
+	margin: 0 0 var(--space-1);
+	padding-inline: var(--space-3);
+	font-size: 11px; /* the one step under --text-xs, for group captions only */
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ink-faint);
+}
+.pk-adminnav-group:has([data-testid="admin-tab-shell"]) {
+	padding-block-start: var(--space-4);
 	border-block-start: 1px solid var(--line);
-	border-inline-end: 0;
-	white-space: nowrap;
+}
+.pk-adminnav-group:has([data-testid="admin-tab-shell"]) .pk-adminnav-group-label {
+	display: none;
+}
+.pk-adminnav-tabs {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-0\.5);
+}
+.pk-adminnav-link {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: var(--size-control-sm);
+	padding-block: var(--space-1);
+	padding-inline: var(--space-3);
+	border-radius: var(--radius-sm);
+	color: var(--ink-muted);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	text-decoration: none;
+	outline: none;
+}
+.pk-adminnav-link > svg {
+	flex: none;
+	color: var(--ink-faint);
+}
+.pk-adminnav-link > span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.pk-adminnav-link:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+.pk-adminnav-link:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-adminnav-link[aria-current="page"] {
+	background: var(--surface-selected);
+	color: var(--ink);
+	font-weight: 600;
+}
+.pk-adminnav-link[aria-current="page"] > svg {
+	color: var(--accent-text);
+}
+.pk-adminnav-link[aria-current="page"]::before {
+	content: "";
+	position: absolute;
+	inset-inline-start: 0;
+	inset-block: var(--space-1);
+	inline-size: 2px;
+	border-radius: 1px;
+	background: var(--accent);
+}
+@media (forced-colors: active) {
+	.pk-adminnav-link[aria-current="page"]::before {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
+}
+.pk-adminnav-toggle {
+	display: none;
+}
+/* The content keeps a sensible line on a very wide screen. */
+.pk-adminframe > .pk-adminframe-scroll > .pk-admin-content {
+	max-width: 80rem;
+}
+
+/*
+ * A phone: one 44 px control names the open section and opens every
+ * section as a grouped list, so the content starts right under it.
+ */
+@media (width < 35rem) {
+	.pk-adminframe-row {
+		padding-inline: var(--space-3);
+	}
+	.pk-adminframe {
+		flex-direction: column;
+		gap: 0;
+	}
+	.pk-adminnav {
+		inline-size: auto;
+		overflow: visible;
+		padding: 0;
+		border-inline-end: 0;
+		border-block-end: 1px solid var(--line);
+	}
+	.pk-adminnav-toggle {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		inline-size: 100%;
+		min-height: var(--size-control-lg);
+		padding-inline: var(--space-1);
+		border: 0;
+		background: transparent;
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--text-xl);
+		line-height: var(--leading-xl);
+		font-weight: 600;
+		letter-spacing: -0.005em;
+		text-align: start;
+		cursor: pointer;
+	}
+	.pk-adminnav-toggle > .pk-icon:first-child {
+		color: var(--accent-text);
+	}
+	/* The section control above already names the page, so its h2 is for screen readers here. */
+	.pk-admin-title {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.pk-adminnav-toggle-label {
+		flex: 1;
+		min-width: 0;
+	}
+	.pk-adminnav-toggle > .pk-adminnav-chevron {
+		color: var(--ink-muted);
+		transition: transform var(--duration-fast) var(--ease-standard);
+	}
+	.pk-adminnav[data-open] .pk-adminnav-chevron {
+		transform: rotate(180deg);
+	}
+	.pk-adminnav-list {
+		display: none;
+	}
+	.pk-adminnav[data-open] .pk-adminnav-list {
+		display: flex;
+		gap: var(--space-4);
+		padding-block: var(--space-2) var(--space-4);
+		max-height: 70dvh;
+		overflow-y: auto;
+	}
+	.pk-adminnav-group-label {
+		padding-inline: var(--space-1);
+	}
+	.pk-adminnav-tabs {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--space-2);
+	}
+	.pk-adminnav-link {
+		min-height: var(--size-control-lg);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised);
+	}
+	.pk-adminnav-link[aria-current="page"] {
+		border-color: var(--accent);
+	}
+	.pk-adminnav-link[aria-current="page"]::before {
+		content: none;
+	}
+}
+
+/*
+ * On a phone the Users table becomes a stack of rows: the name and its menu
+ * on top, the address under it, then the workspace and its state, so no
+ * column is cut off. Sorting and select-all keep their places in the head row.
+ */
+@container admin-scroll (width < 35rem) {
+	.pk-table--stack thead tr {
+		display: flex;
+		align-items: center;
+	}
+	.pk-table--stack thead th:nth-child(n + 3) {
+		display: none;
+	}
+	.pk-table--stack thead th:nth-child(2) {
+		flex: 1;
+	}
+	.pk-table--stack tbody tr {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		column-gap: var(--space-2);
+		padding-block: var(--space-2);
+		border-block-end: 1px solid var(--line);
+	}
+	.pk-table--stack tbody tr:last-child {
+		border-block-end: 0;
+	}
+	.pk-table--stack tbody td {
+		display: block;
+		height: auto;
+		border: 0;
+		padding-block: 0;
+		min-width: 0;
+	}
+	.pk-table--stack tbody td:nth-child(1) {
+		grid-row: 1 / span 3;
+	}
+	.pk-table--stack tbody td:nth-child(2) {
+		grid-column: 2;
+		grid-row: 1;
+		font-size: 15px;
+	}
+	.pk-table--stack tbody td:nth-child(3) {
+		grid-column: 2;
+		grid-row: 2;
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+	}
+	.pk-table--stack tbody td:nth-child(4) {
+		grid-column: 2;
+		grid-row: 3;
+		padding-block-start: var(--space-1);
+	}
+	.pk-table--stack tbody td:nth-child(4) > div {
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+	}
+	.pk-table--stack tbody td:nth-child(5) {
+		display: none;
+	}
+	.pk-table--stack tbody td:nth-child(6) {
+		grid-column: 3;
+		grid-row: 1 / span 3;
+	}
+	.pk-filter-more:not([data-open]) {
+		display: none;
+	}
+}
+.pk-filter-toggle {
+	display: none;
+}
+@container admin-scroll (width < 35rem) {
+	.pk-filter-toggle {
+		display: inline-flex;
+	}
+}
+
+/* A phone gives the frame's gutter and the cards' padding back to the content. */
+@media (width < 35rem) {
+	.pk-admin-content {
+		padding-inline: 0;
+		padding-block-start: var(--space-4);
+	}
+	.pk-admin-content .pk-card.p-6 {
+		padding: var(--space-4);
+	}
+}
+
+/* Help under a page title keeps a readable measure. */
+.pk-admin-content .pk-intro,
+.pk-admin-content .pk-intro-wrap {
+	max-width: 64ch;
+}
+
+/*
+ * A phone: the page's actions take their own full-width row under the title,
+ * the primary first, and the search fills the row it shares with Filters.
+ */
+@container admin-scroll (width < 35rem) {
+	/* The title and its lead come first; the actions follow, ready for the thumb. */
+	.pk-admin-head-row {
+		display: contents;
+	}
+	.pk-admin-actions {
+		order: 1;
+		margin-block-start: var(--space-2);
+		margin-inline-start: 0;
+	}
+	/* Controls take a thumb's height; a line of text there keeps its own. */
+	.pk-admin-actions > :not(p) {
+		flex: 1 1 auto;
+		min-height: var(--size-control-lg);
+	}
+	/* The primary action leads the row the others share. */
+	.pk-admin-actions > .pk-btn.bg-accent {
+		order: -1;
+	}
+	.pk-filter-search {
+		flex: 1 1 12rem;
+		width: auto;
+	}
+}
+
+/*
+ * Settings: a changed row carries an amber bar at its start, and while a
+ * section holds unsaved changes its save row floats at the foot of the
+ * window, so Save stays in reach however far the section runs.
+ */
+.pk-setting-row[data-dirty] {
+	box-shadow: inset 2px 0 0 var(--status-warning);
+	padding-inline-start: var(--space-3);
+}
+.pk-save-footer[data-dirty] {
+	position: sticky;
+	inset-block-end: var(--space-3);
+	z-index: 1;
+	padding: var(--space-3) var(--space-4);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	box-shadow: var(--shadow-md);
+	animation: pk-save-rise var(--duration-fast) var(--ease-standard);
+}
+@keyframes pk-save-rise {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-save-footer[data-dirty] {
+		animation: none;
+	}
+}
+
+/* A phone: the Settings sections are one row of chips that scrolls sideways, not two wrapped lines of links. */
+@media (width < 35rem) {
+	.pk-section-index {
+		flex-wrap: nowrap;
+		gap: var(--space-2);
+		overflow-x: auto;
+		scrollbar-width: none;
+		padding-block: 2px;
+	}
+	.pk-section-index a {
+		flex: none;
+		min-height: var(--size-control-lg);
+		padding-inline: var(--space-3);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-full);
+		background: var(--surface-raised);
+		color: var(--ink);
+		white-space: nowrap;
+	}
+}
+
+/*
+ * A row's own action (Restore…, Revoke…): a quiet text button, so a column
+ * of them reads as one column and the page's primary action stays loudest.
+ */
+.pk-btn.pk-row-action {
+	min-height: 28px;
+	border: 1px solid transparent;
+	color: var(--ink);
+}
+.pk-btn.pk-row-action:hover {
+	border-color: var(--line-strong);
+	background: var(--surface-hover);
+}
+.pk-btn.pk-row-action[aria-disabled="true"] {
+	color: var(--ink-faint);
+	background: transparent;
+	cursor: not-allowed;
+}
+
+/* The Account column holds a full email address on one line where the table has room. */
+.pk-table--stack .pk-account-cell {
+	min-width: 15rem;
+}
+@container admin-scroll (width < 35rem) {
+	.pk-table--stack .pk-account-cell {
+		min-width: 0;
+	}
+}
+
+/* A rail item whose page holds something to act on carries a small amber mark at its end. */
+/* The count of Health items needing attention: a small warning pill, read at a glance. */
+.pk-adminnav-mark {
+	flex: none;
+	margin-inline-start: auto;
+	min-inline-size: 20px;
+	block-size: 20px;
+	padding-inline: var(--space-1\.5);
+	border-radius: var(--radius-full);
+	background: var(--status-warning-soft);
+	color: var(--status-warning);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 20px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
 }

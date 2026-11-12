@@ -1,0 +1,217 @@
+/*
+ * Agent usage tables. Added and removed line counts sit side by side; on a
+ * narrow pane each row stacks into a block of labelled figures, so nothing
+ * scrolls sideways (SPEC.md section 25.8, WCAG 1.4.10).
+ */
+.pk-usage-wrap {
+	container-type: inline-size;
+	min-width: 0;
+}
+.pk-usage-lines {
+	display: inline-flex;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+@container (width < 35rem) {
+	.pk-usage-wrap .pk-table-wrap {
+		overflow: visible;
+	}
+	.pk-usage-table {
+		display: block;
+		min-width: 0;
+	}
+	/* The headers stay for screen readers; each figure carries its own label. */
+	.pk-usage-table thead {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.pk-usage-table tbody {
+		display: block;
+	}
+	.pk-usage-table tbody tr {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		column-gap: var(--space-4);
+		row-gap: var(--space-1);
+		padding: var(--space-3) var(--space-4);
+		border-block-end: 1px solid var(--line);
+		font-size: var(--text-md);
+	}
+	.pk-usage-table tbody tr:last-child {
+		border-block-end: 0;
+	}
+	.pk-usage-table tbody th,
+	.pk-usage-table tbody td {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-2);
+		height: auto;
+		min-width: 0;
+		padding: 0;
+		border: 0;
+		background: none;
+	}
+	.pk-usage-table tbody th {
+		font-weight: 600;
+	}
+	.pk-usage-table tbody .pk-usage-agent {
+		justify-content: flex-end;
+		color: var(--ink-muted);
+	}
+	.pk-usage-table tbody td[data-label]::before {
+		content: attr(data-label);
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+		text-align: start;
+	}
+	/* The first line is the person or day and the agent; the cost reads first among the figures. */
+	.pk-usage-table tbody th,
+	.pk-usage-table tbody .pk-usage-agent {
+		padding-block-end: var(--space-1);
+	}
+	.pk-usage-table tbody .pk-usage-cost {
+		grid-column: 1 / -1;
+		grid-row: 2;
+		font-weight: 600;
+	}
+	.pk-usage-table tbody tr:hover td {
+		background: none;
+	}
+}
+
+/* The agent's name carries its colour as a dot: violet for Claude Code, teal for Codex. */
+.pk-usage-agent::before,
+.pk-usage-swatch {
+	content: "";
+	display: inline-block;
+	inline-size: 8px;
+	block-size: 8px;
+	margin-inline-end: var(--space-2);
+	border-radius: 2px;
+	background: var(--agent);
+	vertical-align: 0.05em;
+}
+.pk-usage-agent[data-agent="codex"]::before,
+.pk-usage-key[data-agent="codex"] .pk-usage-swatch {
+	background: var(--accent);
+}
+
+/* A short bar before the cost: this row's part of the largest cost in the table. */
+.pk-usage-cost-figure {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+.pk-usage-share {
+	display: inline-block;
+	inline-size: 48px;
+	block-size: 4px;
+	border-radius: 2px;
+	background: var(--meter-track);
+	overflow: hidden;
+}
+.pk-usage-share > span {
+	display: block;
+	block-size: 100%;
+	background: var(--agent);
+}
+
+.pk-usage-lines-figure {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 var(--space-3);
+}
+
+/* Tokens per day: one column a day, Claude Code and Codex stacked, on a hairline baseline. */
+.pk-usage-chart {
+	display: grid;
+	gap: var(--space-4);
+	margin: 0;
+	padding: var(--space-5) var(--space-6);
+	background: var(--surface-raised);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+}
+.pk-usage-chart-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-2) var(--space-4);
+}
+.pk-usage-legend {
+	display: flex;
+	gap: var(--space-4);
+	font-size: var(--text-sm);
+	color: var(--ink-muted);
+}
+.pk-usage-key {
+	display: inline-flex;
+	align-items: center;
+}
+.pk-usage-bars {
+	display: flex;
+	align-items: stretch;
+	gap: var(--space-1);
+	block-size: 140px;
+}
+.pk-usage-day {
+	flex: 1 1 0;
+	min-width: 0;
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
+	gap: var(--space-2);
+}
+.pk-usage-stack {
+	display: flex;
+	flex-direction: column-reverse;
+	justify-content: flex-start;
+	max-inline-size: 48px;
+	inline-size: 100%;
+	justify-self: center;
+	border-block-end: 1px solid var(--line-strong);
+}
+.pk-usage-seg {
+	display: block;
+	background: var(--agent);
+	transition: block-size var(--duration-base) var(--ease-standard);
+}
+.pk-usage-seg:last-child {
+	border-start-start-radius: 2px;
+	border-start-end-radius: 2px;
+}
+.pk-usage-seg[data-agent="codex"] {
+	background: var(--accent);
+}
+.pk-usage-seg + .pk-usage-seg {
+	box-shadow: 0 1px 0 var(--surface-raised);
+}
+.pk-usage-tick {
+	min-block-size: var(--leading-xs);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--ink-muted);
+	text-align: center;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-usage-seg {
+		transition: none;
+	}
+}
+@container (width < 35rem) {
+	.pk-usage-chart {
+		padding: var(--space-4);
+	}
+	.pk-usage-bars {
+		block-size: 112px;
+	}
+}

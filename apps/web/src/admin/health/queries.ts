@@ -12,6 +12,20 @@ export function useHealth() {
 }
 
 /**
+ * The report for the status bar and the rail's marks on every admin page.
+ * It does not poll, since each read asks every workspace agent; the Health
+ * tab's own 30 second refresh shares this cache entry and keeps it current.
+ */
+export function useHealthGlance() {
+	return useQuery({
+		queryKey: ["admin", "health"],
+		queryFn: () => request(HealthReport, "/admin/health"),
+		refetchInterval: false,
+		staleTime: 5 * 60_000,
+	});
+}
+
+/**
  * The same report for the site limits the workspace panel shows, without
  * polling: every refresh asks each workspace agent, and limits rarely change.
  */

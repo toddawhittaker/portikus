@@ -1,6 +1,7 @@
 import {
 	FieldMessages,
 	HINT_CLASS,
+	Icon,
 	LABEL_CLASS,
 	Skeleton,
 	UnitInput,
@@ -14,18 +15,22 @@ export function SettingRows({ children }: { children: ReactNode }) {
 	);
 }
 
+// The box sits 24 px after the description, not at the card's far edge, and its
+// column is wide enough that the default and range read on one line.
 const ROW_CLASS =
-	"grid grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-2 py-3 @min-[36rem]/card:grid-cols-[minmax(0,1fr)_13rem]";
+	"grid max-w-[60rem] grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-2 py-3 @min-[36rem]/card:grid-cols-[minmax(0,34rem)_minmax(16rem,24rem)]";
 
 /**
- * One number setting: its label and what it does on the left, the box with
- * its unit on the right, then whether it is saved, any error, and its
- * default and range. Below 36rem of card the two sides stack.
+ * One number setting: its label and what it does in one line on the left,
+ * with the full explanation behind "More about", and the box with its unit
+ * beside it, then whether it is saved, any error, and its default and
+ * range. Below 36rem of card the two sides stack.
  */
 export function SettingRow({
 	id,
 	label,
 	description,
+	more,
 	unit,
 	meta,
 	value,
@@ -37,6 +42,7 @@ export function SettingRow({
 	id: string;
 	label: string;
 	description: string;
+	more?: string;
 	unit: string;
 	/** The default, the range, and where else it is set. */
 	meta: string;
@@ -51,17 +57,21 @@ export function SettingRow({
 		.filter(Boolean)
 		.join(" ");
 	return (
-		<div className={ROW_CLASS}>
+		<div
+			className={`pk-setting-row ${ROW_CLASS}`}
+			data-dirty={was === null ? undefined : ""}
+		>
 			<div className="grid min-w-0 content-start gap-1">
 				<label className={LABEL_CLASS} htmlFor={id}>
 					{label}
 				</label>
 				<p
-					className="m-0 max-w-[68ch] text-[length:var(--pk-font)] leading-[1.45] text-ink"
+					className="m-0 max-w-[60ch] text-[13px] leading-[18px] text-ink-muted"
 					id={`${id}-desc`}
 				>
 					{description}
 				</p>
+				{more ? <MoreAbout label={label}>{more}</MoreAbout> : null}
 			</div>
 			<div className="grid min-w-0 content-start gap-1">
 				<UnitInput
@@ -81,6 +91,23 @@ export function SettingRow({
 				</p>
 			</div>
 		</div>
+	);
+}
+
+/** The full explanation of a setting or section, closed until asked for. */
+export function MoreAbout({ label, children }: { label: string; children: ReactNode }) {
+	return (
+		<details className="group text-[13px] leading-[18px]">
+			<summary className="pk-focus-ring inline-flex min-h-6 w-fit @max-[30rem]/card:min-h-11 cursor-pointer list-none items-center gap-1 rounded-xs text-ink-muted hover:text-ink [&::-webkit-details-marker]:hidden">
+				<Icon
+					name="chevron-right"
+					size="sm"
+					className="flex-none group-open:rotate-90"
+				/>
+				More about {label.toLowerCase()}
+			</summary>
+			<p className="m-0 mt-1 max-w-[60ch] ps-5 text-ink-muted">{children}</p>
+		</details>
 	);
 }
 

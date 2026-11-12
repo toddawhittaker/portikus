@@ -6,6 +6,7 @@ import { ApiError, errorText, sendJson } from "../../api/request.js";
 import { announced } from "../../common/announced.js";
 import { AdminGroup } from "../AdminSection.js";
 import { SiteJobLine, useSiteList } from "../site-job.js";
+import "./network.css";
 
 const BUSY_NOTE = "A change is being applied. Wait until it ends.";
 const BUSY_NOTE_ID = "proxy-hosts-busy-note";
@@ -106,6 +107,7 @@ export function ProxyHostsGroup() {
 					mono
 					autoComplete="off"
 					spellCheck={false}
+					className="@max-xl:w-full"
 					data-testid="proxy-host-value"
 					value={value}
 					error={announced(error)}
@@ -115,7 +117,7 @@ export function ProxyHostsGroup() {
 					type="submit"
 					variant="primary"
 					iconStart="plus"
-					className="mt-6"
+					className="mt-6 @max-xl:mt-0"
 					data-testid="proxy-host-add"
 					loading={save.isPending}
 					aria-disabled={busy ? true : undefined}
@@ -177,7 +179,7 @@ function HostList({
 	}
 	return (
 		<div className="pk-table-wrap">
-			<table className="pk-table" data-testid="proxy-hosts-list">
+			<table className="pk-table pk-host-table" data-testid="proxy-hosts-list">
 				<caption className="sr-only">Hosts added on this page</caption>
 				<thead>
 					<tr>
@@ -191,9 +193,9 @@ function HostList({
 					{hosts.map((host) => (
 						<tr key={host} data-testid="proxy-hosts-row">
 							<td>
-								<span className="font-mono [overflow-wrap:anywhere]">{host}</span>
+								<span className="pk-host-value font-mono">{host}</span>
 							</td>
-							<td className="text-right whitespace-nowrap">
+							<td className="pk-host-actions text-right whitespace-nowrap">
 								<Button
 									size="sm"
 									variant="quiet"

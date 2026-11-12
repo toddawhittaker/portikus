@@ -13,6 +13,7 @@ import {
 	Dialog,
 	DialogRoot,
 	EmptyState,
+	Icon,
 	Meter,
 	Select,
 	Skeleton,
@@ -30,6 +31,7 @@ import { CodingAgentsSection } from "./CodingAgentsSection.js";
 import { DiffView } from "./DiffView.js";
 import { PackagesSection } from "./PackagesSection.js";
 import { isActive, useAdminImage, useImageJob, useRequestImageJob } from "./queries.js";
+import "../backups/backups.css";
 import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 
 const INTRO = {
@@ -367,7 +369,7 @@ function CurrentList({
 }) {
 	const tools = toolsText(defaultImage);
 	return (
-		<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px] @3xl:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]">
+		<dl className="pk-kv pk-kv--pairs">
 			<dt className="pk-muted">Default</dt>
 			<dd className="pk-mono-small m-0 self-center" data-testid="image-default">
 				{data.default ?? "None"}
@@ -437,11 +439,11 @@ function JobGroup({
 		shown.state === "failed" || shown.state === "refused"
 			? "pk-tag pk-tag--error"
 			: shown.state === "succeeded"
-				? "pk-tag"
+				? "pk-quiet-ok font-medium"
 				: "pk-tag border-transparent bg-status-starting-soft text-status-starting";
 	return (
 		<Group id="image-job-title" title="Latest job" testId="image-job">
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dl className="pk-kv">
 				<dt className="pk-muted">Job</dt>
 				<dd className="m-0" data-testid="image-job-kind">
 					{jobTitle(shown)}
@@ -449,7 +451,8 @@ function JobGroup({
 				<dt className="pk-muted">State</dt>
 				<dd className="m-0">
 					<span role="status" data-testid="image-job-state">
-						<span className={tone}>{STATE_LABEL[shown.state]}</span> {shown.step}
+						<span className={tone}>{STATE_LABEL[shown.state]}</span>
+						<span className="pk-muted"> {shown.step}</span>
 						{shown.message && !isActive(shown.state) ? (
 							<span className="sr-only">. {shown.message}</span>
 						) : null}
@@ -541,6 +544,7 @@ function DeleteButton({
 }) {
 	return (
 		<RowAction
+			quiet
 			label="Delete"
 			ariaLabel={`Delete: ${image.version}`}
 			testId={`image-delete-${image.version}`}
@@ -555,7 +559,7 @@ function DeleteButton({
 function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
 	const used = Math.max(disk.totalBytes - disk.freeBytes, 0);
 	return (
-		<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+		<dl className="pk-kv">
 			<dt className="pk-muted">Main disk space</dt>
 			<dd className="m-0" data-testid="image-disk-free">
 				<Meter
@@ -648,7 +652,10 @@ function ImagesGroup({
 										<td data-testid={`image-health-${image.version}`}>
 											{image.health ? (
 												image.health.result === "passed" ? (
-													"Passed"
+													<span className="pk-tag gap-1 border-transparent bg-status-running-soft text-status-running">
+														<Icon name="check" size="sm" />
+														Passed
+													</span>
 												) : (
 													<span className="pk-tag pk-tag--error">Failed</span>
 												)

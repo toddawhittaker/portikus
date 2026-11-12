@@ -1,6 +1,7 @@
 import type { Project, Workspace } from "@portikus/contracts";
 import {
 	Icon,
+	type IconName,
 	Menu,
 	MenuItem,
 	MenuLabel,
@@ -56,12 +57,26 @@ function AppbarContext({
 			</span>
 		);
 	}
-	return (
-		<span className="pk-appbar-context">
-			{workspaceId ? "Your workspace" : context}
-		</span>
-	);
+	if (workspaceId) return <span className="pk-appbar-context">Your workspace</span>;
+	if (CONSOLE_ICON[context]) {
+		// The console names its area as a project is named, with the site where a path would be.
+		return (
+			<span className="pk-appbar-context">
+				<strong>{context}</strong>
+				<span className="pk-appbar-path @max-[40rem]:hidden">
+					{window.location.hostname}
+				</span>
+			</span>
+		);
+	}
+	return <span className="pk-appbar-context">{context}</span>;
 }
+
+/** The two console areas name themselves with a tinted tag, so the header says where you are. */
+const CONSOLE_ICON: Partial<Record<string, IconName>> = {
+	Administration: "shield",
+	Course: "school",
+};
 
 /** The profile picture, or the initials when there is none. */
 function AccountPicture({
@@ -133,7 +148,11 @@ export function AppHeader({
 	}
 
 	return (
-		<header className="pk-appbar @container" data-testid="app-header">
+		<header
+			className="pk-appbar @container"
+			data-testid="app-header"
+			data-console={!workspaceId && CONSOLE_ICON[context] ? "" : undefined}
+		>
 			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
 			{/* On a narrow bar the path gives way first, then the whole context on the narrowest. */}
 			<span className="contents @max-[20rem]:hidden">
@@ -310,6 +329,7 @@ export function AppHeader({
 							setNotificationsOpen(true);
 						}}
 					>
+						<Icon name="bell" size="sm" />
 						<span className="pk-account-badge-pill">{badge}</span>
 					</button>
 				) : null}

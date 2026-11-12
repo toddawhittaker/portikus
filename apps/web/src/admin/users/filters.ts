@@ -1,4 +1,4 @@
-import type { AdminWorkspaceSummary } from "@portikus/contracts";
+import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
 import type { SortState } from "../../table/sort.js";
 import { timeAgo } from "../../text.js";
 import type { AccountColumn } from "./sort.js";
@@ -53,6 +53,20 @@ export function activityText(workspace: AdminWorkspaceSummary, now: number): str
 	const count = workspace.activeConnections;
 	if (count > 0) return `Now, ${count} ${count === 1 ? "connection" : "connections"}`;
 	return timeAgo(workspace.lastActiveConnectionAt, now);
+}
+
+/**
+ * The Activity cell: the workspace's connections when it has any record of
+ * them, else when the person last signed in, so the column is never a run of dashes.
+ */
+export function accountActivityText(
+	user: Pick<AdminUser, "lastLoginAt" | "workspace">,
+	now: number,
+): string {
+	const opened = user.workspace ? activityText(user.workspace, now) : "—";
+	if (opened !== "—" || !user.lastLoginAt) return opened;
+	const ago = timeAgo(user.lastLoginAt, now);
+	return `Signed in ${ago === "Just now" ? "just now" : ago}`;
 }
 
 /** True when any filter differs from the defaults. */

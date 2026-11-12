@@ -1,0 +1,613 @@
+/* The instructor pages' own patterns: the roster toolbar, row actions and the live help queue. Values are design tokens only. */
+
+/* Members: the heading with its count on the left, search and filters on the right; they stack when narrow. */
+.pk-members-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3) var(--space-4);
+}
+.pk-members-count {
+	margin-inline-start: var(--space-2);
+	font-size: var(--text-sm);
+	font-weight: 500;
+	color: var(--ink-muted);
+}
+.pk-members-tools {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+	min-width: 0;
+}
+.pk-members-search {
+	position: relative;
+	display: flex;
+	align-items: center;
+	inline-size: 16rem;
+	max-inline-size: 100%;
+}
+.pk-members-search-icon {
+	position: absolute;
+	inset-inline-start: var(--space-2);
+	color: var(--ink-muted);
+	pointer-events: none;
+}
+.pk-members-search input {
+	inline-size: 100%;
+	block-size: var(--size-control-md);
+	padding-inline: calc(var(--space-2) + var(--size-icon-sm) + var(--space-1\.5))
+		var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--text-md);
+}
+.pk-members-search input::placeholder {
+	color: var(--ink-faint);
+}
+
+/* Filter chips: aria-pressed buttons; the pressed one takes the accent edge and text, never the filled primary look. */
+.pk-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1\.5);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+.pk-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	block-size: var(--size-control-md);
+	padding-inline: var(--space-3);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: var(--text-md);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.pk-chip:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+.pk-chip[aria-pressed="true"] {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-weight: 600;
+}
+.pk-chip-count {
+	min-inline-size: 1.25rem;
+	padding-inline: var(--space-1);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	text-align: center;
+}
+.pk-chip[aria-pressed="true"] .pk-chip-count {
+	background: transparent;
+	color: inherit;
+}
+
+/* A workspace badge and any warning beside it, on one centred line. */
+.pk-members-state {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1\.5);
+}
+
+/* One right-aligned group per row: the visible action, then the menu, 8 px apart and centred. */
+.pk-row-actions {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+/* A quiet text link with its icon, so a row's way in never outweighs the page's own actions. */
+.pk-row-link {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	block-size: var(--size-control-sm);
+	padding-inline: var(--space-2);
+	border-radius: var(--radius-sm);
+	color: var(--accent-text);
+	font-size: var(--text-md);
+	font-weight: 500;
+	text-decoration: none;
+	white-space: nowrap;
+}
+.pk-row-link:hover {
+	background: var(--surface-hover);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+/* Phone: the search takes the full width, and the chips sit under it. */
+@media (width < 35rem) {
+	.pk-members-tools,
+	.pk-members-search {
+		inline-size: 100%;
+	}
+	.pk-members-search input {
+		block-size: var(--size-control-lg);
+		font-size: var(--text-md);
+	}
+	.pk-chip {
+		block-size: var(--size-control-lg);
+		padding-inline: var(--space-3);
+	}
+	.pk-row-link {
+		block-size: var(--size-control-lg);
+	}
+}
+
+/*
+ * Live help: the queue on the left and the chosen request on the right on a
+ * wide page; one column of cards on a phone.
+ */
+.pk-live {
+	display: grid;
+	gap: var(--space-4);
+	align-items: start;
+	container: live / inline-size;
+}
+@media (width >= 64rem) {
+	.pk-live {
+		grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
+	}
+}
+.pk-live-detail {
+	position: sticky;
+	top: var(--space-4);
+	display: grid;
+	gap: var(--space-4);
+	padding: var(--space-5);
+}
+@media (width < 64rem) {
+	.pk-live-detail {
+		display: none;
+	}
+}
+.pk-live-detail dl {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: var(--space-2) var(--space-4);
+	margin: 0;
+	font-size: var(--text-sm);
+}
+.pk-live-detail dt {
+	color: var(--ink-muted);
+}
+.pk-live-detail dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.pk-live-detail .pk-live-open {
+	inline-size: 100%;
+}
+/* The chosen row: the selected fill and the current-row bar used by the workspace's lists. */
+.pk-live-table tbody tr[data-selected] > * {
+	background: var(--surface-selected);
+}
+.pk-live-table tbody tr[data-selected] > :first-child {
+	box-shadow: inset 3px 0 0 var(--accent);
+}
+.pk-live-pick {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	font-weight: 600;
+	text-align: start;
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+}
+.pk-live-pick:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+/* Phone: each request is a card, name and wait first, then project and status, then a full-width Open. */
+@container live (width < 35rem) {
+	.pk-live-wrap {
+		border: 0;
+		background: none;
+	}
+	.pk-live-table thead {
+		position: absolute;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+	.pk-live-table tbody {
+		display: grid;
+		gap: var(--space-3);
+	}
+	.pk-live-table tbody tr {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: var(--space-1) var(--space-3);
+		padding: var(--space-4);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised);
+	}
+	.pk-live-table tbody tr > * {
+		display: block;
+		block-size: auto;
+		padding: 0;
+		border: 0;
+		background: none;
+		white-space: normal;
+	}
+	.pk-live-table tbody tr[data-selected] > * {
+		background: none;
+		box-shadow: none;
+	}
+	.pk-live-table tbody tr:hover > * {
+		background: none;
+	}
+	.pk-live-table tbody tr > .pk-live-mode {
+		display: none;
+	}
+	.pk-live-table .pk-live-name {
+		grid-column: 1;
+		grid-row: 1;
+		font-size: var(--text-lg);
+	}
+	.pk-live-table .pk-live-started {
+		grid-column: 2;
+		grid-row: 1;
+		align-self: center;
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+	}
+	.pk-live-table .pk-live-project {
+		grid-column: 1 / -1;
+		grid-row: 2;
+		color: var(--ink-muted);
+	}
+	.pk-live-table .pk-live-state {
+		grid-column: 1 / -1;
+		grid-row: 3;
+		padding-block-start: var(--space-1);
+	}
+	.pk-live-table .pk-live-action {
+		grid-column: 1 / -1;
+		grid-row: 4;
+		padding-block-start: var(--space-2);
+		inline-size: auto;
+	}
+	.pk-live-table .pk-live-action > a {
+		inline-size: 100%;
+		block-size: var(--size-control-lg);
+		justify-content: center;
+	}
+}
+
+/* Shared project checks: the name and when it ran on the left, the badge at the right edge. */
+.pk-shared-checks .pk-check-text {
+	display: grid;
+	flex: 1;
+	min-width: 0;
+}
+.pk-shared-check-when {
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+}
+
+/*
+ * A phone: the three counts share one compact row, and each member is a
+ * card with the whole width for the name, then the workspace, then a row of
+ * 44 px actions, as the live help queue does.
+ */
+@media (width < 35rem) {
+	.pk-members-table thead {
+		position: absolute;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+	.pk-table-wrap:has(> .pk-members-table) {
+		border: 0;
+		background: none;
+	}
+	.pk-members-table tbody {
+		display: grid;
+		gap: var(--space-2);
+	}
+	.pk-members-table tbody tr {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised);
+	}
+	/* Grid items already; the wide-only cells keep their own display: none. */
+	.pk-members-table tbody tr > * {
+		inline-size: auto;
+		block-size: auto;
+		padding: 0;
+		border: 0;
+		background: none;
+		white-space: normal;
+	}
+	.pk-members-table tbody tr > .pk-cell-actions:not(:has(a, button)) {
+		display: none;
+	}
+	.pk-members-table .pk-row-actions {
+		justify-content: flex-start;
+		gap: var(--space-2);
+	}
+	.pk-members-table .pk-row-actions > * {
+		min-block-size: var(--size-control-lg);
+	}
+	.pk-members-table .pk-row-link {
+		padding-inline: 0;
+	}
+	/* The menu keeps a 44 px square target at the card's end, 8 px or more from the link. */
+	.pk-members-table .pk-row-actions > :not(a) {
+		margin-inline-start: auto;
+	}
+	.pk-members-table .pk-row-actions .pk-iconbtn {
+		min-inline-size: var(--size-control-lg);
+		min-block-size: var(--size-control-lg);
+	}
+}
+
+/* The course's source sits on the title's baseline as its metadata. */
+.pk-course-source {
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--ink-muted);
+}
+/* The class at a glance, then the live help queue, each one band across the page. */
+.pk-course-glance {
+	display: grid;
+	gap: var(--space-4);
+}
+
+/* The request in the panel: the student's initials beside their name, as in the account menu. */
+.pk-live-who {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-width: 0;
+}
+.pk-live-face.pk-initials {
+	flex: none;
+	width: 40px;
+	height: 40px;
+	font-size: var(--text-md);
+}
+
+/* A phone: the filter chips keep one row that scrolls sideways, so no chip is orphaned on a second line. */
+@media (width < 35rem) {
+	.pk-chips {
+		flex-wrap: nowrap;
+		gap: var(--space-2);
+		overflow-x: auto;
+		scrollbar-width: none;
+		padding-block: 2px;
+		inline-size: 100%;
+	}
+	.pk-chip {
+		flex: none;
+	}
+}
+
+/*
+ * A live help session: the head with Leave at its end, then the student's
+ * terminal in a frame like the workspace's own (tab strip, mode strip,
+ * terminal, hint line), and the request and previews in a context pane.
+ */
+.pk-session-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-3) var(--space-6);
+}
+.pk-session-leave {
+	display: grid;
+	justify-items: end;
+	gap: var(--space-1);
+}
+@media (width < 35rem) {
+	.pk-session-leave {
+		justify-items: stretch;
+		inline-size: 100%;
+	}
+	.pk-session-leave .pk-btn {
+		min-block-size: var(--size-control-lg);
+	}
+}
+.pk-live-frame {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface);
+	overflow: hidden;
+}
+.pk-live-frame[data-mode="type"] {
+	border-color: var(--accent);
+}
+.pk-live-tabbar {
+	display: flex;
+	align-items: stretch;
+	min-width: 0;
+	min-block-size: 36px;
+	border-block-end: 1px solid var(--line);
+}
+.pk-live-tabbar-title {
+	position: absolute;
+	inline-size: 1px;
+	block-size: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+.pk-live-tabbar-title:focus {
+	position: static;
+	inline-size: auto;
+	block-size: auto;
+	clip-path: none;
+	display: flex;
+	align-items: center;
+	padding-inline: var(--space-3);
+	font-size: var(--text-sm);
+	font-weight: 600;
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-live-tabs {
+	display: flex;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+.pk-live-tab {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	max-inline-size: 16rem;
+	block-size: 36px;
+	padding-inline: var(--space-3);
+	border: 0;
+	border-inline-end: 1px solid var(--line);
+	background: transparent;
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: var(--text-md);
+	cursor: pointer;
+}
+.pk-live-tab:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+.pk-live-tab[aria-pressed="true"] {
+	background: var(--surface-work);
+	color: var(--ink);
+}
+.pk-live-tab[aria-pressed="true"] > .pk-icon {
+	color: var(--accent-text);
+}
+.pk-live-tab[aria-pressed="true"]::after {
+	content: "";
+	position: absolute;
+	inset-inline: 0;
+	inset-block-end: -1px;
+	block-size: 2px;
+	background: var(--accent);
+}
+@media (width < 35rem) {
+	.pk-live-tab {
+		block-size: var(--size-control-lg);
+	}
+}
+/* The mode strip, attached under the tabs where the instructor is looking. */
+.pk-live-mode {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	margin: 0;
+	padding: var(--space-1\.5) var(--space-3);
+	border-block-end: 1px solid var(--line);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+}
+.pk-live-mode > svg {
+	flex: none;
+}
+.pk-live-mode strong {
+	color: var(--ink);
+	font-weight: 600;
+}
+.pk-live-mode[data-mode="type"] {
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+.pk-live-mode[data-mode="type"] > svg {
+	color: var(--accent-text);
+}
+.pk-live-frame-body {
+	padding: var(--space-4);
+}
+/* Framed like the workspace's terminal, it fills the frame rather than stopping at a cap. */
+.pk-live-frame .pk-helper-term {
+	max-height: none;
+	border-radius: 0;
+}
+.pk-live-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-block-size: 28px;
+	padding: var(--space-1) var(--space-3);
+	border-block-start: 1px solid var(--line);
+}
+/* The context pane: the request and the previews, parted by a hairline. */
+.pk-live-context {
+	display: flex;
+	flex-direction: column;
+	flex-shrink: 0;
+	min-width: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+}
+.pk-live-context-part {
+	display: grid;
+	gap: var(--space-2);
+	min-width: 0;
+	padding: var(--space-4);
+}
+.pk-live-context-part + .pk-live-context-part {
+	border-block-start: 1px solid var(--line);
+}
+
+/* Live help: the request's facts, label beside value. */
+.pk-live-facts {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: var(--space-2) var(--space-4);
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+}
+.pk-live-facts dt {
+	color: var(--ink-muted);
+}
+.pk-live-facts dd {
+	margin: 0;
+}

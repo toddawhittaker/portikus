@@ -38,6 +38,7 @@ import {
 } from "./filters.js";
 import { LogResults } from "./LogResults.js";
 import { LEVEL_LABELS, SERVICE_LABELS } from "./line.js";
+import "./logs.css";
 import { ServiceLogLevel } from "./ServiceLogLevel.js";
 import { DEFAULT_LOG_SORT, LOG_COLUMN_LABEL } from "./sort.js";
 
@@ -67,6 +68,34 @@ function draftOf(filters: LogFilters): Draft {
 		person: null,
 		onlyWorkspace: filters.workspace !== "",
 	};
+}
+
+/**
+ * A filter chip that is a real checkbox: the box is drawn as the level's dot,
+ * so the chip reads as a toggle and still checks like any box.
+ */
+function ChipCheck({
+	label,
+	kind,
+	checked,
+	onChange,
+}: {
+	label: string;
+	kind: LogLevel | "service";
+	checked: boolean;
+	onChange: (on: boolean) => void;
+}) {
+	return (
+		<label className="pk-chipcheck" data-kind={kind}>
+			<input
+				type="checkbox"
+				className="pk-chipcheck-box"
+				checked={checked}
+				onChange={(event) => onChange(event.target.checked)}
+			/>
+			<span>{label}</span>
+		</label>
+	);
 }
 
 function toggled<T>(list: readonly T[], item: T, on: boolean): T[] {
@@ -184,61 +213,133 @@ export function LogsTab() {
 				text: "They never include students' files, commands or terminal output.",
 			}}
 		>
-			<ServiceLogLevel />
 			<form ref={formRef} onSubmit={apply} data-testid="logs-filters" noValidate>
-				<fieldset className="m-0 flex min-w-0 flex-wrap items-end gap-x-6 gap-y-4 rounded-md border-0 bg-surface-sunken p-4">
+				{/* One bar: what to search for on the first line, which lines on the second. */}
+				<fieldset className="pk-logbar m-0 min-w-0 border-0">
 					<legend className="sr-only">Filters</legend>
-					<fieldset
-						className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0"
-						// Named by the word alone, not also by its help button.
-						aria-labelledby="logs-levels-label"
-						aria-describedby={invalid.levels ? "logs-levels-err" : undefined}
-					>
-						<legend className="mb-1.5 p-0">
-							<span className="flex items-center gap-1">
-								<span className={LABEL_CLASS} id="logs-levels-label">
+					<div className="pk-logbar-row">
+						<TextField
+							id="logs-text"
+							label="Text"
+							type="search"
+							className="pk-logbar-search"
+							maxLength={200}
+							placeholder="Code, message or error"
+							value={draft.q}
+							onChange={(event) => setDraft({ ...draft, q: event.target.value })}
+						/>
+						<TextField
+							id="logs-person"
+							label="Person"
+							type="search"
+							className="w-56"
+							list="logs-people"
+							autoComplete="off"
+							placeholder="Name or email"
+							value={personText}
+							error={invalid.person}
+							onChange={(event) => setDraft({ ...draft, person: event.target.value })}
+						/>
+						<datalist id="logs-people">
+							{people.map((option) => (
+								<option key={option.id} value={option.label} />
+							))}
+						</datalist>
+						{/* A native select, as in the Users filter bar. */}
+						<div className={FIELD_CLASS}>
+							<label className={LABEL_CLASS} htmlFor="logs-window">
+								Time
+							</label>
+							<select
+								id="logs-window"
+								className={`${CONTROL_CLASS} w-36 cursor-pointer`}
+								data-testid="logs-window"
+								value={draft.window}
+								onChange={(event) =>
+									setDraft({ ...draft, window: event.target.value as Draft["window"] })
+								}
+							>
+								{LOG_WINDOWS.map((window) => (
+									<option key={window} value={window}>
+										{WINDOW_LABELS[window]}
+									</option>
+								))}
+								<option value="custom">Custom</option>
+							</select>
+						</div>
+						{draft.window === "custom" ? (
+							<>
+								<TextField
+									id="logs-from"
+									label="From"
+									type="datetime-local"
+									className="w-56"
+									value={draft.from}
+									error={invalid.from}
+									onChange={(event) => setDraft({ ...draft, from: event.target.value })}
+								/>
+								<TextField
+									id="logs-to"
+									label="To"
+									type="datetime-local"
+									className="w-56"
+									hint="Leave empty for now."
+									value={draft.to}
+									error={invalid.to}
+									onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+								/>
+							</>
+						) : null}
+						<div className="pk-logbar-actions">
+							<Button variant="primary" type="submit" data-testid="logs-filter-apply">
+								Apply filters
+							</Button>
+							<Button type="button" data-testid="logs-filter-clear" onClick={clear}>
+								Clear
+							</Button>
+						</div>
+					</div>
+					<div className="pk-logbar-row pk-logbar-row--chips">
+						<fieldset
+							className="pk-logbar-chips"
+							// Named by the word alone, not also by its help button.
+							aria-labelledby="logs-levels-label"
+							aria-describedby={invalid.levels ? "logs-levels-err" : undefined}
+						>
+							<legend className="pk-logbar-legend">
+								<span className="pk-overline" id="logs-levels-label">
 									Levels
 								</span>
 								<Toggletip label="Levels">
 									Debug lines exist only while the service log level is Debug. Info
 									lines exist unless it is Warn or Error.
 								</Toggletip>
-							</span>
-						</legend>
-						<div
-							className="flex h-[var(--pk-control)] flex-wrap items-center gap-4"
-							data-level-checks
-						>
-							{LOG_LEVELS.map((level) => (
-								<Checkbox
-									key={level}
-									label={LEVEL_LABELS[level]}
-									checked={draft.levels.includes(level)}
-									onChange={(event) =>
-										setDraft({
-											...draft,
-											levels: toggled(draft.levels, level, event.target.checked),
-										})
-									}
-								/>
-							))}
-						</div>
-						{invalid.levels ? (
-							<p
-								id="logs-levels-err"
-								className="pk-error m-0 text-[12px] leading-4 text-status-error"
-							>
-								{invalid.levels}
-							</p>
-						) : null}
-					</fieldset>
-					<fieldset
-						className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0"
-						aria-labelledby="logs-services-label"
-					>
-						<legend className="mb-1.5 p-0">
-							<span className="flex items-center gap-1">
-								<span className={LABEL_CLASS} id="logs-services-label">
+							</legend>
+							<div className="pk-logbar-chip-list" data-level-checks>
+								{LOG_LEVELS.map((level) => (
+									<ChipCheck
+										key={level}
+										label={LEVEL_LABELS[level]}
+										kind={level}
+										checked={draft.levels.includes(level)}
+										onChange={(on) =>
+											setDraft({ ...draft, levels: toggled(draft.levels, level, on) })
+										}
+									/>
+								))}
+							</div>
+							{invalid.levels ? (
+								<p
+									id="logs-levels-err"
+									className="pk-error m-0 basis-full text-[12px] leading-4 text-status-error"
+								>
+									{invalid.levels}
+								</p>
+							) : null}
+						</fieldset>
+						<fieldset className="pk-logbar-chips" aria-labelledby="logs-services-label">
+							<legend className="pk-logbar-legend">
+								<span className="pk-overline" id="logs-services-label">
 									Services
 								</span>
 								<Toggletip label="Services">
@@ -248,118 +349,38 @@ export function LogsTab() {
 									Network is the host firewall: a workspace that sent mail or hit its
 									outbound connection or packet limit.
 								</Toggletip>
-							</span>
-						</legend>
-						<div className="flex h-[var(--pk-control)] flex-wrap items-center gap-4">
-							{LOG_SERVICES.map((service) => (
+							</legend>
+							<div className="pk-logbar-chip-list">
+								{LOG_SERVICES.map((service) => (
+									<ChipCheck
+										key={service}
+										label={SERVICE_LABELS[service]}
+										kind="service"
+										checked={
+											draft.services.length === 0 || draft.services.includes(service)
+										}
+										onChange={(on) => {
+											const current =
+												draft.services.length === 0
+													? [...LOG_SERVICES]
+													: draft.services;
+											setDraft({ ...draft, services: toggled(current, service, on) });
+										}}
+									/>
+								))}
+							</div>
+						</fieldset>
+						{filters.workspace ? (
+							<div className="flex h-[var(--pk-control)] items-center">
 								<Checkbox
-									key={service}
-									label={SERVICE_LABELS[service]}
-									checked={
-										draft.services.length === 0 || draft.services.includes(service)
+									label={workspaceLabel(people, filters.workspace)}
+									checked={draft.onlyWorkspace}
+									onChange={(event) =>
+										setDraft({ ...draft, onlyWorkspace: event.target.checked })
 									}
-									onChange={(event) => {
-										const current =
-											draft.services.length === 0 ? [...LOG_SERVICES] : draft.services;
-										setDraft({
-											...draft,
-											services: toggled(current, service, event.target.checked),
-										});
-									}}
 								/>
-							))}
-						</div>
-					</fieldset>
-					{/* A native select, as in the Users filter bar. */}
-					<div className={FIELD_CLASS}>
-						<label className={LABEL_CLASS} htmlFor="logs-window">
-							Time
-						</label>
-						<select
-							id="logs-window"
-							className={`${CONTROL_CLASS} w-40 cursor-pointer`}
-							data-testid="logs-window"
-							value={draft.window}
-							onChange={(event) =>
-								setDraft({ ...draft, window: event.target.value as Draft["window"] })
-							}
-						>
-							{LOG_WINDOWS.map((window) => (
-								<option key={window} value={window}>
-									{WINDOW_LABELS[window]}
-								</option>
-							))}
-							<option value="custom">Custom</option>
-						</select>
-					</div>
-					{draft.window === "custom" ? (
-						<>
-							<TextField
-								id="logs-from"
-								label="From"
-								type="datetime-local"
-								className="w-56"
-								value={draft.from}
-								error={invalid.from}
-								onChange={(event) => setDraft({ ...draft, from: event.target.value })}
-							/>
-							<TextField
-								id="logs-to"
-								label="To"
-								type="datetime-local"
-								className="w-56"
-								hint="Leave empty for now."
-								value={draft.to}
-								error={invalid.to}
-								onChange={(event) => setDraft({ ...draft, to: event.target.value })}
-							/>
-						</>
-					) : null}
-					<TextField
-						id="logs-text"
-						label="Text"
-						type="search"
-						className="w-56"
-						maxLength={200}
-						placeholder="Code, message or error"
-						value={draft.q}
-						onChange={(event) => setDraft({ ...draft, q: event.target.value })}
-					/>
-					<TextField
-						id="logs-person"
-						label="Person"
-						type="search"
-						className="w-56"
-						list="logs-people"
-						autoComplete="off"
-						placeholder="Name or email"
-						value={personText}
-						error={invalid.person}
-						onChange={(event) => setDraft({ ...draft, person: event.target.value })}
-					/>
-					<datalist id="logs-people">
-						{people.map((option) => (
-							<option key={option.id} value={option.label} />
-						))}
-					</datalist>
-					{filters.workspace ? (
-						<div className="flex h-[var(--pk-control)] items-center">
-							<Checkbox
-								label={workspaceLabel(people, filters.workspace)}
-								checked={draft.onlyWorkspace}
-								onChange={(event) =>
-									setDraft({ ...draft, onlyWorkspace: event.target.checked })
-								}
-							/>
-						</div>
-					) : null}
-					<div className="pk-actions ml-auto">
-						<Button variant="primary" type="submit" data-testid="logs-filter-apply">
-							Apply filters
-						</Button>
-						<Button type="button" data-testid="logs-filter-clear" onClick={clear}>
-							Clear
-						</Button>
+							</div>
+						) : null}
 					</div>
 				</fieldset>
 			</form>
@@ -371,6 +392,8 @@ export function LogsTab() {
 				setAuto={setAuto}
 				sort={sort}
 				setSort={setSort}
+				// A setting, not a filter: it sits with the results' own controls, clear of the filter bar.
+				settings={<ServiceLogLevel />}
 			/>
 			<SortAnnouncement text={announcement} testId="logs-sort-announce" />
 		</AdminSection>

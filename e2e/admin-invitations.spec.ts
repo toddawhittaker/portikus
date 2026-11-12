@@ -17,7 +17,9 @@ async function invite(
 	page: Page,
 	person: { name: string; email: string; role: "student" | "instructor" },
 ): Promise<void> {
-	await page.getByRole("button", { name: "Invite…" }).click();
+	// Invite and Import sit in the More menu beside "Add user…".
+	await page.getByRole("button", { name: "More", exact: true }).click();
+	await page.getByRole("menuitem", { name: "Invite…" }).click();
 	const dialog = page.getByRole("dialog", { name: "Invite someone" });
 	await dialog.getByLabel("Name", { exact: true }).fill(person.name);
 	await dialog.getByLabel("Email", { exact: true }).fill(person.email);

@@ -185,10 +185,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 			// At 320 px (400% zoom of a 1280 px window) nothing scrolls sideways either.
 			await course.setViewportSize({ width: 320, height: 900 });
 			expect(await sidewaysOverflow(course)).toEqual({ table: 0, main: 0, page: 0 });
-			// The wide usage table scrolls inside its own box, not the page.
+			// The usage rows stack into labelled figures, so even their box never scrolls sideways.
 			const usageWrap = course.getByTestId("agent-usage-users").locator("..");
 			expect(await usageWrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
-				true,
+				false,
 			);
 			await expect(samName.locator("time")).toBeVisible();
 			// Taller rows push it down the scrolling <main>, never off to the side.

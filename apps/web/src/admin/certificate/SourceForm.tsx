@@ -14,6 +14,7 @@ import {
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
+import { CheckResult } from "../CheckResult.js";
 import { AcmeFields } from "./AcmeFields.js";
 import { Choice } from "./Choice.js";
 import {
@@ -382,22 +383,7 @@ function PreflightList({ checks }: { checks: CertificatePreflight }) {
 						className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2"
 						data-testid={`cert-check-${check.name}`}
 					>
-						<span
-							// One width for all three words, so the check names line up.
-							className={`w-18 justify-center ${
-								check.result === "failed"
-									? "pk-tag pk-tag--error"
-									: check.result === "warning"
-										? "pk-tag pk-tag--warning"
-										: "pk-tag"
-							}`}
-						>
-							{check.result === "failed"
-								? "Failed"
-								: check.result === "warning"
-									? "Warning"
-									: "Passed"}
-						</span>
+						<CheckResult result={check.result} />
 						<span>
 							<span className="font-semibold">{PREFLIGHT_LABEL[check.name]}</span>
 							{check.message ? (

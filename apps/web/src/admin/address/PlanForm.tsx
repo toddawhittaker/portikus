@@ -14,6 +14,7 @@ import {
 import { type FormEvent, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { AdminGroup as Group } from "../AdminSection.js";
+import { CheckResult } from "../CheckResult.js";
 import { Notice } from "../Notice.js";
 import { useAddressJob, useAddressPreflight, usePlan } from "./queries.js";
 import { addressText, CHECK_LABEL } from "./text.js";
@@ -215,22 +216,7 @@ function Checks({ result }: { result: CertificatePreflight }) {
 						className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2"
 						data-testid={`address-check-${check.name}`}
 					>
-						<span
-							// One width for all three words, so the check names line up.
-							className={`w-18 justify-center ${
-								check.result === "failed"
-									? "pk-tag pk-tag--error"
-									: check.result === "warning"
-										? "pk-tag pk-tag--warning"
-										: "pk-tag"
-							}`}
-						>
-							{check.result === "failed"
-								? "Failed"
-								: check.result === "warning"
-									? "Warning"
-									: "Passed"}
-						</span>
+						<CheckResult result={check.result} />
 						<span>
 							<span className="font-semibold">
 								{CHECK_LABEL[check.name] ?? check.name}
@@ -263,7 +249,7 @@ function PlanPart({ plan }: { plan: AddressPlan }) {
 					{plan.signinWarning}
 				</Notice>
 			) : null}
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dl className="pk-kv">
 				{values.map(([label, value, id]) => (
 					<div key={id} className="contents">
 						<dt className="pk-muted">{label}</dt>

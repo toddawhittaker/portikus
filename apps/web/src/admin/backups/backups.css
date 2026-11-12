@@ -1,0 +1,197 @@
+/*
+ * On a phone each backup set is a card of its own: the date first, then the
+ * result, then size and workspace count, then Restore and the set's menu at
+ * full touch size, so no column or action is cut off (SPEC.md section 25.8).
+ */
+@container admin-scroll (width < 35rem) {
+	.pk-backup-sets thead tr {
+		display: flex;
+		align-items: center;
+	}
+	.pk-backup-sets thead th:nth-child(n + 3) {
+		display: none;
+	}
+	.pk-backup-sets thead th:nth-child(2) {
+		flex: 1;
+	}
+	.pk-backup-sets tbody tr {
+		display: grid;
+		grid-template-columns: 1.5rem max-content minmax(0, 1fr);
+		grid-template-areas:
+			"select when when"
+			"select result result"
+			"select size count"
+			"select actions actions";
+		column-gap: var(--space-3);
+		row-gap: var(--space-1);
+		padding: var(--space-3);
+		border-block-end: 1px solid var(--line);
+	}
+	.pk-backup-sets tbody tr:last-child {
+		border-block-end: 0;
+	}
+	.pk-backup-sets tbody :is(td, th) {
+		display: block;
+		height: auto;
+		min-width: 0;
+		padding: 0;
+		border: 0;
+		white-space: normal;
+		background: none;
+	}
+	.pk-backup-sets tbody td:nth-child(1) {
+		grid-area: select;
+		padding-block-start: 2px;
+	}
+	.pk-backup-sets tbody th {
+		grid-area: when;
+		font-size: 15px;
+		font-weight: 600;
+		line-height: 22px;
+	}
+	.pk-backup-sets tbody td:nth-child(3) {
+		grid-area: result;
+		color: var(--ink-muted);
+	}
+	.pk-backup-sets tbody td:nth-child(4) {
+		grid-area: size;
+	}
+	.pk-backup-sets tbody td.pk-num {
+		text-align: start;
+	}
+	.pk-backup-sets tbody td:nth-child(5) {
+		grid-area: count;
+	}
+	.pk-backup-sets tbody td:nth-child(4)::before {
+		content: "Size ";
+		color: var(--ink-muted);
+	}
+	.pk-backup-sets tbody td:nth-child(5)::before {
+		content: "Workspaces ";
+		color: var(--ink-muted);
+	}
+	.pk-backup-sets tbody td.pk-cell-actions {
+		grid-area: actions;
+		width: auto;
+		padding-block-start: var(--space-2);
+	}
+	.pk-backup-sets .pk-backup-actions > .pk-btn {
+		flex: 1;
+	}
+}
+
+/*
+ * Recovery readiness: the last fourteen nights as squares. A complete night
+ * is the running green, a failed one the error red, an incomplete one amber,
+ * a night with no set only an outline, and tonight's run a dashed outline.
+ */
+.pk-nights {
+	display: grid;
+	gap: var(--space-2);
+}
+.pk-nights-summary {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--ink-muted);
+}
+.pk-nights-count {
+	font-weight: 600;
+	color: var(--ink);
+	font-variant-numeric: tabular-nums;
+}
+.pk-nights-strip {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.pk-night {
+	display: inline-block;
+	flex: none;
+	box-sizing: border-box;
+	inline-size: 28px;
+	block-size: 28px;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--line-strong);
+	background: transparent;
+}
+.pk-night[data-kind="complete"] {
+	border-color: var(--status-running);
+	background: var(--status-running);
+}
+.pk-night[data-kind="incomplete"] {
+	border-color: var(--status-warning);
+	background: var(--status-warning);
+}
+.pk-night[data-kind="failed"] {
+	border-color: var(--status-error);
+	background: var(--status-error);
+}
+.pk-night[data-kind="scheduled"] {
+	border-style: dashed;
+	border-color: var(--accent);
+}
+.pk-nights-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--ink-muted);
+}
+.pk-nights-legend li {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+}
+.pk-nights-legend .pk-night {
+	inline-size: 12px;
+	block-size: 12px;
+	border-radius: 3px;
+}
+/* On a phone the fourteen squares share the row, so none wraps alone. */
+@container admin-scroll (width < 35rem) {
+	.pk-nights-strip {
+		display: grid;
+		grid-template-columns: repeat(14, minmax(0, 1fr));
+		gap: 3px;
+	}
+	.pk-nights-strip .pk-night {
+		inline-size: auto;
+		block-size: 22px;
+	}
+}
+
+/* A set's ordinary result reads as a dot and a word; only trouble gets a badge. */
+.pk-quiet-ok {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+}
+.pk-quiet-ok::before {
+	content: "";
+	inline-size: 8px;
+	block-size: 8px;
+	border-radius: 50%;
+	background: var(--status-running);
+}
+
+/* The readiness facts sit beside the strip on a wide card and under it on a narrow one. */
+.pk-readiness {
+	display: grid;
+	gap: var(--space-5);
+	grid-template-columns: minmax(0, 1fr);
+}
+@container (width >= 60rem) {
+	.pk-readiness {
+		grid-template-columns: auto minmax(0, 1fr);
+		column-gap: var(--space-8);
+		align-items: start;
+	}
+}

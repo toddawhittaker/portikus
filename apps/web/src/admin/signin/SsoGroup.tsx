@@ -92,7 +92,21 @@ function SsoBody({ data }: { data: AdminSignin }) {
 	}, [trial]);
 	return (
 		<div className="grid gap-5">
-			{view ? <CurrentSettings view={view} /> : null}
+			{/* The form below holds every value, so beside it the current settings are one line;
+			    a trial or a directory server, which the form cannot show, keep the full list. */}
+			{view ? (
+				trial || view.provider === "ldap" ? (
+					<CurrentSettings view={view} />
+				) : (
+					<p className="pk-text-compact m-0" data-testid="sso-current">
+						<span className="text-ink-muted">In use: </span>
+						<strong className="font-semibold">{PROVIDER_LABEL[view.provider]}</strong>
+						{view.googleDomains.length > 0
+							? ` for ${view.googleDomains.join(", ")}`
+							: ""}
+					</p>
+				)
+			) : null}
 			{/* Always mounted, so each change of the job's state is read out (SPEC.md section 25.8). */}
 			<div role="status" data-testid="sso-job">
 				{trial ? (
@@ -132,10 +146,7 @@ function CurrentSettings({ view }: { view: SigninView }) {
 	}
 	return (
 		<div className="grid gap-3">
-			<dl
-				className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-[13px]"
-				data-testid="sso-current"
-			>
+			<dl className="pk-kv" data-testid="sso-current">
 				{rows.map(([term, value]) => (
 					<div key={term} className="contents">
 						<dt className="text-ink-muted">{term}</dt>

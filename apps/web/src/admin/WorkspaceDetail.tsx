@@ -1,6 +1,14 @@
 import type { AdminUser } from "@portikus/contracts";
-import { IconButton } from "@portikus/ui";
-import { useEffect, useRef } from "react";
+import {
+	Icon,
+	IconButton,
+	TabsContent,
+	TabsList,
+	TabsRoot,
+	TabsTrigger,
+} from "@portikus/ui";
+import { useEffect, useRef, useState } from "react";
+import "../shell/right-pane.css";
 import { errorText } from "../api/request.js";
 import { ProcessesSection } from "./ProcessesSection.js";
 import { useAdminWorkspace } from "./queries.js";
@@ -12,7 +20,22 @@ import { GuardSection } from "./workspace-detail/GuardSection.js";
 import { HeadState } from "./workspace-detail/HeadState.js";
 import { PortsSection } from "./workspace-detail/PortsSection.js";
 import { ResourcesSection } from "./workspace-detail/ResourcesSection.js";
-import { WorkspaceSection } from "./workspace-detail/WorkspaceSection.js";
+import {
+	DestructiveSection,
+	WorkspaceSection,
+} from "./workspace-detail/WorkspaceSection.js";
+
+type InspectorTab = "overview" | "activity" | "account";
+
+const INSPECTOR_TABS: readonly {
+	id: InspectorTab;
+	label: string;
+	icon: "activity" | "list" | "users";
+}[] = [
+	{ id: "overview", label: "Overview", icon: "activity" },
+	{ id: "activity", label: "Activity", icon: "list" },
+	{ id: "account", label: "Account", icon: "users" },
+];
 
 /** The panel beside the table for one account and its workspace (SPEC.md §20.1). */
 export function WorkspaceDetail({
@@ -31,10 +54,16 @@ export function WorkspaceDetail({
 	const userId = user.id;
 	// Sections that need the detail wait for it; an account without a workspace has none to wait for.
 	const settled = data !== null || workspaceId === null;
+	// A throttle or memory flag is what the reader came for, so the guard leads.
+	const problem =
+		data !== null && (data.cpuThrottle !== null || data.memoryFlag !== null);
 
-	// Opening a panel moves focus to its heading so the change is announced.
+	const [tab, setTab] = useState<InspectorTab>("overview");
+	// Opening a panel moves focus to its heading so the change is announced, on its first tab.
 	useEffect(() => {
-		if (userId) headingRef.current?.focus();
+		if (!userId) return;
+		setTab("overview");
+		headingRef.current?.focus();
 	}, [userId]);
 
 	return (
@@ -45,7 +74,8 @@ export function WorkspaceDetail({
 			aria-labelledby="detail-title"
 			data-testid="workspace-detail"
 		>
-			<div className="pk-detail-head">
+			{/* Stays in view while the panel scrolls, with the lifecycle actions. */}
+			<div className="pk-detail-head sticky top-0 z-[1] bg-surface-raised shadow-[0_1px_0_var(--line)]">
 				<div className="flex min-w-0 flex-col gap-2">
 					<div className="flex min-w-0 flex-col gap-0.5">
 						<h3
@@ -71,51 +101,101 @@ export function WorkspaceDetail({
 					onClick={onClose}
 				/>
 			</div>
-			{settled ? null : (
-				<div className="pk-detail-section">
-					{detail.isError ? (
-						<p className="m-0 text-status-error" role="alert">
-							{errorText(detail.error)}
-						</p>
+			<TabsRoot
+				value={tab}
+				onValueChange={(value) => setTab(value as InspectorTab)}
+				className="flex min-h-0 flex-col"
+			>
+				<TabsList
+					className="pk-pane-tabs pk-inspector-tabs"
+					aria-label="Workspace details"
+				>
+					{INSPECTOR_TABS.map((item) => (
+						<TabsTrigger
+							key={item.id}
+							value={item.id}
+							className="pk-pane-tab"
+							data-testid={`detail-tab-${item.id}`}
+						>
+							<span className="pk-pane-tab-face">
+								<Icon name={item.icon} />
+								<span className="pk-pane-tab-label">{item.label}</span>
+								{item.id === "overview" && problem ? (
+									<span
+										className="pk-inspector-tab-mark"
+										aria-label="needs attention"
+										role="img"
+									/>
+								) : null}
+							</span>
+						</TabsTrigger>
+					))}
+				</TabsList>
+				{settled ? null : (
+					<div className="pk-detail-section">
+						{detail.isError ? (
+							<p className="m-0 text-status-error" role="alert">
+								{errorText(detail.error)}
+							</p>
+						) : (
+							<p className="pk-text-compact pk-muted m-0" aria-busy="true">
+								Loading…
+							</p>
+						)}
+					</div>
+				)}
+				{/* Every part stays mounted, so a reading or an edit in progress survives a tab switch. */}
+				<TabsContent value="overview" forceMount={true} className="pk-inspector-panel">
+					{data ? (
+						<ErrorSection
+							detail={data}
+							ownerName={user.displayName}
+							onReprovisioned={() => headingRef.current?.focus()}
+						/>
+					) : null}
+					{data && problem ? (
+						<GuardSection detail={data} ownerName={user.displayName} />
+					) : null}
+					{settled ? <ResourcesSection detail={data} user={user} /> : null}
+					{data && !problem ? (
+						<GuardSection detail={data} ownerName={user.displayName} />
+					) : null}
+					{settled ? (
+						<WorkspaceSection detail={data} ownerName={user.displayName} />
+					) : null}
+				</TabsContent>
+				<TabsContent value="activity" forceMount={true} className="pk-inspector-panel">
+					{data ? (
+						<>
+							<ProcessesSection
+								key={data.workspace.id}
+								workspaceId={data.workspace.id}
+								running={data.workspace.state === "running"}
+								ownerName={user.displayName}
+							/>
+							<PortsSection detail={data} />
+							<AgentLogSection
+								key={`agent-log-${data.workspace.id}`}
+								workspaceId={data.workspace.id}
+								running={data.workspace.state === "running"}
+							/>
+							<AuditSection detail={data} />
+						</>
 					) : (
-						<p className="pk-text-compact pk-muted m-0" aria-busy="true">
-							Loading…
-						</p>
+						<div className="pk-detail-section">
+							<p className="pk-muted m-0 text-[13px]">
+								No workspace, so nothing runs for this account.
+							</p>
+						</div>
 					)}
-				</div>
-			)}
-			{data ? (
-				<ErrorSection
-					detail={data}
-					ownerName={user.displayName}
-					onReprovisioned={() => headingRef.current?.focus()}
-				/>
-			) : null}
-			{settled ? (
-				<>
-					<WorkspaceSection detail={data} ownerName={user.displayName} />
-					<ResourcesSection detail={data} user={user} />
-				</>
-			) : null}
-			{data ? (
-				<>
-					<GuardSection detail={data} ownerName={user.displayName} />
-					<ProcessesSection
-						key={data.workspace.id}
-						workspaceId={data.workspace.id}
-						running={data.workspace.state === "running"}
-						ownerName={user.displayName}
-					/>
-					<PortsSection detail={data} />
-					<AgentLogSection
-						key={`agent-log-${data.workspace.id}`}
-						workspaceId={data.workspace.id}
-						running={data.workspace.state === "running"}
-					/>
-				</>
-			) : null}
-			<AccountSection user={user} isSelf={isSelf} />
-			{data ? <AuditSection detail={data} /> : null}
+				</TabsContent>
+				<TabsContent value="account" forceMount={true} className="pk-inspector-panel">
+					<AccountSection user={user} isSelf={isSelf} />
+					{data ? (
+						<DestructiveSection detail={data} ownerName={user.displayName} />
+					) : null}
+				</TabsContent>
+			</TabsRoot>
 		</section>
 	);
 }

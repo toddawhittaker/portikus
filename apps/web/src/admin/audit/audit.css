@@ -1,0 +1,92 @@
+/*
+ * Audit rows read as an account of events: the event in words, its change
+ * underneath in the muted ink with old values fainter, and the raw action
+ * name last. A row that did not succeed keeps a red strip at its start.
+ */
+.pk-audit-row {
+	cursor: pointer;
+}
+.pk-audit-row > td {
+	padding-block: var(--space-2);
+	vertical-align: top;
+}
+.pk-audit-row[data-result="problem"] > td:first-child {
+	box-shadow: inset 3px 0 0 var(--status-error);
+}
+.pk-audit-row[aria-selected="true"] > td:first-child {
+	box-shadow: inset 3px 0 0 var(--accent);
+}
+.pk-audit-time {
+	color: var(--ink-muted);
+	white-space: nowrap;
+}
+.pk-audit-event {
+	min-width: 18rem;
+}
+.pk-audit-name {
+	display: block;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 500;
+	color: var(--ink);
+}
+.pk-audit-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 2px var(--space-3);
+	font-size: var(--text-xs);
+	line-height: var(--leading-sm);
+	color: var(--ink-muted);
+}
+.pk-audit-summary {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 2px var(--space-3);
+	min-width: 0;
+	max-width: 48ch;
+}
+.pk-audit-part {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+.pk-audit-label {
+	color: var(--ink-muted);
+}
+.pk-audit-was {
+	color: var(--ink-muted);
+	text-decoration: line-through;
+	text-decoration-color: var(--line-strong);
+}
+.pk-audit-value {
+	color: var(--ink);
+	font-weight: 500;
+}
+/* The action's own name leads the second line, so the codes line up down the column. */
+.pk-audit-code {
+	order: -1;
+	color: var(--ink-muted);
+}
+.pk-audit-full {
+	font-size: var(--text-xs);
+}
+/* An entity link: ink text that underlines in the accent on hover and focus. */
+.pk-entity-link {
+	color: var(--ink);
+	font-weight: 500;
+	text-decoration: none;
+}
+.pk-entity-link:is(:hover, :focus-visible) {
+	text-decoration: underline;
+	text-decoration-color: var(--accent);
+	text-underline-offset: 3px;
+}
+.pk-audit-open > .pk-icon {
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+.pk-audit-row[aria-selected="true"] .pk-audit-open > .pk-icon {
+	transform: rotate(180deg);
+}

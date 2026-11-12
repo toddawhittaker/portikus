@@ -5,7 +5,7 @@
  */
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type BrowserContext, expect, type Page } from "@playwright/test";
@@ -29,6 +29,9 @@ const GIB = 1024 ** 3;
 const IMAGES = join(import.meta.dirname, "../../docs/images");
 const RAW = join(tmpdir(), "portikus-screenshots");
 mkdirSync(RAW, { recursive: true });
+// A grader's copy of each full-colour shot, before the 256-colour reduction.
+const RAW_OUT = process.env.CAPTURE_RAW_OUT;
+if (RAW_OUT) mkdirSync(RAW_OUT, { recursive: true });
 
 /** Wait for fonts and animations, take the shot, and reduce it to 256 colours. */
 export async function shoot(
@@ -53,6 +56,7 @@ export async function shoot(
 		clip: options.clip,
 		style: options.keepToasts ? undefined : ".pk-toast { visibility: hidden; }",
 	});
+	if (RAW_OUT) copyFileSync(raw, join(RAW_OUT, name));
 	execFileSync(process.env.IMAGEMAGICK ?? "convert", [
 		raw,
 		"-colors",

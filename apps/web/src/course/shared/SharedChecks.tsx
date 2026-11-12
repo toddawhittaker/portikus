@@ -31,7 +31,7 @@ export function SharedChecks({
 					No checks configured.
 				</p>
 			) : (
-				<ul className="pk-check-list" data-testid="shared-checks">
+				<ul className="pk-check-list pk-shared-checks" data-testid="shared-checks">
 					{checks.checks.map((check) => {
 						const run = check.lastRun;
 						const badge = CHECK_BADGE[run?.state ?? "idle"];
@@ -45,7 +45,7 @@ export function SharedChecks({
 									<span className="pk-check-text">
 										<span className="pk-check-name">{check.name}</span>
 										{run ? (
-											<span className="pk-check-command">
+											<span className="pk-shared-check-when pk-num">
 												{run.endedAt ? "Finished" : "Started"}{" "}
 												{dateTimeText(run.endedAt ?? run.startedAt)}
 											</span>

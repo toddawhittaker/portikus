@@ -257,7 +257,7 @@ describe("ConfirmDialog", () => {
 	it("is destructive by default: danger button, alert icon, red lost heading", () => {
 		render(<Fixture />);
 		const confirm = screen.getByRole("button", { name: "Archive project" });
-		expect(confirm.className).toContain("bg-status-danger");
+		expect(confirm.className).toContain("bg-danger-fill");
 		expect(screen.getByText("Will be removed").className).toContain(
 			"text-status-danger",
 		);
@@ -282,7 +282,7 @@ describe("ConfirmDialog", () => {
 		);
 		const confirm = screen.getByRole("button", { name: "Archive project" });
 		expect(confirm.className).toContain("bg-accent");
-		expect(confirm.className).not.toContain("bg-status-danger");
+		expect(confirm.className).not.toContain("bg-danger-fill");
 		expect(screen.getByText("Will be removed").className).toContain("text-ink");
 		expect(screen.getByText("Will be removed").className).not.toContain(
 			"text-status-danger",

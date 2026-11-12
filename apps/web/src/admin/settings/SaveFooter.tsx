@@ -1,4 +1,4 @@
-import { Button } from "@portikus/ui";
+import { Button, Icon } from "@portikus/ui";
 import { type ReactNode, useRef } from "react";
 import { unsavedText } from "./unsaved.js";
 
@@ -14,7 +14,7 @@ export function footerState({
 	firstError: string | null;
 	failure: string | null;
 	justSaved: boolean;
-}): { text: string; strong: boolean } {
+}): { text: string; strong: boolean; saved?: boolean } {
 	if (firstError) {
 		return {
 			text: `Not saved. ${unsavedText(count)}; fix ${firstError} and save again.`,
@@ -23,7 +23,7 @@ export function footerState({
 	}
 	if (failure) return { text: `Not saved. ${failure}`, strong: true };
 	if (count > 0) return { text: unsavedText(count), strong: true };
-	if (justSaved) return { text: "Saved.", strong: false };
+	if (justSaved) return { text: "Saved.", strong: false, saved: true };
 	return { text: "No unsaved changes.", strong: false };
 }
 
@@ -45,7 +45,7 @@ export function SaveFooter({
 	children,
 }: {
 	id: string;
-	state: { text: string; strong: boolean };
+	state: { text: string; strong: boolean; saved?: boolean };
 	count: number;
 	saveLabel: string;
 	pending: boolean;
@@ -66,15 +66,26 @@ export function SaveFooter({
 	const stateId = `${id}-status`;
 	const describedBy = [idle ? stateId : null, noteId].filter(Boolean).join(" ");
 	return (
-		<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+		<div
+			className="pk-save-footer flex flex-wrap items-center justify-between gap-x-4 gap-y-3"
+			data-dirty={count > 0 ? "" : undefined}
+		>
 			<div className="grid min-w-0 flex-[1_1_16rem] gap-1 text-[length:var(--pk-font)]">
 				{/* Always mounted, so each change is read out (SPEC.md section 25.8). */}
 				<p
 					role="status"
-					className={`m-0 [overflow-wrap:anywhere] ${state.strong ? "font-semibold text-ink" : "pk-muted"}`}
+					className={`m-0 [overflow-wrap:anywhere] ${state.strong ? "font-semibold text-ink" : state.saved ? "font-semibold text-status-running" : "pk-muted"}`}
 					id={stateId}
 					data-testid={`${id}-state`}
 				>
+					{state.strong ? (
+						<span
+							aria-hidden="true"
+							className="me-2 inline-block size-2 rounded-full bg-status-warning align-middle"
+						/>
+					) : state.saved ? (
+						<Icon name="check" size="sm" className="me-1.5 inline-block align-[-3px]" />
+					) : null}
 					{state.text}
 				</p>
 				{busy || note ? (

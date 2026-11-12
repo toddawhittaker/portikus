@@ -25,7 +25,9 @@ async function openImport(page: Page) {
 	await loginAs(page, "carol");
 	await page.goto("/admin");
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-	await page.getByRole("button", { name: "Import from CSV…" }).click();
+	// Invite and Import sit in the More menu beside "Add user…".
+	await page.getByRole("button", { name: "More", exact: true }).click();
+	await page.getByRole("menuitem", { name: "Import from CSV…" }).click();
 	const dialog = page.getByRole("dialog", { name: "Import from CSV" });
 	await expect(dialog).toBeVisible();
 	return dialog;

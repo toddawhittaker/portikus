@@ -13,7 +13,7 @@ import { useDraft } from "./draft.js";
 import { estimate, LANGUAGE_MIB } from "./estimate.js";
 import { footerState, SaveFooter } from "./SaveFooter.js";
 import { SectionCard, SectionGroup, SectionNotLoaded } from "./SectionCard.js";
-import { NotSaved } from "./SettingRow.js";
+import { MoreAbout, NotSaved } from "./SettingRow.js";
 import { useSaveSettings } from "./save.js";
 import { SECTIONS } from "./sections.js";
 import { useReportUnsaved } from "./unsaved.js";
@@ -98,7 +98,8 @@ export function ToolsSection() {
 				<SectionGroup
 					id="code-help-title"
 					title="Code help"
-					description="Completion, hover, go to definition, rename, format and error checking in the editor. Most languages run a language server in each student's workspace while a file of that language is open, so each one costs memory."
+					description="Completion, hover, go to definition, rename, format and error checking in the editor."
+					more="Most languages run a language server in each student's workspace while a file of that language is open, so each one costs memory."
 				>
 					<fieldset
 						className="m-0 grid min-w-0 gap-2 border-0 p-0"
@@ -301,11 +302,11 @@ function CodeHelpEstimate({ ticked }: { ticked: readonly CodeHelpLanguage[] }) {
 					</tbody>
 				</table>
 			</div>
-			<p className={`${HINT_CLASS} max-w-[72ch]`}>
-				Worst case, with every ticked language open at once. Memory only.
-				{memory ? ` ${memory}` : ""} Workspace figures are from the 25-student load
-				test; a real coding agent can use more than the test's.
-			</p>
+			<p className={HINT_CLASS}>Worst case, with every ticked language open at once.</p>
+			<MoreAbout label="This estimate">
+				Memory only.{memory ? ` ${memory}` : ""} Workspace figures are from the
+				25-student load test; a real coding agent can use more than the test's.
+			</MoreAbout>
 		</div>
 	);
 }

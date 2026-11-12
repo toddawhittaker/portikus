@@ -138,7 +138,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(dialog).toBeVisible();
 		// Enabling takes nothing away, so the confirm is not drawn as danger.
 		const confirm = dialog.getByRole("button", { name: "Enable" });
-		await expect(confirm).not.toHaveClass(/bg-status-danger/);
+		await expect(confirm).not.toHaveClass(/bg-danger-fill/);
 		await expectNoViolations(page);
 	});
 }

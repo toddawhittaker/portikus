@@ -14,7 +14,7 @@ import {
 } from "../queries.js";
 import { LinkDialog } from "./LinkDialog.js";
 import { useAccountLinks, useChangeLink } from "./linkQueries.js";
-import { PANEL_HELP, SECTION_HEADING, WithTip } from "./shared.js";
+import { SECTION_HEADING } from "./shared.js";
 
 /** Why Promote or Demote is off for this account, or null when it is on (ADR 0026). */
 export function roleChangeNote(user: AdminUser, isSelf: boolean): string | null {
@@ -42,7 +42,6 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 			name="role"
 			verb={promote ? "Promote" : "Demote"}
 			note={roleChangeNote(user, isSelf)}
-			tip={promote ? PANEL_HELP.promote : null}
 			ariaLabel={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
 			title={promote ? `Make ${name} an administrator?` : `Demote ${name}?`}
 			description={
@@ -68,8 +67,8 @@ type GrantMutation<V> = Pick<
 
 /**
  * A button that grants or removes a role after a confirm dialog, with the
- * reason it is off shown beneath it (SPEC.md §20.1). `verb` is the button,
- * tip and confirm wording and gives the test ids; `name` gives the note and
+ * reason it is off shown beneath it (SPEC.md §20.1). `verb` is the button
+ * and confirm wording and gives the test ids; `name` gives the note and
  * error ids.
  */
 function GrantChange<V extends { userId: string }>({
@@ -78,7 +77,6 @@ function GrantChange<V extends { userId: string }>({
 	name,
 	verb,
 	note,
-	tip,
 	ariaLabel,
 	title,
 	description,
@@ -90,7 +88,6 @@ function GrantChange<V extends { userId: string }>({
 	name: "role" | "instructor";
 	verb: string;
 	note: string | null;
-	tip: string | null;
 	ariaLabel: string;
 	title: string;
 	description: string;
@@ -120,18 +117,17 @@ function GrantChange<V extends { userId: string }>({
 
 	return (
 		<>
-			<WithTip label={verb} tip={tip}>
-				<Button
-					size="sm"
-					data-testid={`detail-${slug}`}
-					aria-label={ariaLabel}
-					aria-describedby={note ? noteId : undefined}
-					aria-disabled={note ? true : undefined}
-					onClick={() => (note ? undefined : open(true))}
-				>
-					{`${verb}…`}
-				</Button>
-			</WithTip>
+			<Button
+				size="sm"
+				data-testid={`detail-${slug}`}
+				aria-label={ariaLabel}
+				aria-describedby={note ? noteId : undefined}
+				aria-disabled={note ? true : undefined}
+				aria-haspopup="dialog"
+				onClick={() => (note ? undefined : open(true))}
+			>
+				{verb}
+			</Button>
 			{note ? (
 				<p id={noteId} className="pk-text-compact pk-muted m-0 w-full">
 					{note}
@@ -191,7 +187,6 @@ function InstructorChange({ user }: { user: AdminUser }) {
 			name="instructor"
 			verb={make ? "Make instructor" : "Remove instructor"}
 			note={instructorChangeNote(user)}
-			tip={make ? PANEL_HELP.makeInstructor : null}
 			ariaLabel={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
 			title={make ? `Make ${name} an instructor?` : `Remove instructor from ${name}?`}
 			description={
@@ -387,8 +382,12 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 						"Never"
 					)}
 				</dd>
-				<dt>Username</dt>
-				<dd className="pk-mono-small break-all">{user.preferredUsername ?? "—"}</dd>
+				{user.preferredUsername ? (
+					<>
+						<dt>Username</dt>
+						<dd className="pk-mono-small break-all">{user.preferredUsername}</dd>
+					</>
+				) : null}
 				<dt>Email</dt>
 				<dd className="break-all" data-testid="detail-email">
 					{user.email ?? "—"}
@@ -415,26 +414,23 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 			{isCourseAccount(user.issuer) ? null : <LinkedAccounts user={user} />}
 			{/* Disabling is the heaviest action, so it sits alone and last. */}
 			<div className="pk-actions">
-				<WithTip
-					label={disabled ? "Enable account" : "Disable account"}
-					tip={disabled ? null : PANEL_HELP.disable}
+				<Button
+					size="sm"
+					variant={disabled ? "secondary" : "danger-secondary"}
+					aria-haspopup={disabled ? undefined : "dialog"}
+					data-testid="detail-disable"
+					aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
+					aria-describedby={isSelf ? selfNoteId : undefined}
+					aria-disabled={isSelf ? true : undefined}
+					loading={disabled && setDisabled.isPending}
+					onClick={() => {
+						if (isSelf) return;
+						if (disabled) run(false);
+						else setConfirming(true);
+					}}
 				>
-					<Button
-						size="sm"
-						data-testid="detail-disable"
-						aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
-						aria-describedby={isSelf ? selfNoteId : undefined}
-						aria-disabled={isSelf ? true : undefined}
-						loading={disabled && setDisabled.isPending}
-						onClick={() => {
-							if (isSelf) return;
-							if (disabled) run(false);
-							else setConfirming(true);
-						}}
-					>
-						{disabled ? "Enable account" : "Disable account…"}
-					</Button>
-				</WithTip>
+					{disabled ? "Enable account" : "Disable account"}
+				</Button>
 			</div>
 			{isSelf ? (
 				<p id={selfNoteId} className="pk-text-compact pk-muted m-0">

@@ -253,15 +253,31 @@ export function ProcessesSection({
 			className="pk-detail-section"
 			data-testid="detail-processes"
 		>
-			<h4
-				id="detail-processes"
-				ref={headingRef}
-				tabIndex={-1}
-				// The panel's section heading style (WorkspaceDetail SECTION_HEADING).
-				className="pk-group-label outline-none"
-			>
-				Processes
-			</h4>
+			<div className="flex items-center justify-between gap-2">
+				<h4
+					id="detail-processes"
+					ref={headingRef}
+					tabIndex={-1}
+					// The panel's section heading style (WorkspaceDetail SECTION_HEADING).
+					className="pk-group-label outline-none"
+				>
+					Processes
+				</h4>
+				{running ? (
+					<Button
+						size="sm"
+						className="flex-none"
+						aria-label={`Refresh processes in ${ownerName}'s workspace`}
+						loading={reading.phase === "waiting"}
+						onClick={() => {
+							if (reading.phase !== "waiting") void refresh();
+						}}
+						data-testid="processes-refresh"
+					>
+						Refresh
+					</Button>
+				) : null}
+			</div>
 			{/* Always mounted, so each outcome is announced (SPEC.md §25.8). */}
 			<span role="status" className="sr-only" data-testid="processes-announce">
 				{announcement}
@@ -381,21 +397,6 @@ export function ProcessesSection({
 					</table>
 				</>
 			)}
-			{running ? (
-				<div className="pk-actions">
-					<Button
-						size="sm"
-						aria-label={`Refresh processes in ${ownerName}'s workspace`}
-						loading={reading.phase === "waiting"}
-						onClick={() => {
-							if (reading.phase !== "waiting") void refresh();
-						}}
-						data-testid="processes-refresh"
-					>
-						Refresh
-					</Button>
-				</div>
-			) : null}
 			{stopping ? (
 				<ConfirmDialogRoot open onOpenChange={(open) => !open && close()}>
 					<ConfirmDialog

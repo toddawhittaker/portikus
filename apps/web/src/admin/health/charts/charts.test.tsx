@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { BarChart, seriesAt } from "./BarChart.js";
-import { LineChart, linePath } from "./LineChart.js";
+import { areaPath, LineChart, linePath } from "./LineChart.js";
 import { DEFAULT_WIDTH, moveCursor, plotOf, timeLabelPositions } from "./readout.js";
 import type { ChartFrame } from "./scales.js";
 
@@ -23,9 +23,26 @@ test("arrows move one bucket, Home and End jump to the ends", () => {
 	expect(moveCursor("End", null, 0)).toBeNull();
 });
 
+test("one missing bucket between values is bridged", () => {
+	const plot = plotOf(DEFAULT_WIDTH, ["100"]);
+	const path = linePath(FRAME, [10, null, 20, null], 100, plot);
+	expect(path.match(/M/g)).toHaveLength(1);
+	expect(path.match(/L/g)).toHaveLength(1);
+});
+
+test("the area under a series closes on the zero line, one shape per run", () => {
+	const plot = plotOf(DEFAULT_WIDTH, ["100"]);
+	const area = areaPath(FRAME, [10, 20, null, null, 30], 100, plot);
+	expect(area.match(/Z/g)).toHaveLength(1);
+	expect(area.startsWith("M")).toBe(true);
+	expect(
+		areaPath(FRAME, [10, 20, null, null, 30, 40], 100, plot).match(/Z/g),
+	).toHaveLength(2);
+});
+
 test("a gap starts a new line segment, and a lone point is a dot", () => {
 	const plot = plotOf(DEFAULT_WIDTH, ["100"]);
-	const path = linePath(FRAME, [10, 20, null, 30], 100, plot);
+	const path = linePath(FRAME, [10, 20, null, null, 30], 100, plot);
 	expect(path.match(/M/g)).toHaveLength(2);
 	expect(path).toMatch(/ l0 0$/);
 	expect(linePath(FRAME, [null, null, null, null], 100, plot)).toBe("");

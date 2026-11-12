@@ -5,7 +5,7 @@ import type {
 	GuardConfig,
 	MemoryFlag,
 } from "@portikus/contracts";
-import { Button, useToast } from "@portikus/ui";
+import { Button, Icon, useToast } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { shortTime } from "../../text.js";
@@ -116,22 +116,24 @@ export function GuardSection({
 				Resource guard
 			</h4>
 			<dl className="pk-dl">
-				<TipTerm label="CPU throttle" tip={PANEL_HELP.cpu}>
-					CPU
-				</TipTerm>
+				<dt>CPU</dt>
 				<dd
-					className={cpuThrottle ? "text-status-warning" : undefined}
+					className={cpuThrottle ? "pk-guard-flag" : undefined}
 					data-testid="detail-guard-cpu"
 				>
+					{cpuThrottle ? (
+						<Icon name="alert" size="sm" className="text-status-warning" />
+					) : null}
 					{throttleText(cpuThrottle)}
 				</dd>
-				<TipTerm label="High memory" tip={PANEL_HELP.memory}>
-					Memory
-				</TipTerm>
+				<dt>Memory</dt>
 				<dd
-					className={memoryFlag ? "text-status-warning" : undefined}
+					className={memoryFlag ? "pk-guard-flag" : undefined}
 					data-testid="detail-guard-memory"
 				>
+					{memoryFlag ? (
+						<Icon name="alert" size="sm" className="text-status-warning" />
+					) : null}
 					{memoryFlagText(memoryFlag)}
 				</dd>
 				<TipTerm label="Last input" tip={PANEL_HELP.lastInput}>
@@ -163,6 +165,7 @@ export function GuardSection({
 				{cpuThrottle ? (
 					<Button
 						size="sm"
+						variant="primary"
 						data-testid="detail-lift-throttle"
 						aria-label={`Lift throttle on ${ownerName}'s workspace`}
 						loading={clear.isPending && clear.variables?.action === "lift-throttle"}
@@ -186,9 +189,10 @@ export function GuardSection({
 					size="sm"
 					data-testid="detail-guard-edit"
 					aria-label={`Guard settings for ${ownerName}'s workspace`}
+					aria-haspopup="dialog"
 					onClick={() => setEditing(true)}
 				>
-					Guard settings…
+					Guard settings
 				</Button>
 			</div>
 			{editing ? (

@@ -107,8 +107,9 @@ export function CodingAgentsSection({
 										>
 											{previous ?? "None"}
 										</td>
-										<td>
+										<td className="pk-cell-actions">
 											<RowAction
+												quiet
 												label="Roll back"
 												ariaLabel={`Roll back ${name}`}
 												testId={`image-agents-rollback-${tool}`}

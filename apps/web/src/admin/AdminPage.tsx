@@ -6,6 +6,7 @@ import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
 import { AdminNav } from "./AdminNav.js";
+import { AdminStatusBar } from "./AdminStatusBar.js";
 import "./admin-frame.css";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AddressTab } from "./address/AddressTab.js";
@@ -64,7 +65,7 @@ export function AdminPage() {
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	if (me.user.role !== "administrator") return <Navigate to="/not-authorized" />;
-	// The Root shell tab can push the strip onto a second row; wait for it so the page does not drop once shown.
+	// The Root shell tab adds an entry to the rail; wait for it so the rail does not shift once shown.
 	if (rootShell.isPending) return <div className="pk-root" aria-busy="true" />;
 
 	return (
@@ -79,12 +80,15 @@ export function AdminPage() {
 						className="pk-adminframe-scroll scroll-pt-16"
 						data-testid="page-admin"
 						data-density="compact"
+						data-controls="console"
 						aria-labelledby="admin-title"
 					>
 						{/* scroll-pt-16 keeps a focused row clear of the sticky table header.
 						    The root shells fill the frame instead of scrolling in it. */}
 						<div
-							className={shellTab ? "flex h-full flex-col" : "px-4 py-6"}
+							className={
+								shellTab ? "flex h-full flex-col" : "pk-admin-content px-4 py-6"
+							}
 							data-testid="admin-content"
 						>
 							<p
@@ -121,6 +125,7 @@ export function AdminPage() {
 					</main>
 				</div>
 			</div>
+			<AdminStatusBar />
 		</div>
 	);
 }

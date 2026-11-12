@@ -56,11 +56,25 @@ export function AgentLogSection({
 			className="pk-detail-section"
 			data-testid="detail-agent-log"
 		>
-			<div className="flex items-start gap-0.5">
-				<h4 id="detail-agent-log" className={`${SECTION_HEADING} pt-0.5`}>
-					Agent log, reported by the workspace
-				</h4>
-				<Toggletip label="Agent log">{REPORTED_HELP}</Toggletip>
+			{/* The heading row carries the section's one action, so an unread log costs one line. */}
+			<div className="flex items-center justify-between gap-2">
+				<div className="flex min-w-0 items-start gap-0.5">
+					<h4 id="detail-agent-log" className={`${SECTION_HEADING} pt-0.5`}>
+						Agent log, reported by the workspace
+					</h4>
+					<Toggletip label="Agent log">{REPORTED_HELP}</Toggletip>
+				</div>
+				{running ? (
+					<Button
+						size="sm"
+						className="flex-none"
+						loading={reading.phase === "waiting"}
+						onClick={() => void read()}
+						data-testid="agent-log-read"
+					>
+						Read log
+					</Button>
+				) : null}
 			</div>
 			<div role="status" aria-live="polite">
 				{!running ? (
@@ -106,18 +120,6 @@ export function AgentLogSection({
 						</li>
 					))}
 				</ul>
-			) : null}
-			{running ? (
-				<div className="pk-actions">
-					<Button
-						size="sm"
-						loading={reading.phase === "waiting"}
-						onClick={() => void read()}
-						data-testid="agent-log-read"
-					>
-						Read log
-					</Button>
-				</div>
 			) : null}
 		</section>
 	);

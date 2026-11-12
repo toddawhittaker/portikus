@@ -106,6 +106,7 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 										<Button
 											size="sm"
 											variant="quiet"
+											className="pk-row-action"
 											aria-label={`Edit ${site.value}`}
 											onClick={() =>
 												setDraft({ id: site.id, value: site.value, label: site.label })
@@ -116,6 +117,7 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 										<Button
 											size="sm"
 											variant="quiet"
+											className="pk-row-action"
 											aria-label={`Remove ${site.value}`}
 											onClick={() => {
 												removed.current = false;

@@ -121,31 +121,37 @@ button.pk-statusbar-item:focus-visible {
 	min-width: 0;
 }
 /* The unread count sits after the name in the accent, never over the picture. */
+/* The bell names what the count is; the pill carries the number (WCAG 2.5.8 target). */
 .pk-account-badge {
-	/* A 24px hit area around the small pill (WCAG 2.5.8). */
-	display: grid;
-	place-items: center;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
 	min-width: 24px;
-	height: 24px;
-	padding: 0;
-	border: 0;
-	border-radius: var(--radius-sm);
-	background: transparent;
+	height: 28px;
+	padding: 0 var(--space-0\.5) 0 var(--space-1\.5);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-full);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
 	font: inherit;
 	cursor: pointer;
+}
+.pk-account-badge:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
 }
 /* The pill fills the whole target, so what you see is what you can click. */
 .pk-account-badge-pill {
 	box-sizing: border-box;
-	min-width: 24px;
-	height: 24px;
+	min-width: 20px;
+	height: 20px;
 	padding: 0 var(--space-1\.5);
-	border-radius: var(--radius-sm);
+	border-radius: var(--radius-full);
 	background: var(--accent);
 	color: var(--on-accent);
 	font-size: 12px;
 	font-weight: 600;
-	line-height: 24px;
+	line-height: 20px;
 	text-align: center;
 }
 .pk-account-badge:hover .pk-account-badge-pill {
@@ -234,4 +240,15 @@ button.pk-statusbar-item:focus-visible {
 }
 .pk-appbar > .pk-appbar-drawer {
 	flex: none;
+}
+/* In a console the way back is a quiet link-styled button, so it does not outweigh the account. */
+.pk-appbar[data-console] .pk-wsbutton-text {
+	border-color: transparent;
+	background: transparent;
+	color: var(--accent-text);
+	font-weight: 600;
+	font-size: var(--text-sm);
+}
+.pk-appbar[data-console] .pk-wsbutton-text:hover {
+	background: var(--surface-hover);
 }

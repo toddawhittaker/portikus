@@ -1,6 +1,7 @@
 import type { BackupRequestView } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
+	nights,
 	requestText,
 	runningText,
 	stampIso,
@@ -56,4 +57,25 @@ test("running now names the nightly run or the request", () => {
 	);
 	expect(waitingRequest([pending], "backup")).toBe(pending);
 	expect(waitingRequest([pending], "delete_set")).toBeUndefined();
+});
+
+test("the night strip ends on tonight's run and marks each night by what it left", () => {
+	const now = Date.parse("2026-11-12T15:00:00Z");
+	const strip = nights(
+		{
+			sets: [
+				{ stamp: "20261112T073000Z", complete: true },
+				{ stamp: "20261111T073000Z", complete: false },
+			],
+			nextRunAt: "2026-11-13T07:30:00Z",
+			lastFailure: { at: "2026-11-10T07:40:00Z" },
+		},
+		now,
+	);
+	expect(strip).toHaveLength(14);
+	expect(strip.at(-1)).toEqual({ day: "2026-11-13", kind: "scheduled" });
+	expect(strip.at(-2)).toEqual({ day: "2026-11-12", kind: "complete" });
+	expect(strip.at(-3)).toEqual({ day: "2026-11-11", kind: "incomplete" });
+	expect(strip.at(-4)).toEqual({ day: "2026-11-10", kind: "failed" });
+	expect(strip[0]).toEqual({ day: "2026-10-31", kind: "none" });
 });

@@ -43,16 +43,12 @@
 
 /*
  * A button that cannot act, whether disabled or kept focusable with
- * aria-disabled: no fill and a dashed edge, so it never reads as an enabled
- * secondary button, with its label still readable. A busy button keeps its
- * colour.
+ * aria-disabled: its own solid edge, faded, so it reads as the same button at
+ * rest rather than a broken one. A busy button keeps its colour.
  */
 .pk-btn:is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
 	cursor: not-allowed;
-	background: transparent;
-	color: var(--ink-faint);
-	border-style: dashed;
-	border-color: var(--line-strong);
+	opacity: 0.45;
 }
 
 .pk-btn[aria-busy="true"] {
@@ -280,8 +276,9 @@
 	gap: var(--space-1\.5);
 	min-height: 24px;
 	border-radius: var(--radius-sm);
-	font-size: var(--text-md);
-	line-height: var(--leading-md);
+	color: var(--ink-faint);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
 	cursor: pointer;
 	list-style: none;
 }
@@ -453,7 +450,7 @@
 .pk-art--error {
 	--art-tint: var(--status-error-soft);
 	--art-badge: var(--status-error);
-	--art-on-badge: var(--on-danger);
+	--art-on-badge: var(--ink-inverse);
 }
 .pk-art-scene {
 	display: block;

@@ -3,7 +3,7 @@ import { Button, Icon, Toggletip } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { plural } from "../../text.js";
-import { longTime, workspaceName } from "./model.js";
+import { backupTime, workspaceName } from "./model.js";
 import { FocusCatchGroup, SELECT_CELL, Table, useFocusCatch } from "./parts.js";
 import {
 	DeleteSelectedButton,
@@ -151,7 +151,7 @@ function VmParts({
 								<th scope="row" className="font-mono">
 									{snap.name}
 								</th>
-								<td>{longTime(snap.createdAt)}</td>
+								<td>{backupTime(snap.createdAt)}</td>
 								<td className="pk-cell-actions">
 									<Button
 										size="sm"
@@ -223,7 +223,7 @@ function VmParts({
 										</span>
 									</span>
 								</th>
-								<td>{longTime(kept.createdAt)}</td>
+								<td>{backupTime(kept.createdAt)}</td>
 								<td className="pk-cell-actions">
 									<Button
 										size="sm"
@@ -310,7 +310,7 @@ function DumpsPart({
 								{dump.file}
 							</th>
 							<td className="tabular-nums">{formatBytes(dump.sizeBytes)}</td>
-							<td>{longTime(dump.modifiedAt)}</td>
+							<td>{backupTime(dump.modifiedAt)}</td>
 							<td className="pk-cell-actions">
 								<Button
 									size="sm"

@@ -4,12 +4,12 @@ import {
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	FileInput,
+	Icon,
 	useToast,
 } from "@portikus/ui";
 import { useId, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
-import { Notice } from "../Notice.js";
-import { longTime } from "./model.js";
+import { backupTime } from "./model.js";
 import { useDownloadBackupKey, useUploadBackupKey } from "./queries.js";
 
 const NOT_A_KEY =
@@ -24,17 +24,37 @@ export function BackupKeyPart({ status }: { status: BackupKeyStatus }) {
 	const download = useDownloadBackupKey();
 	const [confirmingDownload, setConfirmingDownload] = useState(false);
 	const [uploading, setUploading] = useState(false);
+	const downloadButton = (
+		<Button
+			variant={status.downloaded ? "secondary" : "primary"}
+			data-testid="backup-key-download"
+			onClick={() => setConfirmingDownload(true)}
+		>
+			Download backup key
+		</Button>
+	);
 
 	return (
 		<div className="grid gap-4" data-testid="backup-key">
 			{status.installed && !status.downloaded ? (
-				<Notice tone="warning" testId="backup-key-reminder">
-					<strong>Backup key not yet downloaded.</strong> Download it and store it off
-					this server. Without it, a copy of your backups kept elsewhere cannot be
-					restored if this server is lost.
-				</Notice>
+				// The one thing on the page that needs the administrator, so it leads with its action.
+				<div className="pk-attention" data-testid="backup-key-reminder">
+					<div className="pk-attention-row">
+						<span className="pk-attention-icon">
+							<Icon name="alert" />
+						</span>
+						<div className="pk-attention-text">
+							<p className="pk-attention-title">Backup key not yet downloaded.</p>
+							<p className="pk-attention-detail">
+								Download it and store it off this server. Without it, a copy of your
+								backups kept elsewhere cannot be restored if this server is lost.
+							</p>
+						</div>
+						<div className="pk-attention-actions">{downloadButton}</div>
+					</div>
+				</div>
 			) : null}
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dl className="pk-kv">
 				<dt className="pk-muted">Key</dt>
 				<dd className="m-0" data-testid="backup-key-state">
 					{status.installed
@@ -50,19 +70,11 @@ export function BackupKeyPart({ status }: { status: BackupKeyStatus }) {
 				</dd>
 				<dt className="pk-muted">Downloaded</dt>
 				<dd className="m-0" data-testid="backup-key-downloaded">
-					{status.downloadedAt ? longTime(status.downloadedAt) : "Not yet"}
+					{status.downloadedAt ? backupTime(status.downloadedAt) : "Not yet"}
 				</dd>
 			</dl>
 			<div className="flex flex-wrap gap-2">
-				{status.installed ? (
-					<Button
-						variant={status.downloaded ? "secondary" : "primary"}
-						data-testid="backup-key-download"
-						onClick={() => setConfirmingDownload(true)}
-					>
-						Download backup key
-					</Button>
-				) : null}
+				{status.installed && status.downloaded ? downloadButton : null}
 				<Button
 					variant="secondary"
 					data-testid="backup-key-upload"

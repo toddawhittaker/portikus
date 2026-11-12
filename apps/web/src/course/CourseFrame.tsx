@@ -30,20 +30,21 @@ export function CourseFrame({
 		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
 			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
-			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused
+			    at most 80rem wide, compact density. scroll-pt-16 keeps a focused
 			    control clear of a sticky table header. A phone-width window
 			    gives the content the padding's room back. */}
 			<main
-				className="flex-1 scroll-pt-16 overflow-auto p-4 sm:p-8"
+				className="pk-course-main flex-1 scroll-pt-16 overflow-auto p-4 sm:p-8"
 				data-testid={testId}
 				data-density="compact"
+				data-controls="console"
 				aria-labelledby={labelledBy}
 			>
 				<div
 					className={
 						fill
-							? "mx-auto flex h-full w-full max-w-[1440px] flex-col"
-							: "mx-auto w-full max-w-[1440px]"
+							? "@container mx-auto flex h-full w-full max-w-[80rem] flex-col"
+							: "@container mx-auto w-full max-w-[80rem]"
 					}
 				>
 					{children}

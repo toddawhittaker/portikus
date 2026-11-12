@@ -1,19 +1,50 @@
-import type { ActiveCourseMember, CourseMember } from "@portikus/contracts";
-import { Button, PageIntro, StateBadge, Toggletip } from "@portikus/ui";
+import type {
+	ActiveCourseMember,
+	CourseListItem,
+	CourseMember,
+} from "@portikus/contracts";
+import {
+	Badge,
+	Icon,
+	IconButton,
+	Menu,
+	MenuItem,
+	MenuRoot,
+	MenuTrigger,
+	PageIntro,
+	StateBadge,
+	Toggletip,
+} from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { ApiError } from "../api/request.js";
+import { PorticoMark } from "../common/PorticoMark.js";
+import { QuietState } from "../common/QuietState.js";
 import { usePageTitle } from "../pageTitle.js";
 import { useMe } from "../useMe.js";
+import { ClassDots, plural } from "./ClassDots.js";
 import { CourseFrame } from "./CourseFrame.js";
+import { LiveHelpCard, MemberCounts } from "./CourseGlance.js";
+import { CourseEyebrow } from "./CourseHead.js";
 import { CourseProfile } from "./CourseProfile.js";
 import { CourseUsage } from "./CourseUsage.js";
 import { useLiveSessions } from "./live/queries.js";
+import {
+	attentionFirst,
+	filterMembers,
+	MEMBER_FILTER_LABEL,
+	MEMBER_FILTERS,
+	type MemberFilter,
+	waitingText,
+} from "./memberFilter.js";
+import { profileLabel } from "./profileText.js";
 import { useCourseMembers, useCourses } from "./queries.js";
 import { RemoveMemberConfirm } from "./RemoveMemberConfirm.js";
 import { RosterStatus } from "./RosterStatus.js";
 import { useCourseShares } from "./shared/queries.js";
 import { dateTimeText } from "./time.js";
+import "./course.css";
+import "./glance.css";
 
 const ROLE_LABEL: Record<CourseMember["role"], string> = {
 	student: "Student",
@@ -41,6 +72,19 @@ export function CourseListPage() {
 	);
 }
 
+/** The course's code for its tile: "1210" from "CS 1210: Programming", or the title's initials. */
+export function courseMonogram(title: string): string {
+	const code = title.split(":")[0]?.match(/\d{3,5}/)?.[0];
+	if (code) return code;
+	const letters = title
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((word) => word[0]?.toUpperCase() ?? "")
+		.join("");
+	return letters || "?";
+}
+
 function CourseList() {
 	const courses = useCourses();
 	const list = courses.data;
@@ -52,9 +96,19 @@ function CourseList() {
 	}
 	return (
 		<>
-			<h1 className="pk-text-title" id="course-title">
-				Courses
-			</h1>
+			<div className="pk-admin-head">
+				<p className="pk-eyebrow" aria-hidden={true}>
+					<PorticoMark />
+					<span>Teaching</span>
+				</p>
+				<h1 className="pk-text-display pk-admin-title" id="course-title">
+					Courses
+				</h1>
+				<p className="pk-intro-lead pk-muted m-0">
+					The courses you teach here. Open one for its students, their workspaces and
+					live help.
+				</p>
+			</div>
 			<Status>
 				{courses.isError ? (
 					<span data-testid="course-error">
@@ -70,22 +124,75 @@ function CourseList() {
 				) : null}
 			</Status>
 			{list && list.length > 0 ? (
-				<ul className="mt-4 flex flex-col gap-2" data-testid="course-list">
-					{list.map((course) => (
-						<li key={course.id}>
-							<Link
-								to="/course/$courseId"
-								params={{ courseId: course.id }}
-								className="pk-focus-ring rounded-sm font-semibold text-accent-text"
-							>
-								{course.title}
-							</Link>{" "}
-							<span className="pk-muted text-[13px]">{course.platformName}</span>
-						</li>
-					))}
-				</ul>
+				<div className="grid gap-4">
+					<ul className="pk-course-cards" data-testid="course-list">
+						{list.map((course) => (
+							<CourseCard key={course.id} course={course} />
+						))}
+					</ul>
+					<QuietState
+						variant="empty"
+						title="Teaching another course?"
+						detail="Open Portikus from it in your learning system as its instructor, and it appears here."
+					/>
+				</div>
 			) : null}
 		</>
+	);
+}
+
+/** A course on the list: its code, title and source, a dot per student, and who is waiting. */
+function CourseCard({ course }: { course: CourseListItem }) {
+	const members = useCourseMembers(course.id).data?.members;
+	const sessions = useLiveSessions(course.id).data?.sessions;
+	const waiting = new Set(sessions?.map((session) => session.userId));
+	const students = members?.filter((member) => member.role === "student");
+	const running = students?.filter((m) => m.workspaceState === "running").length ?? 0;
+	return (
+		<li className="pk-course-card">
+			<div className="pk-course-card-top">
+				<span className="pk-course-mono" aria-hidden="true">
+					{courseMonogram(course.title)}
+				</span>
+				<span className="grid min-w-0 flex-1 gap-0.5">
+					{/* The whole card is the link's target; its name stays the title alone. */}
+					<Link
+						to="/course/$courseId"
+						params={{ courseId: course.id }}
+						className="pk-course-card-link pk-focus-ring rounded-sm [overflow-wrap:anywhere] after:absolute after:inset-0"
+					>
+						{course.title}
+					</Link>
+					<span className="pk-muted text-[13px]">
+						{course.platformName}
+						<span aria-hidden="true"> · </span>
+						<span className="sr-only">, </span>
+						{profileLabel(course.profile)} interface
+					</span>
+				</span>
+				<Icon name="chevron-right" className="pk-course-card-chevron" />
+			</div>
+			{students && students.length > 0 ? (
+				<ClassDots students={students} waiting={waiting} />
+			) : (
+				<span className="pk-class-dots" aria-hidden="true" />
+			)}
+			<p className="pk-course-card-foot">
+				<span className="pk-num">
+					{students
+						? students.length === 0
+							? "No students yet"
+							: `${running} of ${plural(students.length, "student", "students")} running`
+						: "\u00a0"}
+				</span>
+				{waiting.size > 0 ? (
+					<Badge tone="warning">
+						<Icon name="help" size="sm" />
+						{waiting.size} waiting for help
+					</Badge>
+				) : null}
+			</p>
+		</li>
 	);
 }
 
@@ -131,29 +238,198 @@ function LastLaunch({ at }: { at: string | null }) {
 	return <time dateTime={at}>{dateTimeText(at)}</time>;
 }
 
-/** The way to the live help sessions students opened with the caller, and how many are open. */
-function LiveHelpLink({ courseId }: { courseId: string }) {
-	const count = useLiveSessions(courseId).data?.sessions.length;
+/** The name search and the filter chips above the Members table, each chip with its count. */
+function MemberTools({
+	members,
+	query,
+	onQuery,
+	filter,
+	onFilter,
+	waiting,
+}: {
+	members: CourseMember[];
+	query: string;
+	onQuery: (query: string) => void;
+	filter: MemberFilter;
+	onFilter: (filter: MemberFilter) => void;
+	waiting: ReadonlySet<string>;
+}) {
 	return (
-		<p className="mt-4 flex flex-wrap items-baseline gap-x-2">
-			<Link
-				to="/course/$courseId/live"
-				params={{ courseId }}
-				className="pk-focus-ring rounded-sm font-semibold text-accent-text"
-				data-testid="course-live-help"
-			>
-				Live help
-			</Link>
-			{count === undefined ? null : (
-				<span className="pk-muted text-[13px]">
-					{count === 0
-						? "No open sessions"
-						: count === 1
-							? "1 open session"
-							: `${count} open sessions`}
+		<div className="pk-members-tools">
+			<label className="pk-members-search">
+				<span className="sr-only">Search members by name</span>
+				<Icon name="search" size="sm" className="pk-members-search-icon" />
+				<input
+					type="search"
+					className="pk-focus-ring"
+					placeholder="Search by name"
+					value={query}
+					onChange={(event) => onQuery(event.target.value)}
+					data-testid="course-members-search"
+				/>
+			</label>
+			<fieldset className="pk-chips" data-testid="course-members-filter">
+				<legend className="sr-only">Show members</legend>
+				{MEMBER_FILTERS.map((option) => {
+					const count = filterMembers(members, option, query, waiting).length;
+					// A course nobody teaches from Portikus yet has no instructor rows to show.
+					if (option === "instructors" && count === 0 && filter !== option) return null;
+					return (
+						<button
+							key={option}
+							type="button"
+							className="pk-chip pk-focus-ring"
+							aria-pressed={filter === option}
+							onClick={() => onFilter(option)}
+						>
+							{MEMBER_FILTER_LABEL[option]}
+							<span className="pk-chip-count pk-num">{count}</span>
+						</button>
+					);
+				})}
+			</fieldset>
+		</div>
+	);
+}
+
+/** The Members live region: loading, failure, an empty course, or a search with no matches. */
+function MembersStatus({
+	failed,
+	notFound,
+	total,
+	shown,
+}: {
+	failed: boolean;
+	notFound: boolean;
+	total: number | undefined;
+	shown: number;
+}) {
+	return (
+		<Status>
+			{failed ? (
+				<span data-testid="course-error">
+					{notFound
+						? "This course was not found, or you are not an instructor in it."
+						: "Portikus could not load this course. Reload the page to try again."}
 				</span>
-			)}
-		</p>
+			) : total === undefined ? (
+				"Loading this course…"
+			) : total === 0 ? (
+				<span data-testid="course-members-empty">
+					Nobody has opened Portikus from this course yet.
+				</span>
+			) : shown === 0 ? (
+				<span data-testid="course-members-none-match">
+					No members match. Clear the search or choose All.
+				</span>
+			) : null}
+		</Status>
+	);
+}
+
+/** One member's row: name, role, last launch, workspace with any warning, and the row actions. */
+function MemberRow({
+	rowId,
+	member,
+	courseId,
+	shares,
+	waitingLabel,
+	removable,
+	onRemove,
+}: {
+	rowId: string;
+	member: CourseMember;
+	courseId: string;
+	shares: { projectId: string; projectName: string }[];
+	/** "Waiting 12 min" while they wait in live help, else null. */
+	waitingLabel: string | null;
+	removable: boolean;
+	onRemove: (member: ActiveCourseMember) => void;
+}) {
+	return (
+		<tr data-waiting={waitingLabel ? "" : undefined}>
+			{/* Named by the name alone, so the other cells' row header is not
+		    read with the role and launch folded under it. */}
+			<th
+				scope="row"
+				className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
+				aria-labelledby={`member-name-${rowId}`}
+			>
+				<span id={`member-name-${rowId}`}>{member.displayName}</span>
+				<span className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}>
+					{ROLE_LABEL[member.role]}
+					<span aria-hidden="true"> · </span>
+					<span className="sr-only">, </span>
+					Last launch <LastLaunch at={member.lastLaunchAt} />
+				</span>
+			</th>
+			<td className={`${WIDE_ONLY} pk-cell-muted`}>{ROLE_LABEL[member.role]}</td>
+			<td className={WIDE_ONLY}>
+				<LastLaunch at={member.lastLaunchAt} />
+			</td>
+			<td>
+				<span className="pk-members-state">
+					{member.workspaceState ? (
+						<StateBadge
+							state={member.workspaceState}
+							statusRole={false}
+							plain={member.workspaceState !== "error"}
+						/>
+					) : (
+						<span className="pk-cell-muted">
+							{member.status === "not_started" ? "Not started" : "No workspace"}
+						</span>
+					)}
+					{waitingLabel ? (
+						<Badge tone="warning">
+							<Icon name="help" size="sm" />
+							{waitingLabel}
+						</Badge>
+					) : null}
+				</span>
+			</td>
+			<td className="pk-cell-actions">
+				{/* Wraps in a narrow table, so the link and menu are never clipped. */}
+				<div className="pk-row-actions">
+					{shares.map((share) => (
+						<Link
+							key={share.projectId}
+							to="/course/$courseId/shares/$projectId"
+							params={{ courseId, projectId: share.projectId }}
+							className="pk-row-link pk-focus-ring"
+						>
+							<Icon name="folder" size="sm" />
+							Shared project
+							<span className="sr-only">
+								: {share.projectName} by {member.displayName}
+							</span>
+						</Link>
+					))}
+					{!removable || member.status !== "active" ? null : (
+						<MenuRoot>
+							<MenuTrigger asChild>
+								<IconButton
+									icon="more"
+									size="sm"
+									label={`Actions for ${member.displayName}`}
+									data-remove-id={member.userId}
+								/>
+							</MenuTrigger>
+							<Menu label={`Actions for ${member.displayName}`} align="end">
+								<MenuItem
+									icon="trash"
+									danger
+									testId="course-member-remove"
+									onSelect={() => onRemove(member)}
+								>
+									Remove from course
+								</MenuItem>
+							</Menu>
+						</MenuRoot>
+					)}
+				</div>
+			</td>
+		</tr>
 	);
 }
 
@@ -182,19 +458,44 @@ function CourseMembers() {
 	const openShares = shares.data?.shares ?? [];
 	const notFound = members.error instanceof ApiError && members.error.status === 404;
 	usePageTitle(data?.course.title ?? "Course");
+	const [query, setQuery] = React.useState("");
+	const [filter, setFilter] = React.useState<MemberFilter>("all");
+	const sessions = useLiveSessions(courseId).data?.sessions;
+	const waitingSince = React.useMemo(() => {
+		const since = new Map<string, string>();
+		for (const session of sessions ?? []) {
+			const was = since.get(session.userId);
+			if (!was || session.startedAt < was) since.set(session.userId, session.startedAt);
+		}
+		return since;
+	}, [sessions]);
+	const waiting = React.useMemo(() => new Set(waitingSince.keys()), [waitingSince]);
+	const shown = data
+		? attentionFirst(filterMembers(data.members, filter, query, waiting), waitingSince)
+		: [];
+	const now = Date.now();
 
 	return (
 		<>
-			<h1 className="pk-text-title" id="course-title" ref={headingRef} tabIndex={-1}>
-				{data?.course.title ?? "Course"}
-			</h1>
-			{data ? (
-				<p className="pk-muted mt-1 text-[13px]">{data.course.platformName}</p>
-			) : null}
-			<div className="mt-4">
+			<div className="pk-admin-head">
+				<CourseEyebrow title={data?.course.title} courseId={courseId} />
+				<div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+					<h1
+						className="pk-text-display pk-admin-title"
+						id="course-title"
+						ref={headingRef}
+						tabIndex={-1}
+					>
+						{data?.course.title ?? "Course"}
+					</h1>
+					{data ? (
+						<p className="pk-course-source m-0">{data.course.platformName}</p>
+					) : null}
+				</div>
 				<PageIntro
 					id="course"
 					summary="About the Course page"
+					lead="Who has opened Portikus from this course, and how their workspaces are doing."
 					helpHref="/help#instructor-course"
 				>
 					People who have opened Portikus from this course, and, when roster sync is on,
@@ -204,43 +505,56 @@ function CourseMembers() {
 					students see.
 				</PageIntro>
 			</div>
-			<LiveHelpLink courseId={courseId} />
-			{data ? (
-				<div className="mt-6">
-					<RosterStatus courseId={courseId} roster={data.roster} />
-				</div>
-			) : null}
-			<div className="mt-8">
-				<CourseProfile courseId={courseId} />
-			</div>
-			<div className="mt-8">
-				<h2 className="pk-text-heading m-0" id="members-title">
-					Members
-				</h2>
-			</div>
-			<Status>
-				{members.isError ? (
-					<span data-testid="course-error">
-						{notFound
-							? "This course was not found, or you are not an instructor in it."
-							: "Portikus could not load this course. Reload the page to try again."}
-					</span>
-				) : !data ? (
-					"Loading this course…"
-				) : data.members.length === 0 ? (
-					<span data-testid="course-members-empty">
-						Nobody has opened Portikus from this course yet.
-					</span>
+			<div className="pk-course-glance mt-4">
+				{data && data.members.length > 0 ? (
+					<MemberCounts members={data.members} waiting={waiting} />
 				) : null}
-			</Status>
+				<LiveHelpCard courseId={courseId} sessions={sessions} />
+			</div>
+			<section
+				className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-3"
+				aria-labelledby="members-title"
+			>
+				<div className="pk-members-head">
+					<h2 className="pk-text-heading m-0" id="members-title">
+						Members
+						{data && data.members.length > 0 ? (
+							<span className="pk-members-count pk-num">
+								{shown.length === data.members.length
+									? data.members.length
+									: `${shown.length} of ${data.members.length}`}
+							</span>
+						) : null}
+					</h2>
+					{data && data.members.length > 0 ? (
+						<MemberTools
+							members={data.members}
+							query={query}
+							onQuery={setQuery}
+							filter={filter}
+							onFilter={setFilter}
+							waiting={waiting}
+						/>
+					) : null}
+				</div>
+			</section>
+			<MembersStatus
+				failed={members.isError}
+				notFound={notFound}
+				total={data?.members.length}
+				shown={shown.length}
+			/>
 			<span className="sr-only" role="status" data-testid="course-removed">
 				{removedText}
 			</span>
-			{data && data.members.length > 0 ? (
+			{data && shown.length > 0 ? (
 				// overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main>.
 				// A narrow wrap folds Role and Last launch under the name, so nothing scrolls sideways.
-				<div className="pk-table-wrap @container mt-4 overflow-clip">
-					<table className="pk-table pk-table--page" data-testid="course-members">
+				<div className="pk-table-wrap @container mt-3 overflow-clip">
+					<table
+						className="pk-table pk-table--page pk-members-table"
+						data-testid="course-members"
+					>
 						<caption className="sr-only">People in this course</caption>
 						<thead>
 							<tr>
@@ -264,87 +578,46 @@ function CourseMembers() {
 							</tr>
 						</thead>
 						<tbody>
-							{data.members.map((member, index) => {
-								// A roster-only person has no account id yet; the list is replaced on each sync.
-								const rowId = member.userId ?? `roster-${index}`;
-								const memberShares = openShares.filter(
-									(share) => share.userId === member.userId,
-								);
-								return (
-									<tr key={rowId}>
-										{/* Named by the name alone, so the other cells' row header is not
-									    read with the role and launch folded under it. */}
-										<th
-											scope="row"
-											className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
-											aria-labelledby={`member-name-${rowId}`}
-										>
-											<span id={`member-name-${rowId}`}>{member.displayName}</span>
-											<span
-												className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}
-											>
-												{ROLE_LABEL[member.role]}
-												<span aria-hidden="true"> · </span>
-												<span className="sr-only">, </span>
-												Last launch <LastLaunch at={member.lastLaunchAt} />
-											</span>
-										</th>
-										<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
-										<td className={WIDE_ONLY}>
-											<LastLaunch at={member.lastLaunchAt} />
-										</td>
-										<td>
-											{member.workspaceState ? (
-												<StateBadge state={member.workspaceState} statusRole={false} />
-											) : (
-												<span className="pk-cell-muted">
-													{member.status === "not_started"
-														? "Not started"
-														: "No workspace"}
-												</span>
-											)}
-										</td>
-										<td className="pk-cell-actions">
-											{/* Wraps in a narrow table, so the link and Remove are never clipped. */}
-											<div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-												{memberShares.map((share) => (
-													<Link
-														key={share.projectId}
-														to="/course/$courseId/shares/$projectId"
-														params={{ courseId, projectId: share.projectId }}
-														className="pk-focus-ring rounded-sm font-semibold text-accent-text"
-													>
-														Shared project
-														<span className="sr-only">
-															: {share.projectName} by {member.displayName}
-														</span>
-													</Link>
-												))}
-												{!canRemove(member, myId) ? null : (
-													<Button
-														size="sm"
-														data-remove-id={member.userId}
-														onClick={() => {
-															removedNext.current = null;
-															setRemoving(member);
-														}}
-													>
-														Remove{" "}
-														<span className="sr-only">
-															{member.displayName} from course
-														</span>
-													</Button>
-												)}
-											</div>
-										</td>
-									</tr>
-								);
-							})}
+							{shown.map((member, index) => (
+								<MemberRow
+									// A roster-only person has no account id yet; the list is replaced on each sync.
+									key={member.userId ?? `roster-${index}`}
+									rowId={member.userId ?? `roster-${index}`}
+									member={member}
+									courseId={courseId}
+									shares={openShares.filter((share) => share.userId === member.userId)}
+									waitingLabel={
+										member.userId !== null && waitingSince.has(member.userId)
+											? waitingText(waitingSince.get(member.userId) ?? "", now)
+											: null
+									}
+									removable={canRemove(member, myId)}
+									onRemove={(who) => {
+										removedNext.current = null;
+										setRemoving(who);
+									}}
+								/>
+							))}
 						</tbody>
 					</table>
 				</div>
 			) : null}
-			<div className="mt-8">
+			<section className="mt-10 grid gap-4" aria-labelledby="course-settings-title">
+				<h2 className="pk-text-heading m-0" id="course-settings-title">
+					Course settings
+				</h2>
+				<div className="grid items-start gap-4 @container lg:grid-cols-2">
+					{data ? (
+						<div className="pk-card p-5">
+							<RosterStatus courseId={courseId} roster={data.roster} />
+						</div>
+					) : null}
+					<div className="pk-card p-5">
+						<CourseProfile courseId={courseId} />
+					</div>
+				</div>
+			</section>
+			<div className="mt-10">
 				<CourseUsage courseId={courseId} />
 			</div>
 			{data && removing ? (

@@ -90,30 +90,54 @@ function LiveSession() {
 
 	return (
 		<>
-			<Link
-				to="/course/$courseId/live"
-				params={{ courseId }}
-				className="pk-focus-ring self-start rounded-sm text-[13px] text-accent-text"
-			>
-				All live help sessions
-			</Link>
-			<h1
-				className="pk-text-title mt-2 [overflow-wrap:anywhere]"
-				id="live-session-title"
-				ref={heading}
-				tabIndex={-1}
-			>
-				{data ? `Live help with ${data.session.displayName}` : "Live help"}
-			</h1>
-			{data && !ended ? (
-				<p className="pk-muted mt-1 text-[13px] [overflow-wrap:anywhere]">
-					Project {data.session.projectName}. Ends at{" "}
-					<time dateTime={data.session.endsAt}>
-						{dateTimeText(data.session.endsAt)}
-					</time>{" "}
-					unless the student ends it sooner.
-				</p>
-			) : null}
+			<div className="pk-session-head">
+				<div className="grid min-w-0 flex-1 gap-1">
+					{/* One way back, in the eyebrow's place over the title. */}
+					<Link
+						to="/course/$courseId/live"
+						params={{ courseId }}
+						className="pk-eyebrow pk-back-link pk-focus-ring"
+					>
+						<Icon name="arrow-left" size="sm" />
+						All live help sessions
+					</Link>
+					<h1
+						className="pk-text-display pk-admin-title [overflow-wrap:anywhere]"
+						id="live-session-title"
+						ref={heading}
+						tabIndex={-1}
+					>
+						{data ? `Live help with ${data.session.displayName}` : "Live help"}
+					</h1>
+					{data && !ended ? (
+						<p className="pk-muted m-0 text-[13px] [overflow-wrap:anywhere]">
+							Project {data.session.projectName}. Ends at{" "}
+							<time dateTime={data.session.endsAt}>
+								{dateTimeText(data.session.endsAt)}
+							</time>{" "}
+							unless the student ends it sooner.
+						</p>
+					) : null}
+				</div>
+				{data && !ended && !detail.isError ? (
+					<div className="pk-session-leave">
+						<Button
+							variant="danger-secondary"
+							onClick={() => void onLeave()}
+							aria-disabled={leave.isPending || undefined}
+							data-testid="live-leave"
+						>
+							<Icon name="sign-out" size="sm" />
+							{leave.isPending ? "Leaving…" : "Leave session"}
+						</Button>
+						<p className="pk-muted m-0 text-[12px]">
+							{leaveFailed
+								? "Portikus could not end the session. Try again."
+								: "Leaving ends the session for the student too."}
+						</p>
+					</div>
+				) : null}
+			</div>
 			{/* Always mounted, so leaving, ending and the student going are heard. */}
 			<p className="sr-only" role="status" data-testid="live-session-status">
 				{statusText({ ended, away, leaveFailed })}
@@ -128,26 +152,10 @@ function LiveSession() {
 				<p className="pk-text-body pk-muted mt-6">Loading this session…</p>
 			) : (
 				<>
-					<div className="mt-4 flex flex-wrap items-center gap-3">
-						<ModeIndicator typing={data.session.typing} />
-						<Button
-							variant="danger"
-							onClick={() => void onLeave()}
-							aria-disabled={leave.isPending || undefined}
-							data-testid="live-leave"
-						>
-							{leave.isPending ? "Leaving…" : "Leave session"}
-						</Button>
-						<p className="pk-muted m-0 text-[13px]">
-							{leaveFailed
-								? "Portikus could not end the session. Try again."
-								: "Leaving ends the session for the student too."}
-						</p>
-					</div>
 					{/* The terminal fills the window's height left below this point, as the
 					    workspace's does, so clicking into it never scrolls the heading away. */}
-					<div className="@container mt-6 flex flex-1 flex-col">
-						<div className="flex flex-1 flex-col gap-6 @5xl:flex-row">
+					<div className="@container mt-5 flex flex-1 flex-col">
+						<div className="flex flex-1 flex-col gap-4 @5xl:flex-row">
 							<TerminalsSection
 								liveRef={ref}
 								detail={data}
@@ -158,12 +166,38 @@ function LiveSession() {
 								onDropped={() => void detail.refetch()}
 								onRetry={() => setAttach((count) => count + 1)}
 							/>
-							<Previews liveRef={ref} enabled={live} />
+							<div className="pk-live-context @5xl:w-80 @5xl:self-start">
+								<SessionFacts detail={data} />
+								<Previews liveRef={ref} enabled={live} />
+							</div>
 						</div>
 					</div>
 				</>
 			)}
 		</>
+	);
+}
+
+/** Who asked and for what, beside the terminal, so the facts stay in view while helping. */
+function SessionFacts({ detail }: { detail: CourseLiveHelpDetail }) {
+	return (
+		<section aria-labelledby="live-facts-title" className="pk-live-context-part">
+			<h2 className="pk-overline" id="live-facts-title">
+				Request
+			</h2>
+			<dl className="pk-live-facts m-0">
+				<dt>Student</dt>
+				<dd className="[overflow-wrap:anywhere]">{detail.session.displayName}</dd>
+				<dt>Project</dt>
+				<dd className="[overflow-wrap:anywhere]">{detail.session.projectName}</dd>
+				<dt>Ends</dt>
+				<dd>
+					<time dateTime={detail.session.endsAt}>
+						{dateTimeText(detail.session.endsAt)}
+					</time>
+				</dd>
+			</dl>
+		</section>
 	);
 }
 
@@ -206,60 +240,66 @@ function TerminalsSection({
 	return (
 		<section
 			aria-labelledby="live-terminals-title"
-			className={`flex min-w-0 flex-col @5xl:flex-1 ${showing ? "flex-1" : ""}`}
+			className={`pk-live-frame @5xl:flex-1 ${showing ? "flex-1" : ""}`}
+			data-mode={detail.session.typing ? "type" : "view"}
 		>
-			<h2
-				className="pk-text-heading mb-2"
-				id="live-terminals-title"
-				ref={heading}
-				tabIndex={-1}
-			>
-				Terminals
-			</h2>
+			{/* The student's tab strip: one tab per terminal, the shown one with the accent foot. */}
+			<div className="pk-live-tabbar">
+				<h2
+					className="pk-live-tabbar-title"
+					id="live-terminals-title"
+					ref={heading}
+					tabIndex={-1}
+				>
+					Terminals
+				</h2>
+				{terminals.length > 0 && !away ? (
+					<ul className="pk-live-tabs" aria-label="Choose a terminal">
+						{terminals.map((terminal) => (
+							<li key={terminal.id} className="min-w-0">
+								<button
+									type="button"
+									className="pk-live-tab pk-focus-inset"
+									aria-pressed={terminal.id === shown?.id}
+									onClick={() => setChosen(terminal.id)}
+								>
+									<Icon name="terminal" size="sm" />
+									<span className="truncate">{terminal.name}</span>
+								</button>
+							</li>
+						))}
+					</ul>
+				) : null}
+			</div>
+			<ModeIndicator typing={detail.session.typing} />
 			{away ? (
-				<div data-testid="live-away">
+				<div className="pk-live-frame-body" data-testid="live-away">
 					<EmptyState icon="info" title="The student is away">
 						Their workspace is not open in any browser, or it stopped. Their terminal
 						comes back here when they return.
 					</EmptyState>
 				</div>
 			) : terminals.length === 0 ? (
-				<p className="pk-text-body pk-muted" data-testid="live-no-terminals">
+				<p
+					className="pk-live-frame-body pk-text-body pk-muted m-0"
+					data-testid="live-no-terminals"
+				>
 					The student has no terminals open in {detail.session.projectName}. One appears
 					here when they open it.
 				</p>
-			) : (
-				<div className="flex min-w-0 flex-1 flex-col gap-3">
-					<ul className="flex flex-wrap gap-2" aria-label="Choose a terminal">
-						{terminals.map((terminal) => (
-							<li key={terminal.id} className="min-w-0">
-								<Button
-									size="sm"
-									variant={terminal.id === shown?.id ? "primary" : "secondary"}
-									aria-pressed={terminal.id === shown?.id}
-									onClick={() => setChosen(terminal.id)}
-									className="max-w-full truncate"
-								>
-									{terminal.name}
-								</Button>
-							</li>
-						))}
-					</ul>
-					{showing ? (
-						<HelperTerminal
-							key={shown.id}
-							path={`${liveBase(liveRef)}/terminals/${shown.id}/ws`}
-							name={shown.name}
-							typing={detail.session.typing}
-							attach={attach}
-							onClosed={onClosed}
-							onDropped={onDropped}
-							onRetry={onRetry}
-							onLeave={() => heading.current?.focus()}
-						/>
-					) : null}
-				</div>
-			)}
+			) : showing ? (
+				<HelperTerminal
+					key={shown.id}
+					path={`${liveBase(liveRef)}/terminals/${shown.id}/ws`}
+					name={shown.name}
+					typing={detail.session.typing}
+					attach={attach}
+					onClosed={onClosed}
+					onDropped={onDropped}
+					onRetry={onRetry}
+					onLeave={() => heading.current?.focus()}
+				/>
+			) : null}
 		</section>
 	);
 }
@@ -268,16 +308,12 @@ function TerminalsSection({
 function ModeIndicator({ typing }: { typing: boolean }) {
 	return (
 		<p
-			className={
-				typing
-					? "m-0 flex min-w-0 items-center gap-2 rounded-sm bg-status-warning-soft px-3 py-2 text-status-warning"
-					: "m-0 flex min-w-0 items-center gap-2 rounded-sm border border-line-strong px-3 py-2"
-			}
+			className="pk-live-mode"
 			role="status"
 			data-testid="live-mode"
 			data-mode={typing ? "type" : "view"}
 		>
-			<Icon name={typing ? "terminal" : "lock"} size="md" />
+			<Icon name={typing ? "terminal" : "lock"} size="sm" />
 			<span>
 				<strong>{modeText(typing)}.</strong>{" "}
 				{typing
@@ -330,11 +366,8 @@ function Previews({ liveRef, enabled }: { liveRef: LiveRef; enabled: boolean }) 
 	}
 
 	return (
-		<section
-			aria-labelledby="live-previews-title"
-			className="min-w-0 shrink-0 @5xl:w-72"
-		>
-			<h2 className="pk-text-heading mb-2" id="live-previews-title">
+		<section aria-labelledby="live-previews-title" className="pk-live-context-part">
+			<h2 className="pk-overline" id="live-previews-title">
 				Previews
 			</h2>
 			{!enabled ? (

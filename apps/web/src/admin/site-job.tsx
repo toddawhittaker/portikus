@@ -1,4 +1,5 @@
 import { isJobActive, SITE_JOB_STALE_MS, type SiteJobView } from "@portikus/contracts";
+import { Icon } from "@portikus/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ZodType } from "zod";
@@ -71,7 +72,12 @@ export function SiteJobLine({ job }: { job: SiteJobView | null }) {
 		);
 	}
 	if (job.state === "done") {
-		return <p className="pk-text-compact pk-muted m-0">Saved. The change is in use.</p>;
+		return (
+			<p className="pk-text-compact m-0 flex items-center gap-1.5 text-status-running">
+				<Icon name="check" size="sm" />
+				Saved. The change is in use.
+			</p>
+		);
 	}
 	if (job.state === "failed") return <Notice tone="error">{failureText(job)}</Notice>;
 	if (job.state === "queued" || job.state === "running") {

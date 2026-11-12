@@ -5,7 +5,7 @@ import type {
 	QuotaConfig,
 	WorkspaceLimits,
 } from "@portikus/contracts";
-import { Button, useToast } from "@portikus/ui";
+import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
 import { useState } from "react";
 import { errorText } from "../../api/request.js";
 import { formatBytes, formatCpu } from "../../monitor/format.js";
@@ -27,7 +27,7 @@ import {
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "../queries.js";
-import { PANEL_HELP, SECTION_HEADING, TipTerm } from "./shared.js";
+import { SECTION_HEADING } from "./shared.js";
 
 function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
 	return `Home ${quota.homeGiB} GiB · Docker ${quota.dockerGiB} GiB`;
@@ -173,10 +173,17 @@ export function ResourcesSection({
 			<dl className="pk-dl">
 				{workspace && detail ? (
 					<>
-						<TipTerm label="Storage" tip={PANEL_HELP.storage}>
-							Storage
-						</TipTerm>
-						<dd data-testid="detail-quota">{storageText(workspace.quotaConfig)}</dd>
+						<dt>Storage</dt>
+						<dd className={EDIT_ROW}>
+							<span data-testid="detail-quota">
+								{storageText(workspace.quotaConfig)}
+							</span>
+							<EditButton
+								testId="detail-quota-edit"
+								label={`Edit quotas for ${ownerName}'s workspace`}
+								onClick={() => setDialog("quota")}
+							/>
+						</dd>
 						{usage ? (
 							<>
 								{detail.storage ? null : (
@@ -202,71 +209,48 @@ export function ResourcesSection({
 								<dd data-testid="detail-usage">{usageGap(detail.agent)}</dd>
 							</>
 						)}
-						<TipTerm label="Limits" tip={PANEL_HELP.limits}>
-							Limits
-						</TipTerm>
-						<dd data-testid="detail-limits">{limitsText(detail.limitsConfig, site)}</dd>
+						<dt>Limits</dt>
+						<dd className={EDIT_ROW}>
+							{/* Until the site's values arrive, a placeholder, so the line never
+							    shows "CPUs (site value)" and then changes to "2 CPUs (site value)". */}
+							{health.isPending && usesSiteLimit(detail.limitsConfig) ? (
+								<Skeleton width="14rem" />
+							) : (
+								<span data-testid="detail-limits">
+									{limitsText(detail.limitsConfig, site)}
+								</span>
+							)}
+							<EditButton
+								testId="detail-limits-edit"
+								label={`Edit limits for ${ownerName}'s workspace`}
+								onClick={() => setDialog("limits")}
+							/>
+						</dd>
 					</>
 				) : null}
-				<TipTerm label="Disconnect grace" tip={PANEL_HELP.grace}>
-					Disconnect grace
-				</TipTerm>
-				<dd data-testid="detail-grace">
-					{user.shutdownGraceSeconds !== null
-						? graceValueText(user.shutdownGraceSeconds)
-						: siteGrace === null
-							? "Site setting"
-							: `${graceValueText(siteGrace)} (site setting)`}
+				<dt>Disconnect grace</dt>
+				<dd className={EDIT_ROW}>
+					<span data-testid="detail-grace">
+						{user.shutdownGraceSeconds !== null
+							? graceValueText(user.shutdownGraceSeconds)
+							: siteGrace === null
+								? "Site setting"
+								: `${graceValueText(siteGrace)} (site setting)`}
+					</span>
+					<EditButton
+						testId="detail-grace-edit"
+						label={`Edit disconnect grace for ${ownerName}`}
+						onClick={() => setDialog("grace")}
+					/>
 				</dd>
 			</dl>
-			{workspace &&
-			detail &&
-			quotaPending(workspace.quotaConfig, detail.quotaApplied) ? (
-				<p
-					className="pk-text-compact m-0 text-status-warning"
-					data-testid="detail-quota-pending"
-				>
-					Storage saved. It takes effect within a minute.
-				</p>
-			) : null}
-			{detail && limitsPending(detail.limitsConfig, detail.limitsApplied) ? (
-				<p
-					className="pk-text-compact m-0 text-status-warning"
-					data-testid="detail-limits-pending"
-				>
-					Limits saved. They take effect within a minute.
-				</p>
-			) : null}
-			<div className="pk-actions">
-				{workspace ? (
-					<>
-						<Button
-							size="sm"
-							data-testid="detail-quota-edit"
-							aria-label={`Edit quotas for ${ownerName}'s workspace`}
-							onClick={() => setDialog("quota")}
-						>
-							Edit quotas…
-						</Button>
-						<Button
-							size="sm"
-							data-testid="detail-limits-edit"
-							aria-label={`Edit limits for ${ownerName}'s workspace`}
-							onClick={() => setDialog("limits")}
-						>
-							Edit limits…
-						</Button>
-					</>
-				) : null}
-				<Button
-					size="sm"
-					data-testid="detail-grace-edit"
-					aria-label={`Edit disconnect grace for ${ownerName}`}
-					onClick={() => setDialog("grace")}
-				>
-					Edit disconnect grace…
-				</Button>
-			</div>
+			{/* One saved note at a time: both changes waiting share a line. */}
+			{pendingNote(
+				workspace !== null &&
+					detail !== null &&
+					quotaPending(workspace.quotaConfig, detail.quotaApplied),
+				detail !== null && limitsPending(detail.limitsConfig, detail.limitsApplied),
+			)}
 			{workspace && dialog === "quota" ? (
 				<QuotaDialog
 					open
@@ -333,5 +317,60 @@ export function ResourcesSection({
 				/>
 			) : null}
 		</section>
+	);
+}
+
+/** True when any limit falls back to the site's profile. */
+function usesSiteLimit(config: WorkspaceLimits | null): boolean {
+	return (["cpu", "memoryMiB", "processes"] as const).some(
+		(key) => config?.[key] === undefined,
+	);
+}
+
+/** The one line saying a storage or limits change is saved and on its way. */
+function pendingNote(quota: boolean, limits: boolean) {
+	if (!quota && !limits) return null;
+	const text =
+		quota && limits
+			? "Storage and limits saved. They take effect within a minute."
+			: quota
+				? "Storage saved. It takes effect within a minute."
+				: "Limits saved. They take effect within a minute.";
+	return (
+		<p
+			className="pk-text-compact pk-muted m-0 flex items-start gap-1.5"
+			data-testid={limits ? "detail-limits-pending" : "detail-quota-pending"}
+		>
+			<Icon name="check" size="sm" className="mt-0.5 flex-none text-status-running" />
+			{text}
+		</p>
+	);
+}
+
+/** A value with its Edit at the row's end. */
+const EDIT_ROW = "flex min-w-0 items-start justify-between gap-2";
+
+/** Each value's own Edit, beside what it changes, so the panel needs no row of edit buttons. */
+function EditButton({
+	testId,
+	label,
+	onClick,
+}: {
+	testId: string;
+	label: string;
+	onClick: () => void;
+}) {
+	return (
+		<Button
+			size="sm"
+			variant="quiet"
+			className="-my-1 flex-none"
+			data-testid={testId}
+			aria-label={label}
+			aria-haspopup="dialog"
+			onClick={onClick}
+		>
+			Edit
+		</Button>
 	);
 }

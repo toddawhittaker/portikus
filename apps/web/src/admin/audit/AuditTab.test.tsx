@@ -13,6 +13,8 @@ import { ADMIN_REFRESH_MS } from "../queries.js";
 import { isUsersList, usersBody } from "../users/testRows.js";
 import {
 	AuditTab,
+	actionName,
+	changeParts,
 	filtersFromSearch,
 	resultTagClass,
 	targetLabel,
@@ -131,8 +133,10 @@ test("a target link asks the API for that target and names it above the table", 
 	const row = within(await screen.findByTestId("audit-row-7"));
 	expect(row.getByText("Carol Admin")).toBeDefined();
 	expect(row.getByText("workspace.stop_requested")).toBeDefined();
-	expect(row.getByText("reason:")).toBeDefined();
+	// The details read as words: a field's label, then its value; a change shows the old value too.
+	expect(row.getByText("Reason")).toBeDefined();
 	expect(row.getByText("grow")).toBeDefined();
+	expect(row.getByText("10")).toBeDefined();
 	expect(row.getByText("20")).toBeDefined();
 	expect(auditCalls(fetch)).toEqual([`/admin/audit?workspace=${ALICE_ID}`]);
 	await waitFor(() =>
@@ -320,6 +324,50 @@ test("the short time names month, day, hour and minute but not the year", () => 
 	const text = shortTime("2026-09-22T10:00:00.000Z");
 	expect(text).toMatch(/Sep/);
 	expect(text).not.toMatch(/2026/);
+});
+
+test("a quota change reads as old and new values with their unit", () => {
+	expect(
+		changeParts([
+			["from", { homeGiB: 5, dockerGiB: 5 }],
+			["to", { homeGiB: 10, dockerGiB: 10 }],
+		]),
+	).toEqual([
+		{ label: "Home", from: "5", to: "10 GiB" },
+		{ label: "Docker", from: "5", to: "10 GiB" },
+	]);
+	expect(changeParts([["averagePercent", 96]])).toEqual([
+		{ label: "Average", to: "96%" },
+	]);
+	expect(changeParts([["errorCode", "TIMEOUT"]])).toEqual([
+		{ label: "Error code", to: "TIMEOUT" },
+	]);
+});
+
+test("choosing a row opens the event in full beside the table", async () => {
+	stubAudit(() =>
+		json(200, {
+			events: [event(5, { metadata: { reason: "grow" } })],
+			nextBefore: null,
+		}),
+	);
+
+	renderTab("/admin/audit");
+
+	const row = await screen.findByTestId("audit-row-5");
+	const open = within(row).getByRole("button", { name: /^Event details/ });
+	expect(open.getAttribute("aria-expanded")).toBe("false");
+	fireEvent.click(open);
+	const inspector = screen.getByTestId("audit-inspector");
+	expect(open.getAttribute("aria-expanded")).toBe("true");
+	expect(open.getAttribute("aria-controls")).toBe(inspector.id);
+	expect(row.getAttribute("aria-selected")).toBe("true");
+	expect(inspector.textContent).toContain("workspace.stop_requested");
+	expect(inspector.textContent).toContain('"reason": "grow"');
+	fireEvent.click(
+		within(inspector).getByRole("button", { name: "Close event details" }),
+	);
+	expect(screen.queryByTestId("audit-inspector")).toBeNull();
 });
 
 test("ok and success are neutral tags; anything else is an error tag", () => {
@@ -523,4 +571,10 @@ test("an older page is fixed by its cursor and is not refreshed", async () => {
 	await refresh();
 	await refresh();
 	expect(auditCalls(fetch)).toEqual(["/admin/audit", "/admin/audit?before=60"]);
+});
+
+test("an action reads as words, with its raw name kept for the filter", () => {
+	expect(actionName("workspace.quota_updated")).toBe("Workspace quota updated");
+	expect(actionName("user.disabled")).toBe("User disabled");
+	expect(actionName("")).toBe("");
 });

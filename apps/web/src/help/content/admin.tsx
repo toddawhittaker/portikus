@@ -34,9 +34,10 @@ export const ADMIN_HELP: HelpPart = {
 				<>
 					<p>
 						Nobody can sign up on their own. On <strong>Users</strong>, choose{" "}
-						<strong>Invite…</strong> before someone's first sign-in; that sign-in
-						creates their account with the role you chose. Until then they are listed at
-						the end of the table as <strong>Invited</strong>, and{" "}
+						<strong>Invite…</strong> (under <strong>More</strong> when{" "}
+						<strong>Add user…</strong> is there) before someone's first sign-in; that
+						sign-in creates their account with the role you chose. Until then they are
+						listed at the end of the table as <strong>Invited</strong>, and{" "}
 						<strong>Revoke…</strong> takes the invitation back.
 					</p>
 					<p>
