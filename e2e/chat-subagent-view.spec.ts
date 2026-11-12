@@ -6,6 +6,7 @@ import {
 	test,
 } from "@playwright/test";
 import { makeChatTab, scriptedChat } from "./chat-helpers";
+import { expectEvenRing } from "./focus-ring-helpers";
 import { expectNoViolations, terminalIds } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 import { splitPane } from "./split-helpers";
@@ -415,6 +416,8 @@ for (const colorScheme of ["dark", "light"] as const) {
 			context,
 		}) => {
 			const { id, view, panel } = await openSplit(page, context, 1600);
+			// The sheet never paints over the focused pane's ring.
+			await expectEvenRing(page, page.getByTestId(`terminal-leaf-${id}`));
 			const pane = await box(view);
 			expect(pane.width).toBeGreaterThanOrEqual(SIDE_BY_SIDE);
 			const sheet = await box(panel);
@@ -435,6 +438,7 @@ for (const colorScheme of ["dark", "light"] as const) {
 			context,
 		}) => {
 			const { id, view, panel } = await openSplit(page, context, 1100);
+			await expectEvenRing(page, page.getByTestId(`terminal-leaf-${id}`));
 			const pane = await box(view);
 			expect(pane.width).toBeLessThan(SIDE_BY_SIDE);
 			const sheet = await box(panel);
