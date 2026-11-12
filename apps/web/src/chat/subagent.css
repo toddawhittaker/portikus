@@ -1,43 +1,43 @@
-/* A subagent's conversation in a sheet docked to the chat's right edge, with
-   the chat's log still usable beside it (SPEC.md §8.3). The composer below
-   stays in reach, since asking Claude is how a message gets passed on. A pane
-   too narrow for both gives the sheet all of it and hides the log, which
-   takes the log out of the keyboard's reach too. */
+/* A subagent's conversation in a sheet docked to the chat's right edge
+   (SPEC.md §8.3). From a 28rem pane up, the log stays usable beside it; the
+   composer below always does, since asking Claude is how a message gets
+   passed on. In a narrower pane the sheet covers all but a strip of the log,
+   which then takes no input (`--pk-subagent-covers` tells ChatView so). The
+   sheet stays inside the pane's focus ring and below its layer. */
 .pk-chat-main {
-	--pk-subagent-width: 100%;
+	--pk-subagent-strip: 3rem;
+	--pk-subagent-width: calc(100% - var(--pk-subagent-strip) - var(--ring-width));
+	--pk-subagent-covers: 1;
 }
 
 .pk-subagent {
 	position: absolute;
 	inset-block: 0;
-	inset-inline-end: 0;
+	inset-inline-end: var(--ring-width);
 	inline-size: var(--pk-subagent-width);
 	z-index: 2;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 	background: var(--surface);
+	border-inline-start: 1px solid var(--line-strong);
 	border-block-end: 1px solid var(--line);
+	box-shadow: var(--shadow-md);
 }
 
-.pk-chat-main[data-subagent] > .pk-chat-scroll,
 .pk-chat-main[data-subagent] > .pk-chat-jump {
 	visibility: hidden;
 }
 
-@container pk-chat (min-width: 36rem) {
+@container pk-chat (min-width: 28rem) {
 	.pk-chat-main {
-		--pk-subagent-width: clamp(18rem, 50%, 40rem);
-	}
-
-	.pk-subagent {
-		border-inline-start: 1px solid var(--line);
+		--pk-subagent-width: clamp(14rem, 50%, 40rem);
+		--pk-subagent-covers: 0;
 	}
 
 	/* The log keeps the room the sheet leaves, its column centred in it. */
 	.pk-chat-main[data-subagent] > .pk-chat-scroll {
-		visibility: visible;
-		margin-inline-end: var(--pk-subagent-width);
+		margin-inline-end: calc(var(--pk-subagent-width) + var(--ring-width));
 		padding-inline: max(
 			var(--space-4),
 			calc((100% - var(--pk-subagent-width) - var(--pk-chat-column)) / 2)

@@ -44,6 +44,7 @@ import {
 	SubagentOpenerContext,
 	type SubagentTarget,
 	takeSubagentRequest,
+	useSubagentCovers,
 	useSubagentRequest,
 } from "./subagentView.js";
 import { useChatSession } from "./useChatSession.js";
@@ -168,6 +169,8 @@ function ChatViewBody({
 	const ids = useId();
 	const follow = useFollowEnd(log, content, visible);
 	const [subagent, setSubagent] = useState<SubagentTarget | null>(null);
+	const main = useRef<HTMLDivElement | null>(null);
+	const covered = useSubagentCovers(main, subagent !== null);
 	// A subagent picked in the project list opens at its tool row (SPEC.md §8.2);
 	// the keyboard stays in its subagent view when that opens too.
 	useToolReveal(terminalId, log, visible, state.items, subagent === null);
@@ -329,14 +332,19 @@ function ChatViewBody({
 				onLeave();
 			}}
 		>
-			{/* With a subagent shown, the log stays usable beside it; the stylesheet
-			    hides the log only in a pane too narrow for both. */}
-			<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
+			{/* With a subagent shown, the log stays usable beside it, unless the
+			    pane is too narrow and the sheet covers all but a strip of it. */}
+			<div
+				ref={main}
+				className="pk-chat-main"
+				data-subagent={subagent ? "" : undefined}
+			>
 				<div
 					ref={log}
 					className="pk-chat-scroll"
 					data-testid="chat-scroll"
 					onScroll={follow.onScroll}
+					inert={covered}
 				>
 					<div ref={content} className="pk-chat-column">
 						{!state.loaded ? (

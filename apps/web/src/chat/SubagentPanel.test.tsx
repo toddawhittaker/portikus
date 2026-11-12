@@ -354,3 +354,13 @@ test("a project list pick opens the Agent card in the log but leaves the keyboar
 		within(screen.getByTestId("subagent-panel")).getByRole("heading", { level: 2 }),
 	);
 });
+
+test("where the stylesheet says the sheet covers the log, the log behind takes no input", () => {
+	draw();
+	const log = screen.getByTestId("chat-scroll");
+	log.parentElement?.style.setProperty("--pk-subagent-covers", "1");
+	openFromCard();
+	expect(log.hasAttribute("inert")).toBe(true);
+	fireEvent.keyDown(screen.getByTestId("subagent-panel"), { key: "Escape" });
+	expect(log.hasAttribute("inert")).toBe(false);
+});

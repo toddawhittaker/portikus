@@ -1,4 +1,10 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import {
+	type BrowserContext,
+	expect,
+	type Locator,
+	type Page,
+	test,
+} from "@playwright/test";
 import { makeChatTab, scriptedChat } from "./chat-helpers";
 import { expectNoViolations, terminalIds } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
@@ -14,8 +20,10 @@ import { splitPane } from "./split-helpers";
  * the keyboard back when Escape closes it. The chat's own row closes it.
  */
 
-/** Below this pane width the sheet takes the whole pane (36rem). */
-const SIDE_BY_SIDE = 36 * 16;
+/** Below this pane width the sheet covers all but a strip of the log (28rem). */
+const SIDE_BY_SIDE = 28 * 16;
+/** The strip of the log a covering sheet leaves in view (3rem). */
+const STRIP = 3 * 16;
 
 /** Open the background subagent's sheet from its Agent card. */
 async function openBackgroundCard(view: Locator) {
@@ -27,6 +35,31 @@ async function openBackgroundCard(view: Locator) {
 	const panel = view.getByRole("region", { name: "Subagent Count the routes" });
 	await expect(panel.getByText("Count the routes, please.")).toBeVisible();
 	return panel;
+}
+
+/** The focus ring's width in pixels, from the theme. */
+async function ringWidth(page: Page): Promise<number> {
+	return page.evaluate(() =>
+		Number.parseFloat(
+			getComputedStyle(document.documentElement).getPropertyValue("--ring-width"),
+		),
+	);
+}
+
+/** A chat in a tab split with a terminal, its sheet open: a narrower pane. */
+async function openSplit(page: Page, context: BrowserContext, width: number) {
+	await page.setViewportSize({ width, height: 900 });
+	const { student, project, id } = await makeChatTab(page, context);
+	await scriptSubagentChat(page);
+	await page.reload();
+	const view = page.getByTestId(`chat-view-${id}`);
+	await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
+	await splitPane(page, id, "right");
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(2);
+	const panel = await openBackgroundCard(view);
+	return { id, view, panel };
 }
 
 async function box(locator: Locator) {
@@ -329,11 +362,12 @@ for (const colorScheme of ["dark", "light"] as const) {
 			const pane = await box(view);
 			expect(pane.width).toBeGreaterThanOrEqual(SIDE_BY_SIDE);
 			const sheet = await box(panel);
-			// min(50%, 40rem), at least 18rem, docked to the pane's right edge and inside it.
-			const wanted = Math.min(Math.max(pane.width / 2, 18 * 16), 40 * 16);
+			// min(50%, 40rem), at least 14rem, docked inside the pane's right edge and its ring.
+			const wanted = Math.min(Math.max(pane.width / 2, 14 * 16), 40 * 16);
 			expect(Math.abs(sheet.width - wanted)).toBeLessThanOrEqual(1);
+			const ring = await ringWidth(page);
 			expect(
-				Math.abs(sheet.x + sheet.width - (pane.x + pane.width)),
+				Math.abs(sheet.x + sheet.width - (pane.x + pane.width - ring)),
 			).toBeLessThanOrEqual(1);
 			expect(sheet.x).toBeGreaterThanOrEqual(pane.x);
 			expect(sheet.y).toBeGreaterThanOrEqual(pane.y);
@@ -376,35 +410,54 @@ for (const colorScheme of ["dark", "light"] as const) {
 			await expect(row).toBeFocused();
 		});
 
-		test("in a narrow pane the sheet takes the whole pane and the log behind is hidden", async ({
+		test("in a split pane down to 28rem the sheet still sits beside a usable log", async ({
 			page,
 			context,
 		}) => {
-			await page.setViewportSize({ width: 1100, height: 900 });
-			const { student, project, id } = await makeChatTab(page, context);
-			await scriptSubagentChat(page);
-			await page.reload();
-			const view = page.getByTestId(`chat-view-${id}`);
-			await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
-			// A terminal beside the chat leaves it a narrow pane.
-			await splitPane(page, id, "right");
-			await expect
-				.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
-				.toBe(2);
-			const panel = await openBackgroundCard(view);
+			const { id, view, panel } = await openSplit(page, context, 1600);
+			const pane = await box(view);
+			expect(pane.width).toBeGreaterThanOrEqual(SIDE_BY_SIDE);
+			const sheet = await box(panel);
+			const wanted = Math.min(Math.max(pane.width / 2, 14 * 16), 40 * 16);
+			expect(Math.abs(sheet.width - wanted)).toBeLessThanOrEqual(1);
+			const log = view.getByTestId("chat-scroll");
+			await expect(log).not.toHaveAttribute("inert");
+			const reply = log.getByText("Started it.");
+			await expect(reply).toBeVisible();
+			expect((await box(reply)).x + (await box(reply)).width).toBeLessThanOrEqual(
+				sheet.x,
+			);
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+		});
 
+		test("in a pane under 28rem the sheet covers all but a strip of the log, which takes no input", async ({
+			page,
+			context,
+		}) => {
+			const { id, view, panel } = await openSplit(page, context, 1100);
 			const pane = await box(view);
 			expect(pane.width).toBeLessThan(SIDE_BY_SIDE);
 			const sheet = await box(panel);
-			expect(Math.abs(sheet.x - pane.x)).toBeLessThanOrEqual(1);
-			expect(Math.abs(sheet.width - pane.width)).toBeLessThanOrEqual(1);
-			await expect(view.getByTestId("chat-scroll")).toBeHidden();
+			const ring = await ringWidth(page);
+			// A strip of the conversation shows on the left; the sheet is inside the ring.
+			expect(Math.abs(sheet.x - (pane.x + STRIP))).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(sheet.x + sheet.width - (pane.x + pane.width - ring)),
+			).toBeLessThanOrEqual(1);
+			// It reads as a panel over the chat: a border on its left and a shadow.
+			await expect(panel).toHaveCSS("border-left-style", "solid");
+			expect(
+				await panel.evaluate((element) => getComputedStyle(element).boxShadow),
+			).not.toBe("none");
+			const log = view.getByTestId("chat-scroll");
+			await expect(log).toBeVisible();
+			await expect(log).toHaveAttribute("inert", "");
 			await expect(view.getByTestId("chat-composer-input")).toBeVisible();
 			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 
 			await page.keyboard.press("Escape");
 			await expect(view.getByTestId("subagent-panel")).toHaveCount(0);
-			await expect(view.getByTestId("chat-scroll")).toBeVisible();
+			await expect(log).not.toHaveAttribute("inert");
 		});
 	});
 }

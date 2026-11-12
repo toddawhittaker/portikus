@@ -5,7 +5,13 @@
  * the chat picks up once it is on screen. The chat's own row in the list
  * asks it to close the view the same way.
  */
-import { createContext, useSyncExternalStore } from "react";
+import {
+	createContext,
+	type RefObject,
+	useLayoutEffect,
+	useState,
+	useSyncExternalStore,
+} from "react";
 
 /** One subagent to show: its Agent tool call and the words to name it by. */
 export interface SubagentTarget {
@@ -53,4 +59,34 @@ export function useSubagentRequest(
 	terminalId: string,
 ): SubagentTarget | null | undefined {
 	return useSyncExternalStore(subscribe, () => pending.get(terminalId));
+}
+
+/**
+ * True while an open subagent sheet covers the chat's log, in a pane too
+ * narrow for both side by side. The stylesheet decides the width at which
+ * that happens and says so in `--pk-subagent-covers` on `main`.
+ */
+export function useSubagentCovers(
+	main: RefObject<HTMLElement | null>,
+	open: boolean,
+): boolean {
+	const [covers, setCovers] = useState(false);
+	useLayoutEffect(() => {
+		const element = main.current;
+		if (!open || !element) {
+			setCovers(false);
+			return;
+		}
+		const check = () =>
+			setCovers(
+				getComputedStyle(element).getPropertyValue("--pk-subagent-covers").trim() ===
+					"1",
+			);
+		check();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(check);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [main, open]);
+	return covers;
 }
