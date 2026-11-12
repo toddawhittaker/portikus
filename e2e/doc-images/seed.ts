@@ -32,6 +32,8 @@ mkdirSync(RAW, { recursive: true });
 // A grader's copy of each full-colour shot, before the 256-colour reduction.
 const RAW_OUT = process.env.CAPTURE_RAW_OUT;
 if (RAW_OUT) mkdirSync(RAW_OUT, { recursive: true });
+// A grader's copy is cut into viewport-high tiles, at most this many per page.
+const MAX_TILES = 6;
 
 /** Wait for fonts and animations, take the shot, and reduce it to 256 colours. */
 export async function shoot(
@@ -56,12 +58,80 @@ export async function shoot(
 		clip: options.clip,
 		style: options.keepToasts ? undefined : ".pk-toast { visibility: hidden; }",
 	});
-	if (RAW_OUT) copyFileSync(raw, join(RAW_OUT, name));
+	if (RAW_OUT) await graderTiles(page, name, raw, options);
 	execFileSync(process.env.IMAGEMAGICK ?? "convert", [
 		raw,
 		"-colors",
 		"256",
 		`PNG8:${join(IMAGES, name)}`,
+	]);
+}
+
+/**
+ * The grader's copy: the whole page, cut into viewport-high tiles named
+ * `<name>-p1.png`, `-p2.png` and so on. The app shell scrolls inside its own
+ * containers rather than the document, so the viewport is made taller until
+ * nothing page-sized scrolls, then put back. Detail images and open dialogs
+ * stay as the viewport shot.
+ */
+async function graderTiles(
+	page: Page,
+	name: string,
+	raw: string,
+	options: { keepMouse?: boolean; keepToasts?: boolean; clip?: unknown },
+): Promise<void> {
+	const out = join(RAW_OUT as string, name.replace(/\.png$/, ""));
+	const viewport = page.viewportSize();
+	const modal = await page
+		.getByRole("dialog")
+		.or(page.getByRole("alertdialog"))
+		.count();
+	if (options.clip || modal > 0 || !viewport) {
+		copyFileSync(raw, `${out}-p1.png`);
+		return;
+	}
+	const limit = viewport.height * MAX_TILES;
+	let height = viewport.height;
+	for (let round = 0; round < 5 && height < limit; round++) {
+		const overflow = await page.evaluate((least) => {
+			let most = document.documentElement.scrollHeight - window.innerHeight;
+			for (const element of document.querySelectorAll("*")) {
+				const { overflowY } = getComputedStyle(element);
+				if (overflowY !== "auto" && overflowY !== "scroll") continue;
+				if (element.clientHeight < least) continue;
+				most = Math.max(most, element.scrollHeight - element.clientHeight);
+			}
+			return most;
+		}, viewport.height / 2);
+		if (overflow <= 1) break;
+		if (height + overflow > limit)
+			console.log(`${name}: longer than ${MAX_TILES} tiles, cut`);
+		height = Math.min(limit, height + overflow);
+		await page.setViewportSize({ width: viewport.width, height });
+		if (!options.keepMouse) await page.mouse.move(0, height);
+		await page.waitForTimeout(600);
+	}
+	const full = `${raw}.full.png`;
+	if (height === viewport.height) {
+		copyFileSync(raw, full);
+	} else {
+		await page.screenshot({
+			path: full,
+			animations: "disabled",
+			caret: "hide",
+			style: options.keepToasts ? undefined : ".pk-toast { visibility: hidden; }",
+		});
+		await page.setViewportSize(viewport);
+		if (!options.keepMouse) await page.mouse.move(0, viewport.height);
+	}
+	execFileSync(process.env.IMAGEMAGICK ?? "convert", [
+		full,
+		"-crop",
+		`${viewport.width}x${viewport.height}`,
+		"+repage",
+		"-scene",
+		"1",
+		`${out}-p%d.png`,
 	]);
 }
 
