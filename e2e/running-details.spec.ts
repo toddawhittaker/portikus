@@ -23,9 +23,13 @@ test.describe("running details", () => {
 				process: { pid: 7, command: "node", commandLine: "node vite" },
 			},
 		]);
-		const project = await createProject(student.workspaceId, { name: "running" });
+		const project = await createProject(student.workspaceId, {
+			name: "running",
+		});
 		await page.goto(workspacePath(student.workspaceId, project.id));
-		await expect(page.getByTestId("work-tabs")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("work-tabs")).toBeVisible({
+			timeout: 15_000,
+		});
 		await page.getByTestId("right-pane-tab-running").click();
 		await page
 			.getByTestId("running-row-3000")
@@ -67,13 +71,19 @@ test.describe("running details", () => {
 			},
 			{
 				port: 8080,
-				process: { pid: 9, command: "docker-proxy", commandLine: "docker-proxy" },
+				process: {
+					pid: 9,
+					command: "docker-proxy",
+					commandLine: "docker-proxy",
+				},
 				container: { id: "abc", name: "postgres" },
 			},
 		]);
 		const project = await createProject(student.workspaceId, { name: "rows" });
 		await page.goto(workspacePath(student.workspaceId, project.id));
-		await expect(page.getByTestId("work-tabs")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("work-tabs")).toBeVisible({
+			timeout: 15_000,
+		});
 		await page.getByTestId("right-pane-tab-running").click();
 
 		// The Docker tag sits on its own line, so the name keeps its full width.
@@ -92,5 +102,65 @@ test.describe("running details", () => {
 		await expect(page.getByTestId("preview-host")).toContainText("5173", {
 			timeout: 20_000,
 		});
+	});
+	test("every name starts at the same x, whatever the digits in the port", async ({
+		page,
+		context,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		const student = await createStudent(context);
+		await seedListening(student.workspaceId, [
+			{ port: 53, system: true, process: { pid: 1, command: "resolver" } },
+			{ port: 5355, system: true, process: { pid: 2, command: "MainThread" } },
+			{
+				port: 3000,
+				process: { pid: 3, command: "node", commandLine: "node vite" },
+			},
+			{
+				port: 30001,
+				process: {
+					pid: 4,
+					command: "python3",
+					commandLine: "python3 -m http.server",
+				},
+			},
+		]);
+		const project = await createProject(student.workspaceId, {
+			name: "columns",
+		});
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId("work-tabs")).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.getByTestId("right-pane-tab-running").click();
+		await page.getByTestId("running-system-toggle").locator("input").check();
+		await expect(page.getByTestId("running-row-53")).toBeVisible({
+			timeout: 20_000,
+		});
+
+		// Two digits, four digits and five digits, in the system and user groups.
+		const nameLeft = async (port: number) => {
+			const box = await page
+				.getByTestId(`running-row-${port}`)
+				.locator(".pk-portrow-main")
+				.boundingBox();
+			return box?.x;
+		};
+		const portRight = async (port: number) => {
+			const box = await page
+				.getByTestId(`running-row-${port}`)
+				.locator(".pk-portrow-port")
+				.boundingBox();
+			return box ? box.x + box.width : undefined;
+		};
+		const left = await nameLeft(53);
+		expect(left).toBeDefined();
+		for (const port of [5355, 3000, 30001]) {
+			expect(await nameLeft(port)).toBeCloseTo(left ?? 0, 1);
+		}
+		const right = await portRight(53);
+		for (const port of [5355, 3000, 30001]) {
+			expect(await portRight(port)).toBeCloseTo(right ?? 0, 1);
+		}
 	});
 });
