@@ -79,9 +79,9 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				</li>
 				<li>
 					A speaker button under each of Claude's replies reads it aloud; press it again
-					to stop. Turn on <strong>Read replies aloud</strong> in the{" "}
-					<strong>Chat options</strong> panel to hear the last reply of each turn when
-					Claude finishes. Escape, sending a message or leaving the tab stops the
+					to stop. Turn on the <strong>Read replies aloud</strong> switch at the top of
+					the <strong>Chat options</strong> panel to hear the last reply of each turn
+					when Claude finishes. Escape, sending a message or leaving the tab stops the
 					speech. Code blocks are not read; you hear "code block" instead. Your browser
 					makes the voice, and Portikus never receives or keeps the text. Portikus picks
 					a voice on your device when there is one. If your browser has only an online
@@ -156,13 +156,14 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					When Claude starts a subagent, a row for it appears under the chat in the
 					project list, and its card in the conversation has{" "}
-					<strong>Show its conversation</strong>. Either opens a panel over the
-					conversation that follows what the subagent is doing. The panel is read-only:
-					Claude Code cannot send a subagent a message, so to pass one on, ask Claude in
-					the chat. If the subagent starts another, it opens in the same panel, and{" "}
-					<strong>Back</strong> returns. Escape or the close button closes the panel. A
-					subagent Claude started in the background shows as "Started in the
-					background", with its state, on its card.
+					<strong>Show its conversation</strong>. Either opens a card over the
+					conversation, with the conversation dimmed behind it, that follows what the
+					subagent is doing. The card is read-only: Claude Code cannot send a subagent a
+					message, so to pass one on, ask Claude in the chat. If the subagent starts
+					another, it opens in the same card, and <strong>Back</strong> returns. Escape
+					or the close button closes the card; choosing the chat's own row in the
+					project list closes it too. A subagent Claude started in the background shows
+					as "Started in the background", with its state, on its card.
 				</li>
 				<li>
 					A chat zooms on its own, from 50% to 300%: hold{" "}

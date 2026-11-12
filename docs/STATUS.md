@@ -83,7 +83,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 59, agent rows and chat.** Agent and subagent rows in the left pane, and a chat batch with `!` shell commands, `@` file mentions and changed-file lists (ADRs 0070 to 0073).
 - **Epic 60, documentation refresh.** The guides, the in-app Help and the documentation images brought up to date, and this file cut down to this form.
 - **Epic 61, UI refresh.** A new look for the student and administrator screens in both themes: a warm palette with teal actions and a violet agent hue, a type scale, a context meter in the chat composer and clearer admin pages (DESIGN.md section 11).
-- **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, a read-only panel for watching a subagent, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache (ADR 0074).
+- **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, a read-only panel for watching a subagent, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache; pilot testing then reshaped the Chat options panel into labelled fields, gave split panes an even focus ring, made the subagent panel a floating card, dropped the Agent card's raw text and lined up the Running pane's ports (ADR 0074).
 
 ## Open items
 
@@ -151,6 +151,8 @@ list was made and may already be fixed.
 - Turning a code help language off does not close sockets already open.
 - Code help for more languages is #1652 and a debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
 - Wanted: picking an element in the preview to send to the agent (#1708), and stored check history (#1237).
+- Vertical box-drawing characters show a gap of 1 to 2 px between rows in a terminal at line height 1.1 (#1919).
+- More file-type icons, and colour for them, are wanted (#1921).
 - The editor's per-file zoom is lost when the student leaves the workspace route, because it lives only in the layout store; SPEC.md says it survives. Terminal and chat zoom do survive, in the tab's sessionStorage.
 
 ### Chat and coding agents
