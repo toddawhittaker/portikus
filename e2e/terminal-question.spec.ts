@@ -5,7 +5,7 @@
  * when the card goes (SPEC.md §25.8). The fake agent stands in for the hook:
  * each post replaces the whole list of agent states.
  */
-import { expect, type Page, type Request, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
@@ -13,6 +13,7 @@ import {
 	expectNoViolations,
 	routeApi,
 	terminalIds,
+	toast,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -58,27 +59,22 @@ async function setQuestion(
 	if (!response.ok) throw new Error(`the fake agent refused: ${response.status}`);
 }
 
-/** Answer the question route with `status`, keeping each body the page sent. */
-async function answerWith(page: Page, status: number): Promise<unknown[]> {
-	const bodies: unknown[] = [];
-	await routeApi(
-		page,
-		"**/workspaces/*/terminals/*/question",
-		(route, request: Request) => {
-			bodies.push(request.postDataJSON());
-			return status === 204
-				? route.fulfill({ status })
-				: route.fulfill({
-						status,
-						contentType: "application/json",
-						body: JSON.stringify({
-							code: "AGENT_UNAVAILABLE",
-							message: "Answered in the terminal or timed out",
-						}),
-					});
-		},
+/** The answers the fake agent was forwarded for a workspace, oldest first. */
+async function forwarded(workspaceId: string): Promise<unknown[]> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminal-questions?key=${workspaceId}`,
 	);
-	return bodies;
+	return ((await response.json()) as { answers: unknown[] }).answers;
+}
+
+/** Hold back the agent's state frames, as a hook that has not reported yet. */
+async function holdStates(workspaceId: string, hold: boolean): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/coding-agents-hold`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ key: workspaceId, hold }),
+	});
+	if (!response.ok) throw new Error(`the fake agent refused: ${response.status}`);
 }
 
 /** A student with one terminal open and connected. */
@@ -110,7 +106,6 @@ test("the card sends the answer, and clears in every tab", async ({
 	const other = await context.newPage();
 	await other.goto(path);
 	await expectConnected(other, terminalId);
-	const bodies = await answerWith(page, 204);
 
 	await setQuestion(workspaceId, terminalId, QUESTION);
 	await expect(card(page)).toBeVisible();
@@ -121,13 +116,12 @@ test("the card sends the answer, and clears in every tab", async ({
 	await page.getByRole("button", { name: /Submit/ }).click();
 
 	await expect(card(page)).toHaveCount(0);
-	expect(bodies).toEqual([
-		{ id: QUESTION.id, answers: { "Which database should the API use?": "SQLite" } },
-	]);
 	await expect(shell(page, terminalId)).toBeFocused();
 	// The agent takes the question off once the hook has its answer.
-	await setQuestion(workspaceId, terminalId, null);
 	await expect(card(other)).toHaveCount(0);
+	expect(await forwarded(workspaceId)).toEqual([
+		{ id: QUESTION.id, answers: { "Which database should the API use?": "SQLite" } },
+	]);
 });
 
 test("Answer in the terminal hands the question back; Escape does not", async ({
@@ -135,17 +129,16 @@ test("Answer in the terminal hands the question back; Escape does not", async ({
 	context,
 }) => {
 	const { workspaceId, terminalId } = await openTerminal(page, context);
-	const bodies = await answerWith(page, 204);
 	await setQuestion(workspaceId, terminalId, QUESTION);
 	await expect(page.getByRole("radio", { name: "PostgreSQL" })).toBeFocused();
 
 	await page.keyboard.press("Escape");
 	await expect(card(page)).toBeVisible();
-	expect(bodies).toEqual([]);
+	expect(await forwarded(workspaceId)).toEqual([]);
 
 	await page.getByRole("button", { name: "Answer in the terminal" }).click();
 	await expect(card(page)).toHaveCount(0);
-	expect(bodies).toEqual([{ id: QUESTION.id, inTerminal: true }]);
+	expect(await forwarded(workspaceId)).toEqual([{ id: QUESTION.id, inTerminal: true }]);
 	await expect(shell(page, terminalId)).toBeFocused();
 });
 
@@ -154,8 +147,11 @@ test("an answer that comes too late says so and clears the card", async ({
 	context,
 }) => {
 	const { workspaceId, terminalId } = await openTerminal(page, context);
-	await answerWith(page, 409);
 	await setQuestion(workspaceId, terminalId, QUESTION);
+	await expect(card(page)).toBeVisible();
+	// Claude Code stops waiting before the page hears of it.
+	await holdStates(workspaceId, true);
+	await setQuestion(workspaceId, terminalId, null);
 	await page.getByRole("radio", { name: "PostgreSQL" }).check();
 	await page.getByRole("button", { name: /Submit/ }).click();
 
@@ -163,7 +159,31 @@ test("an answer that comes too late says so and clears the card", async ({
 	await expect(gone).toHaveText("Answered in the terminal or timed out");
 	await expect(card(page)).toHaveCount(0);
 	await expect(shell(page, terminalId)).toBeFocused();
+	expect(await forwarded(workspaceId)).toEqual([]);
 	await expect(gone).toHaveCount(0, { timeout: 10_000 });
+});
+
+test("an answer that cannot be sent says so and keeps the question", async ({
+	page,
+	context,
+}) => {
+	const { workspaceId, terminalId } = await openTerminal(page, context);
+	// No fake for an agent that cannot be reached, so the browser's request fails here.
+	await routeApi(page, "**/workspaces/*/terminals/*/question", (route) =>
+		route.fulfill({
+			status: 503,
+			contentType: "application/json",
+			body: JSON.stringify({
+				code: "AGENT_UNAVAILABLE",
+				message: "The workspace is not reachable.",
+			}),
+		}),
+	);
+	await setQuestion(workspaceId, terminalId, QUESTION);
+	await page.getByRole("button", { name: "Answer in the terminal" }).click();
+	await expect(toast(page, "Your answer was not sent")).toBeVisible();
+	await expect(card(page)).toBeVisible();
+	expect(await forwarded(workspaceId)).toEqual([]);
 });
 
 test("a short pane keeps terminal lines in view above the card", async ({
