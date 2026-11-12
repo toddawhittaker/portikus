@@ -3379,12 +3379,15 @@ Added by Epic 64: the admin and course pages share one page frame.
   guard and Workspace (with **Restore from backup…** and Rebuild); a
   workspace with a problem shows its guard part first and marks the
   Overview tab. **Activity** holds Processes, Ports and connections, the
-  Agent log and Recent audit. **Account** holds the account (role, instructor and
-  Dex password actions, linked course accounts and **Disable account**,
-  set apart), then the Destructive group: **Reset Docker**, then
-  **Archive workspace**, the group hidden when neither applies. On an
-  archived workspace **Unarchive** is a neutral action outside the
-  Destructive group; it restores, so it confirms nothing. Every tab stays mounted, so an
+  Agent log and Recent audit. **Account** holds, in order: View this user's logs, Promote, Make
+  instructor, Link a course account…, **Disable account**, then the
+  Destructive group of **Reset Docker** and **Archive workspace**, the
+  group hidden when neither applies. Each of Promote, Make instructor,
+  Disable account, Reset Docker and Archive workspace has its toggletip
+  after it. On an archived workspace, Archive and its toggletip are gone
+  and **Unarchive** is a plain button in the panel head after the
+  lifecycle buttons; it restores, so it confirms nothing. After Archive,
+  focus moves to Unarchive; after Unarchive, to the panel heading. Every tab stays mounted, so an
   edit in progress survives a tab switch. This replaces the single
   column order given under Epic 25 above.
 - **Logs and Audit** are workbenches: one filter bar at the top, the
