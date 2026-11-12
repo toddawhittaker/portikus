@@ -21,6 +21,9 @@ const log = createLogger({
 	level: "info",
 	destination: process.stderr,
 });
+// The chat answers its own questions, so the terminal question hook skips
+// this Claude Code, which inherits the environment (ADR 0075).
+process.env.PORTIKUS_CHAT_TAB = "1";
 const receiver =
 	process.env.PORTIKUS_AGENT_RECEIVER ?? `http://127.0.0.1:${AGENT_USAGE_PORT}`;
 
