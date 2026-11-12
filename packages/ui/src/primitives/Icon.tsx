@@ -70,7 +70,14 @@ const PATHS = {
 	// Lucide sheet: a grid of cells.
 	"file-sheet": ["R3 3 18 18 2", "M3 9h18", "M3 15h18", "M9 9v12", "M15 9v12"],
 	// Lucide notebook, moved a point right so it centres: a ruled pad.
-	"file-notebook": ["R5 2 16 20 2", "M3 6h4", "M3 10h4", "M3 14h4", "M3 18h4", "M17 2v20"],
+	"file-notebook": [
+		"R5 2 16 20 2",
+		"M3 6h4",
+		"M3 10h4",
+		"M3 14h4",
+		"M3 18h4",
+		"M17 2v20",
+	],
 	// Lucide music and video.
 	"file-audio": ["M9 18V5l12-2v13", "C6 18 3", "C18 16 3"],
 	"file-video": [
@@ -321,7 +328,9 @@ export function Icon({
 			role={label ? "img" : undefined}
 			aria-label={label}
 		>
-			{name in TAGS ? tagged(TAGS[name as keyof typeof TAGS]) : PATHS[name as keyof typeof PATHS].map((d, i) => shape(name, d, i))}
+			{name in TAGS
+				? tagged(TAGS[name as keyof typeof TAGS])
+				: PATHS[name as keyof typeof PATHS].map((d, i) => shape(name, d, i))}
 		</svg>
 	);
 }

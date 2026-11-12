@@ -85,7 +85,8 @@
    the type, the tint only helps. Mixed with the muted ink, each stays at
    least 3:1 on plain, hovered and selected rows in both themes (§25.8).
    Magenta is left out: it means a Git conflict and nothing else. */
-:where(.pk-tree-row, .pk-changes-row) .pk-icon:is([data-icon^="file"], [data-icon^="folder"]) {
+:where(.pk-tree-row, .pk-changes-row)
+	.pk-icon:is([data-icon^="file"], [data-icon^="folder"]) {
 	--pk-orange: color-mix(in srgb, var(--status-error) 50%, var(--status-warning));
 	--pk-indigo: color-mix(in srgb, var(--agent) 50%, var(--status-starting));
 	--pk-cyan: color-mix(in srgb, var(--accent) 50%, var(--status-starting));

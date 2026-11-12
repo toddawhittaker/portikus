@@ -166,8 +166,13 @@ for (const colorScheme of ["dark", "light"] as const) {
 			const seen = new Set<string>();
 			for (let step = 0; step < ROWS.length; step++) {
 				if (step > 0) await page.keyboard.press("ArrowDown");
-				const current = page.locator('[data-testid="file-tree"] [role="treeitem"]:focus');
-				const path = (await current.getAttribute("data-testid"))?.replace("file-row-", "");
+				const current = page.locator(
+					'[data-testid="file-tree"] [role="treeitem"]:focus',
+				);
+				const path = (await current.getAttribute("data-testid"))?.replace(
+					"file-row-",
+					"",
+				);
 				if (!path) throw new Error("no current row");
 				seen.add(path);
 				await expectContrast(page, path, "focused");
