@@ -48,6 +48,8 @@ const INPUT = {
 	],
 };
 
+const ONE = INPUT.questions[0] as (typeof INPUT.questions)[number];
+
 function post(overrides: Partial<TerminalQuestionPost> = {}): TerminalQuestionPost {
 	return {
 		tool_name: "AskUserQuestion",
@@ -190,7 +192,7 @@ describe("the question store", () => {
 				tool_input: {
 					questions: [
 						{
-							...INPUT.questions[0],
+							...ONE,
 							question: "x".repeat(MAX_TERMINAL_QUESTION_STRING_CHARS + 1),
 						},
 					],
@@ -323,9 +325,9 @@ describe("the question store", () => {
 				tool_input: {
 					questions: [
 						{
-							...INPUT.questions[0],
+							...ONE,
 							question: String(n).padEnd(MAX_TERMINAL_QUESTION_STRING_CHARS, "x"),
-							options: INPUT.questions[0].options.map((o) => ({
+							options: ONE.options.map((o) => ({
 								label: o.label.padEnd(MAX_TERMINAL_QUESTION_STRING_CHARS, "x"),
 								description: "x".repeat(MAX_TERMINAL_QUESTION_STRING_CHARS),
 								preview: "x".repeat(MAX_TERMINAL_QUESTION_STRING_CHARS),
