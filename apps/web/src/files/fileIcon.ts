@@ -1,6 +1,7 @@
 /**
  * The icon a file row draws (SPEC.md §11.2). The name decides: a handful of
- * well-known file names first, then the extension, then a generic file.
+ * well-known file names first, then a .env prefix, then the extension, then
+ * a generic file.
  *
  * This is a separate table from apps/web/src/editor/language.ts on purpose:
  * that one guesses a Monaco language from a shebang or a first line, which
@@ -8,7 +9,7 @@
  */
 import type { IconName } from "@portikus/ui";
 
-/** Whole file names that pick an icon on their own. */
+/** Whole file names, lower case, that pick an icon on their own. */
 const BY_NAME: Record<string, IconName> = {
 	dockerfile: "file-config",
 	containerfile: "file-config",
@@ -17,37 +18,42 @@ const BY_NAME: Record<string, IconName> = {
 	".gitignore": "file-config",
 	".gitattributes": "file-config",
 	".editorconfig": "file-config",
-	".env": "file-config",
 	license: "file-markdown",
 	readme: "file-markdown",
+	// Lock files a package manager writes; matched whole so data.json stays data.
+	"package-lock.json": "file-lock",
+	"pnpm-lock.yaml": "file-lock",
+	"yarn.lock": "file-lock",
+	"poetry.lock": "file-lock",
+	"cargo.lock": "file-lock",
 };
 
 /** Extensions, lower case and without the dot. */
 const BY_EXTENSION: Record<string, IconName> = {
-	// Code.
-	ts: "file-code",
-	tsx: "file-code",
-	js: "file-code",
-	jsx: "file-code",
-	mjs: "file-code",
-	cjs: "file-code",
-	py: "file-code",
-	java: "file-code",
-	c: "file-code",
-	h: "file-code",
-	cpp: "file-code",
-	hpp: "file-code",
-	cs: "file-code",
-	go: "file-code",
-	rs: "file-code",
-	rb: "file-code",
-	php: "file-code",
-	swift: "file-code",
-	kt: "file-code",
-	sh: "file-code",
-	bash: "file-code",
-	zsh: "file-code",
-	sql: "file-code",
+	// Source files, one tagged icon per language.
+	py: "file-python",
+	java: "file-java",
+	js: "file-javascript",
+	mjs: "file-javascript",
+	cjs: "file-javascript",
+	jsx: "file-javascript",
+	ts: "file-typescript",
+	tsx: "file-typescript",
+	c: "file-c",
+	h: "file-c",
+	cpp: "file-cpp",
+	hpp: "file-cpp",
+	sql: "file-sql",
+	sh: "file-shell",
+	bash: "file-shell",
+	zsh: "file-shell",
+	go: "file-go",
+	rs: "file-rust",
+	cs: "file-csharp",
+	rb: "file-ruby",
+	php: "file-php",
+	kt: "file-kotlin",
+	swift: "file-swift",
 	// Web pages, then styles.
 	html: "file-web",
 	htm: "file-web",
@@ -69,7 +75,15 @@ const BY_EXTENSION: Record<string, IconName> = {
 	md: "file-markdown",
 	markdown: "file-markdown",
 	mdx: "file-markdown",
-	// Pictures.
+	docx: "file-text",
+	odt: "file-text",
+	txt: "file-text",
+	rtf: "file-text",
+	pdf: "file-pdf",
+	xlsx: "file-sheet",
+	ods: "file-sheet",
+	ipynb: "file-notebook",
+	// Pictures, sound and video.
 	png: "file-image",
 	jpg: "file-image",
 	jpeg: "file-image",
@@ -77,6 +91,21 @@ const BY_EXTENSION: Record<string, IconName> = {
 	webp: "file-image",
 	ico: "file-image",
 	bmp: "file-image",
+	mp3: "file-audio",
+	wav: "file-audio",
+	ogg: "file-audio",
+	flac: "file-audio",
+	m4a: "file-audio",
+	mp4: "file-video",
+	webm: "file-video",
+	mov: "file-video",
+	mkv: "file-video",
+	avi: "file-video",
+	// Fonts.
+	ttf: "file-font",
+	otf: "file-font",
+	woff: "file-font",
+	woff2: "file-font",
 	// Archives.
 	zip: "file-archive",
 	tar: "file-archive",
@@ -85,12 +114,15 @@ const BY_EXTENSION: Record<string, IconName> = {
 	bz2: "file-archive",
 	xz: "file-archive",
 	jar: "file-archive",
-	// Settings and lock files.
-	lock: "file-config",
+	// Secrets: keys and certificates a student should notice.
+	pem: "file-key",
+	key: "file-key",
+	env: "file-key",
+	// Settings.
+	lock: "file-lock",
 	ini: "file-config",
 	cfg: "file-config",
 	conf: "file-config",
-	env: "file-config",
 };
 
 /** The extension of a file name, lower case and without the dot. */
@@ -106,9 +138,7 @@ export function fileIconName(name: string): IconName {
 	const lower = name.toLowerCase();
 	const named = BY_NAME[lower];
 	if (named) return named;
-	// package-lock.json and pnpm-lock.yaml read as settings, not as data.
-	if (lower.includes("lock") && (lower.endsWith(".json") || lower.endsWith(".yaml"))) {
-		return "file-config";
-	}
+	// .env, .env.local, .env.production and the like hold secrets.
+	if (lower === ".env" || lower.startsWith(".env.")) return "file-key";
 	return BY_EXTENSION[extensionOf(name)] ?? "file";
 }

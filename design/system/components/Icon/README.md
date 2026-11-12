@@ -10,3 +10,4 @@ A small outlined icon set drawn on a 24 grid with a 1.75 stroke, sized by `size-
 - Never use an icon as decoration beside a heading.
 - `help` (Lucide `circle-help`) is for Toggletip buttons and the Help menu item.
 - `users`, `activity`, `list`, `clipboard-list`, `globe`, `archive`, `box`, `layers` and `settings` (the Lucide icons of those names) are for the admin tabs, which also use `lock`.
+- The `file-*` names and `folder`, `folder-open` are for the Files pane, one glyph per family. Page glyphs are the Lucide page, 16 wide and 20 tall, which matches the 18 square glyphs optically. A source file is the page with its lower half open and a short language tag stamped there (`py`, `jv`, `js`, `ts`, `c`, `c++`, `sql`, `sh`, `go`, `rs`, `c#`, `rb`, `php`, `kt`, `sw`); `file-pdf` is the same page tagged `pdf`. Tags are words, never vendor logos. The Files pane tints each one lightly by family or language, at least 3:1 on every row background.

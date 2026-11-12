@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentUsageCounts } from "./agent-usage.js";
+import { ChatQuestion, MAX_AGENT_TITLE_CHARS, MAX_CHAT_QUESTIONS } from "./chat.js";
 import { CodingAgent, TerminalId, TerminalKind } from "./terminal.js";
 
 /**
@@ -32,9 +33,6 @@ export const CodingAgentSubagent = z.object({
 });
 export type CodingAgentSubagent = z.infer<typeof CodingAgentSubagent>;
 
-/** Longest conversation title shown for a chat tab. */
-export const MAX_AGENT_TITLE_CHARS = 80;
-
 /**
  * A title as shown: control characters (line breaks among them) and
  * invisible format characters (bidi overrides, zero-width marks) become
@@ -61,6 +59,79 @@ export function agentTitleText(raw: string): string {
  */
 const AgentTitle = z.string().min(1).max(MAX_AGENT_TITLE_CHARS);
 
+/** How long a terminal question waits for an answer before Claude Code asks in the terminal. */
+export const TERMINAL_QUESTION_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * Largest hook post body the receiver takes, in bytes of its JSON. A forged
+ * post to the loopback port cannot make the agent hold more than this.
+ */
+export const MAX_TERMINAL_QUESTION_POST_BYTES = 64 * 1024;
+
+/** Longest answer, note or tool name in these bodies; the post cap bounds the sum. */
+const MAX_TERMINAL_QUESTION_TEXT_CHARS = 16 * 1024;
+
+/**
+ * The question a terminal's Claude Code is waiting on, shaped as the chat's
+ * question card takes it. The id is the AskUserQuestion tool call id.
+ */
+export const TerminalQuestion = z
+	.object({
+		id: ToolCallId,
+		questions: z.array(ChatQuestion).min(1).max(MAX_CHAT_QUESTIONS),
+		/** When the hook gives up and Claude Code asks in the terminal. */
+		expiresAt: z.string().datetime(),
+	})
+	.strict();
+export type TerminalQuestion = z.infer<typeof TerminalQuestion>;
+
+/** Answers and notes are keyed by the question text, as the chat's are. */
+const AnswerMap = z
+	.record(
+		z.string().min(1).max(MAX_TERMINAL_QUESTION_TEXT_CHARS),
+		z.string().max(MAX_TERMINAL_QUESTION_TEXT_CHARS),
+	)
+	.refine((map) => Object.keys(map).length <= MAX_CHAT_QUESTIONS, {
+		message: "too many entries",
+	});
+
+/**
+ * The browser's answer to a terminal question, which the API forwards to the
+ * agent: picked answers (with optional per-question notes, as in the chat's
+ * `question.answer`), or "answer in the terminal" so Claude Code asks itself.
+ */
+export const TerminalQuestionAnswer = z.union([
+	z
+		.object({
+			id: ToolCallId,
+			answers: AnswerMap,
+			notes: AnswerMap.optional(),
+		})
+		.strict(),
+	z.object({ id: ToolCallId, inTerminal: z.literal(true) }).strict(),
+]);
+export type TerminalQuestionAnswer = z.infer<typeof TerminalQuestionAnswer>;
+
+/**
+ * A hook's post to the loopback receiver: the three fields it keeps from the
+ * PreToolUse event. `tool_input` is checked by the receiver against the
+ * question shape; here it only has to be JSON that fits the byte cap.
+ */
+export const TerminalQuestionPost = z
+	.object({
+		tool_name: z.string().min(1).max(MAX_TERMINAL_QUESTION_TEXT_CHARS),
+		tool_use_id: ToolCallId,
+		tool_input: z.unknown(),
+	})
+	.strict()
+	.refine(
+		(body) =>
+			new TextEncoder().encode(JSON.stringify(body) ?? "").length <=
+			MAX_TERMINAL_QUESTION_POST_BYTES,
+		{ message: `must be at most ${MAX_TERMINAL_QUESTION_POST_BYTES} bytes` },
+	);
+export type TerminalQuestionPost = z.infer<typeof TerminalQuestionPost>;
+
 const CodingAgentStatusFields = {
 	terminalId: TerminalId,
 	agent: CodingAgent,
@@ -70,6 +141,8 @@ const CodingAgentStatusFields = {
 	subagents: z.array(CodingAgentSubagent).max(MAX_SUBAGENTS_PER_TERMINAL).default([]),
 	/** A chat tab's conversation title; terminal tabs have none. */
 	title: AgentTitle.optional(),
+	/** Set while the agent waits on a question the student can answer in the browser. */
+	question: TerminalQuestion.optional(),
 };
 
 /** One terminal's agent state, as the workspace agent reports it. */

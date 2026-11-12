@@ -80,29 +80,88 @@
 .pk-tree-row .pk-icon {
 	color: var(--ink-muted);
 }
-/* File-type icons carry a slight tint of a palette hue, so the families
-   tell apart at a glance; the glyph says the type, the tint only helps. */
-:where(.pk-tree-row, .pk-changes-row) .pk-icon[data-icon^="file"] {
+/* Every file and folder icon carries a slight tint of a palette hue, so the
+   families and languages tell apart at a glance; the glyph or its tag says
+   the type, the tint only helps. Mixed with the muted ink, each stays at
+   least 3:1 on plain, hovered and selected rows in both themes (§25.8).
+   Magenta is left out: it means a Git conflict and nothing else. */
+:where(.pk-tree-row, .pk-changes-row)
+	.pk-icon:is([data-icon^="file"], [data-icon^="folder"]) {
+	--pk-orange: color-mix(in srgb, var(--status-error) 50%, var(--status-warning));
+	--pk-indigo: color-mix(in srgb, var(--agent) 50%, var(--status-starting));
+	--pk-cyan: color-mix(in srgb, var(--accent) 50%, var(--status-starting));
 	color: color-mix(
 		in srgb,
-		var(--pk-file-tint, var(--ink-muted)) 55%,
+		var(--pk-file-tint, var(--ink-muted)) var(--pk-file-strength, 55%),
 		var(--ink-muted)
 	);
 }
-.pk-icon[data-icon="file-web"] {
-	--pk-file-tint: var(--status-error);
-}
-.pk-icon[data-icon="file-style"] {
-	--pk-file-tint: var(--status-starting);
-}
-.pk-icon[data-icon="file-data"] {
+.pk-icon[data-icon^="folder"] {
 	--pk-file-tint: var(--status-warning);
 }
-.pk-icon[data-icon="file-markdown"] {
+.pk-icon[data-icon="file"],
+.pk-icon[data-icon="file-code"],
+.pk-icon[data-icon="file-c"] {
+	--pk-file-tint: var(--status-starting);
+	--pk-file-strength: 30%;
+}
+.pk-icon[data-icon="file-lock"] {
+	--pk-file-tint: var(--status-warning);
+	--pk-file-strength: 30%;
+}
+.pk-icon[data-icon="file-config"],
+.pk-icon[data-icon="file-font"] {
+	--pk-file-tint: var(--agent);
+	--pk-file-strength: 35%;
+}
+/* A secret should catch the eye, so its tint is the strongest. */
+.pk-icon[data-icon="file-key"] {
+	--pk-file-tint: var(--status-warning);
+	--pk-file-strength: 85%;
+}
+.pk-icon[data-icon="file-web"],
+.pk-icon[data-icon="file-pdf"],
+.pk-icon[data-icon="file-ruby"] {
+	--pk-file-tint: var(--status-error);
+}
+.pk-icon[data-icon="file-style"],
+.pk-icon[data-icon="file-text"],
+.pk-icon[data-icon="file-typescript"] {
+	--pk-file-tint: var(--status-starting);
+}
+.pk-icon[data-icon="file-data"],
+.pk-icon[data-icon="file-javascript"],
+.pk-icon[data-icon="file-sql"] {
+	--pk-file-tint: var(--status-warning);
+}
+.pk-icon[data-icon="file-markdown"],
+.pk-icon[data-icon="file-go"] {
 	--pk-file-tint: var(--accent);
 }
-.pk-icon[data-icon="file-image"] {
+.pk-icon[data-icon="file-image"],
+.pk-icon[data-icon="file-sheet"],
+.pk-icon[data-icon="file-shell"] {
 	--pk-file-tint: var(--status-running);
+}
+.pk-icon[data-icon="file-archive"],
+.pk-icon[data-icon="file-notebook"],
+.pk-icon[data-icon="file-java"],
+.pk-icon[data-icon="file-rust"],
+.pk-icon[data-icon="file-swift"] {
+	--pk-file-tint: var(--pk-orange);
+}
+.pk-icon[data-icon="file-audio"],
+.pk-icon[data-icon="file-video"],
+.pk-icon[data-icon="file-csharp"],
+.pk-icon[data-icon="file-kotlin"] {
+	--pk-file-tint: var(--agent);
+}
+.pk-icon[data-icon="file-php"],
+.pk-icon[data-icon="file-cpp"] {
+	--pk-file-tint: var(--pk-indigo);
+}
+.pk-icon[data-icon="file-python"] {
+	--pk-file-tint: var(--pk-cyan);
 }
 .pk-tree-twisty {
 	flex: none;
