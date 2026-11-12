@@ -409,13 +409,28 @@ const ADMIN_TABS = [
 	"shell",
 ];
 
-/** Everything in the admin content fits its width, and a wide table scrolls in its own box. */
+/**
+ * Everything in the admin content fits its width, and anything wider (a wide
+ * table, the Settings index's strip on a phone) scrolls in its own box. The
+ * box itself must still fit.
+ */
 async function expectAdminContentFits(page: Page): Promise<void> {
 	const overflow = await page.evaluate(() => {
 		const main = document.querySelector("[data-testid=page-admin]") as HTMLElement;
 		const right = main.getBoundingClientRect().left + main.clientWidth + 1;
+		const inOwnScroller = (el: Element): boolean => {
+			for (
+				let node = el.parentElement;
+				node && node !== main;
+				node = node.parentElement
+			) {
+				const x = getComputedStyle(node).overflowX;
+				if (x === "auto" || x === "scroll") return true;
+			}
+			return false;
+		};
 		const spill = [...main.querySelectorAll("*")]
-			.filter((el) => !el.closest(".pk-table-wrap"))
+			.filter((el) => !el.closest(".pk-table-wrap") && !inOwnScroller(el))
 			.filter((el) => {
 				const box = el.getBoundingClientRect();
 				return box.width > 0 && box.right > right;

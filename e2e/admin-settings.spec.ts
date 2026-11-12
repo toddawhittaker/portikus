@@ -107,15 +107,27 @@ test.describe("at 1440 px", () => {
 test.describe("at 390 px", () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test("the index wraps above the sections, rows stack, and nothing scrolls sideways", async ({
+	test("the index sits above the sections and scrolls in its own strip, rows stack, and nothing scrolls sideways", async ({
 		page,
 	}) => {
 		await open(page);
-		const index = await box(
-			page.getByRole("navigation", { name: "Settings sections" }),
-		);
+		const nav = page.getByRole("navigation", { name: "Settings sections" });
+		const index = await box(nav);
 		const first = await box(page.getByTestId("settings-stop"));
 		expect(index.y + index.height).toBeLessThanOrEqual(first.y);
+		expect(index.x).toBeGreaterThanOrEqual(0);
+		expect(index.x + index.width).toBeLessThanOrEqual(390);
+		// A link past the strip's edge comes into view inside the strip when focused.
+		const last = nav.getByRole("link").last();
+		await last.focus();
+		await expect
+			.poll(async () => {
+				const link = await box(last);
+				return (
+					link.x >= index.x - 1 && link.x + link.width <= index.x + index.width + 1
+				);
+			})
+			.toBe(true);
 		const label = await box(page.locator('label[for="settings-idleStopMinutes"]'));
 		const input = await box(page.getByTestId("settings-idleStopMinutes"));
 		expect(input.y).toBeGreaterThan(label.y + label.height);
