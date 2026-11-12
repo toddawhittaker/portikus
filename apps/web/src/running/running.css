@@ -42,7 +42,7 @@
 }
 .pk-portrow-select {
 	display: grid;
-	/* The port column fits five digits, leaving the rest to the name. */
+	/* The port column is as wide as its cell (below), leaving the rest to the name. */
 	grid-template-columns: auto minmax(0, 1fr);
 	align-items: center;
 	gap: var(--space-2);
@@ -121,6 +121,17 @@
 .pk-portrow-port {
 	min-width: 5ch;
 	font-family: var(--font-mono);
+}
+
+/*
+ * Every row's port cell is five digits wide, however many digits the port
+ * has, so each name starts at the same place down the whole list. The width
+ * is in ch of this cell's own monospace face, and the digits are tabular.
+ */
+.pk-portrow-select > .pk-portrow-port {
+	inline-size: 5ch;
+	text-align: end;
+	font-variant-numeric: tabular-nums;
 }
 
 .pk-portrow-kind {

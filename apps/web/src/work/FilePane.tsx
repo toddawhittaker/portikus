@@ -152,9 +152,10 @@ export function FilePane({
 	return (
 		<section
 			ref={drop.setNodeRef}
-			className={`pk-filepane ${drag.isDragging ? "is-dragged" : ""}`}
+			className={`pk-filepane ${focused ? "is-focused" : ""} ${drag.isDragging ? "is-dragged" : ""}`}
 			aria-label={`File: ${shownPath}`}
 			data-testid={`file-frame-${path}`}
+			data-alone={alone ? "true" : undefined}
 			onFocusCapture={() => onFocus(id)}
 		>
 			<FilePaneChrome.Provider

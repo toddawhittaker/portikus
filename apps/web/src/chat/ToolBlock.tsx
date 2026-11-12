@@ -3,10 +3,10 @@
  * ("Read a.ts", "Ran pnpm test", "Edited a.ts +1 −3"), with its state only
  * while it runs or when it failed or stopped. It opens to what it did and
  * what came back, leaving out what the row already says (SPEC.md §10.8). The
- * raw input stays one click further in. A background Agent launch shows a
- * plain status and its prompt; the text Claude Code returns for the model
- * stays behind Raw output. Every Agent call offers a way into its subagent's
- * own conversation (SPEC.md §8.3). Images from a tool are drawn from
+ * raw input stays one click further in. An Agent card has neither raw
+ * disclosure: a background launch shows a plain status and its prompt, and
+ * the text Claude Code returns for the model is never shown. Every Agent
+ * call offers a way into its subagent's own conversation (SPEC.md §8.3). Images from a tool are drawn from
  * `data:` URLs, which the page's img-src allows (apps/web/src/csp.ts).
  */
 import type { ChatToolOutputPart } from "@portikus/contracts";
@@ -150,25 +150,13 @@ function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string 
 	);
 }
 
-/** What a background launch shows: its status and prompt, with Claude Code's own text kept closed. */
+/** What a background launch shows: its status and prompt, never Claude Code's own text. */
 function LaunchBody({ tool }: { tool: ChatToolItem }) {
 	const prompt = agentPrompt(tool.input);
 	return (
 		<>
 			<LaunchStatus tool={tool} />
 			{prompt ? <CodeBlock text={prompt} limit={12} /> : null}
-			{tool.output.length > 0 ? (
-				<details className="pk-chat-raw">
-					<summary className="pk-chat-raw-summary pk-focus-inset">
-						<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
-						Raw output
-					</summary>
-					{tool.output.map((part, at) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: parts only append
-						<OutputPart key={at} part={part} tool={tool.name} />
-					))}
-				</details>
-			) : null}
 		</>
 	);
 }
@@ -257,13 +245,15 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 						{tool.status === "running" ? "No output yet" : "No output"}
 					</p>
 				)}
-				<details className="pk-chat-raw">
-					<summary className="pk-chat-raw-summary pk-focus-inset">
-						<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
-						Raw input
-					</summary>
-					<CodeBlock text={JSON.stringify(tool.input, null, 2) ?? ""} limit={40} />
-				</details>
+				{tool.name === "Agent" ? null : (
+					<details className="pk-chat-raw">
+						<summary className="pk-chat-raw-summary pk-focus-inset">
+							<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
+							Raw input
+						</summary>
+						<CodeBlock text={JSON.stringify(tool.input, null, 2) ?? ""} limit={40} />
+					</details>
+				)}
 			</div>
 		</details>
 	);
