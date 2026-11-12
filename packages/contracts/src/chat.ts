@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { MAX_AGENT_TITLE_CHARS } from "./coding-agent-status.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
@@ -20,6 +19,8 @@ export const MAX_CHAT_ATTACHMENTS = 10;
 export const MAX_CHAT_TEXT_CHARS = 100_000;
 /** Longest deny reason or "keep planning" text a permission answer may carry. */
 const MAX_CHAT_ANSWER_MESSAGE_CHARS = 2000;
+/** Longest conversation title shown for a chat tab. */
+export const MAX_AGENT_TITLE_CHARS = 80;
 export const MAX_CHAT_QUESTIONS = 4;
 export const MIN_CHAT_QUESTION_OPTIONS = 2;
 export const MAX_CHAT_QUESTION_OPTIONS = 4;
