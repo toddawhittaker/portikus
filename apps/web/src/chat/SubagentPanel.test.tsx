@@ -10,7 +10,6 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChatView } from "./ChatView";
-import { requestToolReveal } from "./revealTool.js";
 import { requestSubagentClose, requestSubagentView } from "./subagentView.js";
 
 /**
@@ -145,9 +144,8 @@ test("the Agent card opens a read-only panel that watches the subagent and moves
 		"ask Claude in the chat below",
 	);
 	expect(watches()).toEqual([{ type: "subagent.watch", toolUseId: CALL }]);
-	// The panel is a sheet beside the log, so the log stays in reach; the
-	// stylesheet hides the log only where the pane is too narrow for both.
-	expect(screen.getByTestId("chat-scroll").hasAttribute("inert")).toBe(false);
+	// The log behind the card is out of the keyboard's reach, and dimmed.
+	expect(screen.getByTestId("chat-scroll").hasAttribute("inert")).toBe(true);
 	expect(screen.getByTestId("chat-scroll").parentElement?.dataset.subagent).toBe("");
 	expect(button).toBeTruthy();
 });
@@ -190,6 +188,7 @@ test("Escape closes the panel, unwatches, and gives the keyboard back to the car
 	expect(screen.queryByTestId("subagent-panel")).toBeNull();
 	expect(watches().at(-1)).toEqual({ type: "subagent.unwatch", toolUseId: CALL });
 	expect(document.activeElement).toBe(button);
+	expect(screen.getByTestId("chat-scroll").hasAttribute("inert")).toBe(false);
 	expect(
 		screen.getByTestId("chat-scroll").parentElement?.hasAttribute("data-subagent"),
 	).toBe(false);
@@ -339,28 +338,4 @@ test("a close asked of a chat with no panel open does nothing", () => {
 		requestSubagentView(TERMINAL, { toolUseId: CALL, title: "Count the routes" }),
 	);
 	expect(screen.getByTestId("subagent-panel")).toBeTruthy();
-});
-
-test("a project list pick opens the Agent card in the log but leaves the keyboard in the panel", () => {
-	Element.prototype.scrollIntoView = vi.fn();
-	draw();
-	act(() =>
-		requestSubagentView(TERMINAL, { toolUseId: CALL, title: "Count the routes" }),
-	);
-	act(() => requestToolReveal(TERMINAL, CALL));
-	const card = screen.getByTestId(`chat-tool-${CALL}`) as HTMLDetailsElement;
-	expect(card.open).toBe(true);
-	expect(document.activeElement).toBe(
-		within(screen.getByTestId("subagent-panel")).getByRole("heading", { level: 2 }),
-	);
-});
-
-test("where the stylesheet says the sheet covers the log, the log behind takes no input", () => {
-	draw();
-	const log = screen.getByTestId("chat-scroll");
-	log.parentElement?.style.setProperty("--pk-subagent-covers", "1");
-	openFromCard();
-	expect(log.hasAttribute("inert")).toBe(true);
-	fireEvent.keyDown(screen.getByTestId("subagent-panel"), { key: "Escape" });
-	expect(log.hasAttribute("inert")).toBe(false);
 });

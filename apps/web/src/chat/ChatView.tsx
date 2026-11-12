@@ -44,7 +44,6 @@ import {
 	SubagentOpenerContext,
 	type SubagentTarget,
 	takeSubagentRequest,
-	useSubagentCovers,
 	useSubagentRequest,
 } from "./subagentView.js";
 import { useChatSession } from "./useChatSession.js";
@@ -168,12 +167,9 @@ function ChatViewBody({
 	const cardsHadFocus = useRef(false);
 	const ids = useId();
 	const follow = useFollowEnd(log, content, visible);
+	// A subagent picked in the project list opens at its tool row (SPEC.md §8.2).
+	useToolReveal(terminalId, log, visible, state.items);
 	const [subagent, setSubagent] = useState<SubagentTarget | null>(null);
-	const main = useRef<HTMLDivElement | null>(null);
-	const covered = useSubagentCovers(main, subagent !== null);
-	// A subagent picked in the project list opens at its tool row (SPEC.md §8.2);
-	// the keyboard stays in its subagent view when that opens too.
-	useToolReveal(terminalId, log, visible, state.items, subagent === null);
 	/** Where the keyboard goes back to when the subagent view closes. */
 	const beforeSubagent = useRef<{
 		element: HTMLElement | null;
@@ -332,19 +328,14 @@ function ChatViewBody({
 				onLeave();
 			}}
 		>
-			{/* With a subagent shown, the log stays usable beside it, unless the
-			    pane is too narrow and the sheet covers all but a strip of it. */}
-			<div
-				ref={main}
-				className="pk-chat-main"
-				data-subagent={subagent ? "" : undefined}
-			>
+			<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
 				<div
 					ref={log}
 					className="pk-chat-scroll"
 					data-testid="chat-scroll"
 					onScroll={follow.onScroll}
-					inert={covered}
+					// The subagent card floats over the log; the keyboard stays out from behind it.
+					inert={subagent !== null}
 				>
 					<div ref={content} className="pk-chat-column">
 						{!state.loaded ? (
@@ -395,7 +386,7 @@ function ChatViewBody({
 						onClose={() => setSubagent(null)}
 					/>
 				) : null}
-				{follow.away ? (
+				{follow.away && !subagent ? (
 					<div className="pk-chat-jump">
 						<IconButton
 							icon="chevron-down"

@@ -1,53 +1,30 @@
-/* A subagent's conversation in a sheet docked to the chat's right edge
-   (SPEC.md §8.3). From a 28rem pane up, the log stays usable beside it; the
-   composer below always does, since asking Claude is how a message gets
-   passed on. In a narrower pane the sheet covers all but a strip of the log,
-   which then takes no input (`--pk-subagent-covers` tells ChatView so). The
-   sheet stays inside the pane's focus ring and below its layer. */
-.pk-chat-main {
-	--pk-subagent-strip: 3rem;
-	--pk-subagent-width: calc(100% - var(--pk-subagent-strip) - var(--ring-width));
-	--pk-subagent-covers: 1;
+/* A subagent's conversation in a card floating over its chat's log, which a
+   scrim dims and which takes no input while the card is open (SPEC.md §8.3).
+   The card keeps a margin from every edge, so it never reaches the pane's
+   focus ring, and caps its width on a wide pane. The composer below stays in
+   reach, since asking Claude is how a message gets passed on. */
+.pk-chat-main[data-subagent]::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	background: var(--scrim);
 }
 
 .pk-subagent {
+	--pk-subagent-margin: clamp(var(--space-4), 4cqi, var(--space-8));
 	position: absolute;
-	inset-block: 0;
-	inset-inline-end: var(--ring-width);
-	inline-size: var(--pk-subagent-width);
+	inset-block: var(--pk-subagent-margin);
+	inset-inline: max(var(--pk-subagent-margin), calc((100% - 48rem) / 2));
 	z-index: 2;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	overflow: hidden;
 	background: var(--surface);
-	border-inline-start: 1px solid var(--line-strong);
-	border-block-end: 1px solid var(--line);
-	box-shadow: var(--shadow-md);
-}
-
-.pk-chat-main[data-subagent] > .pk-chat-jump {
-	visibility: hidden;
-}
-
-@container pk-chat (min-width: 28rem) {
-	.pk-chat-main {
-		--pk-subagent-width: clamp(14rem, 50%, 40rem);
-		--pk-subagent-covers: 0;
-	}
-
-	/* The log keeps the room the sheet leaves, its column centred in it. */
-	.pk-chat-main[data-subagent] > .pk-chat-scroll {
-		margin-inline-end: calc(var(--pk-subagent-width) + var(--ring-width));
-		padding-inline: max(
-			var(--space-4),
-			calc((100% - var(--pk-subagent-width) - var(--pk-chat-column)) / 2)
-		);
-	}
-
-	.pk-chat-main[data-subagent] > .pk-chat-jump {
-		visibility: visible;
-		margin-inline-end: calc(var(--pk-subagent-width) + var(--space-4));
-	}
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-lg);
 }
 
 .pk-subagent-head {

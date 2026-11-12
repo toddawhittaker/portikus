@@ -32,18 +32,6 @@ test("opens the folded sections around a tool row and the row, then focuses it",
 	expect(summary?.scrollIntoView).toHaveBeenCalled();
 });
 
-test("asked not to take the keyboard, it opens and scrolls to the row but leaves focus alone", () => {
-	document.body.innerHTML = `${FOLDED}<button type="button">elsewhere</button>`;
-	const elsewhere = document.querySelector("button");
-	elsewhere?.focus();
-	expect(revealTool(document, "toolu_1", false)).toBe(true);
-	const row = document.querySelector<HTMLDetailsElement>(
-		'[data-testid="chat-tool-toolu_1"]',
-	);
-	expect(row?.open).toBe(true);
-	expect(document.activeElement).toBe(elsewhere);
-});
-
 test("a row that is not there yet is reported, and nothing opens", () => {
 	document.body.innerHTML = FOLDED;
 	expect(revealTool(document, "toolu_9")).toBe(false);
@@ -60,7 +48,7 @@ function Chat({
 	rows: string[];
 }) {
 	const root = useRef<HTMLDivElement | null>(null);
-	useToolReveal(terminalId, root, visible, rows, true);
+	useToolReveal(terminalId, root, visible, rows);
 	return (
 		<div ref={root}>
 			{rows.map((id) => (
