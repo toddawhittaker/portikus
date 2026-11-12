@@ -187,7 +187,7 @@ function Members(){
  var st=React.useState('all'), f=st[0], set=st[1];
  return h('fieldset',{className:'pk-chips'},h('legend',{className:'sr-only'},'Show members'),
   [['all','All',10],['attention','Needs attention',3],['running','Running',5],['stopped','Stopped',4]].map(function(o){
-   return h('button',{key:o[0],type:'button',className:'pk-chip pk-focus-ring','aria-pressed':f===o[0],onClick:function(){set(o[0]);}},o[1],h('span',{className:'pk-chip-count pk-num'},o[2]));}));
+   return h('button',{key:o[0],type:'button',className:'pk-chip pk-focus-ring','aria-pressed':f===o[0],onClick:function(){set(o[0]);}},f===o[0]?h(P.Icon,{name:'check',size:'sm'}):null,o[1],h('span',{className:'pk-chip-count pk-num'},o[2]));}));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gap:'16px'}},
  h('fieldset',{style:{border:0,margin:0,padding:0}},h('legend',{className:'pk-overline',style:{marginBottom:'6px'}},'Levels: several can be on'),
