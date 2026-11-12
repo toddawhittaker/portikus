@@ -1,14 +1,32 @@
-/* A subagent's conversation over its chat's log (SPEC.md §8.3). The composer
-   below stays in reach, since asking Claude is how a message gets passed on. */
-.pk-subagent {
+/* A subagent's conversation in a card floating over its chat's log, which a
+   scrim dims and which takes no input while the card is open (SPEC.md §8.3).
+   The card keeps a margin from every edge, so it never reaches the pane's
+   focus ring, and caps its width on a wide pane. The composer below stays in
+   reach, since asking Claude is how a message gets passed on. */
+.pk-chat-main[data-subagent]::after {
+	content: "";
 	position: absolute;
 	inset: 0;
+	z-index: 1;
+	background: var(--scrim);
+	/* Lighter than a dialog's scrim: the chat is still the place to reply. */
+	opacity: 0.6;
+}
+
+.pk-subagent {
+	--pk-subagent-margin: clamp(var(--space-4), 4cqi, var(--space-8));
+	position: absolute;
+	inset-block: var(--pk-subagent-margin);
+	inset-inline: max(var(--pk-subagent-margin), calc((100% - 48rem) / 2));
 	z-index: 2;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	overflow: hidden;
 	background: var(--surface);
-	border-block-end: 1px solid var(--line);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-lg);
 }
 
 .pk-subagent-head {

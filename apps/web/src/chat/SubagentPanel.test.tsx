@@ -10,7 +10,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChatView } from "./ChatView";
-import { requestSubagentView } from "./subagentView.js";
+import { requestSubagentClose, requestSubagentView } from "./subagentView.js";
 
 /**
  * The read-only subagent view (SPEC.md §8.3, §10.8, §25.8): opened from a
@@ -144,8 +144,9 @@ test("the Agent card opens a read-only panel that watches the subagent and moves
 		"ask Claude in the chat below",
 	);
 	expect(watches()).toEqual([{ type: "subagent.watch", toolUseId: CALL }]);
-	// The log behind the panel is out of the keyboard's reach.
+	// The log behind the card is out of the keyboard's reach, and dimmed.
 	expect(screen.getByTestId("chat-scroll").hasAttribute("inert")).toBe(true);
+	expect(screen.getByTestId("chat-scroll").parentElement?.dataset.subagent).toBe("");
 	expect(button).toBeTruthy();
 });
 
@@ -188,6 +189,9 @@ test("Escape closes the panel, unwatches, and gives the keyboard back to the car
 	expect(watches().at(-1)).toEqual({ type: "subagent.unwatch", toolUseId: CALL });
 	expect(document.activeElement).toBe(button);
 	expect(screen.getByTestId("chat-scroll").hasAttribute("inert")).toBe(false);
+	expect(
+		screen.getByTestId("chat-scroll").parentElement?.hasAttribute("data-subagent"),
+	).toBe(false);
 });
 
 test("a nested subagent opens in the same panel, and Back returns to its parent", () => {
@@ -309,4 +313,29 @@ test("a foreground Agent card opens its subagent too; a failed one and other too
 	fireEvent.click(running as HTMLElement);
 	expect(screen.getByTestId("subagent-panel").dataset.toolId).toBe("toolu_fg");
 	expect(watches().at(-1)).toEqual({ type: "subagent.watch", toolUseId: "toolu_fg" });
+});
+
+test("the main agent's row in the project list closes the panel and leaves the keyboard where it is", () => {
+	draw();
+	openFromCard();
+	const row = document.createElement("a");
+	row.href = "#";
+	document.body.append(row);
+	row.focus();
+	act(() => requestSubagentClose(TERMINAL));
+	expect(screen.queryByTestId("subagent-panel")).toBeNull();
+	expect(watches().at(-1)).toEqual({ type: "subagent.unwatch", toolUseId: CALL });
+	expect(document.activeElement).toBe(row);
+	row.remove();
+});
+
+test("a close asked of a chat with no panel open does nothing", () => {
+	draw();
+	act(() => requestSubagentClose(TERMINAL));
+	expect(screen.queryByTestId("subagent-panel")).toBeNull();
+	// The request is used up, so a later subagent request still opens.
+	act(() =>
+		requestSubagentView(TERMINAL, { toolUseId: CALL, title: "Count the routes" }),
+	);
+	expect(screen.getByTestId("subagent-panel")).toBeTruthy();
 });

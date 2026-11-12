@@ -1,14 +1,111 @@
-import { expect, type Page, test } from "@playwright/test";
+import {
+	type BrowserContext,
+	expect,
+	type Locator,
+	type Page,
+	test,
+} from "@playwright/test";
 import { makeChatTab, scriptedChat } from "./chat-helpers";
+import { expectEvenRing } from "./focus-ring-helpers";
+import { expectNoViolations, terminalIds } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
+import { splitPane } from "./split-helpers";
 
 /**
  * A subagent's own conversation in the Claude Code (GUI) chat (SPEC.md §8.2,
- * §8.3, §10.8, §25.8): a panel over the chat's log, opened from a background
- * Agent card or the subagent's row in the project list. It is read-only and
- * says how to pass a message on; it updates live, opens a nested subagent
- * with Back, and gives the keyboard back when Escape closes it.
+ * §8.3, §10.8, §25.8): a card floating over the chat's dimmed log at every
+ * pane width, inset from the pane's edges so its focus ring stays whole,
+ * opened from a background Agent card or the subagent's row in the project
+ * list. It is read-only and says how to pass a message on; it updates live,
+ * opens a nested subagent with Back, and gives the keyboard back when Escape
+ * closes it. The chat's own row closes it.
  */
+
+/** The card's margin from the pane's edges: 1rem on a narrow pane, up to 2rem. */
+const MARGIN_MIN = 16;
+const MARGIN_MAX = 32;
+/** The widest the card grows on a wide pane (48rem). */
+const CARD_MAX = 48 * 16;
+
+/** Open the background subagent's card from its Agent card. */
+async function openBackgroundCard(view: Locator) {
+	await view.getByTestId("chat-worked").locator("> summary").click();
+	await view.getByTestId("chat-tool-group").locator("> summary").click();
+	const card = view.locator('details[data-testid="chat-tool-toolu_bg"]');
+	await card.locator("> summary").click();
+	await card.getByRole("button", { name: "Show its conversation" }).click();
+	const panel = view.getByRole("region", { name: "Subagent Count the routes" });
+	await expect(panel.getByText("Count the routes, please.")).toBeVisible();
+	return panel;
+}
+
+/** A chat in a tab split with a terminal, its subagent card open: a narrower pane. */
+async function openSplit(page: Page, context: BrowserContext, width: number) {
+	await page.setViewportSize({ width, height: 900 });
+	const { student, project, id } = await makeChatTab(page, context);
+	await scriptSubagentChat(page);
+	await page.reload();
+	const view = page.getByTestId(`chat-view-${id}`);
+	await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
+	await splitPane(page, id, "right");
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(2);
+	const panel = await openBackgroundCard(view);
+	return { id, view, panel };
+}
+
+async function box(locator: Locator) {
+	const found = await locator.boundingBox();
+	if (!found) throw new Error("the element has no box");
+	return found;
+}
+
+/**
+ * The card floats over the log: inset from all four edges of the log's area,
+ * no wider than 48rem and centred, with a border, a shadow, the log behind it
+ * dimmed and out of reach, and the composer below still in view.
+ */
+async function expectFloatingCard(view: Locator, panel: Locator) {
+	const pane = await box(view);
+	const area = await box(view.locator(".pk-chat-main"));
+	const card = await box(panel);
+	const gaps = {
+		left: card.x - area.x,
+		right: area.x + area.width - (card.x + card.width),
+		top: card.y - area.y,
+		bottom: area.y + area.height - (card.y + card.height),
+	};
+	for (const gap of [gaps.top, gaps.bottom]) {
+		expect(gap).toBeGreaterThanOrEqual(MARGIN_MIN - 1);
+		expect(gap).toBeLessThanOrEqual(MARGIN_MAX + 1);
+	}
+	expect(gaps.left).toBeGreaterThanOrEqual(MARGIN_MIN - 1);
+	expect(Math.abs(gaps.left - gaps.right)).toBeLessThanOrEqual(1);
+	expect(card.width).toBeLessThanOrEqual(CARD_MAX + 1);
+	// Inside the pane on every side.
+	expect(card.x).toBeGreaterThan(pane.x);
+	expect(card.x + card.width).toBeLessThan(pane.x + pane.width);
+	expect(card.y).toBeGreaterThan(pane.y);
+	expect(card.y + card.height).toBeLessThan(pane.y + pane.height);
+	const look = await panel.evaluate((element) => {
+		const style = getComputedStyle(element);
+		return {
+			border: style.borderLeftStyle,
+			radius: Number.parseFloat(style.borderTopLeftRadius),
+			shadow: style.boxShadow,
+		};
+	});
+	expect(look.border).toBe("solid");
+	expect(look.radius).toBeGreaterThan(0);
+	expect(look.shadow).not.toBe("none");
+	const scrim = await view
+		.locator(".pk-chat-main")
+		.evaluate((element) => getComputedStyle(element, "::after").backgroundColor);
+	expect(scrim).not.toBe("rgba(0, 0, 0, 0)");
+	await expect(view.getByTestId("chat-scroll")).toHaveAttribute("inert", "");
+	await expect(view.getByTestId("chat-composer-input")).toBeVisible();
+}
 
 const SESSION = "00000000-0000-4000-8000-000000000000";
 const LAUNCH_TEXT =
@@ -288,5 +385,66 @@ for (const colorScheme of ["dark", "light"] as const) {
 			await expect(card).toHaveJSProperty("open", true);
 			await expect(card.locator("> summary")).toBeFocused();
 		});
+		test("in a wide pane the card floats centred over the dimmed log, and the chat's row closes it", async ({
+			page,
+			context,
+		}) => {
+			await page.setViewportSize({ width: 1600, height: 900 });
+			const { student, id } = await makeChatTab(page, context);
+			await scriptSubagentChat(page);
+			await page.reload();
+			const view = page.getByTestId(`chat-view-${id}`);
+			await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
+			await setSubagentRow(student.workspaceId, id);
+			const panel = await openBackgroundCard(view);
+			await expectFloatingCard(view, panel);
+			// A wide pane gives the card its widest margin and caps its width.
+			const area = await box(view.locator(".pk-chat-main"));
+			const card = await box(panel);
+			expect(card.y - area.y).toBeGreaterThanOrEqual(MARGIN_MAX - 1);
+			expect(card.width).toBeGreaterThan(CARD_MAX - 1);
+			// The composer stays usable below the card.
+			const composer = view.getByTestId("chat-composer-input");
+			await composer.click();
+			await page.keyboard.type("Hello");
+			await expect(composer).toContainText("Hello");
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+
+			// The chat's own row in the project list closes the card; the
+			// keyboard stays on the row, where following its link leaves it.
+			const row = page.getByTestId(`agent-row-${id}`);
+			await row.click();
+			await expect(view.getByTestId("subagent-panel")).toHaveCount(0);
+			await expect(row).toBeFocused();
+			await expect(view.getByTestId("chat-scroll")).not.toHaveAttribute("inert");
+
+			// A subagent row still opens it, and Enter on the chat's row closes it.
+			const rows = page.getByRole("list", { name: "Agents in Dashboard" });
+			await rows.getByRole("link", { name: /^Count the routes/ }).click();
+			await expect(panel.getByRole("heading", { level: 2 })).toBeFocused();
+			await row.focus();
+			await page.keyboard.press("Enter");
+			await expect(view.getByTestId("subagent-panel")).toHaveCount(0);
+			await expect(row).toBeFocused();
+		});
+
+		for (const { name, width } of [
+			{ name: "a split pane", width: 1600 },
+			{ name: "a very narrow pane", width: 1100 },
+		] as const) {
+			test(`in ${name} the card still floats inside the pane's whole focus ring`, async ({
+				page,
+				context,
+			}) => {
+				const { id, view, panel } = await openSplit(page, context, width);
+				// The card never paints over the focused pane's ring.
+				await expectEvenRing(page, page.getByTestId(`terminal-leaf-${id}`));
+				await expectFloatingCard(view, panel);
+				await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+				await page.keyboard.press("Escape");
+				await expect(view.getByTestId("subagent-panel")).toHaveCount(0);
+				await expect(view.getByTestId("chat-scroll")).not.toHaveAttribute("inert");
+			});
+		}
 	});
 }

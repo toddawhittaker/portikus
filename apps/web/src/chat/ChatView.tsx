@@ -193,10 +193,17 @@ function ChatViewBody({
 	// From the project list, it opens once this chat is on screen, and the
 	// keyboard goes back to the Agent card's row, as the row's link promises.
 	const requested = useSubagentRequest(terminalId);
+	// The chat's own row closes the view; the keyboard stays on the row, as
+	// that row's link leaves it.
 	useEffect(() => {
-		if (!requested || !visible) return;
+		if (requested === undefined || !visible) return;
 		takeSubagentRequest(terminalId);
-		showSubagent(requested, null);
+		if (requested) {
+			showSubagent(requested, null);
+		} else {
+			beforeSubagent.current = null;
+			setSubagent(null);
+		}
 	}, [requested, visible, terminalId, showSubagent]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs as the view closes
 	useLayoutEffect(() => {
@@ -321,13 +328,13 @@ function ChatViewBody({
 				onLeave();
 			}}
 		>
-			<div className="pk-chat-main">
+			<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
 				<div
 					ref={log}
 					className="pk-chat-scroll"
 					data-testid="chat-scroll"
 					onScroll={follow.onScroll}
-					// The subagent view covers the log; the keyboard stays out from behind it.
+					// The subagent card floats over the log; the keyboard stays out from behind it.
 					inert={subagent !== null}
 				>
 					<div ref={content} className="pk-chat-column">

@@ -17,7 +17,7 @@ import { AgentStateMark, agentStateWords, IconButton, useToast } from "@portikus
 import { Link } from "@tanstack/react-router";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { isoDuration } from "../chat/elapsed.js";
-import { requestSubagentView } from "../chat/subagentView.js";
+import { requestSubagentClose, requestSubagentView } from "../chat/subagentView.js";
 import { agentLabel } from "../terminal/agentLabel.js";
 import type { AgentStatusSnapshot } from "../terminal/codingAgentStatus.js";
 import { type ChatRename, renameChat } from "./renameChat.js";
@@ -271,6 +271,10 @@ function AgentRow({
 						search={{ tab: terminal.terminalId }}
 						aria-current={isCurrent ? "page" : undefined}
 						data-testid={`agent-row-${terminal.terminalId}`}
+						onClick={() => {
+							// The chat itself is what the row asks for, so a subagent view over it closes.
+							if (canRename(terminal)) requestSubagentClose(terminal.terminalId);
+						}}
 					>
 						<AgentStateMark state={terminal.state} unread={isUnread} />
 						<span className="pk-agent-name" title={name}>

@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
+import { takeSubagentRequest } from "../chat/subagentView.js";
 import {
 	FakeWebSocket,
 	json,
@@ -403,6 +404,36 @@ test("a subagent row names its work, its type and its state, and links to its to
 	expect(screen.getByTestId("subagent-row-toolu_02").textContent).toContain(
 		"general-purpose",
 	);
+});
+
+test("a chat's own row asks its chat to close a subagent view; a subagent row asks it to open one", async () => {
+	await mount();
+	await sendAgents([
+		agentTab({
+			kind: "chat",
+			subagents: [
+				{
+					id: "toolu_01",
+					type: "Explore",
+					description: "Find the login code",
+					state: "working",
+					since: new Date().toISOString(),
+				},
+			],
+		}),
+		agentTab({ terminalId: CHAT_TAB, projectId: NOTES.id }),
+	]);
+	takeSubagentRequest(AGENT_TAB);
+	fireEvent.click(screen.getByTestId("subagent-row-toolu_01"));
+	expect(takeSubagentRequest(AGENT_TAB)).toEqual({
+		toolUseId: "toolu_01",
+		title: "Find the login code",
+	});
+	fireEvent.click(screen.getByTestId(`agent-row-${AGENT_TAB}`));
+	expect(takeSubagentRequest(AGENT_TAB)).toBeNull();
+	// A terminal agent has no subagent view to close.
+	fireEvent.click(screen.getByTestId(`agent-row-${CHAT_TAB}`));
+	expect(takeSubagentRequest(CHAT_TAB)).toBeUndefined();
 });
 
 test("a project's agents are one disclosure, open at first and remembered while the page lives", async () => {
