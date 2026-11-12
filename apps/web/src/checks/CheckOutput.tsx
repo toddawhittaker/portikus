@@ -9,6 +9,7 @@ import { wsUrl } from "../api/ws.js";
 import { usePageTheme } from "../editor/pageTheme.js";
 import { useScreenReaderMode } from "../editor/settingsQueries.js";
 import { applyCodeFace, terminalTheme } from "../terminal/useXterm.js";
+import { enableWebglRenderer } from "../terminal/webglRenderer.js";
 import { decodeCheckFrame } from "./checkFrames.js";
 
 /**
@@ -125,6 +126,7 @@ export function CheckOutput({
 		xterm.loadAddon(fit);
 		const dropFace = applyCodeFace(xterm, 13, () => fit.fit());
 		xterm.open(container);
+		const dropWebgl = enableWebglRenderer(xterm);
 		fit.fit();
 
 		const socket = new WebSocket(
@@ -168,6 +170,7 @@ export function CheckOutput({
 			observer.disconnect();
 			dropFace();
 			socket.close();
+			dropWebgl();
 			xterm.dispose();
 			term.current = null;
 		};

@@ -244,7 +244,7 @@ test("web pages and style sheets have different icons", async ({ page }) => {
 	await expect(icon("index.html")).toHaveAttribute("data-icon", "file-web");
 	await expect(icon("styles.css")).toHaveAttribute("data-icon", "file-style");
 	await expect(icon("README.md")).toHaveAttribute("data-icon", "file-markdown");
-	await expect(icon("notes.txt")).toHaveAttribute("data-icon", "file");
+	await expect(icon("notes.txt")).toHaveAttribute("data-icon", "file-text");
 	// The tint is a hint beside the glyph: the two families differ in colour too.
 	const web = await icon("index.html").evaluate((el) => getComputedStyle(el).color);
 	const style = await icon("styles.css").evaluate((el) => getComputedStyle(el).color);

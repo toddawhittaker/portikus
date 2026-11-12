@@ -16,6 +16,7 @@ import { useScreenReaderMode } from "../../editor/settingsQueries.js";
 import { canOpenInNewTab } from "../../links.js";
 import { openTerminalSocket } from "../../terminal/terminalSocket.js";
 import { sanitizePaste, terminalTheme } from "../../terminal/useXterm.js";
+import { enableWebglRenderer } from "../../terminal/webglRenderer.js";
 import { type HelperCloseAction, helperCloseAction } from "./helperClose.js";
 
 /** The size used until the student's pane size arrives. */
@@ -144,6 +145,7 @@ export function HelperTerminal({
 		swallowUnsafeSequences(term);
 		term.loadAddon(new WebLinksAddon((_event, uri) => openClickedLink(uri)));
 		term.open(container);
+		const dropWebgl = enableWebglRenderer(term);
 		term.textarea?.setAttribute("aria-describedby", `${modeHintId} ${leaveHintId}`);
 		term.textarea?.setAttribute("aria-label", `Terminal ${nameRef.current}`);
 		container.dataset.cols = String(term.cols);
@@ -172,6 +174,7 @@ export function HelperTerminal({
 		return () => {
 			terminal.current = null;
 			container.removeEventListener("paste", onPaste, { capture: true });
+			dropWebgl();
 			term.dispose();
 		};
 	}, [modeHintId, leaveHintId]);

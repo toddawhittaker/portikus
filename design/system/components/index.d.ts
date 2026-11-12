@@ -116,17 +116,27 @@ declare const PATHS: {
     file: string[];
     "file-code": string[];
     "file-web": string[];
+    "file-style": string[];
     "file-data": string[];
     "file-markdown": string[];
     "file-image": string[];
     "file-archive": string[];
     "file-config": string[];
+    "file-text": string[];
+    "file-sheet": string[];
+    "file-notebook": string[];
+    "file-audio": string[];
+    "file-video": string[];
+    "file-font": string[];
+    "file-lock": string[];
+    "file-key": string[];
     folder: string[];
     "folder-open": string[];
     preview: string[];
     plus: string[];
     minus: string[];
     x: string[];
+    pencil: string[];
     more: string[];
     "chevron-right": string[];
     "chevron-down": string[];
@@ -165,7 +175,29 @@ declare const PATHS: {
     copy: string[];
     "map-pin": string[];
 };
-export type IconName = keyof typeof PATHS;
+/**
+ * Source files, and PDFs: the open-bottom page stamped with a short tag. The
+ * tag is drawn as text so it stays a word, never a vendor logo.
+ */
+declare const TAGS: {
+    readonly "file-pdf": "pdf";
+    readonly "file-python": "py";
+    readonly "file-java": "jv";
+    readonly "file-javascript": "js";
+    readonly "file-typescript": "ts";
+    readonly "file-c": "c";
+    readonly "file-cpp": "c++";
+    readonly "file-sql": "sql";
+    readonly "file-shell": "sh";
+    readonly "file-go": "go";
+    readonly "file-rust": "rs";
+    readonly "file-csharp": "c#";
+    readonly "file-ruby": "rb";
+    readonly "file-php": "php";
+    readonly "file-kotlin": "kt";
+    readonly "file-swift": "sw";
+};
+export type IconName = keyof typeof PATHS | keyof typeof TAGS;
 export interface IconProps {
     name: IconName;
     size?: "sm" | "md" | "lg";
@@ -174,6 +206,7 @@ export interface IconProps {
     className?: string;
 }
 export declare function Icon({ name, size, label, className, }: IconProps): React.ReactElement;
+export {};
 
 // ---- IconButton (packages/ui/src/primitives/IconButton.tsx)
 export interface IconButtonProps extends Omit<React.ComponentPropsWithRef<"button">, "children"> {

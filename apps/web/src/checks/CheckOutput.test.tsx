@@ -5,7 +5,13 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { editorSettingsKey } from "../editor/settingsQueries.js";
+import { enableWebglRenderer } from "../terminal/webglRenderer.js";
 import { CheckOutput } from "./CheckOutput.js";
+
+const dropWebgl = vi.fn();
+vi.mock("../terminal/webglRenderer.js", () => ({
+	enableWebglRenderer: vi.fn(() => dropWebgl),
+}));
 
 const opened = vi.hoisted(() => ({
 	terminals: [] as import("@xterm/xterm").Terminal[],
@@ -25,6 +31,7 @@ vi.mock("@xterm/xterm", async () => {
 
 afterEach(() => {
 	cleanup();
+	vi.clearAllMocks();
 	opened.terminals.length = 0;
 	opened.sockets.length = 0;
 	vi.unstubAllGlobals();
@@ -61,7 +68,7 @@ function renderOutput(screenReaderMode: boolean) {
 	const client = createQueryClient();
 	const settings = { ...EDITOR_SETTINGS_DEFAULTS, screenReaderMode, timezones: [] };
 	client.setQueryData(editorSettingsKey, settings);
-	render(
+	const { unmount } = render(
 		<QueryClientProvider client={client}>
 			<CheckOutput
 				workspaceId="w"
@@ -72,7 +79,7 @@ function renderOutput(screenReaderMode: boolean) {
 			/>
 		</QueryClientProvider>,
 	);
-	return { client, settings };
+	return { client, settings, unmount };
 }
 
 test("the check output starts without screen-reader mode when the setting is off", async () => {
@@ -99,6 +106,15 @@ test("the check output uses screen-reader mode and follows a change live", async
 		expect(opened.terminals[0]?.options.screenReaderMode).toBe(false),
 	);
 	expect(opened.terminals).toHaveLength(1);
+});
+
+test("the GPU renderer starts on the output once and goes with it", async () => {
+	const { unmount } = renderOutput(false);
+	await waitFor(() => expect(opened.terminals).toHaveLength(1));
+	expect(enableWebglRenderer).toHaveBeenCalledTimes(1);
+	expect(dropWebgl).not.toHaveBeenCalled();
+	unmount();
+	expect(dropWebgl).toHaveBeenCalledTimes(1);
 });
 
 test("the output is named after its check", async () => {

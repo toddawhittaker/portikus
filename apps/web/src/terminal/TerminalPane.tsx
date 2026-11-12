@@ -219,8 +219,11 @@ export function TerminalPane({
 
 			/** The height of one row on screen, for turning pixels into lines. */
 			const rowHeight = (): number => {
-				const row = container.querySelector(".xterm-rows")?.firstElementChild;
-				const height = row instanceof HTMLElement ? row.offsetHeight : 0;
+				// The screen is `rows` tall in either renderer; the DOM renderer's
+				// row elements do not exist under WebGL.
+				const screen = container.querySelector(".xterm-screen");
+				const height =
+					screen instanceof HTMLElement ? screen.offsetHeight / term.rows : 0;
 				return height > 0 ? height : 17;
 			};
 

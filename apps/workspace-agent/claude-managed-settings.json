@@ -74,6 +74,16 @@
 						"async": true
 					}
 				]
+			},
+			{
+				"matcher": "AskUserQuestion",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/portikus/workspace-agent/scripts/portikus-agent-question",
+						"timeout": 1800
+					}
+				]
 			}
 		],
 		"PermissionRequest": [

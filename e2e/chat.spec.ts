@@ -383,6 +383,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		// The tool's image is drawn from the frame; the reply's remote image never loads.
 		await view.getByTestId("chat-worked").locator("> summary").click();
+		// The Read and the permission card's Bash call are consecutive, so one group holds both.
+		await view.getByTestId("chat-tool-group").locator("> summary").click();
 		await view.getByTestId("chat-tool-tool-1").locator("> summary").click();
 		await expect(view.getByRole("img", { name: "Output of Read" })).toBeVisible();
 		expect(remote).toEqual([]);

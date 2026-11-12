@@ -34,6 +34,7 @@ import {
 	ProcessTreeStopResponse,
 	SetLogLevelRequest,
 	type TerminalAttachMode,
+	type TerminalQuestionAnswer,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Selectable } from "kysely";
@@ -287,6 +288,25 @@ export class AgentClient {
 
 	async deleteTerminal(terminalId: string): Promise<void> {
 		await this.call("DELETE", `/terminals/${terminalId}`);
+	}
+
+	/**
+	 * Hand the agent a terminal question's answer. False when no question
+	 * waits (answered in the terminal, or timed out). The body is never logged
+	 * (SPEC.md 24.1).
+	 */
+	async answerTerminalQuestion(
+		terminalId: string,
+		answer: TerminalQuestionAnswer,
+	): Promise<boolean> {
+		const response = await this.fetchRaw("POST", `/terminals/${terminalId}/question`, {
+			headers: { "content-type": "application/json" },
+			body: Buffer.from(JSON.stringify(answer)),
+			signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+		});
+		if (response.status === 409) return false;
+		if (!response.ok) throw await readAgentError(response);
+		return true;
 	}
 
 	/** Set how much this workspace's agent logs, while it runs (ADR 0012). */
