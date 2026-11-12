@@ -130,11 +130,16 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(panel.getByRole("tab", { name: "Overview" })).toBeFocused();
 	await page.keyboard.press("Tab");
 	await expect(panel.getByRole("tabpanel", { name: "Overview" })).toBeFocused();
-	// Resources comes first, then the guard, then Restore and rebuild.
+	// Resources comes first, each control after its help, then the guard, then Restore and rebuild.
 	for (const control of [
+		"About Storage",
 		`Edit quotas for ${name}'s workspace`,
+		"About Limits",
 		`Edit limits for ${name}'s workspace`,
+		"About Disconnect grace",
 		`Edit disconnect grace for ${name}`,
+		"About CPU throttle",
+		"About High memory",
 		"About Last input",
 		`Guard settings for ${name}'s workspace`,
 		`Restore from backup: ${name}'s workspace`,
@@ -153,6 +158,29 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(
 		panel.getByRole("button", { name: "About Rebuild workspace" }),
 	).toBeFocused();
+
+	// The Account tab runs from its panel through each action, each followed by its help.
+	await panel.getByRole("tab", { name: "Account" }).click();
+	await page.keyboard.press("Tab");
+	await expect(panel.getByRole("tabpanel", { name: "Account" })).toBeFocused();
+	for (const control of [
+		"View this user's logs",
+		`Promote ${name} to administrator`,
+		"About Promote",
+		`Make instructor: ${name}`,
+		"About Make instructor",
+		"Link a course account…",
+		`Disable account for ${name}`,
+		"About Disable account",
+		`Reset Docker for ${name}`,
+		"About Reset Docker",
+		`Archive workspace for ${name}`,
+		"About Archive workspace",
+	]) {
+		await page.keyboard.press("Tab");
+		await expect(page.locator(":focus")).toHaveAccessibleName(control);
+		await expect(panel.locator(":focus")).toHaveCount(1);
+	}
 
 	await expect(panel.getByRole("tablist").getByRole("tab")).toHaveText(
 		TABS.map(([tab]) => tab),
