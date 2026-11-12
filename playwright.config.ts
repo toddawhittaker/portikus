@@ -115,6 +115,11 @@ const DOCKER_SPECS = /admin-docker(-seed|-sizes)?\.spec\.ts$/;
 // The site page specs share the fake site job's directory, view and page
 // files (e2e/site-jobs.ts), so they run one file at a time.
 const SITE_SPECS = /(admin-(lms|proxy-hosts|address|signin)|site-jobs)\.spec\.ts$/;
+// The terminal draws on a WebGL canvas where the browser has one, and the
+// other specs read terminal text from the DOM renderer's rows. They run with
+// WebGL off, which is the fallback path; this spec runs with it on.
+const WEBGL_SPECS = /terminal-webgl\.spec\.ts$/;
+const NO_WEBGL = { launchOptions: { args: ["--disable-3d-apis"] } };
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -131,7 +136,13 @@ export default defineConfig({
 		{ name: "setup", testMatch: /environment\.setup\.ts$/ },
 		{
 			name: "chromium",
-			testIgnore: [DOCKER_SPECS, SITE_SPECS],
+			testIgnore: [DOCKER_SPECS, SITE_SPECS, WEBGL_SPECS],
+			use: { ...devices["Desktop Chrome"], ...NO_WEBGL },
+			dependencies: ["setup"],
+		},
+		{
+			name: "terminal-webgl",
+			testMatch: WEBGL_SPECS,
 			use: { ...devices["Desktop Chrome"] },
 			dependencies: ["setup"],
 		},
@@ -141,14 +152,14 @@ export default defineConfig({
 			name: "docker",
 			testMatch: DOCKER_SPECS,
 			workers: 1,
-			use: { ...devices["Desktop Chrome"] },
+			use: { ...devices["Desktop Chrome"], ...NO_WEBGL },
 			dependencies: ["setup"],
 		},
 		{
 			name: "site",
 			testMatch: SITE_SPECS,
 			workers: 1,
-			use: { ...devices["Desktop Chrome"] },
+			use: { ...devices["Desktop Chrome"], ...NO_WEBGL },
 			dependencies: ["setup"],
 		},
 	],
