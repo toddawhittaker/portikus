@@ -82,6 +82,21 @@
 		min-inline-size: var(--size-control-lg);
 		align-items: center;
 	}
+	/*
+	 * Menus and dialogs portal outside <main>. A dialog opened here carries
+	 * the console's controls attribute; a menu on a phone takes a thumb anywhere.
+	 */
+	[data-controls="console"]:is([role="dialog"], [role="alertdialog"])
+		:is(.pk-btn, .pk-iconbtn, select, input:not([type="checkbox"], [type="radio"])) {
+		min-height: var(--size-control-lg);
+	}
+	[data-controls="console"]:is([role="dialog"], [role="alertdialog"])
+		label:has(> input:is([type="checkbox"], [type="radio"])) {
+		min-block-size: var(--size-control-lg);
+	}
+	.pk-menu :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) {
+		min-height: var(--size-control-lg);
+	}
 	/* The help mark keeps its 24 px look; an invisible ring makes the tap target 44 px. */
 	:is(.pk-adminframe-scroll, .pk-course-main) .pk-toggletip {
 		position: relative;

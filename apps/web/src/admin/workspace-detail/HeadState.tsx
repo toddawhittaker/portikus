@@ -1,5 +1,8 @@
 import type { AdminWorkspaceDetail } from "@portikus/contracts";
-import { Button } from "@portikus/ui";
+import { Button, useToast } from "@portikus/ui";
+import { useEffect, useRef } from "react";
+import { errorText } from "../../api/request.js";
+import { useSetArchived } from "../queries.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 import {
 	ACTION_LABEL,
@@ -12,12 +15,18 @@ import {
 export function HeadState({
 	detail,
 	ownerName,
+	onFocusLost,
 }: {
 	detail: AdminWorkspaceDetail;
 	ownerName: string;
+	/** Called when the control that had focus went away, such as Unarchive once it worked. */
+	onFocusLost: () => void;
 }) {
 	const { workspace } = detail;
 	const lifecycle = useRunLifecycle();
+	const toast = useToast();
+	const archive = useSetArchived();
+	const unarchiveRef = useRef<HTMLButtonElement>(null);
 	const { actions, waiting } = lifecycleActions(
 		workspace.state,
 		workspace.desiredState,
@@ -33,6 +42,34 @@ export function HeadState({
 			.filter(Boolean)
 			.join(" ") || null;
 	const off = (action: LifecycleAction) => archived && action === "start";
+
+	// Archive and Unarchive each take their own button away once they work;
+	// focus goes to the one that undoes it, or to the panel's heading (Gate E).
+	const wasArchived = useRef(archived);
+	useEffect(() => {
+		if (wasArchived.current === archived) return;
+		wasArchived.current = archived;
+		const active = document.activeElement;
+		if (active && active !== document.body) return;
+		if (archived) unarchiveRef.current?.focus();
+		else onFocusLost();
+	}, [archived, onFocusLost]);
+
+	function unarchive() {
+		if (archive.isPending) return;
+		archive.mutate(
+			{ workspaceId: workspace.id, archived: false },
+			{
+				onSuccess: () => toast.show({ tone: "success", title: "Workspace unarchived" }),
+				onError: (error) =>
+					toast.show({
+						tone: "danger",
+						title: "Could not unarchive the workspace",
+						children: errorText(error),
+					}),
+			},
+		);
+	}
 
 	function runLifecycle(action: LifecycleAction) {
 		if (off(action)) return;
@@ -68,6 +105,18 @@ export function HeadState({
 						{ACTION_LABEL[action]}
 					</Button>
 				))}
+				{archived ? (
+					<Button
+						ref={unarchiveRef}
+						size="sm"
+						data-testid="detail-unarchive"
+						aria-label={`Unarchive workspace for ${ownerName}`}
+						loading={archive.isPending}
+						onClick={unarchive}
+					>
+						Unarchive
+					</Button>
+				) : null}
 			</div>
 			{note ? (
 				<p

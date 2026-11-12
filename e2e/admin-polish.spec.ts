@@ -534,7 +534,10 @@ test.describe("on a phone", () => {
 			await expect(page.getByRole("heading", { name: ready, level: 2 })).toBeAttached({
 				timeout: 15_000,
 			});
-			await page.waitForTimeout(1000);
+			// Every region that loads has arrived.
+			await expect(page.locator("main [aria-busy='true']")).toHaveCount(0, {
+				timeout: 15_000,
+			});
 			expect(await smallTargets(page.locator("main"))).toEqual([]);
 		});
 	}
@@ -553,7 +556,10 @@ test.describe("on a phone", () => {
 		await oneWaiting(page, studentIds[0] as string);
 		await page.goto(`/course/${courseId}/live`);
 		await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-		await page.waitForTimeout(1000);
+		// The waiting student's request is the last thing to arrive.
+		await expect(
+			page.getByRole("link", { name: /^Open live help with Waiting student/ }),
+		).toBeVisible();
 		expect(await smallTargets(page.locator("main"))).toEqual([]);
 	});
 
@@ -698,4 +704,216 @@ test.describe("student screens", () => {
 			expect(colours.icon).toBe(colours.accentText);
 		});
 	}
+});
+
+test.describe("a focused control is never hidden under something pinned (WCAG 2.4.11)", () => {
+	/** Tab `steps` times one way, checking each stop in `region` clears the boxes `cover` names. */
+	async function tabClear(
+		page: Page,
+		key: "Tab" | "Shift+Tab",
+		steps: number,
+		region: Locator,
+		cover: () => Promise<{ top: number; bottom: number }>,
+	) {
+		const seen: string[] = [];
+		for (let step = 0; step < steps; step += 1) {
+			await page.keyboard.press(key);
+			// A control inside the pinned thing itself is not covered by it.
+			const inside = await region.evaluate(
+				(node) =>
+					node.contains(document.activeElement) &&
+					document.activeElement !== node &&
+					!document.activeElement?.closest(".pk-save-footer, .pk-detail-head"),
+			);
+			if (!inside) continue;
+			const box = await page.evaluate(() => {
+				const active = document.activeElement as HTMLElement;
+				// A switch's 1 px input: the label drawn around it is what shows.
+				const shown =
+					active.getBoundingClientRect().height <= 1
+						? (active.closest("label") ?? active)
+						: active;
+				const rect = shown.getBoundingClientRect();
+				return {
+					top: rect.top,
+					bottom: rect.bottom,
+					name:
+						document.activeElement?.id ||
+						document.activeElement?.textContent?.slice(0, 30) ||
+						"",
+				};
+			});
+			const { top, bottom } = await cover();
+			if (box.top < top - 0.5 || box.bottom > bottom + 0.5)
+				seen.push(
+					`${box.name}: ${Math.round(box.top)}-${Math.round(box.bottom)} outside ${Math.round(top)}-${Math.round(bottom)}`,
+				);
+		}
+		return seen;
+	}
+
+	test("Settings: fields stay clear of the section links and the save bar, both ways", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 700 });
+		await asAdmin(page, "/admin/settings");
+		const sections = page.getByTestId("settings-sections");
+		await expect(sections.getByRole("textbox").first()).toBeVisible({
+			timeout: 15_000,
+		});
+		// An unsaved change raises the floating save bar.
+		const first = sections.getByRole("textbox").first();
+		await first.fill("31");
+		const index = page.getByRole("navigation", { name: "Settings sections" });
+		const bar = page.locator(".pk-save-footer[data-dirty]");
+		await expect(bar).toBeVisible();
+		const cover = async () => {
+			const indexBox = await boxOf(index);
+			const top = indexBox.y + indexBox.height;
+			// The bar floats only while its own section is on screen.
+			const barBox = await bar.boundingBox();
+			// At the window's foot (its 12 px inset), not riding up with its section's end.
+			const floating = barBox !== null && barBox.y + barBox.height >= 700 - 16;
+			return { top, bottom: floating ? barBox.y : 700 };
+		};
+		await first.focus();
+		const forward = await tabClear(page, "Tab", 40, sections, cover);
+		const back = await tabClear(page, "Shift+Tab", 40, sections, cover);
+		expect([...forward, ...back]).toEqual([]);
+	});
+
+	test("Users: the panel's controls stay clear of its pinned head on Shift+Tab", async ({
+		page,
+		browser,
+	}) => {
+		const student = await studentIn(browser, "Pinned");
+		await page.setViewportSize({ width: 1440, height: 600 });
+		await asAdmin(page, "/admin");
+		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+		await page
+			.getByRole("button", { name: `Show details for ${student.name},` })
+			.click();
+		const panel = page.getByRole("region", { name: student.name });
+		await expect(panel.getByTestId("detail-quota")).toBeVisible({ timeout: 15_000 });
+		const overview = panel.getByRole("tabpanel", { name: "Overview" });
+		const head = panel.locator(".pk-detail-head");
+		// Start at the foot of the Overview, then walk back up it.
+		await overview.locator("button").last().focus();
+		const panelBox = await boxOf(panel);
+		const cover = async () => {
+			const headBox = await boxOf(head);
+			return { top: headBox.y + headBox.height, bottom: panelBox.y + panelBox.height };
+		};
+		expect(await tabClear(page, "Shift+Tab", 14, overview, cover)).toEqual([]);
+	});
+});
+
+test("a throttle that arrives moves the guard to the top without taking focus away", async ({
+	page,
+	browser,
+}) => {
+	const student = await studentIn(browser, "Moving");
+	await page.setViewportSize(DESKTOP);
+	await asAdmin(page, "/admin");
+	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+	await page.getByRole("button", { name: `Show details for ${student.name},` }).click();
+	const panel = page.getByRole("region", { name: student.name });
+	const settings = panel.getByRole("button", {
+		name: `Guard settings for ${student.name}'s workspace`,
+	});
+	await settings.focus();
+	try {
+		await query("update workspaces set cpu_throttle = $2 where id = $1", [
+			student.workspaceId,
+			JSON.stringify({
+				at: new Date().toISOString(),
+				averagePercent: 96,
+				thresholdPercent: 80,
+				windowMinutes: 30,
+				sharePercent: 25,
+				allowance: "25ms/100ms",
+			}),
+		]);
+		const overview = panel.getByRole("tabpanel", { name: "Overview" });
+		// The panel reads the workspace again every 5 seconds.
+		await expect(overview.getByRole("heading", { level: 4 }).first()).toHaveText(
+			"Resource guard",
+			{ timeout: 15_000 },
+		);
+		await expect(settings).toBeFocused();
+	} finally {
+		await query("update workspaces set cpu_throttle = null where id = $1", [
+			student.workspaceId,
+		]);
+	}
+});
+
+test("live help that cannot load says so instead of loading for ever", async ({
+	page,
+	browser,
+}) => {
+	const { courseId } = await courseAsInstructor(page, browser, 1);
+	await routeApi(page, "**/courses/*/live-help", (route) =>
+		route.fulfill({ status: 500, json: { code: "INTERNAL", message: "boom" } }),
+	);
+	await page.goto(`/course/${courseId}`);
+	await expect(page.getByTestId("course-live-error")).toContainText(
+		"could not load live help",
+	);
+});
+
+test("the status bar says the workspaces in words, and how old its figures are", async ({
+	page,
+}) => {
+	// A fresh sample, so the bar has an age to show; the rest is the real report.
+	const sampledAt = new Date(Date.now() - 3 * 60_000).toISOString();
+	await routeApi(page, "**/admin/health", async (route) => {
+		const response = await route.fetch();
+		await route.fulfill({ response, json: { ...(await response.json()), sampledAt } });
+	});
+	await page.setViewportSize(DESKTOP);
+	await asAdmin(page, "/admin/backups");
+	const bar = page.getByTestId("admin-status-bar");
+	await expect(
+		bar.locator(".sr-only", { hasText: /^\d+ of \d+ running$/ }),
+	).toHaveCount(1, {
+		timeout: 15_000,
+	});
+	await expect(bar.getByTestId("admin-status-age")).toHaveText("Sampled3 minutes ago");
+});
+
+test.describe("on a phone, menus and dialogs", () => {
+	test("take a thumb: a row menu's items and the Invite dialog's controls", async ({
+		page,
+		browser,
+	}) => {
+		await page.setViewportSize(PHONE);
+		const student = await studentIn(browser, "Menu");
+		await asAdmin(page, "/admin");
+		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+		await page.getByRole("button", { name: `Actions for ${student.name}` }).click();
+		const items = page.getByRole("menu").getByRole("menuitem");
+		await expect(items.first()).toBeVisible();
+		for (const item of await items.all()) {
+			expect((await boxOf(item)).height).toBeGreaterThanOrEqual(TOUCH);
+		}
+		await page.keyboard.press("Escape");
+
+		// Invite sits under More where the site manages its own sign-in accounts.
+		const more = page.getByTestId("users-add-more");
+		if ((await more.count()) > 0) {
+			await more.click();
+			await page.getByRole("menuitem", { name: "Invite…" }).click();
+		} else {
+			await page.getByRole("button", { name: "Invite…" }).click();
+		}
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toBeVisible();
+		for (const control of await dialog
+			.locator(".pk-btn, input:not([type=checkbox]):not([type=radio]), select")
+			.all()) {
+			if (!(await control.isVisible())) continue;
+			expect((await boxOf(control)).height).toBeGreaterThanOrEqual(TOUCH);
+		}
+	});
 });

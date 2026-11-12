@@ -141,10 +141,23 @@ export interface Night {
 
 const DAY_MS = 86_400_000;
 
+/** When each backup the page asked for failed: the failures the host's one "last failure" does not cover. */
+export function failedBackupTimes(
+	requests: readonly Pick<
+		BackupRequestView,
+		"kind" | "state" | "finishedAt" | "requestedAt"
+	>[],
+): string[] {
+	return requests
+		.filter((request) => request.kind === "backup" && request.state === "failed")
+		.map((request) => request.finishedAt ?? request.requestedAt);
+}
+
 /**
  * The last `count` nights, oldest first, ending on the night of the next
  * scheduled run when there is one: what each night left behind, from the
- * sets the host lists and its last failure.
+ * sets the host lists, its last failure and any other failure the page
+ * knows of (`failedAt`, such as a failed Back up now).
  */
 export function nights(
 	host: {
@@ -154,17 +167,22 @@ export function nights(
 	},
 	now: number,
 	count = 14,
+	failedAt: readonly string[] = [],
 ): Night[] {
 	const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 	const next = host.nextRunAt ? Date.parse(host.nextRunAt) : null;
 	// The strip ends on tonight's run when it is due within a day, else on today.
-	const end = next !== null && next - now < 2 * DAY_MS && next >= now ? next : now;
+	const end = next !== null && next - now < DAY_MS && next >= now ? next : now;
 	const byDay = new Map<string, boolean>();
 	for (const set of host.sets) {
 		const day = stampIso(set.stamp).slice(0, 10);
 		byDay.set(day, (byDay.get(day) ?? false) || set.complete);
 	}
-	const failedDay = host.lastFailure ? dayOf(Date.parse(host.lastFailure.at)) : null;
+	const failedDays = new Set(
+		[...(host.lastFailure ? [host.lastFailure.at] : []), ...failedAt].map((at) =>
+			dayOf(Date.parse(at)),
+		),
+	);
 	const scheduledDay = next !== null ? dayOf(next) : null;
 	const out: Night[] = [];
 	for (let i = count - 1; i >= 0; i--) {
@@ -175,7 +193,7 @@ export function nights(
 				? "complete"
 				: set === false
 					? "incomplete"
-					: day === failedDay
+					: failedDays.has(day)
 						? "failed"
 						: day === scheduledDay
 							? "scheduled"

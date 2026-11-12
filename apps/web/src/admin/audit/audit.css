@@ -73,17 +73,6 @@
 .pk-audit-full {
 	font-size: var(--text-xs);
 }
-/* An entity link: ink text that underlines in the accent on hover and focus. */
-.pk-entity-link {
-	color: var(--ink);
-	font-weight: 500;
-	text-decoration: none;
-}
-.pk-entity-link:is(:hover, :focus-visible) {
-	text-decoration: underline;
-	text-decoration-color: var(--accent);
-	text-underline-offset: 3px;
-}
 .pk-audit-open > .pk-icon {
 	transition: transform var(--duration-fast) var(--ease-standard);
 }

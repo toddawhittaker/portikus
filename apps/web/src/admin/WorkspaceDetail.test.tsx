@@ -16,7 +16,9 @@ import {
 	graceValueText,
 } from "./GraceDialog.js";
 import { quotaError } from "./QuotaDialog.js";
+import { ADMIN_REFRESH_MS } from "./queries.js";
 import { isUsersList, usersBody } from "./users/testRows.js";
+import { overviewOrder } from "./WorkspaceDetail.js";
 import {
 	instructorChangeNote,
 	roleChangeNote,
@@ -623,7 +625,11 @@ test("without the capability, Rebuild and Reset Docker are off and say why", asy
 	const note = within(panel).getByTestId("capability-note");
 	expect(note.textContent).toBe(NOT_AVAILABLE_TEXT);
 	expect(rebuild.getAttribute("aria-describedby")).toBe(note.id);
-	expect(reset.getAttribute("aria-describedby")).toBe(note.id);
+	// Reset Docker is on the Account tab, so its own note is drawn there beside it.
+	const resetNote = within(panel).getByTestId("capability-note-reset");
+	expect(resetNote.textContent).toBe("Reset Docker is not available in this release.");
+	expect(reset.getAttribute("aria-describedby")).toBe(resetNote.id);
+	expect(resetNote.closest("[role=tabpanel]")).toBe(reset.closest("[role=tabpanel]"));
 });
 
 test("a pending operation turns Rebuild and Reset Docker off and says so", async () => {
@@ -1867,4 +1873,69 @@ test("Restore from backup opens the restore dialog preset to this workspace", as
 	expect(
 		await within(dialog).findByText("Backups are not connected on this site."),
 	).toBeDefined();
+});
+
+test("a flag that comes or goes moves the guard without mounting it again", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		stubDetail(detail());
+		const panel = await openAlice();
+		const overview = within(panel).getByRole("tabpanel", { name: "Overview" });
+		const order = () =>
+			within(overview)
+				.getAllByRole("heading", { level: 4 })
+				.map((heading) => heading.textContent);
+		const guard = within(overview).getByRole("region", { name: "Resource guard" });
+		expect(order().slice(0, 2)).toEqual(["Resources", "Resource guard"]);
+
+		// The next poll brings a throttle: the guard leads, and it is the same element.
+		stubDetail(detail({ cpuThrottle: THROTTLE }));
+		await vi.advanceTimersByTimeAsync(ADMIN_REFRESH_MS + 100);
+		await waitFor(() =>
+			expect(order().slice(0, 2)).toEqual(["Resource guard", "Resources"]),
+		);
+		expect(within(overview).getByRole("region", { name: "Resource guard" })).toBe(
+			guard,
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("the guard leads the Overview only when a flag is up", () => {
+	expect(overviewOrder(true)).toEqual(["guard", "resources"]);
+	expect(overviewOrder(false)).toEqual(["resources", "guard"]);
+});
+
+test("an archived workspace offers Unarchive in the head, outside the Destructive group", async () => {
+	stubDetail(
+		detail({
+			workspace: { ...WORKSPACE, archivedAt: "2026-09-20T10:00:00.000Z" },
+			capabilities: { rebuild: true, resetDocker: true },
+		}),
+		{ users: [{ ...ALICE_ROW, markers: NONE }, ADMIN_ROW] },
+	);
+	const panel = await openAlice();
+	const unarchive = within(panel).getByRole("button", {
+		name: "Unarchive workspace for Alice Example",
+	});
+	expect(unarchive.closest("[role=tabpanel]")).toBeNull();
+	const destructive = within(panel).getByTestId("detail-destructive");
+	expect(
+		within(destructive)
+			.getAllByRole("button")
+			.map((button) => button.getAttribute("aria-label")),
+	).toEqual(["Reset Docker for Alice Example", "About Reset Docker"]);
+});
+
+test("with the workspace archived and no Reset Docker, the Destructive group is gone", async () => {
+	stubDetail(
+		detail({
+			workspace: { ...WORKSPACE, archivedAt: "2026-09-20T10:00:00.000Z" },
+			capabilities: { rebuild: true, resetDocker: false },
+		}),
+		{ users: [{ ...ALICE_ROW, markers: NONE }, ADMIN_ROW] },
+	);
+	const panel = await openAlice();
+	expect(within(panel).queryByTestId("detail-destructive")).toBeNull();
 });

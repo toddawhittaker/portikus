@@ -7,7 +7,7 @@ export function plural(count: number, one: string, many: string): string {
 
 /** The order a class's dots read in: who needs you, who is working, then the rest. */
 const DOT_ORDER = ["waiting", "error", "running", "moving", "stopped", "none"] as const;
-type DotKind = (typeof DOT_ORDER)[number];
+export type DotKind = (typeof DOT_ORDER)[number];
 
 function dotKind(member: CourseMember, waiting: ReadonlySet<string>): DotKind {
 	if (member.userId !== null && waiting.has(member.userId)) return "waiting";
@@ -28,6 +28,32 @@ const DOT_LABEL: Record<DotKind, string> = {
 	stopped: "Stopped",
 	none: "No workspace yet",
 };
+
+/** How the sentence names each kind of dot, for a count of students. */
+const COUNT_TEXT: Record<DotKind, (count: number) => string> = {
+	waiting: (count) => `${count} waiting for help`,
+	error: (count) => plural(count, "workspace error", "workspace errors"),
+	running: (count) => `${count} running`,
+	moving: (count) => `${count} starting or stopping`,
+	stopped: (count) => `${count} stopped`,
+	none: (count) => `${count} with no workspace yet`,
+};
+
+/**
+ * The class counted the way its dots are drawn, one group per kind with any
+ * student, in the dots' order. A student waiting for help counts once, as
+ * waiting, so the words and the dots always agree.
+ */
+export function dotCounts(
+	students: CourseMember[],
+	waiting: ReadonlySet<string>,
+): { kind: DotKind; count: number; text: string }[] {
+	const kinds = students.map((member) => dotKind(member, waiting));
+	return DOT_ORDER.map((kind) => {
+		const count = kinds.filter((each) => each === kind).length;
+		return { kind, count, text: COUNT_TEXT[kind](count) };
+	}).filter((group) => group.count > 0);
+}
 
 function sortedKinds(
 	students: CourseMember[],

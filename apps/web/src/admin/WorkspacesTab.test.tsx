@@ -10,7 +10,6 @@ import {
 	rebuildWarning,
 } from "./users/BulkActions.js";
 import {
-	accountActivityText,
 	activityText,
 	isFiltered,
 	NO_FILTERS,
@@ -62,23 +61,21 @@ test("activity is Now with the connection count while connected, otherwise the t
 	expect(activityText(summary(), now)).toBe("—");
 });
 
-test("with no connection on record, Activity falls back to the last sign-in", () => {
-	const now = Date.parse("2026-09-22T12:00:00.000Z");
-	const signedIn = "2026-09-22T10:00:00.000Z";
-	expect(
-		accountActivityText({ workspace: summary(), lastLoginAt: signedIn }, now),
-	).toBe("Signed in 2 hours ago");
-	expect(accountActivityText({ workspace: null, lastLoginAt: signedIn }, now)).toBe(
-		"Signed in 2 hours ago",
+test("Activity counts connections only, never the last sign-in (SPEC.md section 20.1)", async () => {
+	// Bob has signed in but no browser has connected to his workspace.
+	const rows = ROWS.map((row, index) =>
+		index === 1 ? { ...row, lastLoginAt: "2026-09-22T10:00:00.000Z" } : row,
 	);
-	// A connection on record wins over the sign-in.
-	expect(
-		accountActivityText(
-			{ workspace: summary({ activeConnections: 1 }), lastLoginAt: signedIn },
-			now,
-		),
-	).toBe("Now, 1 connection");
-	expect(accountActivityText({ workspace: null, lastLoginAt: null }, now)).toBe("—");
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, ADMIN_ME);
+		if (isUsersList(url)) return usersBody(url, rows, false);
+		if (url === "/admin/settings") {
+			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	await openTable();
+	expect(screen.getByTestId(`account-activity-${uuid(2)}`).textContent).toBe("—");
 });
 
 test("a bulk action applies only where it changes something", () => {

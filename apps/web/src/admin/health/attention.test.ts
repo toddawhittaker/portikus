@@ -1,6 +1,7 @@
 import type { HealthReport } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { attentionOf, poolWarning } from "./attention.js";
+import { WARN_AT } from "../../monitor/format.js";
+import { attentionOf, MEMORY_WARNING, poolWarning } from "./attention.js";
 
 const GIB = 1024 ** 3;
 
@@ -81,4 +82,21 @@ test("a full pool names metadata only when metadata is the fuller of the two", (
 	expect(
 		poolWarning({ usedBytes: 10 * GIB, totalBytes: 100 * GIB, metadataPercent: 20 }),
 	).toBeNull();
+});
+
+test("the memory warning names the share where the meters turn amber", () => {
+	expect(MEMORY_WARNING).toBe(`Memory is over ${Math.round(WARN_AT * 100)}% full`);
+	const full = attentionOf(
+		report({
+			host: {
+				loadAverage: [0, 0, 0],
+				cpuCount: 4,
+				memory: { usedBytes: 15 * GIB, totalBytes: 16 * GIB },
+				pool: { usedBytes: 1 * GIB, totalBytes: 100 * GIB, metadataPercent: 1 },
+				profileLimits: { cpu: null, memory: null, processes: null },
+				image: { fingerprint: null, serial: null },
+			},
+		}),
+	);
+	expect(full.problems.map((problem) => problem.text)).toEqual([MEMORY_WARNING]);
 });
