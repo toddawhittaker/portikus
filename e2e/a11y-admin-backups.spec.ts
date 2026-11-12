@@ -168,9 +168,15 @@ for (const colorScheme of ["light", "dark"] as const) {
 		const reason = "Kept by the server: the newest 2 nightly sets";
 		const kept = page.getByTestId(`backup-set-${OLD}`);
 		await expect(kept.getByRole("checkbox")).toHaveAccessibleDescription(reason);
-		await expect(kept.getByTestId("backup-set-delete")).toHaveAccessibleDescription(
-			reason,
-		);
+		// Delete sits in the row's menu, unavailable, and names the same reason.
+		await kept.getByTestId("backup-set-menu").click();
+		const remove = page.getByTestId("backup-set-delete");
+		await expect(remove).toHaveAttribute("aria-disabled", "true");
+		await expect(remove).toHaveAccessibleName(`Delete set… ${reason}.`);
+		// A modal menu hides the page from assistive technology, so scan the menu alone.
+		await expectNoViolations(page, '[role="menu"]');
+		await page.keyboard.press("Escape");
+		await expect(remove).toHaveCount(0);
 		await expect(
 			page.getByTestId(`backup-set-${OLDEST}`).getByRole("checkbox"),
 		).not.toHaveAttribute("aria-disabled", "true");
@@ -202,10 +208,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		await openTab(page, colorScheme);
 
-		await page
-			.getByTestId(`backup-set-${OLD}`)
-			.getByTestId("backup-set-delete")
-			.click();
+		await page.getByTestId(`backup-set-${OLD}`).getByTestId("backup-set-menu").click();
+		await page.getByTestId("backup-set-delete").click();
 		await expect(page.getByTestId("backup-delete-dialog")).toBeVisible();
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");

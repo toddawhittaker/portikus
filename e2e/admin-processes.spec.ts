@@ -119,6 +119,8 @@ async function openDetail(page: Page, name: string) {
 	await page.getByTestId("admin-filter-text").fill(name);
 	await page.getByRole("button", { name: `Show details for ${name}` }).click();
 	const panel = page.getByRole("region", { name });
+	// The process list sits on the inspector's Activity tab.
+	await panel.getByRole("tab", { name: "Activity" }).click();
 	const section = panel.getByRole("region", { name: "Processes" });
 	await expect(section).toBeVisible();
 	return section;
@@ -232,9 +234,9 @@ test("the keyboard alone reads the list and stops a process", async ({
 	await expect(section.getByTestId("processes-table")).toBeVisible();
 
 	const stop = section.getByRole("button", { name: "Stop <b>miner</b> (PID 42)" });
-	// Refresh sits under the table, so Shift+Tab walks back through its buttons.
+	// Refresh sits beside the section heading, so Tab walks on through the table's buttons.
 	for (let i = 0; i < 20; i += 1) {
-		await page.keyboard.press("Shift+Tab");
+		await page.keyboard.press("Tab");
 		if (await stop.evaluate((el) => el === document.activeElement)) break;
 	}
 	await expect(stop).toBeFocused();

@@ -223,12 +223,10 @@ test("Google group checks send the key once, and the page only says it is set", 
 		googleKeySet: true,
 	});
 	await page.reload();
-	// The form holds the current values; the line above it names only the provider.
-	await expect(page.getByLabel("Administrator to read groups as")).toHaveValue(
+	// While the trial is open there is no form, so the full current settings show.
+	await expect(page.getByTestId("sso-current")).toContainText(
 		"groups-reader@example.edu",
 	);
-	await expect(page.getByLabel("Service account key")).toHaveAccessibleDescription(
-		/Set\. Leave blank to keep it\./,
-	);
+	await expect(page.getByTestId("sso-current")).toContainText("Service account keySet");
 	expect(await page.content()).not.toContain(privateLine);
 });

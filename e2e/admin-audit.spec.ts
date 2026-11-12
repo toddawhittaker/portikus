@@ -15,6 +15,9 @@ import {
  * by workspace. Each test seeds rows for its own made-up workspace id, so
  * other tests' audit rows never show up in the filtered view.
  */
+/** A row's change summary for the seeded `n`, read as its label and value ("N 55"). */
+const seq = (n: number) => new RegExp(`N ${n}(?!\\d)`);
+
 test.describe("admin audit", () => {
 	async function seedEvents(workspaceId: string, count: number): Promise<void> {
 		// One statement so the ids rise with `n`: row n = count is the newest.
@@ -47,7 +50,7 @@ test.describe("admin audit", () => {
 		);
 		const rows = table.locator("tbody tr");
 		await expect(rows).toHaveCount(50);
-		await expect(rows.first()).toContainText("n:55");
+		await expect(rows.first()).toContainText(seq(55));
 		await expect(table).not.toContainText(otherId);
 
 		const pageStatus = page.getByTestId("audit-page");
@@ -59,15 +62,15 @@ test.describe("admin audit", () => {
 		await older.focus();
 		await page.keyboard.press("Enter");
 		await expect(rows).toHaveCount(5);
-		await expect(rows.first()).toContainText("n:5");
-		await expect(rows.last()).toContainText("n:1");
+		await expect(rows.first()).toContainText(seq(5));
+		await expect(rows.last()).toContainText(seq(1));
 		await expect(older).toBeDisabled();
 		await expect(older).toBeFocused();
 		await expect(pageStatus).toHaveText("Page 2, 5 events");
 
 		await page.getByRole("button", { name: "Newer audit events" }).click();
 		await expect(rows).toHaveCount(50);
-		await expect(rows.first()).toContainText("n:55");
+		await expect(rows.first()).toContainText(seq(55));
 		await expect(pageStatus).toHaveText("Page 1, 50 events");
 	});
 
