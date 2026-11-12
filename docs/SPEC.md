@@ -3382,16 +3382,16 @@ Added by Epic 64: the admin and course pages share one page frame.
   Agent log and Recent audit. **Account** holds the account (role, instructor and
   Dex password actions, linked course accounts and **Disable account**,
   set apart), then the Destructive group: **Reset Docker**, then
-  **Archive workspace**. On an archived workspace that button reads
-  **Unarchive**; unarchiving restores and is not a destructive action, so
-  it confirms nothing. Every tab stays mounted, so an
+  **Archive workspace**, the group hidden when neither applies. On an
+  archived workspace **Unarchive** is a neutral action outside the
+  Destructive group; it restores, so it confirms nothing. Every tab stays mounted, so an
   edit in progress survives a tab switch. This replaces the single
   column order given under Epic 25 above.
 - **Logs and Audit** are workbenches: one filter bar at the top, the
   results as rows, and an inspector for the chosen row. A Logs row leads
   with the message in plain words, with the method and route beneath.
-  The level chips show their on or off state by a check icon as well as
-  colour. The service log level sits under the results beside Auto
+  Filter chips, here and in the Course page's member filter, show
+  their chosen state by a check icon as well as colour. The service log level sits under the results beside Auto
   refresh.
 - **Backups.** A set's row shows **Restore…** and a menu that holds
   **Delete set…**; a set the server keeps shows Delete set as

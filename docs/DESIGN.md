@@ -381,11 +381,13 @@ opened, a side inspector beside it. The status bar students see runs along
 the foot of every admin page, showing the site, the host's vitals and one
 state that leads to Health. There are three type levels: the page title at
 28 px, a section title at 18 px, and an overline (11 px, spaced capitals,
-muted) that names a group, a tile or a column. Under the title, one sentence
+muted) that names a group, a tile or a column. The overline is the one
+size under the 12 px step of the type scale, kept for table headers, tile
+labels and the rail's group labels; nothing else uses 11 px. Under the title, one sentence
 says what the page is for; the rest of the "About …" text and "More in
 Help" sit in a disclosure that starts closed. Explanatory text is capped
-near 65 to 70 characters a line. Admin controls are compact (32 px, 13 px
-text) but otherwise the student set: one radius, the `line-strong` edge,
+near 65 to 70 characters a line. Admin controls are 36 px tall with 14 px
+text, the student set: one radius, the `line-strong` edge,
 one focus ring; on a phone, checkboxes are 20 px and preset and segment
 targets 44 px. Native selects drop the browser arrow for a caret in the
 muted ink, and native boxes tick in the accent. Disclosures use the chevron
@@ -400,8 +402,8 @@ accounts, and the actions that disable or delete). Overview carries an
 attention mark when the workspace has a problem. Every tab stays mounted, so
 an edit survives a tab switch.
 
-**Status on admin pages.** A normal state is a small dot and a word in the
-muted ink ("Running", "Stopped"); a badge is kept for an exception, such as
+**Status on admin pages.** A normal state is a small dot and a word, both in
+the state's colour ("Running" in green, "Stopped" in the stopped grey); a badge is kept for an exception, such as
 an error, a throttled workspace or a waiting invitation, so badges stand out
 because they are rare. A count of errors that is zero is drawn neutral,
 never red. A page shows one attention count, not the same number twice.
@@ -421,8 +423,9 @@ Back up now is outlined while the restore key is still missing.
 **Logs and Audit are workbenches.** Each has one filter bar at the top, the
 results as readable rows below it, and a side inspector for the chosen row.
 Logs rows lead with the message in plain words, with the method and route
-beneath; level chips use their own colour, and each chip shows a check icon
-when it is on and is plain when off, so the state never rests on colour.
+beneath; level chips use their own colour. Filter chips have one look everywhere,
+on Logs and on the Course page's member filter alike: a chosen chip shows
+a check icon and a plain one does not, so the state never rests on colour.
 The service log level sits under the results beside Auto refresh. Audit
 lines up its event codes in one column.
 
