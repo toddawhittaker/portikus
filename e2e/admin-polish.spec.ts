@@ -50,6 +50,7 @@ async function buttonLooks(button: Locator) {
 		return {
 			background: style.backgroundColor,
 			borderStyle: style.borderTopStyle,
+			borderColor: style.borderTopColor,
 			opacity: style.opacity,
 			color: style.color,
 			ground,
@@ -441,19 +442,21 @@ test.describe("a disabled button", () => {
 			await asAdmin(page, "/admin/settings");
 			const save = page.getByRole("button", { name: "Save stop times" });
 			await expect(save).toBeDisabled({ timeout: 15_000 });
-			const enabled = page.getByRole("button", { name: /^Send a test/ }).first();
+			// An enabled secondary button on the same page, for comparison.
+			const enabled = page.getByRole("button", { name: "Restore built-in text…" });
+			await expect(enabled).toBeEnabled();
 			const looks = await buttonLooks(save);
+			const enabledLooks = await buttonLooks(enabled);
+			// Faded, not broken: no fill and a solid edge, at full opacity.
 			expect(looks.background).toBe("rgba(0, 0, 0, 0)");
-			expect(looks.borderStyle).toBe("dashed");
+			expect(looks.borderStyle).toBe("solid");
 			expect(looks.opacity).toBe("1");
 			// The label meets text contrast against what shows through it.
 			expect(contrast(looks.color, looks.ground)).toBeGreaterThanOrEqual(4.5);
-			if ((await enabled.count()) > 0) {
-				const enabledBorder = await enabled.evaluate(
-					(button) => getComputedStyle(button).borderTopStyle,
-				);
-				expect(enabledBorder).toBe("solid");
-			}
+			// And it differs from an enabled button in fill, edge and ink.
+			expect(looks.background).not.toBe(enabledLooks.background);
+			expect(looks.borderColor).not.toBe(enabledLooks.borderColor);
+			expect(looks.color).not.toBe(enabledLooks.color);
 		});
 	}
 });
@@ -660,18 +663,17 @@ test.describe("student screens", () => {
 			const looks = await buttonLooks(create);
 			expect(looks).toMatchObject({
 				background: "rgba(0, 0, 0, 0)",
-				borderStyle: "dashed",
+				borderStyle: "solid",
 				opacity: "1",
 			});
 			expect(contrast(looks.color, looks.ground)).toBeGreaterThanOrEqual(4.5);
-			// Once there is a name it is the accent fill again.
+			// Once there is a name it is the accent fill again, with its own ink.
 			await page.getByTestId("field-name").fill("Weather");
 			await expect(create).toBeEnabled();
 			await expect
-				.poll(() =>
-					create.evaluate((button) => getComputedStyle(button).borderTopStyle),
-				)
-				.not.toBe("dashed");
+				.poll(async () => (await buttonLooks(create)).background)
+				.not.toBe("rgba(0, 0, 0, 0)");
+			expect((await buttonLooks(create)).color).not.toBe(looks.color);
 		});
 
 		test(`a selected project's icon takes the accent text colour (${colorScheme})`, async ({
