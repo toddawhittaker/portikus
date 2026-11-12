@@ -13,8 +13,11 @@ export const INSTRUCTOR_HELP: HelpPart = {
 					<p>
 						Once you open Portikus from a course you teach in your learning system, a{" "}
 						<strong>Course</strong> link appears in the header of your workspace. It
-						opens the course's page in a new tab. The page lists the course's people
-						with their role, last launch and workspace state.
+						opens the course's page in a new tab. At the top, <strong>Class now</strong>{" "}
+						sums up your students in a sentence and a row of dots, one per student:
+						green running, amber waiting for help, red failed and a hollow ring stopped.{" "}
+						<strong>Live help</strong> sits beside it. Below, <strong>Members</strong>{" "}
+						lists the course's people with their role, last launch and workspace state.
 					</p>
 					<ul>
 						<li>
@@ -32,10 +35,10 @@ export const INSTRUCTOR_HELP: HelpPart = {
 							and lists only the people who have opened Portikus from the course.
 						</li>
 						<li>
-							<strong>Remove</strong> takes a student off the page. Their account,
-							workspace and files stay, and they come back if they open Portikus from
-							the course again. Only students can be removed; instructors are changed in
-							your learning system.
+							<strong>Remove from course</strong>, in the menu at the end of a student's
+							row, takes them off the page. Their account, workspace and files stay, and
+							they come back if they open Portikus from the course again. Only students
+							can be removed; instructors are changed in your learning system.
 						</li>
 					</ul>
 				</>
@@ -123,7 +126,8 @@ export const INSTRUCTOR_HELP: HelpPart = {
 						A student can ask you for live help in one of their projects. Only the
 						student can start it, and only for an instructor of one of their courses.
 						You get a notification, and the session is listed under{" "}
-						<strong>Live help</strong> on the Course page.
+						<strong>Live help</strong> at the top of the Course page. It opens in a
+						terminal frame like the student's own workspace.
 					</p>
 					<ul>
 						<li>

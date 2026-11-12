@@ -18,12 +18,15 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<p>
 					You land on <strong>Administration</strong> when you sign in; from your own
-					workspace, open it from the account menu. The <strong>Users</strong> tab lists
-					everyone who has signed in. Search by name, email, username or workspace
-					label, and choose a name to open its panel. The panel shows the workspace's
-					state and storage, and every action for it. The list shows 50 people at a
-					time; search and filters cover everyone, and <strong>Next</strong> and{" "}
-					<strong>Previous</strong> change page.
+					workspace, open it from the account menu. The pages are listed in the rail on
+					the left. <strong>Users</strong> lists everyone who has signed in. Search by
+					name, email, username or workspace label, and choose a name to open its panel
+					beside the table. The panel has three tabs: <strong>Overview</strong> holds
+					the workspace's state, storage, guard and image, <strong>Activity</strong> its
+					processes, ports, agent log and recent events, and <strong>Account</strong>{" "}
+					the account itself and the actions that remove or disable things. The list
+					shows 50 people at a time; search and filters cover everyone, and{" "}
+					<strong>Next</strong> and <strong>Previous</strong> change page.
 				</p>
 			),
 		},
@@ -48,7 +51,8 @@ export const ADMIN_HELP: HelpPart = {
 						the email. LDAP matches either the username or the email.
 					</p>
 					<p>
-						To add many people at once, choose <strong>Import from CSV…</strong>.{" "}
+						To add many people at once, choose <strong>Import from CSV…</strong>, also
+						under <strong>More</strong> when <strong>Add user…</strong> is there.{" "}
 						<strong>Download a sample file</strong> shows the columns: name, email,
 						username, role and kind, one row per person, at most{" "}
 						{ACCOUNT_IMPORT_MAX_ROWS} rows. Kind <strong>invite</strong> invites the
@@ -238,10 +242,10 @@ export const ADMIN_HELP: HelpPart = {
 			title: "The agent log",
 			body: (
 				<p>
-					A running workspace's panel can show the <strong>Agent log</strong>: the
-					workspace agent's recent warnings and errors, kept in memory only and cleared
-					by a restart. The owner of a workspace can change what its agent reports, so
-					treat the lines as hints, not proof.
+					A running workspace's panel can show the <strong>Agent log</strong>, on its{" "}
+					<strong>Activity</strong> tab: the workspace agent's recent warnings and
+					errors, kept in memory only and cleared by a restart. The owner of a workspace
+					can change what its agent reports, so treat the lines as hints, not proof.
 				</p>
 			),
 		},
@@ -272,16 +276,17 @@ export const ADMIN_HELP: HelpPart = {
 						them as the install guide describes.
 					</p>
 					<p>
-						To restore someone's files, choose <strong>Restore from backup</strong> in
-						their panel, or <strong>Restore</strong> beside a set on{" "}
-						<strong>Backups</strong>. Their workspace must be running. The files arrive
-						in a new folder in their home, next to their current files; nothing is
-						overwritten. If they need their whole home back, choose{" "}
-						<strong>Replace home</strong> beside that restored copy. It swaps their
-						whole home folder for the one in the same backup set, and you confirm by
-						typing their workspace label. The workspace stops during the swap and starts
-						again afterwards. Their previous home is kept, and listed under{" "}
-						<strong>Clean up</strong> until you delete it.
+						To restore someone's files, choose <strong>Restore from backup</strong> on
+						the <strong>Overview</strong> tab of their panel, or{" "}
+						<strong>Restore…</strong> beside a set on <strong>Backups</strong>. A set's{" "}
+						<strong>Delete set…</strong> is in the menu at the end of its row. Their
+						workspace must be running. The files arrive in a new folder in their home,
+						next to their current files; nothing is overwritten. If they need their
+						whole home back, choose <strong>Replace home</strong> beside that restored
+						copy. It swaps their whole home folder for the one in the same backup set,
+						and you confirm by typing their workspace label. The workspace stops during
+						the swap and starts again afterwards. Their previous home is kept, and
+						listed under <strong>Clean up</strong> until you delete it.
 					</p>
 					<p>
 						<strong>Clean up</strong> also lists pre-change snapshots, which the
