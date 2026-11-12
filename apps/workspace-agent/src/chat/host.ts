@@ -40,7 +40,6 @@ import {
 	fromTranscript,
 	windowFromModelUsage,
 } from "./context-usage.js";
-import { DecisionMemory } from "./decisions.js";
 import { InputQueue } from "./input-queue.js";
 import { ModelList } from "./model-list.js";
 import { OpenCards } from "./open-cards.js";
@@ -110,11 +109,9 @@ export type { ChatSdk };
 
 export class ChatHost {
 	private readonly clients = new Set<Client>();
-	private readonly decisions = new DecisionMemory();
 	private readonly cards = new OpenCards(
 		(event) => this.broadcast(event),
 		(rules) => this.rules.grant(rules),
-		this.decisions,
 	);
 	private readonly sdk: ChatSdk;
 	private server: Server | null = null;
@@ -447,7 +444,7 @@ export class ChatHost {
 		this.title.reset();
 		void this.title.refresh(sessionId);
 		this.subagents.reset();
-		this.decisions.clear();
+		this.cards.clearDecisions();
 		const context = this.context.current();
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
@@ -549,10 +546,8 @@ export class ChatHost {
 			truncated: replay.truncated,
 		});
 		writeLine(socket, JSON.stringify(snapshot));
-		for (const event of replay.events) writeLine(socket, this.frame(event));
-		for (const event of this.decisions.replayFor(replay.events)) {
-			writeLine(socket, this.frame(event));
-		}
+		const replayed = [...replay.events, ...this.cards.replayDecisions(replay.events)];
+		for (const event of replayed) writeLine(socket, this.frame(event));
 		// The reply streaming now, as one delta that later deltas append to.
 		if (partial) {
 			writeLine(

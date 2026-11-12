@@ -332,3 +332,45 @@ test("a question answer carries no decision, and /clear forgets them", async () 
 	first.ws.close();
 	late.ws.close();
 });
+
+test("the permission card offers Allow once, Always allow and Deny, and an unknown option leaves it open", async () => {
+	const chatId = "550e8400-e29b-41d4-a716-446655440005";
+	await newChat(chatId);
+	const first = await connect(chatId);
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	send(first.ws, "start");
+	await expect.poll(() => types(first.frames).at(-1)).toBe("turn.finished");
+	const permission = first.frames
+		.map((one) => JSON.parse(one))
+		.find((one) => one.type === "permission.requested");
+	expect(permission.options.map((option: { id: string }) => option.id)).toEqual([
+		"allow",
+		"always",
+		"deny",
+	]);
+
+	first.ws.send(
+		JSON.stringify({
+			type: "permission.answer",
+			id: "card-permission",
+			optionId: "bogus",
+		}),
+	);
+	first.ws.send(
+		JSON.stringify({
+			type: "permission.answer",
+			id: "card-permission",
+			optionId: "deny",
+		}),
+	);
+	await expect
+		.poll(() => types(first.frames).filter((one) => one === "card.resolved").length)
+		.toBe(1);
+	const reply = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/chats/${chatId}/answers`,
+	);
+	expect(((await reply.json()) as { answers: unknown[] }).answers).toEqual([
+		{ type: "permission.answer", id: "card-permission", optionId: "deny" },
+	]);
+	first.ws.close();
+});

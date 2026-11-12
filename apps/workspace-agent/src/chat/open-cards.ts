@@ -8,7 +8,7 @@ import {
 	permissionResult,
 	type ToolAsk,
 } from "./claude-adapter.js";
-import { type DecisionMemory, decisionForOption } from "./decisions.js";
+import { DecisionMemory, decisionForOption } from "./decisions.js";
 import { splitSuggestions } from "./permission-rules.js";
 
 export interface OpenCard {
@@ -28,8 +28,19 @@ export class OpenCards {
 	constructor(
 		private readonly broadcast: (event: ChatEventBody) => void,
 		private readonly grantRules: (rules: ChatSessionRule[]) => Promise<void>,
-		private readonly decisions: DecisionMemory,
 	) {}
+
+	private readonly decisions = new DecisionMemory();
+
+	/** The answers to replay after a history: one per decision whose tool call it shows. */
+	replayDecisions(history: readonly ChatEventBody[]): ChatEventBody[] {
+		return this.decisions.replayFor(history);
+	}
+
+	/** Forget every answer, as when the chat moves to a new session. */
+	clearDecisions(): void {
+		this.decisions.clear();
+	}
 
 	/** The cards still open, for a snapshot. */
 	get current(): ChatOpenCard[] {

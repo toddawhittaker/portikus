@@ -67,7 +67,8 @@ const PERMISSION_CARD: Extract<ChatOpenCard, { type: "permission" }> = {
 	title: "Run npm test",
 	input: { command: "npm test" },
 	options: [
-		{ id: "allow", label: "Allow" },
+		{ id: "allow", label: "Allow once" },
+		{ id: "always", label: "Always allow npm test commands for this chat" },
 		{ id: "deny", label: "Deny" },
 	],
 };
@@ -293,6 +294,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const card = chat.openCards.find((one) => one.id === message.id);
 		// The first answer wins; a late one is dropped.
 		if (!card) return;
+		// As the host does, ignore an option the card does not offer and keep it open.
+		if (
+			card.type === "permission" &&
+			message.type === "permission.answer" &&
+			!card.options.some((option) => option.id === message.optionId)
+		) {
+			return;
+		}
 		chat.openCards = chat.openCards.filter((one) => one.id !== message.id);
 		chat.answers.push(message);
 		const decision =

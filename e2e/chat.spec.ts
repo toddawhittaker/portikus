@@ -355,7 +355,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.keyboard.press("Enter");
 
 		await expect(view.getByTestId("chat-question-card")).toHaveCount(0);
-		await expect(view.getByRole("button", { name: "Allow" })).toBeFocused();
+		await expect(view.getByRole("button", { name: "Allow once" })).toBeFocused();
 		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 		await page.keyboard.press("Enter");
 		await expect(view.getByTestId("chat-permission-card")).toHaveCount(0);
