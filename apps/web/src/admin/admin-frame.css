@@ -362,6 +362,15 @@
 	.pk-table--stack .pk-account-cell {
 		min-width: 0;
 	}
+	/* A stacked row is one block, so the chosen one takes the fill and the bar whole, not cell by cell. */
+	.pk-users-wrap .pk-table--stack tbody tr[aria-selected="true"] {
+		background: var(--accent-soft);
+		box-shadow: inset 2px 0 0 var(--accent);
+	}
+	.pk-users-wrap .pk-table--stack tbody tr[aria-selected="true"] > :is(td, th) {
+		background: none;
+		box-shadow: none;
+	}
 }
 .pk-filter-toggle {
 	display: none;
