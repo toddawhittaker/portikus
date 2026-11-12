@@ -1,8 +1,14 @@
-import type { ActiveCourseMember, CourseMembersResponse } from "@portikus/contracts";
+import type {
+	ActiveCourseMember,
+	CourseMember,
+	CourseMembersResponse,
+} from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
-import { courseMonogram, nextRemovable } from "./CoursePage.js";
+import { courseMonogram } from "./CourseList.js";
+import { memberKey, nextRemovable } from "./CoursePage.js";
+import { LIVE_POLL_MS } from "./live/queries.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -532,4 +538,83 @@ test("a course's tile shows its number, or the title's initials when it has none
 	expect(courseMonogram("Databases 2400")).toBe("2400");
 	expect(courseMonogram("Web design studio")).toBe("WD");
 	expect(courseMonogram("")).toBe("?");
+});
+
+/** Serve `routes`, counting each URL asked for. */
+function serveCounting(routes: Record<string, () => Response>) {
+	const asked = new Map<string, number>();
+	stubFetch((url) => {
+		asked.set(url, (asked.get(url) ?? 0) + 1);
+		if (url === "/auth/me") return json(200, USER);
+		const handler = routes[url];
+		if (handler) return handler();
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	return (url: string) => asked.get(url) ?? 0;
+}
+
+test("the course list reads each course's live help once, without polling", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		const asked = serveCounting({
+			"/courses": () => json(200, [CS101, CS240]),
+			[`/courses/${CS101.id}/members`]: () => json(200, roster()),
+			[`/courses/${CS240.id}/members`]: () =>
+				json(200, { course: CS240, roster: NO_ROSTER, members: [] }),
+			[`/courses/${CS101.id}/live-help`]: () => json(200, { sessions: [] }),
+			[`/courses/${CS240.id}/live-help`]: () => json(200, { sessions: [] }),
+		});
+		renderApp("/course");
+		await screen.findByTestId("course-list");
+		await waitFor(() => expect(asked(`/courses/${CS240.id}/live-help`)).toBe(1));
+		await vi.advanceTimersByTimeAsync(4 * LIVE_POLL_MS);
+		expect(asked(`/courses/${CS101.id}/live-help`)).toBe(1);
+		expect(asked(`/courses/${CS240.id}/live-help`)).toBe(1);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("live help that cannot load says so, and a course it cannot find is not asked again", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		const asked = serveCounting({
+			[`/courses/${CS101.id}/members`]: () => json(200, roster()),
+		});
+		renderApp(`/course/${CS101.id}`);
+		expect((await screen.findByTestId("course-live-error")).textContent).toContain(
+			"could not load live help",
+		);
+		await vi.advanceTimersByTimeAsync(4 * LIVE_POLL_MS);
+		expect(asked(`/courses/${CS101.id}/live-help`)).toBe(1);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a course that could not load shows no class summary or live help", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(500, { code: "INTERNAL", message: "boom" }),
+	});
+	renderApp(`/course/${CS101.id}`);
+	await screen.findByTestId("course-error");
+	expect(screen.queryByRole("heading", { name: "Live help" })).toBeNull();
+	expect(screen.queryByTestId("course-counts")).toBeNull();
+});
+
+test("a roster-only row is keyed by its place in the whole member list", () => {
+	const notStarted = (name: string): CourseMember => ({
+		status: "not_started",
+		userId: null,
+		displayName: name,
+		role: "student",
+		lastLaunchAt: null,
+		workspaceState: null,
+	});
+	const all = [samMember(), notStarted("Nia New"), notStarted("Oz New")];
+	const oz = all[2] as CourseMember;
+	// Its place in the whole list, which a search or filter does not change.
+	expect(memberKey(oz, all)).toBe("roster-2");
+	expect(memberKey(samMember(), all)).toBe(SAM_ID);
 });

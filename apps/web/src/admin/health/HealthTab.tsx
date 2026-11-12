@@ -14,7 +14,13 @@ import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { Notice } from "../Notice.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
-import { attentionOf, isNearlyFull, poolWarning, usedPercent } from "./attention.js";
+import {
+	attentionOf,
+	isNearlyFull,
+	MEMORY_WARNING,
+	poolWarning,
+	usedPercent,
+} from "./attention.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
 import "./health.css";
@@ -419,7 +425,7 @@ function HealthStats({ report }: { report: HealthReport }) {
 						high={WARN_AT}
 						warning={
 							isNearlyFull(host.memory.usedBytes, host.memory.totalBytes)
-								? "Memory is over 80% full"
+								? MEMORY_WARNING
 								: null
 						}
 					/>
@@ -501,12 +507,10 @@ function Attention({ report, now }: { report: HealthReport; now: number }) {
 					{count > 0 ? "Needs attention" : "Resource guard"}
 				</h4>
 				{count > 0 ? (
-					<span
-						className="pk-overline pk-num"
-						aria-hidden={true}
-						data-testid="health-attention-count"
-					>
-						{count}
+					<span className="pk-overline pk-num">
+						<span className="sr-only">, </span>
+						<span data-testid="health-attention-count">{count}</span>
+						<span className="sr-only">{count === 1 ? " item" : " items"}</span>
 					</span>
 				) : null}
 			</div>

@@ -82,6 +82,21 @@
 		min-inline-size: var(--size-control-lg);
 		align-items: center;
 	}
+	/*
+	 * Menus and dialogs portal outside <main>. A dialog opened here carries
+	 * the console's controls attribute; a menu on a phone takes a thumb anywhere.
+	 */
+	[data-controls="console"]:is([role="dialog"], [role="alertdialog"])
+		:is(.pk-btn, .pk-iconbtn, select, input:not([type="checkbox"], [type="radio"])) {
+		min-height: var(--size-control-lg);
+	}
+	[data-controls="console"]:is([role="dialog"], [role="alertdialog"])
+		label:has(> input:is([type="checkbox"], [type="radio"])) {
+		min-block-size: var(--size-control-lg);
+	}
+	.pk-menu :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) {
+		min-height: var(--size-control-lg);
+	}
 	/* The help mark keeps its 24 px look; an invisible ring makes the tap target 44 px. */
 	:is(.pk-adminframe-scroll, .pk-course-main) .pk-toggletip {
 		position: relative;
@@ -101,6 +116,49 @@
 @layer base {
 	:is(.pk-adminframe-scroll, .pk-course-main) p {
 		max-inline-size: 52ch;
+	}
+}
+
+/*
+ * A filter chip, one look wherever it is (the Logs levels and services, the
+ * Course page's member filters). Off: the raised face, a strong edge and
+ * muted ink. On: the accent tint, the accent edge, ink and a check before
+ * the label. A chip's own colour, such as a log level's, stays in its dot.
+ */
+:is(.pk-chip, .pk-chipcheck) {
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+:is(.pk-chip, .pk-chipcheck):hover {
+	color: var(--ink);
+	background: var(--surface-hover);
+}
+:is(.pk-chip[aria-pressed="true"], .pk-chipcheck:has(:checked)) {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+.pk-chip-tick {
+	display: none;
+	flex: none;
+	color: var(--accent-text);
+}
+:is(.pk-chip[aria-pressed="true"], .pk-chipcheck:has(:checked)) .pk-chip-tick {
+	display: block;
+}
+@media (forced-colors: active) {
+	:is(.pk-chip[aria-pressed="true"], .pk-chipcheck:has(:checked)) {
+		border-color: Highlight;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	:is(.pk-chip, .pk-chipcheck) {
+		transition: none;
 	}
 }
 

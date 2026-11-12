@@ -90,6 +90,17 @@ describe("filterMembers", () => {
 		).toEqual(["Ivy Teacher"]);
 	});
 
+	it("lists only instructors under Instructors, never another kind of member", () => {
+		// A role the course list may one day carry, such as a teaching assistant.
+		const other = {
+			...member("00000000-0000-4000-8000-000000000010", "Tam Assistant", "running"),
+			role: "assistant",
+		} as unknown as CourseMember;
+		expect(filterMembers([...members, other], "instructors", "", new Set())).toEqual(
+			[],
+		);
+	});
+
 	it("combines the search with the filter", () => {
 		expect(filterMembers(members, "attention", "ada", new Set([ids.bo]))).toEqual([]);
 	});

@@ -1,11 +1,6 @@
 import { hideOutside, IconButton } from "@portikus/ui";
-import {
-	type ReactNode,
-	type RefObject,
-	useEffect,
-	useRef,
-	useSyncExternalStore,
-} from "react";
+import { type ReactNode, type RefObject, useEffect, useRef } from "react";
+import { useMediaQuery } from "../common/useMediaQuery.js";
 import "./drawer.css";
 
 /**
@@ -14,15 +9,9 @@ import "./drawer.css";
  */
 const PHONE_QUERY = "(width < 56rem)";
 
-function subscribe(onChange: () => void): () => void {
-	const query = window.matchMedia(PHONE_QUERY);
-	query.addEventListener("change", onChange);
-	return () => query.removeEventListener("change", onChange);
-}
-
 /** True while the window is narrower than 56rem. */
 export function usePhoneLayout(): boolean {
-	return useSyncExternalStore(subscribe, () => window.matchMedia(PHONE_QUERY).matches);
+	return useMediaQuery(PHONE_QUERY);
 }
 
 const TABBABLE =

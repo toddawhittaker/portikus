@@ -27,13 +27,26 @@ const keys = {
 		["courses", ref.courseId, "live-help", ref.sessionId] as const,
 };
 
-/** The open sessions students started with the caller in this course. */
-export function useLiveSessions(courseId: string) {
+/**
+ * The open sessions students started with the caller in this course. A page
+ * that only glances at the count, such as the course list, reads it once; and
+ * a course the caller cannot open (404) is not asked again, since it will
+ * not start answering.
+ */
+export function useLiveSessions(
+	courseId: string,
+	{ poll = true }: { poll?: boolean } = {},
+) {
 	return useQuery({
 		queryKey: keys.list(courseId),
 		queryFn: () => request(CourseLiveHelpResponse, `/courses/${courseId}/live-help`),
-		refetchInterval: LIVE_POLL_MS,
+		refetchInterval: (query) =>
+			poll && !isNotFound(query.state.error) ? LIVE_POLL_MS : false,
 	});
+}
+
+function isNotFound(error: unknown): boolean {
+	return error instanceof ApiError && error.status === 404;
 }
 
 /**

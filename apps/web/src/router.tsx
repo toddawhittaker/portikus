@@ -53,7 +53,7 @@ const AdminPage = lazyPage(
 	(module) => module.AdminPage,
 );
 const CourseListPage = lazyPage(
-	() => import("./course/CoursePage.js"),
+	() => import("./course/CourseList.js"),
 	(module) => module.CourseListPage,
 );
 const CourseMembersPage = lazyPage(

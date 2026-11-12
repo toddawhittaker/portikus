@@ -9,6 +9,9 @@ export function usedPercent(used: number, total: number): number {
 	return total > 0 ? Math.round((used / total) * 100) : 0;
 }
 
+/** The memory warning, at the share where the meters turn amber. */
+export const MEMORY_WARNING = `Memory is over ${Math.round(WARN_AT * 100)}% full`;
+
 export function isNearlyFull(used: number, total: number): boolean {
 	return total > 0 && used / total >= WARN_AT;
 }
@@ -65,7 +68,7 @@ export function healthProblems(report: HealthReport): HealthProblem[] {
 	const { host } = report;
 	if (host && isNearlyFull(host.memory.usedBytes, host.memory.totalBytes)) {
 		problems.push({
-			text: "Memory is over 80% full",
+			text: MEMORY_WARNING,
 			action: "Open Users",
 			tab: "users",
 			search: {},

@@ -277,8 +277,11 @@ test("archive hides the row, refuses a start, and unarchive brings it back", asy
 	});
 	await unarchive.click();
 	await expect(toast(page, "Workspace unarchived")).toBeVisible();
-	// The button swaps to Archive in place; focus stays on it (Gate E).
-	await expect(archive).toBeFocused();
+	// Unarchive leaves the panel head, so focus moves to the panel's heading
+	// rather than being lost (Gate E).
+	await expect(
+		panel.getByRole("heading", { name: student.name, exact: true }),
+	).toBeFocused();
 	await page.getByText("Show archived").click();
 	await expect(row).toBeVisible();
 	await expect(row.getByText("Archived", { exact: true })).toHaveCount(0);
