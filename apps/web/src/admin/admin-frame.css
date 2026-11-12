@@ -183,11 +183,11 @@
 	border-radius: 1px;
 	background: var(--accent);
 }
-/* In forced colours a fill is dropped, so the marker is a border in the system's highlight. */
+/* In forced colours the bar keeps the system's highlight, and so does a phone's boxed link edge. */
 @media (forced-colors: active) {
 	.pk-adminnav-link[aria-current="page"]::before {
-		background: none;
-		border-inline-start: 2px solid Highlight;
+		forced-color-adjust: none;
+		background: Highlight;
 	}
 	.pk-adminnav-link[aria-current="page"] {
 		border-color: Highlight;

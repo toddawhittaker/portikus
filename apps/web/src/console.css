@@ -66,13 +66,7 @@
 	 * take a thumb too.
 	 */
 	:is(.pk-adminframe-scroll, .pk-course-main)
-		:is(
-			.pk-table-sort,
-			.pk-intro-body > .pk-link,
-			.pk-entity-link,
-			.pk-back-link,
-			.pk-nav-link
-		) {
+		:is(.pk-table-sort, .pk-intro-body > .pk-link, .pk-entity-link, .pk-back-link) {
 		display: inline-flex;
 		align-items: center;
 		min-block-size: var(--size-control-lg);

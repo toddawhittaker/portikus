@@ -812,6 +812,8 @@ test.describe("a focused control is never hidden under something pinned (WCAG 2.
 		await page.setViewportSize({ width: 1440, height: 600 });
 		await asAdmin(page, "/admin");
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+		// The list pages at 50 rows; a search brings this student to the top.
+		await page.getByTestId("admin-filter-text").fill(student.name);
 		await page
 			.getByRole("button", { name: `Show details for ${student.name},` })
 			.click();
@@ -838,6 +840,7 @@ test("a throttle that arrives moves the guard to the top without taking focus aw
 	await page.setViewportSize(DESKTOP);
 	await asAdmin(page, "/admin");
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("admin-filter-text").fill(student.name);
 	await page.getByRole("button", { name: `Show details for ${student.name},` }).click();
 	const panel = page.getByRole("region", { name: student.name });
 	const settings = panel.getByRole("button", {
@@ -913,6 +916,7 @@ test.describe("on a phone, menus and dialogs", () => {
 		const student = await studentIn(browser, "Menu");
 		await asAdmin(page, "/admin");
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId("admin-filter-text").fill(student.name);
 		await page.getByRole("button", { name: `Actions for ${student.name}` }).click();
 		const items = page.getByRole("menu").getByRole("menuitem");
 		await expect(items.first()).toBeVisible();
