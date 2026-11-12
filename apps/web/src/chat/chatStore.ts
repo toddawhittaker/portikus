@@ -8,6 +8,7 @@
 import {
 	CHAT_START_SETTINGS,
 	type ChatAttachment,
+	type ChatCardDecision,
 	ChatClientMessage,
 	type ChatCommand,
 	type ChatEffort,
@@ -50,6 +51,8 @@ export interface ChatToolItem {
 	/** A tool the turn ended without finishing is "stopped". */
 	status: "running" | "done" | "error" | "stopped";
 	turnId: string | null;
+	/** How the student answered this call's permission card; absent when no card was answered. */
+	decision?: ChatCardDecision;
 }
 
 interface ChatErrorItem {
@@ -117,6 +120,13 @@ export interface ChatState {
 	pendingSplit: number | null;
 	/** Cards waiting for an answer, oldest first. */
 	cards: ChatOpenCard[];
+	/**
+	 * How each answered permission card was decided, by tool call id. Kept
+	 * apart from the items so a decision that arrives before its tool call
+	 * still lands on it; a snapshot empties it, and the host replays the
+	 * decisions it remembers after the history.
+	 */
+	decisions: Record<string, ChatCardDecision>;
 	/** The snapshot left out earlier history. */
 	truncated: boolean;
 	/** The latest `settings` event; null until one arrives. */
@@ -168,6 +178,7 @@ export const initialChatState: ChatState = {
 	currentTurnId: null,
 	pendingSplit: null,
 	cards: [],
+	decisions: {},
 	truncated: false,
 	settings: null,
 	models: [],
@@ -243,6 +254,7 @@ function applySnapshot(
 		truncated: event.truncated,
 		cards: event.cards,
 		items: [],
+		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
 		turns: turnId
@@ -386,31 +398,8 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 				],
 			};
 		}
-		case "tool.started": {
-			const key = `tool:${event.id}`;
-			const fields = { name: event.name, title: event.title, input: event.input };
-			// A held live event can repeat a replayed one; it updates, never doubles.
-			const items = replaceItem(state.items, key, (item) =>
-				item.kind === "tool" ? { ...item, ...fields } : item,
-			);
-			if (items) return { ...state, items };
-			const split = takeInSentMessage(state, now);
-			return {
-				...split,
-				items: [
-					...split.items,
-					{
-						kind: "tool",
-						key,
-						id: event.id,
-						...fields,
-						output: [],
-						status: "running",
-						turnId: split.currentTurnId,
-					},
-				],
-			};
-		}
+		case "tool.started":
+			return startTool(state, event, now);
 		case "tool.output": {
 			const items = replaceItem(state.items, `tool:${event.id}`, (item) =>
 				item.kind === "tool" ? { ...item, output: [...item.output, event.part] } : item,
@@ -434,7 +423,7 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return { ...state, cards: addCard(state.cards, { type: "question", ...card }) };
 		}
 		case "card.resolved":
-			return { ...state, cards: state.cards.filter((card) => card.id !== event.id) };
+			return resolveCard(state, event);
 		case "error":
 			return {
 				...state,
@@ -471,6 +460,65 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 		case "context":
 			return { ...state, context: contextUsage(event, now) };
 	}
+}
+
+/** A tool call began, or a held live event repeats a replayed one; it takes any decision already known. */
+function startTool(
+	state: ChatState,
+	event: Extract<ChatServerEvent, { type: "tool.started" }>,
+	now: number,
+): ChatState {
+	const key = `tool:${event.id}`;
+	const decision = state.decisions[event.id];
+	const fields = {
+		name: event.name,
+		title: event.title,
+		input: event.input,
+		...(decision ? { decision } : {}),
+	};
+	// A held live event can repeat a replayed one; it updates, never doubles.
+	const items = replaceItem(state.items, key, (item) =>
+		item.kind === "tool" ? { ...item, ...fields } : item,
+	);
+	if (items) return { ...state, items };
+	const split = takeInSentMessage(state, now);
+	return {
+		...split,
+		items: [
+			...split.items,
+			{
+				kind: "tool",
+				key,
+				id: event.id,
+				...fields,
+				output: [],
+				status: "running",
+				turnId: split.currentTurnId,
+			},
+		],
+	};
+}
+
+/**
+ * A card closed. An answered permission card's decision is kept by its tool
+ * call's id, which is the card's own, and set on the call if it has arrived.
+ */
+function resolveCard(
+	state: ChatState,
+	event: Extract<ChatServerEvent, { type: "card.resolved" }>,
+): ChatState {
+	const cards = state.cards.filter((card) => card.id !== event.id);
+	const { decision } = event;
+	if (decision === undefined) return { ...state, cards };
+	const items = replaceItem(state.items, `tool:${event.id}`, (item) =>
+		item.kind === "tool" ? { ...item, decision } : item,
+	);
+	return {
+		...state,
+		cards,
+		decisions: { ...state.decisions, [event.id]: decision },
+		items: items ?? state.items,
+	};
 }
 
 /** The figures as the meter reads them, with the host's clock skew measured on arrival. */

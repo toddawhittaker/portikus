@@ -192,3 +192,32 @@
 		opacity: 1;
 	}
 }
+
+/* How a permission card was answered: a quiet line under its tool row, in
+   muted ink and small type, its icon lined up with the row's own. The words
+   say allowed or denied, so no colour carries it. */
+.pk-chat-decision {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	margin: 0;
+	padding-inline: var(--space-1) var(--space-2);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+}
+
+.pk-chat-decision-icon {
+	flex: none;
+}
+
+.pk-chat-decision-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pk-chat-decision .pk-mono-body {
+	font-size: var(--text-xs);
+}

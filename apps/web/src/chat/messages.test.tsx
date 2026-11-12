@@ -600,3 +600,76 @@ test("without a work area the paths are listed but not buttons", () => {
 	);
 	expect(within(changed).queryByRole("button")).toBeNull();
 });
+
+function decisionLines(): string[] {
+	return screen.getAllByTestId("chat-decision").map((line) => line.textContent ?? "");
+}
+
+test("an answered permission card leaves a line in words at its tool call", () => {
+	running(
+		[
+			tool(
+				"Bash",
+				{ command: "rm -rf build" },
+				{ key: "b", id: "b", decision: "denied" },
+			),
+			tool(
+				"Edit",
+				{ file_path: "src/a.ts", old_string: "x", new_string: "y" },
+				{ key: "e", id: "e", status: "done", decision: "allowed" },
+			),
+			tool(
+				"Write",
+				{ file_path: "notes.md", content: "n" },
+				{ key: "w", id: "w", status: "done", decision: "allowedAlways" },
+			),
+			tool(
+				"ExitPlanMode",
+				{ plan: "1. Do" },
+				{ key: "p", id: "p", decision: "allowed" },
+			),
+			tool(
+				"ExitPlanMode",
+				{ plan: "2. Do" },
+				{ key: "k", id: "k", decision: "denied" },
+			),
+			// A call with no card answered leaves none.
+			tool("Read", { file_path: "c.ts" }, { key: "r", id: "r", status: "done" }),
+		],
+		0,
+	);
+	expect(decisionLines()).toEqual([
+		"Denied: rm -rf build",
+		"Allowed: a.ts",
+		"Allowed for this chat: notes.md",
+		"Plan approved",
+		"Kept planning",
+	]);
+	// Each line sits straight after its own tool row, read in order, not under a group.
+	const denied = screen.getByTestId("chat-tool-b").closest("li");
+	expect(denied?.nextElementSibling?.textContent).toBe("Denied: rm -rf build");
+	expect(screen.queryByTestId("chat-tool-group")).toBeNull();
+	// Not a live region: the card's resolution is what is announced.
+	for (const line of screen.getAllByTestId("chat-decision")) {
+		expect(line.closest("[aria-live]")).toBeNull();
+	}
+});
+
+test("a finished turn folds the decision line into Worked for with its tool call", () => {
+	finished(
+		[
+			message("assistant", "Running the tests", { turnId: "t1" }),
+			tool(
+				"Bash",
+				{ command: "npm test" },
+				{ key: "b", id: "b", status: "done", decision: "allowed" },
+			),
+			message("assistant", "All green", { turnId: "t1" }),
+		],
+		null,
+	);
+	const worked = screen.getByTestId("chat-worked");
+	expect(within(worked).getByTestId("chat-decision").textContent).toBe(
+		"Allowed: npm test",
+	);
+});
