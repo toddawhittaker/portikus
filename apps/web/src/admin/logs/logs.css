@@ -319,13 +319,20 @@
 	.pk-log-table tbody {
 		display: block;
 	}
+	/*
+	 * As the Users table does stacked: the head row keeps the Time sort, and
+	 * the heads of the folded columns leave it, so no sort button the eye
+	 * cannot see takes focus.
+	 */
 	.pk-log-table thead {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip-path: inset(50%);
-		white-space: nowrap;
+		display: block;
+	}
+	.pk-log-table thead tr {
+		display: flex;
+		align-items: center;
+	}
+	.pk-log-table thead th:nth-child(n + 3) {
+		display: none;
 	}
 	.pk-log-table .pk-log-row {
 		display: flex;
