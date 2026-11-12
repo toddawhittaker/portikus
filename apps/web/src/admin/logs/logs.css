@@ -57,11 +57,7 @@
 	gap: var(--space-1\.5);
 }
 
-/*
- * A filter chip, one look for every chip. Off: the raised face, a strong
- * edge and muted ink. On: the accent tint, the accent edge, ink and a check
- * before the label. The level's colour stays in its dot in both states.
- */
+/* A level or service chip at the filter bar's size; its look is the shared chip's (console.css). */
 .pk-chipcheck {
 	position: relative;
 	display: inline-flex;
@@ -69,25 +65,9 @@
 	gap: var(--space-1\.5);
 	min-height: 30px;
 	padding-inline: var(--space-2);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-md);
-	background: var(--surface-raised);
-	color: var(--ink-muted);
 	font-size: var(--text-sm);
 	line-height: var(--leading-sm);
-	font-weight: 500;
-	cursor: pointer;
 	user-select: none;
-	transition: background-color var(--duration-fast) var(--ease-standard);
-}
-.pk-chipcheck:hover {
-	color: var(--ink);
-	background: var(--surface-hover);
-}
-.pk-chipcheck:has(:checked) {
-	border-color: var(--accent);
-	background: var(--accent-soft);
-	color: var(--ink);
 }
 .pk-chipcheck:has(:focus-visible) {
 	outline: var(--ring-width) solid var(--focus);
@@ -102,14 +82,6 @@
 	margin: 0;
 	opacity: 0;
 	cursor: pointer;
-}
-.pk-chipcheck-tick {
-	display: none;
-	flex: none;
-	color: var(--accent-text);
-}
-.pk-chipcheck:has(:checked) .pk-chipcheck-tick {
-	display: block;
 }
 .pk-chipcheck-dot {
 	flex: none;
@@ -126,11 +98,6 @@
 }
 .pk-chipcheck[data-kind="info"] .pk-chipcheck-dot {
 	background: var(--status-starting);
-}
-@media (forced-colors: active) {
-	.pk-chipcheck:has(:checked) {
-		border-color: Highlight;
-	}
 }
 
 /* The results toolbar: auto refresh and the count on the left, the service log level at the end. */

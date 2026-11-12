@@ -139,6 +139,7 @@ function MemberTools({
 							aria-pressed={filter === option}
 							onClick={() => onFilter(option)}
 						>
+							<Icon name="check" size="sm" className="pk-chip-tick" />
 							{MEMBER_FILTER_LABEL[option]}
 							<span className="pk-chip-count pk-num">{count}</span>
 						</button>

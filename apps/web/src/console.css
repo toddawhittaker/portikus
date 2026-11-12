@@ -66,7 +66,13 @@
 	 * take a thumb too.
 	 */
 	:is(.pk-adminframe-scroll, .pk-course-main)
-		:is(.pk-table-sort, .pk-intro-body > .pk-link, .pk-entity-link, .pk-back-link) {
+		:is(
+			.pk-table-sort,
+			.pk-intro-body > .pk-link,
+			.pk-entity-link,
+			.pk-back-link,
+			.pk-nav-link
+		) {
 		display: inline-flex;
 		align-items: center;
 		min-block-size: var(--size-control-lg);
@@ -116,6 +122,49 @@
 @layer base {
 	:is(.pk-adminframe-scroll, .pk-course-main) p {
 		max-inline-size: 52ch;
+	}
+}
+
+/*
+ * A filter chip, one look wherever it is (the Logs levels and services, the
+ * Course page's member filters). Off: the raised face, a strong edge and
+ * muted ink. On: the accent tint, the accent edge, ink and a check before
+ * the label. A chip's own colour, such as a log level's, stays in its dot.
+ */
+:is(.pk-chip, .pk-chipcheck) {
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+:is(.pk-chip, .pk-chipcheck):hover {
+	color: var(--ink);
+	background: var(--surface-hover);
+}
+:is(.pk-chip[aria-pressed="true"], .pk-chipcheck:has(:checked)) {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+.pk-chip-tick {
+	display: none;
+	flex: none;
+	color: var(--accent-text);
+}
+:is(.pk-chip[aria-pressed="true"], .pk-chipcheck:has(:checked)) .pk-chip-tick {
+	display: block;
+}
+@media (forced-colors: active) {
+	:is(.pk-chip[aria-pressed="true"], .pk-chipcheck:has(:checked)) {
+		border-color: Highlight;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	:is(.pk-chip, .pk-chipcheck) {
+		transition: none;
 	}
 }
 

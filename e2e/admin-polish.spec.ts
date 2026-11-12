@@ -373,7 +373,7 @@ test.describe("the Logs level chips", () => {
 			const look = (name: string) =>
 				chip(name).evaluate((label) => {
 					const style = getComputedStyle(label);
-					const tick = label.querySelector(".pk-chipcheck-tick");
+					const tick = label.querySelector(".pk-chip-tick");
 					const dot = label.querySelector(".pk-chipcheck-dot");
 					return {
 						background: style.backgroundColor,
@@ -530,16 +530,38 @@ test.describe("on a phone", () => {
 		["audit", "Audit"],
 	] as const) {
 		test(`${ready} targets take a thumb`, async ({ page }) => {
-			await asAdmin(page, `/admin/${tab}`);
-			await expect(page.getByRole("heading", { name: ready, level: 2 })).toBeAttached({
-				timeout: 15_000,
-			});
-			// Every region that loads has arrived.
-			await expect(page.locator("main [aria-busy='true']")).toHaveCount(0, {
-				timeout: 15_000,
-			});
-			expect(await smallTargets(page.locator("main"))).toEqual([]);
+			// A failure in the last day, so Health shows its link into Logs too; removed after.
+			const failure = crypto.randomUUID();
+			if (tab === "health") {
+				await query(
+					`insert into audit_events (actor, target, action, result, metadata)
+					 values ('worker', $1, 'workspace.start_failed', 'failed', null)`,
+					[failure],
+				);
+			}
+			try {
+				await thumbCheck(page, tab, ready);
+			} finally {
+				await query("delete from audit_events where target = $1", [failure]);
+			}
 		});
+	}
+
+	async function thumbCheck(page: Page, tab: string, ready: string) {
+		await asAdmin(page, `/admin/${tab}`);
+		await expect(page.getByRole("heading", { name: ready, level: 2 })).toBeAttached({
+			timeout: 15_000,
+		});
+		// Every region that loads has arrived.
+		await expect(page.locator("main [aria-busy='true']")).toHaveCount(0, {
+			timeout: 15_000,
+		});
+		if (tab === "health") {
+			await expect(
+				page.getByRole("link", { name: /^Errors and warnings in Logs/ }),
+			).toBeVisible();
+		}
+		expect(await smallTargets(page.locator("main"))).toEqual([]);
 	}
 
 	test("the Settings section chips take a thumb", async ({ page }) => {
@@ -916,4 +938,52 @@ test.describe("on a phone, menus and dialogs", () => {
 			expect((await boxOf(control)).height).toBeGreaterThanOrEqual(TOUCH);
 		}
 	});
+});
+
+test.describe("the Course page's member filter chips", () => {
+	for (const colorScheme of SCHEMES) {
+		test(`look like the Logs chips: one off look, and on with the accent tint and a check (${colorScheme})`, async ({
+			page,
+			browser,
+		}) => {
+			await page.emulateMedia({ colorScheme });
+			await page.setViewportSize(DESKTOP);
+			const { courseId } = await courseAsInstructor(page, browser, 2);
+			await page.goto(`/course/${courseId}`);
+			const chips = page.getByTestId("course-members-filter");
+			const chip = (name: RegExp) => chips.getByRole("button", { name });
+			await expect(chip(/^All/)).toHaveAttribute("aria-pressed", "true");
+			const look = (name: RegExp) =>
+				chip(name).evaluate((button) => {
+					const probe = document.createElement("span");
+					probe.style.background = "var(--accent-soft)";
+					probe.style.borderColor = "var(--accent)";
+					document.body.append(probe);
+					const accent = getComputedStyle(probe);
+					const tokens = { soft: accent.backgroundColor, edge: accent.borderColor };
+					probe.remove();
+					const style = getComputedStyle(button);
+					const tick = button.querySelector(".pk-chip-tick");
+					return {
+						on:
+							style.backgroundColor === tokens.soft &&
+							style.borderColor === tokens.edge,
+						background: style.backgroundColor,
+						tick: tick ? getComputedStyle(tick).display !== "none" : false,
+					};
+				});
+			const all = await look(/^All/);
+			const running = await look(/^Running/);
+			expect(all).toMatchObject({ on: true, tick: true });
+			expect(running).toMatchObject({ on: false, tick: false });
+			await chip(/^Running/).click();
+			await page.mouse.move(0, 0);
+			await expect.poll(async () => (await look(/^Running/)).on).toBe(true);
+			expect((await look(/^Running/)).tick).toBe(true);
+			await expect
+				.poll(async () => (await look(/^All/)).background)
+				.toBe(running.background);
+			await expectNoViolations(page);
+		});
+	}
 });
