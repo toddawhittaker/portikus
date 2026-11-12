@@ -329,9 +329,17 @@ test.describe("admin logs", () => {
 		// A name nobody has is refused in the form, and nothing is sent.
 		const person = page.getByRole("combobox", { name: "Person" });
 		await person.fill("Nobody By This Name");
-		await page.getByRole("button", { name: "Apply filters" }).click();
+		// Until the list of people arrives the form says so instead; press again once it has.
+		await expect(async () => {
+			await page.getByRole("button", { name: "Apply filters" }).click();
+			await expect(person).toHaveAccessibleDescription(
+				"Choose a person from the list.",
+				{
+					timeout: 1_000,
+				},
+			);
+		}).toPass({ timeout: 15_000 });
 		await expect(person).toHaveAttribute("aria-invalid", "true");
-		await expect(person).toHaveAccessibleDescription("Choose a person from the list.");
 		await expect(page).not.toHaveURL(/user=/);
 	});
 
