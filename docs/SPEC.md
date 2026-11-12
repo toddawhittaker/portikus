@@ -3173,7 +3173,11 @@ Changed by Epic 25 (UI polish and help):
 - **Users table.** Five columns: selection; Account (the name with its
   tags, then email or username); Role; Workspace (label, state, and an
   "Old image" tag when out of date); and Activity ("Now" with the
-  connection count, or the time since a browser last connected). Since
+  connection count, or the time since a browser last connected, and a
+  dash when no browser ever connected; it never falls back to the last
+  sign-in). The search box matches the name, email, username, source
+  ("SSO" or "Course: <platform host>"), workspace label and workspace ID,
+  ignoring case; its placeholder names only the common three. Since
   Epic 15.2 (issue #860) the tags keep two causes apart. Stale is only
   about the account: no sign-in for 30 days, or a newer sign-in by another
   account with the same email (`apps/api/src/admin/markers.ts`). Old image
@@ -3183,7 +3187,8 @@ Changed by Epic 25 (UI polish and help):
   refetches the Users list at once instead of waiting for its next poll. A
   toolbar row is always there: "Showing N of M" when the view hides rows
   (archived workspaces are hidden by default), or "N selected" with the
-  bulk actions. Bulk Enable and Unarchive confirm in the neutral style.
+  bulk actions. Bulk Enable and Unarchive confirm in the neutral style,
+  because they restore rather than destroy.
 - **Detail panel.** Its head holds the name, the state and the lifecycle
   actions that fit the state. During a transition the opposite action
   stays enabled (Stop and Restart while starting, Start while stopping),
@@ -3369,12 +3374,17 @@ Added by Epic 64: the admin and course pages share one page frame.
   it. On Backups, **Back up now** is outlined while the restore key is
   missing.
 - **Users inspector.** Choosing a person opens their inspector beside the
-  table, with three tabs. **Overview** holds Error, Resources, Resource
+  table (under it where the content is narrower than 56rem), with three
+  tabs, in this order. **Overview** holds Error, Resources, Resource
   guard and Workspace (with **Restore from backup…** and Rebuild); a
   workspace with a problem shows its guard part first and marks the
   Overview tab. **Activity** holds Processes, Ports and connections, the
-  Agent log and Recent audit. **Account** holds the account, linked course
-  accounts and the destructive actions. Every tab stays mounted, so an
+  Agent log and Recent audit. **Account** holds the account (role, instructor and
+  Dex password actions, linked course accounts and **Disable account**,
+  set apart), then the Destructive group: **Reset Docker**, then
+  **Archive workspace**. On an archived workspace that button reads
+  **Unarchive**; unarchiving restores and is not a destructive action, so
+  it confirms nothing. Every tab stays mounted, so an
   edit in progress survives a tab switch. This replaces the single
   column order given under Epic 25 above.
 - **Logs and Audit** are workbenches: one filter bar at the top, the
@@ -3385,10 +3395,16 @@ Added by Epic 64: the admin and course pages share one page frame.
   refresh.
 - **Backups.** A set's row shows **Restore…** and a menu that holds
   **Delete set…**; a set the server keeps shows Delete set as
-  unavailable with the reason. Backups leads with recovery readiness and
+  unavailable with the reason. While a set is being deleted its row says
+  "Deleting…" in a polite live region and the menu item reads
+  "Deleting…". Backups leads with recovery readiness and
   the last 14 nights.
 - **Settings** has a section index that stays in view.
-- **Disabled buttons** keep their label readable.
+- **Tables that scroll sideways** in a narrow box are focusable, named
+  scroll regions, so the keyboard can reach columns with no control.
+- **Toggletips** explain the Users column headers and the Health parts.
+- **Disabled buttons** have no fill, a solid hairline edge and faint but
+  readable text, never a dashed edge.
 - **Course page.** The page opens with **Class now**, a sentence counting
   the students and those failed or waiting for help, over one dot per
   student with a legend for the dot colours; the sentence carries the
@@ -3396,7 +3412,9 @@ Added by Epic 64: the admin and course pages share one page frame.
   queue sits beside it. Members follows, with **Remove from course** in a
   student's row menu. A live help session and a shared project open in a
   frame drawn like the student workspace, with one back link to the
-  course.
+  course. In a live help session the Request and Previews panel sits
+  beside the terminal from 56rem; narrower, it is a disclosure under the
+  terminal that starts closed.
 
 ### 20.2 User impersonation
 

@@ -456,8 +456,8 @@ filled primary uses its own `accent-fill` token, which in the dark theme is
 a deeper teal than `accent`, so its white label stays well over 4.5:1 while
 the brighter `accent` marks checks, dots and selection. A filled danger
 button is white on solid red (`danger-fill`) in both themes. A button that
-cannot act keeps its own look, faded, with its label still readable, so it
-reads as the same button at rest rather than a broken one.
+cannot act has no fill, a solid hairline edge and faint text that stays
+readable; it is never dashed.
 
 **Meters.** Every bar of figures uses one meter: a filled track
 (`meter-track`) with no edge and its figure beside it in text. In the
