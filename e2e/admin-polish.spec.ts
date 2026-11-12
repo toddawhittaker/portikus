@@ -243,6 +243,12 @@ test.describe("the admin rail and the Settings index", () => {
 		expect(indexAfter.y).toBeLessThanOrEqual(indexBefore.y);
 		expect(indexAfter.y + indexAfter.height).toBeLessThanOrEqual(DESKTOP.height);
 		await expect(index.getByRole("link").first()).toBeInViewport();
+		// And it marks the section in view, here the last one.
+		await expect(index.getByRole("link", { name: "Email and alerts" })).toHaveAttribute(
+			"aria-current",
+			"location",
+		);
+		await expect(index.locator('[aria-current="location"]')).toHaveCount(1);
 	});
 
 	test("the rail stays in view in a short window, where the whole page scrolls", async ({
@@ -285,11 +291,21 @@ test.describe("the admin rail and the Settings index", () => {
 });
 
 test.describe("one attention count", () => {
+	// Cleared after the test, so no other spec's Health mark counts this workspace.
+	let throttled: string | null = null;
+	test.afterEach(async () => {
+		if (throttled)
+			await query("update workspaces set cpu_throttle = null where id = $1", [
+				throttled,
+			]);
+	});
+
 	test("the Health mark, the status bar and the Needs attention list agree, on Health and off it", async ({
 		page,
 		browser,
 	}) => {
 		const student = await studentIn(browser, "Throttled");
+		throttled = student.workspaceId;
 		await query("update workspaces set cpu_throttle = $2 where id = $1", [
 			student.workspaceId,
 			JSON.stringify({
