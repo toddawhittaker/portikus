@@ -582,6 +582,156 @@ describe("cards", () => {
 		expect((await result).behavior).toBe("deny");
 	});
 
+	describe("decisions", () => {
+		const SUGGESTION: PermissionUpdate[] = [
+			{
+				type: "addRules",
+				rules: [{ toolName: "Bash", ruleContent: "npm test:*" }],
+				behavior: "allow",
+				destination: "session",
+			},
+		];
+		/** A transcript in which `ids` are tool calls, so a replay shows them. */
+		const callsTo = (...ids: string[]): SessionMessage[] => [
+			...EARLIER,
+			{
+				type: "assistant",
+				uuid: "a-calls",
+				session_id: ID,
+				parent_tool_use_id: null,
+				parent_agent_id: null,
+				message: {
+					id: "msg-calls",
+					role: "assistant",
+					model: "claude-opus-5-5",
+					content: ids.map((id) => ({
+						type: "tool_use",
+						id,
+						name: "Bash",
+						input: { command: "ls" },
+					})),
+				},
+			} as SessionMessage,
+		];
+		const resolved = (client: Client) =>
+			ofType(client, "card.resolved").map(({ id, decision }) => ({ id, decision }));
+
+		for (const [optionId, decision, toolName] of [
+			["allow", "allowed", "Bash"],
+			["always", "allowedAlways", "Bash"],
+			["deny", "denied", "Bash"],
+			["allow-accept-edits", "allowed", "ExitPlanMode"],
+			["allow-ask-edits", "allowed", "ExitPlanMode"],
+		] as const) {
+			test(`answering ${optionId} sends ${decision} with card.resolved`, async () => {
+				const a = await attach();
+				const b = await attach();
+				const fake = queries[0] as FakeQuery;
+				const { result } = fake.ask(toolName, { command: "ls" }, "toolu_d", SUGGESTION);
+				await vi.waitFor(() =>
+					expect(ofType(b, "permission.requested")).toHaveLength(1),
+				);
+				a.send({ type: "permission.answer", id: "toolu_d", optionId });
+				await result;
+				for (const client of [a, b]) {
+					await vi.waitFor(() =>
+						expect(resolved(client)).toEqual([{ id: "toolu_d", decision }]),
+					);
+				}
+			});
+		}
+
+		test("keeping planning sends denied", async () => {
+			const a = await attach();
+			const fake = queries[0] as FakeQuery;
+			const { result } = fake.ask("ExitPlanMode", { plan: "x" }, "toolu_plan");
+			await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+			a.send({ type: "permission.answer", id: "toolu_plan", optionId: "deny" });
+			await result;
+			await vi.waitFor(() =>
+				expect(resolved(a)).toEqual([{ id: "toolu_plan", decision: "denied" }]),
+			);
+		});
+
+		test("a cancelled card and one cleared by the session ending carry no decision", async () => {
+			const a = await attach();
+			const fake = queries[0] as FakeQuery;
+			const cancelled = fake.ask("Bash", { command: "ls" }, "toolu_c");
+			await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+			cancelled.controller.abort();
+			await cancelled.result;
+			fake.ask("Bash", { command: "ls" }, "toolu_e");
+			await vi.waitFor(() =>
+				expect(ofType(a, "permission.requested")).toHaveLength(1 + 1),
+			);
+			fake.emit({ type: "result", subtype: "success", is_error: false } as never);
+			fake.close();
+			await vi.waitFor(() => expect(ofType(a, "card.resolved")).toHaveLength(2));
+			expect(resolved(a)).toEqual([
+				{ id: "toolu_c", decision: undefined },
+				{ id: "toolu_e", decision: undefined },
+			]);
+			expect(ofType(a, "card.resolved").every((e) => !("decision" in e))).toBe(true);
+		});
+
+		test("a browser that attaches later gets the decision after the replay, for calls the history shows", async () => {
+			transcript = async () => callsTo("toolu_r");
+			const a = await attach();
+			const fake = queries[0] as FakeQuery;
+			const { result } = fake.ask("Bash", { command: "ls" }, "toolu_r");
+			const other = fake.ask("Bash", { command: "ls" }, "toolu_unseen");
+			await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(2));
+			a.send({ type: "permission.answer", id: "toolu_r", optionId: "allow" });
+			a.send({ type: "permission.answer", id: "toolu_unseen", optionId: "deny" });
+			await Promise.all([result, other.result]);
+			await vi.waitFor(() => expect(ofType(a, "card.resolved")).toHaveLength(2));
+
+			const late = await attach();
+			await vi.waitFor(() => expect(ofType(late, "settings")).toHaveLength(1));
+			expect(resolved(late)).toEqual([{ id: "toolu_r", decision: "allowed" }]);
+			const types = late.events.map((event) => event.type);
+			expect(types.indexOf("card.resolved")).toBeGreaterThan(
+				types.indexOf("tool.started"),
+			);
+		});
+
+		test("/clear forgets the decisions", async () => {
+			const NEW = "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e";
+			transcript = async () => callsTo("toolu_f");
+			const a = await attach();
+			const fake = queries[0] as FakeQuery;
+			const { result } = fake.ask("Bash", { command: "ls" }, "toolu_f");
+			await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+			a.send({ type: "permission.answer", id: "toolu_f", optionId: "allow" });
+			await result;
+			fake.emit({
+				type: "system",
+				subtype: "init",
+				session_id: NEW,
+				model: "m",
+				permissionMode: "default",
+			} as never);
+			await vi.waitFor(() => expect(ofType(a, "snapshot")).toHaveLength(2));
+
+			const late = await attach();
+			await vi.waitFor(() => expect(ofType(late, "settings")).toHaveLength(1));
+			expect(ofType(late, "card.resolved")).toEqual([]);
+		});
+
+		test("a failed Always allow rule reports allowed, not allowedAlways", async () => {
+			const a = await attach();
+			const fake = queries[0] as FakeQuery;
+			const { result } = fake.ask("Bash", { command: "ls" }, "toolu_g", SUGGESTION);
+			await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(1));
+			fake.flagFailure = new Error("settings_not_applied");
+			a.send({ type: "permission.answer", id: "toolu_g", optionId: "always" });
+			await result;
+			await vi.waitFor(() =>
+				expect(resolved(a)).toEqual([{ id: "toolu_g", decision: "allowed" }]),
+			);
+		});
+	});
+
 	test("an aborted tool call clears its card", async () => {
 		const a = await attach();
 		const fake = queries[0] as FakeQuery;
