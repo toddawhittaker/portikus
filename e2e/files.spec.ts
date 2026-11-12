@@ -409,7 +409,7 @@ test.describe("file tree", () => {
 		).toHaveAttribute("data-icon", "file-markdown");
 		await expect(
 			row(page, "src/app.ts").locator("[data-icon^=file]").first(),
-		).toHaveAttribute("data-icon", "file-code");
+		).toHaveAttribute("data-icon", "file-typescript");
 	});
 
 	/** An upload dragged over the pane says where it will land. */
