@@ -2,7 +2,6 @@ import {
 	type HealthReport,
 	POOL_FULL_PERCENT,
 	POOL_WARN_PERCENT,
-	poolFillPercent,
 	WorkspaceState,
 } from "@portikus/contracts";
 import { buttonClass, Icon, Skeleton, Toggletip } from "@portikus/ui";
@@ -15,17 +14,10 @@ import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { Notice } from "../Notice.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
+import { attentionOf, isNearlyFull, poolWarning, usedPercent } from "./attention.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
 import "./health.css";
-
-export function usedPercent(used: number, total: number): number {
-	return total > 0 ? Math.round((used / total) * 100) : 0;
-}
-
-export function isNearlyFull(used: number, total: number): boolean {
-	return total > 0 && used / total >= WARN_AT;
-}
 
 /** "3 minutes ago", for the age of the newest sample. */
 export function sampleAge(sampledAt: string, now: number): string {
@@ -476,98 +468,13 @@ function CapacityStat({
 	);
 }
 
-/** A problem the report marks, and where to look into it. */
-export interface HealthProblem {
-	text: string;
-	action: string;
-	tab: "logs" | "users";
-	search: Record<string, string>;
-}
-
-/**
- * The problems an administrator should act on, most pressing first, besides
- * guarded workspaces (SPEC.md section 25.6).
- */
-export function healthProblems(report: HealthReport): HealthProblem[] {
-	const problems: HealthProblem[] = [];
-	const logs = (text: string): HealthProblem => ({
-		text,
-		action: "Open Logs",
-		tab: "logs",
-		search: { level: "error,warn", since: "24h" },
-	});
-	if (!report.controller.reachable) problems.push(logs("Controller not reachable"));
-	if (report.agents.answering < report.agents.running) {
-		const silent = report.agents.running - report.agents.answering;
-		problems.push({
-			text: `${silent} workspace agent${silent === 1 ? "" : "s"} not answering`,
-			action: "Open Users",
-			tab: "users",
-			search: {},
-		});
-	}
-	const failures = Object.values(report.last24h).reduce((sum, n) => sum + n, 0);
-	if (failures > 0) {
-		problems.push(
-			logs(`${failures} failure${failures === 1 ? "" : "s"} in the last 24 hours`),
-		);
-	}
-	const { host } = report;
-	if (host && isNearlyFull(host.memory.usedBytes, host.memory.totalBytes)) {
-		problems.push({
-			text: "Memory is over 80% full",
-			action: "Open Users",
-			tab: "users",
-			search: {},
-		});
-	}
-	const pool = host ? poolWarning(host.pool) : null;
-	if (pool)
-		problems.push({ text: pool, action: "Open Users", tab: "users", search: {} });
-	return problems;
-}
-
-/** One row per throttle or memory flag, a workspace with both getting two. */
-export function guardRows(guard: HealthReport["guard"]) {
-	return guard.flatMap((entry) => [
-		...(entry.cpuThrottle
-			? [
-					{
-						key: `${entry.workspaceId}-cpu`,
-						workspaceId: entry.workspaceId,
-						owner: entry.owner,
-						which: "Throttled",
-						held: entry.cpuThrottle.held !== undefined,
-						at: entry.cpuThrottle.at,
-						average: `CPU ${Math.round(entry.cpuThrottle.averagePercent)}% over ${entry.cpuThrottle.windowMinutes} minutes`,
-					},
-				]
-			: []),
-		...(entry.memoryFlag
-			? [
-					{
-						key: `${entry.workspaceId}-memory`,
-						workspaceId: entry.workspaceId,
-						owner: entry.owner,
-						which: "High memory",
-						held: false,
-						at: entry.memoryFlag.at,
-						average: `Memory ${Math.round(entry.memoryFlag.averagePercent)}% over ${entry.memoryFlag.windowMinutes} minutes`,
-					},
-				]
-			: []),
-	]);
-}
-
 /**
  * What needs a person now, most pressing first: each throttled or flagged
  * workspace with links into Users, Logs and Audit, then anything else the
  * report marks as wrong. With nothing to act on, one calm all-clear row.
  */
 function Attention({ report, now }: { report: HealthReport; now: number }) {
-	const rows = guardRows(report.guard);
-	const problems = healthProblems(report);
-	const count = rows.length + problems.length;
+	const { guard: rows, problems, count } = attentionOf(report);
 	return (
 		<section
 			className="flex flex-col gap-2"
@@ -579,7 +486,11 @@ function Attention({ report, now }: { report: HealthReport; now: number }) {
 					{count > 0 ? "Needs attention" : "Resource guard"}
 				</h4>
 				{count > 0 ? (
-					<span className="pk-overline pk-num" aria-hidden={true}>
+					<span
+						className="pk-overline pk-num"
+						aria-hidden={true}
+						data-testid="health-attention-count"
+					>
 						{count}
 					</span>
 				) : null}
@@ -717,17 +628,4 @@ function Usage({
 			) : null}
 		</span>
 	);
-}
-
-/** Names metadata when it, not data, is the figure over the line. */
-function poolWarning(pool: {
-	usedBytes: number;
-	totalBytes: number;
-	metadataPercent: number | null;
-}): string | null {
-	if (poolFillPercent(pool) < POOL_WARN_PERCENT) return null;
-	const data = pool.totalBytes > 0 ? (pool.usedBytes / pool.totalBytes) * 100 : 0;
-	return (pool.metadataPercent ?? 0) > data
-		? `Storage pool metadata is over ${POOL_WARN_PERCENT}% full`
-		: `Storage pool is over ${POOL_WARN_PERCENT}% full`;
 }

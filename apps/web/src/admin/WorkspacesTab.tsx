@@ -28,7 +28,7 @@ import { AddDexUser } from "./DexUserDialogs.js";
 import { ROLE_FILTERS } from "./markers.js";
 import { useAdminUsers, useAdminUsersPage } from "./queries.js";
 import { accountMenuTestId } from "./users/AccountMenu.js";
-import { AccountRow, PHONE_HIT, rowButtonId } from "./users/AccountRow.js";
+import { AccountRow, rowButtonId } from "./users/AccountRow.js";
 import {
 	type BulkAction,
 	BulkActions,
@@ -329,7 +329,6 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								<tr>
 									<th scope="col">
 										<Checkbox
-											className={PHONE_HIT}
 											label={<span className="sr-only">Select all shown accounts</span>}
 											checked={allChecked}
 											indeterminate={checkedRows.length > 0 && !allChecked}

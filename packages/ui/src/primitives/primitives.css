@@ -43,12 +43,17 @@
 
 /*
  * A button that cannot act, whether disabled or kept focusable with
- * aria-disabled: its own solid edge, faded, so it reads as the same button at
- * rest rather than a broken one. A busy button keeps its colour.
+ * aria-disabled: no fill and a dashed edge, so it never reads as an enabled
+ * button of any kind, with its label in faint ink that still meets 4.5:1 on
+ * every surface (DESIGN.md section 11); fading the whole button would leave
+ * its label unreadable in the dark theme. A busy button keeps its colour.
  */
 .pk-btn:is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
 	cursor: not-allowed;
-	opacity: 0.45;
+	background: transparent;
+	color: var(--ink-faint);
+	border-style: dashed;
+	border-color: var(--line-strong);
 }
 
 .pk-btn[aria-busy="true"] {

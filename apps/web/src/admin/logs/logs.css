@@ -57,8 +57,13 @@
 	gap: var(--space-1\.5);
 }
 
-/* A filter chip: the checkbox drawn as a dot in its kind's colour, filled when on. */
+/*
+ * A filter chip, one look for every chip. Off: the raised face, a strong
+ * edge and muted ink. On: the accent tint, the accent edge, ink and a check
+ * before the label. The level's colour stays in its dot in both states.
+ */
 .pk-chipcheck {
+	position: relative;
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1\.5);
@@ -88,47 +93,42 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset);
 }
+/* The box is not drawn: it lies clear over the whole chip, so a tap anywhere on the chip is a tap on the box. */
 .pk-chipcheck-box {
-	appearance: none;
-	flex: none;
-	inline-size: 10px;
-	block-size: 10px;
+	position: absolute;
+	inset: 0;
+	inline-size: 100%;
+	block-size: 100%;
 	margin: 0;
-	border: 1.5px solid currentColor;
-	border-radius: var(--radius-full);
-	background: transparent;
-	color: var(--accent-text);
+	opacity: 0;
 	cursor: pointer;
-	outline: none;
 }
-.pk-chipcheck-box:checked {
-	background: currentColor;
+.pk-chipcheck-tick {
+	display: none;
+	flex: none;
+	color: var(--accent-text);
 }
-.pk-chipcheck[data-kind="error"]:has(:checked) {
-	border-color: var(--status-error);
-	background: var(--status-error-soft);
+.pk-chipcheck:has(:checked) .pk-chipcheck-tick {
+	display: block;
 }
-.pk-chipcheck[data-kind="warn"]:has(:checked) {
-	border-color: var(--status-warning);
-	background: var(--status-warning-soft);
+.pk-chipcheck-dot {
+	flex: none;
+	inline-size: 8px;
+	block-size: 8px;
+	border-radius: var(--radius-full);
+	background: var(--ink-muted);
 }
-.pk-chipcheck:is([data-kind="info"], [data-kind="debug"]):has(:checked) {
-	border-color: var(--line-strong);
-	background: var(--surface-raised);
+.pk-chipcheck[data-kind="error"] .pk-chipcheck-dot {
+	background: var(--status-error);
 }
-.pk-chipcheck[data-kind="error"] .pk-chipcheck-box {
-	color: var(--status-error);
+.pk-chipcheck[data-kind="warn"] .pk-chipcheck-dot {
+	background: var(--status-warning);
 }
-.pk-chipcheck[data-kind="warn"] .pk-chipcheck-box {
-	color: var(--status-warning);
-}
-.pk-chipcheck:is([data-kind="info"], [data-kind="debug"]) .pk-chipcheck-box {
-	color: var(--ink-muted);
+.pk-chipcheck[data-kind="info"] .pk-chipcheck-dot {
+	background: var(--status-starting);
 }
 @media (forced-colors: active) {
-	.pk-chipcheck-box:checked {
-		forced-color-adjust: none;
-		background: Highlight;
+	.pk-chipcheck:has(:checked) {
 		border-color: Highlight;
 	}
 }

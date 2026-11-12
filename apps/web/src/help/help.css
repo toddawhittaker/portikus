@@ -123,6 +123,10 @@
 .pk-help-article ul {
 	margin: 0;
 }
+/* About 65 to 70 characters a line: Public Sans sets about 1.3 characters to each ch. */
+.pk-help-article :is(p, li, dd) {
+	max-inline-size: 52ch;
+}
 .pk-help-article ol,
 .pk-help-article ul {
 	list-style: decimal;

@@ -1,7 +1,7 @@
 import { Icon, type IconName } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useState } from "react";
-import { guardRows, healthProblems } from "./health/HealthTab.js";
+import { attentionOf } from "./health/attention.js";
 import { useHealthGlance } from "./health/queries.js";
 import { ADMIN_TAB_GROUPS, ADMIN_TAB_LABEL, type AdminTab } from "./tabs.js";
 
@@ -43,9 +43,7 @@ export function AdminNav({
 	const shown = (item: AdminTab) => item !== "shell" || rootShell;
 	const current = tab ?? null;
 	const report = useHealthGlance().data;
-	const healthMarks = report
-		? guardRows(report.guard).length + healthProblems(report).length
-		: 0;
+	const healthMarks = report ? attentionOf(report).count : 0;
 	return (
 		<nav
 			aria-label="Administration"
@@ -92,7 +90,7 @@ export function AdminNav({
 									<Icon name={TAB_ICON[item]} />
 									<span>{ADMIN_TAB_LABEL[item]}</span>
 									{item === "health" && healthMarks > 0 ? (
-										<span className="pk-adminnav-mark">
+										<span className="pk-adminnav-mark" data-testid="admin-health-mark">
 											<span aria-hidden={true}>{healthMarks}</span>
 											<span className="sr-only">
 												, {healthMarks}{" "}

@@ -186,8 +186,16 @@ td.pk-attention-who > svg {
 	font-weight: 600;
 	box-shadow: inset 0 0 0 1px var(--accent);
 }
+/* A phone: the range spans the card under its heading, four equal thumbs. */
 @media (width < 35rem) {
-	.pk-range button {
+	.pk-segmented.pk-range {
+		inline-size: 100%;
+	}
+	/* Over the console's phone padding for segments, which would push the fourth off the card. */
+	.pk-adminframe-scroll .pk-range.pk-segmented button {
+		flex: 1 1 0;
+		min-width: 0;
 		min-height: var(--size-control-lg);
+		padding-inline: var(--space-1);
 	}
 }

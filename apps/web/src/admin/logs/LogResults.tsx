@@ -411,7 +411,7 @@ function LogRow({
 				<button
 					type="button"
 					data-journal-index={journalIndex}
-					className="pk-focus-ring inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center rounded-sm bg-transparent text-[var(--accent-text)]"
+					className="pk-log-toggle pk-focus-ring inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center rounded-sm bg-transparent text-[var(--accent-text)]"
 					aria-expanded={open}
 					aria-controls={open ? LOG_INSPECTOR_ID : undefined}
 					aria-label={`Full line, ${shortTime(line.at)}`}

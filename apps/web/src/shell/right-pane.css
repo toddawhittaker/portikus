@@ -101,7 +101,7 @@
 	color: var(--ink);
 }
 .pk-pane-tab[aria-selected="true"] .pk-pane-tab-face > svg {
-	color: var(--accent);
+	color: var(--accent-text);
 }
 .pk-pane-tab[aria-selected="true"]::before {
 	content: "";

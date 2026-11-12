@@ -19,10 +19,30 @@ function dotKind(member: CourseMember, waiting: ReadonlySet<string>): DotKind {
 	return "none";
 }
 
+/** What each dot means, in the dots' own order. */
+const DOT_LABEL: Record<DotKind, string> = {
+	waiting: "Waiting for help",
+	error: "Workspace error",
+	running: "Running",
+	moving: "Starting or stopping",
+	stopped: "Stopped",
+	none: "No workspace yet",
+};
+
+function sortedKinds(
+	students: CourseMember[],
+	waiting: ReadonlySet<string>,
+): DotKind[] {
+	return students
+		.map((member) => dotKind(member, waiting))
+		.sort((a, b) => DOT_ORDER.indexOf(a) - DOT_ORDER.indexOf(b));
+}
+
 /**
- * One small dot per student, so the class reads at a glance: filled green
- * running, amber waiting for help, red failed, a hollow ring stopped. The
- * words beside it say the same, so the dots are decorative.
+ * One small dot per student, so the class reads at a glance: amber waiting
+ * for help, red failed, green running, blue starting or stopping, a hollow
+ * ring stopped and a dashed one with no workspace. The words beside it say
+ * the same, so the dots are decorative.
  */
 export function ClassDots({
 	students,
@@ -31,9 +51,7 @@ export function ClassDots({
 	students: CourseMember[];
 	waiting: ReadonlySet<string>;
 }) {
-	const kinds = students
-		.map((member) => dotKind(member, waiting))
-		.sort((a, b) => DOT_ORDER.indexOf(a) - DOT_ORDER.indexOf(b));
+	const kinds = sortedKinds(students, waiting);
 	return (
 		<span className="pk-class-dots" aria-hidden="true">
 			{kinds.map((kind, index) => (
@@ -41,5 +59,31 @@ export function ClassDots({
 				<span key={index} className="pk-class-dot" data-kind={kind} />
 			))}
 		</span>
+	);
+}
+
+/**
+ * The key to the dots: one entry per kind of dot shown. A student waiting
+ * for help is amber whatever their workspace is doing, so the key says so
+ * rather than leaving the reader to count. The sentence above carries the
+ * figures for screen readers, so the key is decorative too.
+ */
+export function ClassDotsKey({
+	students,
+	waiting,
+}: {
+	students: CourseMember[];
+	waiting: ReadonlySet<string>;
+}) {
+	const shown = new Set(sortedKinds(students, waiting));
+	return (
+		<ul className="pk-class-key" aria-hidden="true" data-testid="class-dots-key">
+			{DOT_ORDER.filter((kind) => shown.has(kind)).map((kind) => (
+				<li key={kind}>
+					<span className="pk-class-dot" data-kind={kind} />
+					{DOT_LABEL[kind]}
+				</li>
+			))}
+		</ul>
 	);
 }

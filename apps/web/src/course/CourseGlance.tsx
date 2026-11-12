@@ -5,7 +5,7 @@ import * as React from "react";
 import { QuietState } from "../common/QuietState.js";
 import { initials } from "../settings/ProfilePane.js";
 import { timeAgo } from "../text.js";
-import { ClassDots, plural } from "./ClassDots.js";
+import { ClassDots, ClassDotsKey, plural } from "./ClassDots.js";
 import { waitingText } from "./memberFilter.js";
 import { dateTimeText } from "./time.js";
 
@@ -178,7 +178,10 @@ export function MemberCounts({
 					</React.Fragment>
 				))}
 			</p>
-			<ClassDots students={students} waiting={waiting} />
+			<div className="pk-class-picture">
+				<ClassDots students={students} waiting={waiting} />
+				<ClassDotsKey students={students} waiting={waiting} />
+			</div>
 		</section>
 	);
 }
