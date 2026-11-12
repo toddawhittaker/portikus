@@ -15,6 +15,7 @@ import {
 	workspacePath,
 	workTabs,
 } from "./helpers";
+import { splitPane } from "./split-helpers";
 
 /** Open a terminal pane's actions menu and choose an item, by keyboard only. */
 async function chooseFromActions(page: Page, terminalId: string, item: string) {
@@ -155,7 +156,7 @@ test("each work-area tab panel is named by its tab", async ({ page, context }) =
 	await expect(page.getByRole("tabpanel", { name: /Terminal 1/ })).toBeVisible();
 });
 
-test("a light terminal's focus ring uses the light focus colour", async ({
+test("a light terminal's focus ring uses the light focus colour, a dark one the dark", async ({
 	page,
 	context,
 }) => {
@@ -165,10 +166,34 @@ test("a light terminal's focus ring uses the light focus colour", async ({
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 	const id = await openTerminal(page, student.workspaceId, project.id);
 	const pane = page.getByTestId(`terminal-leaf-${id}`);
+	// The ring shows only when the tab has more than one pane to tell apart.
+	await splitPane(page, id, "right");
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(2);
+	const other = (await terminalIds(student.workspaceId, project.id)).find(
+		(one) => one !== id,
+	);
+	if (!other) throw new Error("the split's terminal was not created");
+	await expectConnected(page, other);
+	const otherPane = page.getByTestId(`terminal-leaf-${other}`);
 
+	// The ring is drawn by the focused pane's ::after layer.
+	const ring = (node: Locator) =>
+		node.evaluate((element) => {
+			const style = getComputedStyle(element, "::after");
+			return `${style.borderTopStyle} ${style.borderTopColor}`;
+		});
 	await chooseFromActions(page, id, "Light terminal");
 	await expect(pane).toHaveAttribute("data-terminal-theme", "light");
-	await expect(pane).toHaveCSS("outline-color", "rgb(27, 122, 134)");
+	await pane.locator(".xterm").click();
+	await expect(pane).toHaveClass(/is-focused/);
+	await expect.poll(() => ring(pane)).toBe("solid rgb(27, 122, 134)");
+
+	await otherPane.locator(".xterm").click();
+	await expect(otherPane).toHaveAttribute("data-terminal-theme", "dark");
+	await expect(otherPane).toHaveClass(/is-focused/);
+	await expect.poll(() => ring(otherPane)).toBe("solid rgb(95, 195, 207)");
 });
 
 test.describe("Edit and Diff", () => {
