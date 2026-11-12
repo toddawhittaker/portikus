@@ -5,8 +5,7 @@ import { loginAs } from "./helpers";
  * The admin pages on a 390 px phone (SPEC.md sections 20.1 and 25.8): the
  * section control that replaces the rail, the Network mode switch stacked
  * under its title, the Settings section chips and the Users page's add
- * buttons are usable by touch and keyboard, with 44 px targets where the
- * design gives them.
+ * buttons are usable by touch and keyboard, each a target at least 44 px tall.
  */
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
@@ -104,7 +103,9 @@ test("the Network mode switch stacks under its title with full-width 44 px segme
 	await expect(other).toHaveAttribute("aria-pressed", "false");
 });
 
-test("the Settings section chips jump to their section", async ({ page }) => {
+test("the Settings section chips are 44 px targets that jump to their section", async ({
+	page,
+}) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
 	const index = page.getByRole("navigation", { name: "Settings sections" });
@@ -112,8 +113,8 @@ test("the Settings section chips jump to their section", async ({ page }) => {
 	const mail = index.getByRole("link", { name: "Email and alerts" });
 	// Off the end of the scrolling row, it is still reachable.
 	await mail.scrollIntoViewIfNeeded();
-	// WCAG 2.5.8's minimum; the design draws these chips smaller than 44 px.
-	expect(await height(mail)).toBeGreaterThanOrEqual(24);
+	// Every phone touch target is at least 44 px (SPEC.md section 25.8).
+	expect(await height(mail)).toBeGreaterThanOrEqual(TARGET);
 	await mail.tap();
 	await expect(
 		page.getByRole("heading", { name: "Email and alerts", level: 3 }),
