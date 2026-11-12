@@ -78,13 +78,14 @@ test("Users columns sort by mouse and by keyboard", async ({ page }) => {
 		.toEqual(["Cal", "Bea", "Ann"]);
 	await expect(announce).toHaveText("Sorted by Account, descending");
 
-	// Keyboard: Tab past the Account column's help button to the next header, and press it.
+	// Keyboard: Tab past each column's help button to the next header, and press it.
 	await table.getByRole("button", { name: "Account", exact: true }).focus();
 	await page.keyboard.press("Tab");
 	await expect(table.getByRole("button", { name: "About Account tags" })).toBeFocused();
 	await page.keyboard.press("Tab");
 	await expect(table.getByRole("button", { name: "Role", exact: true })).toBeFocused();
-	// Role has no help button now, so the next Tab is the Workspace header.
+	await page.keyboard.press("Tab");
+	await expect(table.getByRole("button", { name: "About Role" })).toBeFocused();
 	await page.keyboard.press("Tab");
 	const workspace = table.getByRole("button", { name: "Workspace", exact: true });
 	await expect(workspace).toBeFocused();
