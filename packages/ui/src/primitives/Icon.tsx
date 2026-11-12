@@ -1,6 +1,12 @@
 import type * as React from "react";
 import { cx } from "./cx.js";
 
+/** The Lucide page and its folded corner, shared by every page glyph. */
+const PAGE = "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z";
+const PAGE_FOLD = "M14 2v4a2 2 0 0 0 2 2h4";
+/** The page with its lower half open, where a tag or mark is stamped. */
+const PAGE_TOP = "M4 9V4a2 2 0 0 1 2-2h9l5 5v2";
+
 /**
  * The outlined icon set from design/system/components/Icon, drawn on a 24 grid at
  * a 1.75 stroke. Shapes are encoded the way the design system encodes them: a
@@ -18,10 +24,13 @@ const PATHS = {
 		"M5.6 18.4l3.2-3.2",
 		"M15.2 8.8l3.2-3.2",
 	],
-	file: ["M6 3h8l4 4v14H6z", "M14 3v4h4"],
-	// File types, one simple glyph per family with no page around it, so they
-	// tell apart at tree size; an unknown type keeps the plain page above.
-	// Lucide code-xml, globe, hash, braces, image and sliders-horizontal.
+	// Every page glyph is the Lucide page, 16 wide and 20 tall, which reads the
+	// same size as the 18 square glyphs beside it.
+	file: [PAGE, PAGE_FOLD],
+	// File types, one glyph per family so they tell apart at tree size; an
+	// unknown type keeps the plain page above, and source files are the page
+	// with a language tag (TAGS below). Lucide code-xml, which the chat draws
+	// for an edit, globe, hash, braces, image and sliders-horizontal.
 	"file-code": ["M18 16l4-4-4-4", "M6 8l-4 4 4 4", "M14.5 4l-5 16"],
 	"file-web": ["C12 12 9", "M12 3a13 13 0 0 0 0 18 13 13 0 0 0 0-18", "M3 12h18"],
 	"file-style": ["M4 9h16", "M4 15h16", "M10 3 8 21", "M16 3l-2 18"],
@@ -55,6 +64,27 @@ const PATHS = {
 		"M14 2v4",
 		"M8 10v4",
 		"M16 18v4",
+	],
+	// Lucide file-text: a page of lines, for word-processor and plain text.
+	"file-text": [PAGE, PAGE_FOLD, "M10 9H8", "M16 13H8", "M16 17H8"],
+	// Lucide sheet: a grid of cells.
+	"file-sheet": ["R3 3 18 18 2", "M3 9h18", "M3 15h18", "M9 9v12", "M15 9v12"],
+	// Lucide notebook, moved a point right so it centres: a ruled pad.
+	"file-notebook": ["R5 2 16 20 2", "M3 6h4", "M3 10h4", "M3 14h4", "M3 18h4", "M17 2v20"],
+	// Lucide music and video.
+	"file-audio": ["M9 18V5l12-2v13", "C6 18 3", "C18 16 3"],
+	"file-video": [
+		"M16 13l5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 10.5",
+		"R2 6 14 12 2",
+	],
+	// Lucide type, widened to the square: the letter T for typefaces.
+	"file-font": ["M12 4v16", "M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2", "M9 20h6"],
+	// A page with a padlock on it: a file a tool writes and nobody edits.
+	"file-lock": [PAGE, PAGE_FOLD, "R8.5 14 7 5 1", "M10 14v-1.5a2 2 0 0 1 4 0V14"],
+	// Lucide key-round, so a secret stands out from the files around it.
+	"file-key": [
+		"M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4z",
+		"M16.5 7.5h.01",
 	],
 	folder: [
 		"M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z",
@@ -170,7 +200,30 @@ const PATHS = {
 	],
 } satisfies Record<string, string[]>;
 
-export type IconName = keyof typeof PATHS;
+/**
+ * Source files, and PDFs: the open-bottom page stamped with a short tag. The
+ * tag is drawn as text so it stays a word, never a vendor logo.
+ */
+const TAGS = {
+	"file-pdf": "pdf",
+	"file-python": "py",
+	"file-java": "jv",
+	"file-javascript": "js",
+	"file-typescript": "ts",
+	"file-c": "c",
+	"file-cpp": "c++",
+	"file-sql": "sql",
+	"file-shell": "sh",
+	"file-go": "go",
+	"file-rust": "rs",
+	"file-csharp": "c#",
+	"file-ruby": "rb",
+	"file-php": "php",
+	"file-kotlin": "kt",
+	"file-swift": "sw",
+} as const;
+
+export type IconName = keyof typeof PATHS | keyof typeof TAGS;
 
 /** Names whose dots are drawn heavier so they read at 16px. */
 const HEAVY_DOTS: Partial<Record<IconName, boolean>> = { more: true, grip: true };
@@ -227,6 +280,28 @@ function shape(name: IconName, d: string, key: number): React.ReactElement {
 	);
 }
 
+function tagged(tag: string): React.ReactElement[] {
+	return [
+		<path key="page" d={PAGE_TOP} />,
+		<path key="fold" d={PAGE_FOLD} />,
+		<text
+			key="tag"
+			x={12}
+			y={20.5}
+			textAnchor="middle"
+			fill="currentColor"
+			stroke="none"
+			fontSize={tag.length > 2 ? 11 : 13}
+			fontWeight={700}
+			// Long tags are fitted to the glyph's width so every icon stays one size.
+			textLength={tag.length > 2 ? 20 : undefined}
+			lengthAdjust="spacingAndGlyphs"
+		>
+			{tag}
+		</text>,
+	];
+}
+
 export function Icon({
 	name,
 	size = "md",
@@ -246,7 +321,7 @@ export function Icon({
 			role={label ? "img" : undefined}
 			aria-label={label}
 		>
-			{PATHS[name].map((d, i) => shape(name, d, i))}
+			{name in TAGS ? tagged(TAGS[name as keyof typeof TAGS]) : PATHS[name as keyof typeof PATHS].map((d, i) => shape(name, d, i))}
 		</svg>
 	);
 }
