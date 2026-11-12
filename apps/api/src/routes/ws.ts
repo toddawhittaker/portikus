@@ -111,6 +111,8 @@ export function registerWorkspaceSocket(
 					db,
 					workspaceId,
 					registry.codingAgents(workspaceId) ?? [],
+					// This sender is only ever started for the owner's socket.
+					true,
 				);
 				if (socket.readyState !== socket.OPEN) return;
 				const message: ServerMessage = { type: "coding-agents", terminals };

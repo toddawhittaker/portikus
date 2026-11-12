@@ -75,6 +75,7 @@ import { registerProjectShareRoutes } from "./routes/project-shares.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
 import { registerReinstallNoteRoutes } from "./routes/reinstall-note.js";
+import { registerTerminalQuestionRoutes } from "./routes/terminal-questions.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
@@ -298,6 +299,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerWorkspaceSocket(instance, routeDeps);
 		registerPreviewRoutes(instance, routeDeps);
 		registerTerminalRoutes(instance, deps);
+		registerTerminalQuestionRoutes(instance, deps);
 		registerProjectRoutes(instance, routeDeps, limitFileWrites);
 		registerRecoveryRoutes(instance, deps);
 		registerFileRoutes(instance, deps, limitFileWrites);
