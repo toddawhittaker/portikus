@@ -5,7 +5,7 @@
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_USAGE_PORT } from "@portikus/contracts";
+import { AGENT_USAGE_PORT, TERMINAL_QUESTION_TIMEOUT_MS } from "@portikus/contracts";
 import { parse } from "smol-toml";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
@@ -287,7 +287,7 @@ describe("the shipped managed settings", () => {
 		expect(JSON.parse(shipped)).toEqual(JSON.parse(imageContent ?? ""));
 	});
 
-	test("hook every agent state and subagent event to its script, in the background", () => {
+	test("hook every agent state and subagent event to its script, in the background, and wait only for questions", () => {
 		const { hooks } = JSON.parse(
 			readFileSync(
 				join(import.meta.dirname, "../../workspace-agent/claude-managed-settings.json"),
@@ -298,14 +298,24 @@ describe("the shipped managed settings", () => {
 				string,
 				{
 					matcher?: string;
-					hooks: { type: string; command: string; async: boolean }[];
+					hooks: { type: string; command: string; async?: boolean; timeout?: number }[];
 				}[]
 			>;
 		};
+		const question = `${AGENT_SCRIPTS_DIR}/portikus-agent-question`;
 		const wired = Object.entries(hooks).flatMap(([event, groups]) =>
 			groups.flatMap((group) =>
 				group.hooks.map((hook) => {
-					expect(hook).toMatchObject({ type: "command", async: true });
+					// The question hook waits for the browser's answer, up to the limit.
+					if (hook.command === question) {
+						expect(hook).toEqual({
+							type: "command",
+							command: question,
+							timeout: TERMINAL_QUESTION_TIMEOUT_MS / 1000,
+						});
+					} else {
+						expect(hook).toMatchObject({ type: "command", async: true });
+					}
 					return `${event} ${group.matcher ?? "*"} ${hook.command}`;
 				}),
 			),
@@ -329,6 +339,7 @@ describe("the shipped managed settings", () => {
 				`SubagentStop * ${subagent} subagent_stop`,
 				`UserPromptSubmit * ${subagent} user_prompt_submit`,
 				`Stop * ${subagent} stop`,
+				`PreToolUse AskUserQuestion ${question}`,
 			].sort(),
 		);
 	});
@@ -357,6 +368,7 @@ describe("the shipped managed settings", () => {
 			].map((m) => m[1] ?? ""),
 		);
 		expect([...scripts].sort()).toEqual([
+			"portikus-agent-question",
 			"portikus-agent-state",
 			"portikus-agent-subagent",
 			"portikus-claude-status",
