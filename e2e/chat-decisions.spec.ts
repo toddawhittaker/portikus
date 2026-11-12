@@ -53,7 +53,7 @@ test("Allow leaves a line that another browser and a reload show too", async ({
 		const second = await openFakeChat(other, path, id);
 		await reachPermissionCard(view);
 		await expect(second.getByTestId("chat-permission-card")).toBeVisible();
-		await view.getByRole("button", { name: "Allow", exact: true }).click();
+		await view.getByRole("button", { name: "Allow once", exact: true }).click();
 		await expect(view.getByTestId("chat-permission-card")).toHaveCount(0);
 
 		await expect(await decisionLines(view)).toHaveText(["Allowed: npm test"]);
@@ -104,29 +104,16 @@ test("Deny leaves a Denied line without the reason, and /clear removes it", asyn
 	await expect(view.getByTestId("chat-decision")).toHaveCount(0);
 });
 
-test("Always allow, sent for the fake's Allow, says Allowed for this chat", async ({
-	page,
-	context,
-}) => {
+test("Always allow says Allowed for this chat", async ({ page, context }) => {
 	test.setTimeout(90_000);
 	const { student, project, id } = await makeChatTab(page, context);
-	// The fake's card offers only Allow and Deny; the socket sends `always` in Allow's place.
-	await page.routeWebSocket(/\/chat$/, (ws) => {
-		const server = ws.connectToServer();
-		ws.onMessage((raw) => {
-			const message = JSON.parse(String(raw)) as { type: string; optionId?: string };
-			if (message.type === "permission.answer" && message.optionId === "allow") {
-				server.send(JSON.stringify({ ...message, optionId: "always" }));
-			} else server.send(raw);
-		});
-	});
 	const view = await openFakeChat(
 		page,
 		workspacePath(student.workspaceId, project.id),
 		id,
 	);
 	await reachPermissionCard(view);
-	await view.getByRole("button", { name: "Allow", exact: true }).click();
+	await view.getByRole("button", { name: /^Always allow/ }).click();
 	await expect(await decisionLines(view)).toHaveText([
 		"Allowed for this chat: npm test",
 	]);

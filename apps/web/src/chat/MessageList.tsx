@@ -20,6 +20,7 @@ import type {
 	ChatToolItem,
 	ChatTurn,
 } from "./chatStore.js";
+import { DecisionLine } from "./DecisionLine.js";
 import { formatElapsed, isoDuration } from "./elapsed.js";
 import {
 	type ChangedFile,
@@ -326,53 +327,6 @@ function AskedSummary({ tool }: { tool: ChatToolItem }) {
 /** A call whose permission card the student answered; it stands alone so its line sits under it. */
 function standsAlone(item: ChatToolItem): boolean {
 	return item.decision !== undefined || isAsked(item);
-}
-
-const DECIDED: Record<NonNullable<ChatToolItem["decision"]>, string> = {
-	allowed: "Allowed:",
-	allowedAlways: "Allowed for this chat:",
-	denied: "Denied:",
-};
-
-/**
- * How the student answered the call's permission card, as a quiet line under
- * its row: "Denied: rm -rf build", or for a plan "Plan approved" (SPEC.md
- * §10.8). The host replays it on attach, so a reload or another browser shows
- * the same. The deny reason stays in the card's answer only.
- */
-function DecisionLine({ tool }: { tool: ChatToolItem }) {
-	const { decision } = tool;
-	if (decision === undefined) return null;
-	const allowed = decision !== "denied";
-	const line = toolLine(tool.name, tool.input, tool.title);
-	return (
-		<li className="pk-chat-step">
-			<p
-				className="pk-chat-decision"
-				data-testid="chat-decision"
-				data-decision={decision}
-			>
-				<Icon
-					name={allowed ? "check" : "x"}
-					size="sm"
-					className="pk-chat-decision-icon"
-				/>
-				{tool.name === "ExitPlanMode" ? (
-					<span>{allowed ? "Plan approved" : "Kept planning"}</span>
-				) : (
-					<span className="pk-chat-decision-text">
-						{DECIDED[decision]}{" "}
-						<span
-							className={line.literal ? "pk-mono-body" : undefined}
-							title={line.path ?? line.target}
-						>
-							{line.target || tool.name}
-						</span>
-					</span>
-				)}
-			</p>
-		</li>
-	);
 }
 
 /** One item inside a turn, or one outside any turn. */
