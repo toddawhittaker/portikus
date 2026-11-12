@@ -179,13 +179,13 @@ test("the row and the panel work from the keyboard alone", async ({
 	await expect(options).toBeFocused();
 	await page.keyboard.press("Enter");
 	await expect(view.getByTestId("composer-picks")).toBeVisible();
+	// The read-aloud switch in the heading row comes first, then the settings as drawn.
+	await page.keyboard.press("Tab");
+	await expect(view.getByRole("switch", { name: "Read replies aloud" })).toBeFocused();
 	for (const [, testId] of PICKERS) {
 		await page.keyboard.press("Tab");
 		await expect(view.getByTestId(testId)).toBeFocused();
 	}
-	// The read-aloud switch ends the panel.
-	await page.keyboard.press("Tab");
-	await expect(view.getByRole("switch", { name: "Read replies aloud" })).toBeFocused();
 	// Escape closes the panel and hands focus back to its button.
 	await page.keyboard.press("Escape");
 	await expect(view.getByTestId("composer-picks")).toBeHidden();
