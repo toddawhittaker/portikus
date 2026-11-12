@@ -1,10 +1,13 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	createProject,
+	createSignedInUser,
 	createStudent,
 	expectConnected,
 	newTerminal,
 	projectIds,
+	query,
+	seedFile,
 	terminalIds,
 	WEB_ORIGIN,
 	workspacePath,
@@ -52,16 +55,19 @@ function pane(page: Page, id: string): Locator {
 
 /** The canvas xterm.js's WebGL renderer draws on, if it is in use. */
 async function webglCanvasCount(page: Page, id: string): Promise<number> {
-	return pane(page, id)
-		.locator(".xterm-screen canvas")
-		.evaluateAll((canvases) => {
-			let count = 0;
-			for (const canvas of canvases as HTMLCanvasElement[]) {
-				// A canvas that already has a 2D context answers null here.
-				if (canvas.getContext("webgl2") || canvas.getContext("webgl")) count += 1;
-			}
-			return count;
-		});
+	return canvasesIn(pane(page, id));
+}
+
+/** The same count for any terminal, given the element it is in. */
+async function canvasesIn(terminal: Locator): Promise<number> {
+	return terminal.locator(".xterm-screen canvas").evaluateAll((canvases) => {
+		let count = 0;
+		for (const canvas of canvases as HTMLCanvasElement[]) {
+			// A canvas that already has a 2D context answers null here.
+			if (canvas.getContext("webgl2") || canvas.getContext("webgl")) count += 1;
+		}
+		return count;
+	});
 }
 
 async function browserHasWebgl(page: Page): Promise<boolean> {
@@ -415,4 +421,148 @@ test("the wheel over a full-screen program counts rows from the canvas's cells",
 	// cell height, and eleven if a fixed guess stood in for it.
 	await page.mouse.wheel(0, -Math.round(cellH * 10));
 	await expect.poll(async () => (await arrows()) - before).toBe(10);
+});
+
+/**
+ * The longest unbroken run of ink in one pixel column of a terminal screen,
+ * in pixels. A letter is about one row tall; a box side drawn to fill its
+ * cells runs through every row of the box, while rows with gaps between them
+ * (the DOM renderer at a line height above 1) never exceed a row.
+ */
+async function longestInkRun(screen: Locator): Promise<number> {
+	const shot = await screen.screenshot();
+	return screen.page().evaluate(async (png) => {
+		const bitmap = await createImageBitmap(
+			new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))]),
+		);
+		const canvas = document.createElement("canvas");
+		canvas.width = bitmap.width;
+		canvas.height = bitmap.height;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) throw new Error("no 2d context");
+		ctx.drawImage(bitmap, 0, 0);
+		const { data, width, height } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+		// The bottom-right corner is empty: the text starts at the top left.
+		const at = (x: number, y: number) => (y * width + x) * 4;
+		const corner = at(width - 3, height - 3);
+		const bg = [data[corner] ?? 0, data[corner + 1] ?? 0, data[corner + 2] ?? 0];
+		let longest = 0;
+		for (let x = 0; x < width; x += 1) {
+			let run = 0;
+			for (let y = 0; y < height; y += 1) {
+				const i = at(x, y);
+				const distance =
+					Math.abs((data[i] ?? 0) - (bg[0] ?? 0)) +
+					Math.abs((data[i + 1] ?? 0) - (bg[1] ?? 0)) +
+					Math.abs((data[i + 2] ?? 0) - (bg[2] ?? 0));
+				run = distance > 90 ? run + 1 : 0;
+				if (run > longest) longest = run;
+			}
+		}
+		return longest;
+	}, shot.toString("base64"));
+}
+
+/** Four rows at the smallest type any of these terminals use (13 px). */
+const SEAMLESS_RUN = 4 * 13;
+
+test("the live-help helper view draws the student's box on a canvas", async ({
+	page,
+	context,
+	browser,
+}) => {
+	test.skip(!(await browserHasWebgl(page)), "this browser has no WebGL");
+	const student = await createStudent(context);
+	await query("update users set display_name = 'Ada Student' where id = $1", [
+		student.userId,
+	]);
+	const project = await createProject(student.workspaceId, { name: "Live Box" });
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await newTerminal(page);
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId)).length)
+		.toBe(1);
+	const [terminalId] = await terminalIds(student.workspaceId);
+	if (!terminalId) throw new Error("the terminal row was not created");
+	await expectConnected(page, terminalId);
+
+	const instructorContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		const instructor = await createSignedInUser(instructorContext, "student");
+		const [course] = await query<{ id: string }>(
+			`insert into lti_contexts (platform_issuer, context_id, title, platform_name)
+			 values ('e2e-live-help', $1, $2, 'E2E LMS') returning id`,
+			[`box-${instructor.userId.slice(0, 8)}`, "Box course"],
+		);
+		if (!course) throw new Error("could not create the course");
+		await query(
+			`insert into lti_memberships (context_id, user_id, role, last_launch_at)
+			 values ($1, $2, 'instructor', now()), ($1, $3, 'student', now())`,
+			[course.id, instructor.userId, student.userId],
+		);
+		const started = await page.request.post(
+			`/workspaces/${student.workspaceId}/projects/${project.id}/live-help`,
+			{
+				headers: { origin: WEB_ORIGIN },
+				data: { helperUserId: instructor.userId, courseId: course.id },
+			},
+		);
+		expect(started.status()).toBe(200);
+
+		const helperPage = await instructorContext.newPage();
+		await helperPage.setViewportSize({ width: 1280, height: 800 });
+		await helperPage.goto(`/course/${course.id}`);
+		await helperPage.getByTestId("course-live-help").click();
+		await helperPage
+			.getByRole("link", { name: "Open live help with Ada Student on Live Box" })
+			.click();
+		const helper = helperPage.getByTestId("helper-terminal");
+		await expect(helper).toHaveAttribute("data-connected", "true", {
+			timeout: 15_000,
+		});
+
+		await printLines(terminalId, BOX);
+		await expect.poll(() => canvasesIn(helper)).toBe(1);
+		await expect(helper.locator(".xterm-rows")).toHaveCount(0);
+		await expect
+			.poll(() => longestInkRun(helper.locator(".xterm-screen")), { timeout: 10_000 })
+			.toBeGreaterThan(SEAMLESS_RUN);
+	} finally {
+		await instructorContext.close();
+	}
+});
+
+test("a check's output draws box characters on a canvas", async ({ page, context }) => {
+	test.skip(!(await browserHasWebgl(page)), "this browser has no WebGL");
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Check Box" });
+	// The fake agent prints the command and then its own result lines, so the
+	// box rides in the command, one row per line.
+	await seedFile(
+		student.workspaceId,
+		project.slug,
+		".portikus/checks.json",
+		JSON.stringify({
+			checks: [{ id: "box", name: "Box", command: `box\r\n${BOX.join("\r\n")}` }],
+		}),
+	);
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(page.getByTestId("right-pane-tab-checks")).toBeVisible({
+		timeout: 15_000,
+	});
+	await page.getByTestId("right-pane-tab-checks").click();
+	await page.getByTestId("check-run-box").click();
+
+	const output = page.getByTestId("check-output-box");
+	await expect(output).toBeVisible({ timeout: 15_000 });
+	await expect.poll(() => canvasesIn(output)).toBe(1);
+	await expect(output.locator(".xterm-rows")).toHaveCount(0);
+	await expect(page.getByTestId("check-state-box")).toContainText("Passed", {
+		timeout: 15_000,
+	});
+	await expect
+		.poll(() => longestInkRun(output.locator(".xterm-screen")), { timeout: 10_000 })
+		.toBeGreaterThan(SEAMLESS_RUN);
 });

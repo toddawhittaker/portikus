@@ -367,6 +367,14 @@ export const ChatSubagentEvent = z.discriminatedUnion("type", [
 ]);
 export type ChatSubagentEvent = z.infer<typeof ChatSubagentEvent>;
 
+/**
+ * How the student answered a permission card, in words that do not depend on
+ * the host's own option ids. Approving a plan is "allowed" and keeping
+ * planning is "denied"; the card's tool (ExitPlanMode) tells them apart.
+ */
+export const ChatCardDecision = z.enum(["allowed", "allowedAlways", "denied"]);
+export type ChatCardDecision = z.infer<typeof ChatCardDecision>;
+
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	SnapshotEvent,
 	TurnStartedEvent,
@@ -385,7 +393,18 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		...Envelope,
 		...QuestionCardFields,
 	}),
-	z.object({ type: z.literal("card.resolved"), ...Envelope, id: z.string().min(1) }),
+	/**
+	 * A card was answered or cleared. `decision` is present only when a
+	 * permission card was answered; a cancelled card, or one cleared when the
+	 * session ended, carries none. Older hosts omit it and older browsers
+	 * ignore it.
+	 */
+	z.object({
+		type: z.literal("card.resolved"),
+		...Envelope,
+		id: z.string().min(1),
+		decision: ChatCardDecision.optional(),
+	}),
 	TurnFinishedEvent,
 	/**
 	 * A subagent's conversation, sent only to an attachment watching that
