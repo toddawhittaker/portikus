@@ -433,6 +433,18 @@ bar, so it never reads as a passed check or an added file. An agent's
 state shows only in its tab's mark (a turning violet ring, an amber
 triangle, a check), so the selected tab always looks the same.
 
+**Pane focus ring.** In a split, the one pane that holds the keyboard (a
+terminal, a chat or a file) is outlined by a 2 px ring drawn above its
+contents and the splitters, so all four edges read evenly at any zoom. It
+takes the colour of the pane's own scheme; a chat uses the page's focus
+colour. A pane alone in its tab, and the side panes, have none.
+
+**The subagent card.** A subagent's conversation opens as a bordered card
+(`line-strong` edge, `radius-md`, `shadow-lg`) floating over the chat's log,
+inset by `clamp(1rem, 4cqi, 2rem)` on every side so the pane's focus ring
+stays whole, at most 48rem wide and centred. The log behind it is dimmed by
+the `--scrim` token at 60% and is inert; the composer below stays usable.
+
 **The right pane's tabs.** Files, Checks, Running, Monitor and Problems
 show an icon and a name when the pane is wide, the names alone at desktop
 width, and only the chosen name when the pane is under 22rem, the others
@@ -442,7 +454,8 @@ the side panes start at 264 and 360 px; narrower, at 240 and 280 px.
 **The composer.** Its bottom row holds only attach, the Chat options
 summary, the microphone, Stop and Send. The summary (for example "Opus ·
 Extra high · Plan") opens the Chat options panel with the model, version,
-effort, permission and read-aloud pickers. A value other than the starting one is
+effort and permission fields, each a small muted label over its value on one wrapping line, and the
+Read replies aloud switch in the panel's heading row. A value other than the starting one is
 bold, and Bypass permissions shows the warning colour and icon on the
 summary too. Send is the accent circle while there is something to send,
 and a flat sunken circle while the box is empty, a file is still saving or a send is under way.

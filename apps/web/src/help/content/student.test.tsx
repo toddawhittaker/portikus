@@ -164,6 +164,8 @@ test("the chat topic covers versions, titles, subagents, zoom and the ended tab'
 		"/rename",
 		"read-only",
 		"Show its conversation",
+		"closes it too",
+		"switch at the top of the Chat options panel",
 		"send a message first",
 		"New terminal here",
 		"Ctrl+Shift+=",
