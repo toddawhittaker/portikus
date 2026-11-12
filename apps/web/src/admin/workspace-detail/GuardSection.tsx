@@ -116,7 +116,9 @@ export function GuardSection({
 				Resource guard
 			</h4>
 			<dl className="pk-dl">
-				<dt>CPU</dt>
+				<TipTerm label="CPU throttle" tip={PANEL_HELP.cpu}>
+					CPU
+				</TipTerm>
 				<dd
 					className={cpuThrottle ? "pk-guard-flag" : undefined}
 					data-testid="detail-guard-cpu"
@@ -126,7 +128,9 @@ export function GuardSection({
 					) : null}
 					{throttleText(cpuThrottle)}
 				</dd>
-				<dt>Memory</dt>
+				<TipTerm label="High memory" tip={PANEL_HELP.memory}>
+					Memory
+				</TipTerm>
 				<dd
 					className={memoryFlag ? "pk-guard-flag" : undefined}
 					data-testid="detail-guard-memory"

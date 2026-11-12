@@ -8,7 +8,8 @@
 @container (width >= 56rem) {
 	.pk-course-glance {
 		grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-		align-items: stretch;
+		/* Each card is as tall as what it holds; the class summary is short. */
+		align-items: start;
 	}
 }
 .pk-class-summary,
@@ -50,7 +51,12 @@
 	color: var(--ink-faint);
 }
 
-/* A dot per student: green running, amber waiting, red failed, a ring stopped. */
+/* The dots and their key, read together. */
+.pk-class-picture {
+	display: grid;
+	gap: var(--space-2);
+}
+/* A dot per student: amber waiting, red failed, green running, blue moving, a ring stopped, a dashed ring with none. */
 .pk-class-dots {
 	display: flex;
 	flex-wrap: wrap;
@@ -75,6 +81,29 @@
 .pk-class-dot[data-kind="error"] {
 	border-color: var(--status-error);
 	background: var(--status-error);
+}
+.pk-class-dot[data-kind="moving"] {
+	border-color: var(--status-starting);
+	background: var(--status-starting);
+}
+.pk-class-dot[data-kind="none"] {
+	border-style: dashed;
+}
+.pk-class-key {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	color: var(--ink-muted);
+}
+.pk-class-key > li {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
 }
 
 /* The queue: its head with the link to every session, then a tile per waiting student. */

@@ -313,6 +313,19 @@ function SetRow({
 			<td className="pk-num">{set.instances.length}</td>
 			<td className="pk-cell-actions">
 				<div className="pk-backup-actions flex items-center justify-end gap-2">
+					{/* Always mounted, so the word is announced when a delete starts. */}
+					<span
+						className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-ink-muted"
+						aria-live="polite"
+						data-testid="backup-set-deleting"
+					>
+						{deleting ? (
+							<>
+								<span className="pk-dot pk-tone-starting" aria-hidden="true" />
+								Deleting…
+							</>
+						) : null}
+					</span>
 					<Button
 						size="sm"
 						variant="quiet"

@@ -92,9 +92,11 @@
 .pk-attention-table tr + tr td {
 	border-block-start: 1px solid var(--line);
 }
+/* As narrow as a name allows, but a long name wraps rather than push the actions out of the card. */
 .pk-attention-table .pk-attention-who {
 	inline-size: 1%;
-	white-space: nowrap;
+	min-inline-size: 10rem;
+	overflow-wrap: anywhere;
 }
 @container admin-scroll (width < 40rem) {
 	.pk-attention-table .pk-attention-who {
@@ -144,8 +146,14 @@ td.pk-attention-who > svg {
 	justify-content: space-between;
 }
 @container admin-scroll (width < 40rem) {
+	/* Stacked, each row as wide as the card and a long name wrapping, so nothing spills sideways. */
+	.pk-attention-table,
+	.pk-attention-table tbody {
+		display: block;
+	}
 	.pk-attention-table tr {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--space-2);
 		padding: var(--space-3) var(--space-4);
 	}
@@ -186,8 +194,16 @@ td.pk-attention-who > svg {
 	font-weight: 600;
 	box-shadow: inset 0 0 0 1px var(--accent);
 }
+/* A phone: the range spans the card under its heading, four equal thumbs. */
 @media (width < 35rem) {
-	.pk-range button {
+	.pk-segmented.pk-range {
+		inline-size: 100%;
+	}
+	/* Over the console's phone padding for segments, which would push the fourth off the card. */
+	.pk-adminframe-scroll .pk-range.pk-segmented button {
+		flex: 1 1 0;
+		min-width: 0;
 		min-height: var(--size-control-lg);
+		padding-inline: var(--space-1);
 	}
 }

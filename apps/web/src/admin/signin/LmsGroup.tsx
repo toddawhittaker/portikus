@@ -9,6 +9,7 @@ import { useState } from "react";
 import { ApiError, errorText, sendJson } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
 import { SiteJobLine, useSiteList } from "../site-job.js";
+import { TableBox } from "../TableBox.js";
 import { LmsDialog, RESTART_WARNING } from "./LmsDialog.js";
 import { draftOf, EMPTY_DRAFT } from "./lms-form.js";
 
@@ -224,7 +225,7 @@ function PlatformTable({
 		);
 	}
 	return (
-		<div className="pk-table-wrap">
+		<TableBox label="Platforms added on this page">
 			<table className="pk-table" data-testid="lms-list">
 				<caption className="sr-only">Platforms added on this page</caption>
 				<thead>
@@ -273,6 +274,6 @@ function PlatformTable({
 					))}
 				</tbody>
 			</table>
-		</div>
+		</TableBox>
 	);
 }

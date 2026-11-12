@@ -1,27 +1,20 @@
-import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type Box, boxOf, frameLayout, ONE_ROW_WIDTH } from "./admin-frame";
 import {
 	createSignedInUser,
-	DEX_ACCOUNT_ISSUER,
 	expectNoViolations,
 	loginAs,
 	query,
 	WEB_ORIGIN,
 } from "./helpers";
 
-/** One row of the tab strip: a tab and the rule above it, as the workspace strip. */
-const TAB_ROW = 36;
+/** The shortest a rail item may be: the small control height, above the 24 px target (WCAG 2.5.8). */
+const RAIL_ITEM = 28;
 
-/**
- * The narrowest window tested to hold every admin tab on one row. All 14
- * tabs must fit here, the Agents tab (about 80 px) included, with room left.
- */
-const ONE_ROW_WIDTH = 1366;
+/** The gap between two items of one group in the rail (`--space-0.5`). */
+const ITEM_GAP = 2;
 
-/** The strip with `rows` rows: its first rule lies on the header's line, and its own rule closes the last row. */
-const stripHeight = (rows: number) => rows * TAB_ROW + 1;
-
-/** The WCAG 1.4.12 text spacing override, which widens the tabs past one row at 1024 px. */
+/** The WCAG 1.4.12 text spacing override, which makes every rail item taller. */
 const TEXT_SPACING =
 	"* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }";
 
@@ -42,36 +35,106 @@ const ADMIN_TAB_NAMES = [
 	"Root shell",
 ];
 
-type Box = { x: number; y: number; width: number; height: number };
-
-async function boxOf(locator: Locator): Promise<Box> {
-	const box = await locator.boundingBox();
-	if (!box) throw new Error("an element of the admin frame has no box");
-	return box;
+/**
+ * A tab's accessible name: its label, which the Health tab may follow with
+ * how many items need attention.
+ */
+function tabName(name: string): RegExp {
+	return new RegExp(`^${name}( ?, \\d+ items? needs? attention)?$`);
 }
 
-/** The header, the tab strip, the frame and the scrolling content, as drawn now. */
-async function frameLayout(page: Page) {
-	return {
-		headerBox: await boxOf(page.getByTestId("app-header")),
-		stripBox: await boxOf(page.getByRole("navigation", { name: "Administration" })),
-		frameBox: await boxOf(page.getByTestId("admin-frame")),
-		mainBox: await boxOf(page.getByTestId("page-admin")),
-	};
+/** A tab's text: its label, then the Health tab's count when there is one. */
+function tabText(name: string): RegExp {
+	return new RegExp(`^${name}(\\d+, \\d+ items? needs? attention)?$`);
 }
 
-async function tabBoxes(page: Page): Promise<Box[]> {
-	// A web font swapping in between two reads would move every tab.
-	await page.evaluate(() => document.fonts.ready);
+/** Whether the rail shows all it holds, with nothing cut off or scrolling sideways. */
+async function railOverflow(page: Page) {
+	return page.getByRole("navigation", { name: "Administration" }).evaluate((nav) => ({
+		sideways: nav.scrollWidth > nav.clientWidth,
+		down: nav.scrollHeight > nav.clientHeight,
+	}));
+}
+
+/**
+ * Each tab's name, and whether its label and the tab lie whole inside the
+ * rail and the window: the rail never clips a name.
+ */
+async function tabsWhole(page: Page) {
 	return page
 		.getByRole("navigation", { name: "Administration" })
 		.getByRole("link")
 		.evaluateAll((links) =>
 			links.map((link) => {
-				const { x, y, width, height } = link.getBoundingClientRect();
-				return { x, y, width, height };
+				const label = link.querySelector("span") as HTMLElement;
+				const nav = link.closest("nav") as HTMLElement;
+				const linkBox = link.getBoundingClientRect();
+				const navBox = nav.getBoundingClientRect();
+				const range = document.createRange();
+				range.selectNodeContents(label);
+				const text = range.getBoundingClientRect();
+				return {
+					name: label.textContent,
+					whole:
+						text.left >= linkBox.left &&
+						text.right <= linkBox.right &&
+						linkBox.left >= navBox.left &&
+						linkBox.right <= navBox.right &&
+						linkBox.right <= window.innerWidth,
+				};
 			}),
 		);
+}
+
+/**
+ * The tabs read top to bottom in document order, one under another in a
+ * single column of one width, with no overlap and no more than the item gap
+ * inside a group.
+ */
+function expectOneColumnInOrder(
+	boxes: (Box & { group: number })[],
+	expectedCount = ADMIN_TAB_NAMES.length,
+) {
+	expect(boxes).toHaveLength(expectedCount);
+	for (let i = 1; i < boxes.length; i++) {
+		const [before, after] = [boxes[i - 1], boxes[i]];
+		if (!before || !after) throw new Error("a tab has no box");
+		expect(after.x).toBeCloseTo(before.x, 0);
+		expect(after.width).toBeCloseTo(before.width, 0);
+		expect(after.y).toBeGreaterThanOrEqual(before.y + before.height - 0.5);
+		if (after.group === before.group) {
+			expect(after.y - (before.y + before.height)).toBeLessThanOrEqual(ITEM_GAP + 0.5);
+		}
+	}
+}
+
+/**
+ * Each tab's box, with the rail's own scroll added back, so a box read
+ * after the rail scrolls a tab into view compares with one read before.
+ * `group` numbers the rail group the tab sits in.
+ */
+async function tabBoxes(page: Page): Promise<(Box & { group: number })[]> {
+	// A web font swapping in between two reads would move every tab.
+	await page.evaluate(() => document.fonts.ready);
+	return page
+		.getByRole("navigation", { name: "Administration" })
+		.getByRole("link")
+		.evaluateAll((links) => {
+			const groups: Element[] = [];
+			return links.map((link) => {
+				const nav = link.closest("nav") as HTMLElement;
+				const group = link.parentElement as Element;
+				if (!groups.includes(group)) groups.push(group);
+				const { x, y, width, height } = link.getBoundingClientRect();
+				return {
+					x: x + nav.scrollLeft,
+					y: y + nav.scrollTop,
+					width,
+					height,
+					group: groups.indexOf(group),
+				};
+			});
+		});
 }
 
 /** The page gutter on each side of the frame (`--space-4`). */
@@ -91,22 +154,8 @@ async function expectMeasure(locator: Locator, widest = 800): Promise<void> {
 	expect(measure.width).toBeLessThan(widest);
 }
 
-/** 58rem: a Settings card puts a setting's text and its box side by side, so it is wider than one line. */
-const SETTINGS_FORM_CAP = 58 * 16;
-
-/** A panel kept in view beside a long list is capped to what the framed content shows, less its padding. */
-async function expectFitsScroller(panel: Locator): Promise<void> {
-	const fit = await panel.evaluate((el) => {
-		const main = document.querySelector("[data-testid=page-admin]") as HTMLElement;
-		return {
-			max: Number.parseFloat(getComputedStyle(el).maxHeight),
-			room: main.clientHeight - 48,
-			height: el.getBoundingClientRect().height,
-		};
-	});
-	expect(fit.max).toBeCloseTo(fit.room, 0);
-	expect(fit.height).toBeLessThanOrEqual(fit.max + 0.5);
-}
+/** 68rem: the Settings cards' column; a card puts a setting's text and its box side by side, so it is wider than one line. */
+const SETTINGS_FORM_CAP = 68 * 16;
 
 /** The admin frame every tab shares (SPEC.md section 20.1). */
 test.describe("admin layout", () => {
@@ -129,9 +178,12 @@ test.describe("admin layout", () => {
 		// The content's padding and the table's own border are all that sit beside it.
 		expect(table.width).toBeGreaterThanOrEqual(content.width - 2 * 16 - 2);
 		await expectMeasure(page.getByTestId("intro-admin-users"));
+		// However wide the window, the content stops at its own cap beside the rail.
+		await expectMeasure(page.getByTestId("admin-content"), 80 * 16 + 1);
 		await page.getByTestId("admin-tab-settings").click();
-		// The cards stop at their own width, and each setting's sentence at its reading measure.
-		await expectMeasure(page.getByTestId("settings-sections"), SETTINGS_FORM_CAP + 1);
+		// The cards stop at their column's width, and each setting's sentence at its reading measure.
+		const sections = await boxOf(page.getByTestId("settings-sections"));
+		expect(sections.width).toBeLessThanOrEqual(SETTINGS_FORM_CAP + 1);
 		await expectMeasure(page.locator("#settings-idleStopMinutes-desc"));
 
 		for (const [tab, name] of [
@@ -186,25 +238,20 @@ test.describe("admin layout", () => {
 		await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	});
 
-	test("tabs read Users, Health, Logs, Audit, Agent usage, Network, Backups, Workspace image, Certificate, Docker, Settings, side by side with no gaps", async ({
+	test("tabs read Users, Health, Logs, Audit, Agent usage, Network, Backups, Workspace image, Certificate, Docker, Settings, one under another with no gaps", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
 		await page.goto("/admin");
 		const nav = page.getByRole("navigation", { name: "Administration" });
-		await expect(nav.getByRole("link")).toHaveText(ADMIN_TAB_NAMES, {
+		await expect(nav.getByRole("link")).toHaveText(ADMIN_TAB_NAMES.map(tabText), {
 			timeout: 15_000,
 		});
-		const boxes = await tabBoxes(page);
-		for (let i = 1; i < boxes.length; i++) {
-			const [before, after] = [boxes[i - 1], boxes[i]];
-			if (!before || !after) throw new Error("a tab has no box");
-			expect(after.x).toBeCloseTo(before.x + before.width, 0);
-		}
+		expectOneColumnInOrder(await tabBoxes(page));
 	});
 
 	for (const width of [1920, ONE_ROW_WIDTH]) {
-		test(`the header holds the mark, the context and the account, and the strip under it shows every tab whole at ${width} px`, async ({
+		test(`the header holds the mark, the context and the account, and the rail under it shows every tab whole at ${width} px`, async ({
 			page,
 			context,
 		}) => {
@@ -226,7 +273,7 @@ test.describe("admin layout", () => {
 			});
 			const header = page.getByTestId("app-header");
 			const nav = page.getByRole("navigation", { name: "Administration" });
-			await expect(nav.getByRole("link", { name: "Health" })).toHaveAttribute(
+			await expect(page.getByTestId("admin-tab-health")).toHaveAttribute(
 				"aria-current",
 				"page",
 				{ timeout: 15_000 },
@@ -239,7 +286,7 @@ test.describe("admin layout", () => {
 			await expect(page.getByTestId("me")).toHaveAccessibleName(
 				/^Maximiliana Konstantinopoulou-Vanderberg, 1 unread notification$/,
 			);
-			const { headerBox, stripBox, frameBox, mainBox } = await frameLayout(page);
+			const { headerBox, railBox, frameBox, mainBox, barBox } = await frameLayout(page);
 			expect(headerBox.height).toBe(48);
 			expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
 				width,
@@ -247,59 +294,55 @@ test.describe("admin layout", () => {
 			const badge = await boxOf(page.getByTestId("notifications-badge"));
 			expect(badge.x + badge.width).toBeLessThanOrEqual(width);
 
-			// The strip sits right under the header, one tab row high, across the frame.
-			expect(stripBox.y).toBeCloseTo(headerBox.y + headerBox.height - 1, 0);
-			expect(stripBox.height).toBe(stripHeight(1));
-			expect(stripBox.x).toBeCloseTo(frameBox.x, 0);
-			expect(stripBox.x + stripBox.width).toBeCloseTo(frameBox.x + frameBox.width, 0);
+			// The rail sits right under the header, at the frame's start, down to the frame's foot.
+			expect(railBox.y).toBeCloseTo(headerBox.y + headerBox.height, 0);
+			expect(railBox.x).toBeCloseTo(frameBox.x, 0);
+			expect(railBox.y + railBox.height).toBeCloseTo(frameBox.y + frameBox.height, 0);
 			// The frame fills the window less the page gutter on each side,
-			// and runs from the header to the foot of the window.
+			// and runs from the header to the status bar at the foot of the window.
 			expect(frameBox.x).toBe(GUTTER);
 			expect(frameBox.width).toBe(width - 2 * GUTTER);
-			expect(frameBox.y + frameBox.height).toBeCloseTo(800, 0);
+			expect(frameBox.y + frameBox.height).toBeCloseTo(barBox.y, 0);
+			expect(barBox.y + barBox.height).toBeCloseTo(800, 0);
 			const lines = await page.getByTestId("admin-frame").evaluate((el) => {
 				const style = getComputedStyle(el);
 				return [style.borderLeftWidth, style.borderRightWidth, style.borderTopWidth];
 			});
-			// No side lines: the tabs and the content mark out the frame.
+			// No side lines: the rail and the content mark out the frame.
 			expect(lines).toEqual(["0px", "0px", "0px"]);
-			// The content scrolls in the frame, under the strip.
-			expect(mainBox.y).toBeCloseTo(stripBox.y + stripBox.height, 0);
-			expect(mainBox.x).toBeCloseTo(stripBox.x, 0);
-			expect(mainBox.width).toBeCloseTo(stripBox.width, 0);
+			// The content scrolls in the frame, beside the rail, from its top to the frame's end.
+			expect(mainBox.y).toBeCloseTo(railBox.y, 0);
+			expect(mainBox.x).toBeGreaterThanOrEqual(railBox.x + railBox.width);
+			expect(mainBox.x + mainBox.width).toBeCloseTo(frameBox.x + frameBox.width, 0);
+			expect(mainBox.height).toBeCloseTo(railBox.height, 0);
 
-			// Every tab is on the one row, with its icon and its whole name.
+			// Every tab is in the one column, whole, with its icon, and the rail cuts nothing off.
+			expect(await railOverflow(page)).toEqual({ sideways: false, down: false });
+			expectOneColumnInOrder(await tabBoxes(page));
+			expect(await tabsWhole(page)).toEqual(
+				ADMIN_TAB_NAMES.map((name) => ({ name, whole: true })),
+			);
 			const tabs = await nav.getByRole("link").evaluateAll((links) =>
 				links.map((link) => {
 					const label = link.querySelector("span") as HTMLElement;
 					const icon = link.querySelector("svg") as SVGElement;
-					const linkBox = link.getBoundingClientRect();
-					const range = document.createRange();
-					range.selectNodeContents(label);
-					const text = range.getBoundingClientRect();
 					return {
-						name: label.textContent,
-						top: linkBox.top,
-						whole: text.left >= linkBox.left && text.right <= linkBox.right,
 						mask: getComputedStyle(label).maskImage,
 						title: link.getAttribute("title"),
 						iconHidden: icon.getAttribute("aria-hidden"),
+						height: link.getBoundingClientRect().height,
 					};
 				}),
 			);
-			expect(new Set(tabs.map((tab) => tab.top)).size).toBe(1);
 			for (const tab of tabs) {
-				expect({ name: tab.name, whole: tab.whole }).toEqual({
-					name: tab.name,
-					whole: true,
-				});
 				expect(tab.mask).toBe("none");
 				expect(tab.title).toBeNull();
 				expect(tab.iconHidden).toBe("true");
+				expect(tab.height).toBeGreaterThanOrEqual(RAIL_ITEM);
 			}
 
-			// The current tab has the workspace's selected-tab look: the work ground, with an accent foot.
-			const look = await nav.getByRole("link", { name: "Health" }).evaluate((el) => {
+			// The current tab has the selected ground, with an accent bar at its start edge.
+			const look = await page.getByTestId("admin-tab-health").evaluate((el) => {
 				const token = (name: string) => {
 					const probe = document.createElement("span");
 					probe.style.color = getComputedStyle(
@@ -314,22 +357,22 @@ test.describe("admin layout", () => {
 				const other = el.parentElement?.querySelector("a:not([aria-current])");
 				return {
 					background: getComputedStyle(el).backgroundColor,
-					ground: token("--surface-work"),
+					ground: token("--surface-selected"),
 					otherBackground: other ? getComputedStyle(other).backgroundColor : "",
 					edge: edge.backgroundColor,
 					accent: token("--accent"),
-					edgeHeight: edge.height,
+					edgeWidth: edge.width,
 				};
 			});
 			expect(look.background).toBe(look.ground);
 			expect(look.otherBackground).toBe("rgba(0, 0, 0, 0)");
 			expect(look.edge).toBe(look.accent);
-			expect(look.edgeHeight).toBe("2px");
+			expect(look.edgeWidth).toBe("2px");
 		});
 	}
 
 	for (const width of [1024, 900, 768]) {
-		test(`at ${width} px the tabs wrap to two rows whole and in order, nothing scrolls sideways, and the account menu opens`, async ({
+		test(`at ${width} px the rail keeps every tab whole and in order, nothing scrolls sideways, and the account menu opens`, async ({
 			page,
 			context,
 		}) => {
@@ -342,55 +385,42 @@ test.describe("admin layout", () => {
 			]);
 			await page.goto("/admin/health");
 			const nav = page.getByRole("navigation", { name: "Administration" });
-			await expect(nav.getByRole("link", { name: "Health" })).toHaveAttribute(
+			await expect(page.getByTestId("admin-tab-health")).toHaveAttribute(
 				"aria-current",
 				"page",
 				{ timeout: 15_000 },
 			);
-			// The Root shell tab arrives with its status fetch; measure the full strip.
+			// The Root shell tab arrives with its status fetch; measure the full rail.
 			await expect(nav.getByRole("link")).toHaveCount(ADMIN_TAB_NAMES.length, {
 				timeout: 15_000,
 			});
 
-			const { headerBox, stripBox, frameBox, mainBox } = await frameLayout(page);
+			const { headerBox, railBox, frameBox, mainBox } = await frameLayout(page);
 			expect(headerBox.height).toBe(48);
 			expect(frameBox.x).toBe(GUTTER);
 			expect(frameBox.width).toBe(width - 2 * GUTTER);
-			expect(stripBox.height).toBe(stripHeight(2));
-			expect(mainBox.y).toBeCloseTo(stripBox.y + stripBox.height, 0);
+			// The rail and the content share the frame side by side, the content keeping the larger part.
+			expect(mainBox.y).toBeCloseTo(railBox.y, 0);
+			expect(mainBox.x).toBeGreaterThanOrEqual(railBox.x + railBox.width);
+			expect(mainBox.width).toBeGreaterThan(railBox.width);
 
-			// Two rows, read top row first then left to right, which is the document order.
-			const boxes = await tabBoxes(page);
-			expect(new Set(boxes.map((box) => box.y)).size).toBe(2);
-			expect([...boxes].sort((a, b) => a.y - b.y || a.x - b.x)).toEqual(boxes);
-			const whole = await nav.getByRole("link").evaluateAll((links) =>
-				links.map((link) => {
-					const label = link.querySelector("span") as HTMLElement;
-					const linkBox = link.getBoundingClientRect();
-					const range = document.createRange();
-					range.selectNodeContents(label);
-					const text = range.getBoundingClientRect();
-					return {
-						name: label.textContent,
-						whole:
-							text.left >= linkBox.left &&
-							text.right <= linkBox.right &&
-							linkBox.right <= window.innerWidth,
-					};
-				}),
+			// One column, read top to bottom in document order, every name whole and nothing cut off.
+			expect(await railOverflow(page)).toEqual({ sideways: false, down: false });
+			expectOneColumnInOrder(await tabBoxes(page));
+			expect(await tabsWhole(page)).toEqual(
+				ADMIN_TAB_NAMES.map((name) => ({ name, whole: true })),
 			);
-			expect(whole).toEqual(ADMIN_TAB_NAMES.map((name) => ({ name, whole: true })));
 
-			// The keyboard walks the tabs in the same order, across the row break.
+			// The keyboard walks the tabs in the same order, across the groups.
 			await nav.getByRole("link", { name: "Users", exact: true }).focus();
 			for (const name of ADMIN_TAB_NAMES.slice(1)) {
 				await page.keyboard.press("Tab");
-				await expect(nav.getByRole("link", { name, exact: true })).toBeFocused();
+				await expect(nav.getByRole("link", { name: tabName(name) })).toBeFocused();
 			}
 
 			// Neither the page nor the header scrolls sideways, on any tab.
 			for (const name of ADMIN_TAB_NAMES) {
-				const tab = nav.getByRole("link", { name, exact: true });
+				const tab = nav.getByRole("link", { name: tabName(name) });
 				await tab.click();
 				await expect(tab).toHaveAttribute("aria-current", "page");
 				expect(
@@ -415,27 +445,6 @@ test.describe("admin layout", () => {
 		});
 	}
 
-	test("at 768 px the Users detail panel stacks under the table, at the table's width", async ({
-		page,
-	}) => {
-		await page.setViewportSize({ width: 768, height: 800 });
-		await loginAs(page, "carol");
-		await page.goto("/admin/users");
-		await page
-			.getByTestId("page-admin")
-			.getByRole("button", { name: /^Show details for Carol Admin/ })
-			.click({ timeout: 15_000 });
-		const panel = page.getByTestId("workspace-detail");
-		await expect(panel).toBeVisible();
-		// The table's frame, which holds its border.
-		const table = await boxOf(page.getByTestId("admin-accounts").locator(".."));
-		const box = await boxOf(panel);
-		expect(box.y).toBeGreaterThan(table.y + table.height);
-		expect(box.x).toBeCloseTo(table.x, 0);
-		expect(box.width).toBeCloseTo(table.width, 0);
-		expect(await panel.evaluate((el) => getComputedStyle(el).position)).toBe("static");
-	});
-
 	for (const scheme of ["light", "dark"] as const) {
 		test(`at 768 px the admin page has no automatic violations (${scheme})`, async ({
 			page,
@@ -458,7 +467,7 @@ test.describe("admin layout", () => {
 		});
 	}
 
-	test("only the framed content scrolls: the header, the strip and the frame stay put", async ({
+	test("only the framed content scrolls: the header, the rail and the frame stay put", async ({
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1280, height: 600 });
@@ -476,7 +485,7 @@ test.describe("admin layout", () => {
 		expect(scrolled).toBeGreaterThan(0);
 		const after = await frameLayout(page);
 		expect(after.headerBox).toEqual(before.headerBox);
-		expect(after.stripBox).toEqual(before.stripBox);
+		expect(after.railBox).toEqual(before.railBox);
 		expect(after.frameBox).toEqual(before.frameBox);
 		// The window itself never scrolls.
 		expect(
@@ -503,7 +512,7 @@ test.describe("admin layout", () => {
 		}
 		for (const name of ["Users", "Health", "Logs", "Audit", "Agent usage", "Network"]) {
 			if (name !== "Users") await page.keyboard.press("Tab");
-			const link = nav.getByRole("link", { name, exact: true });
+			const link = nav.getByRole("link", { name: tabName(name) });
 			await expect(link).toBeFocused();
 			const outline = await link.evaluate((el) => getComputedStyle(el).outlineStyle);
 			expect(outline).toBe("solid");
@@ -517,7 +526,7 @@ test.describe("admin layout", () => {
 	});
 
 	for (const scheme of ["light", "dark"] as const) {
-		test(`with WCAG text spacing at 1024 px the tabs wrap to two rows that keep their order (${scheme})`, async ({
+		test(`with WCAG text spacing at 1024 px the rail keeps every tab whole and in order (${scheme})`, async ({
 			page,
 		}) => {
 			await page.emulateMedia({ colorScheme: scheme });
@@ -525,36 +534,41 @@ test.describe("admin layout", () => {
 			await loginAs(page, "carol");
 			await page.goto("/admin/health");
 			const nav = page.getByRole("navigation", { name: "Administration" });
-			await expect(nav.getByRole("link", { name: "Health" })).toHaveAttribute(
+			await expect(page.getByTestId("admin-tab-health")).toHaveAttribute(
 				"aria-current",
 				"page",
 				{ timeout: 15_000 },
 			);
+			await expect(nav.getByRole("link")).toHaveCount(ADMIN_TAB_NAMES.length, {
+				timeout: 15_000,
+			});
 			await page.addStyleTag({ content: TEXT_SPACING });
-			const { headerBox, stripBox, mainBox } = await frameLayout(page);
-			expect(stripBox.height).toBe(stripHeight(2));
-			expect(mainBox.y).toBeCloseTo(stripBox.y + stripBox.height, 0);
+			const { headerBox, railBox, mainBox } = await frameLayout(page);
+			expect(mainBox.y).toBeCloseTo(railBox.y, 0);
+			expect(mainBox.x).toBeGreaterThanOrEqual(railBox.x + railBox.width);
 			expect(headerBox.height).toBe(48);
 			expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
 				1024,
 			);
-			// Reading order, top row first then left to right, is the document order.
+			// The taller items may scroll the rail down, but never sideways, and no name is cut.
+			expect((await railOverflow(page)).sideways).toBe(false);
 			const boxes = await tabBoxes(page);
-			expect(new Set(boxes.map((box) => box.y)).size).toBe(2);
-			const reading = [...boxes].sort((a, b) => a.y - b.y || a.x - b.x);
-			expect(reading).toEqual(boxes);
-			// Each tab draws the rule above its row, and the strip's own rule closes the last row.
+			expectOneColumnInOrder(boxes);
+			expect(await tabsWhole(page)).toEqual(
+				ADMIN_TAB_NAMES.map((name) => ({ name, whole: true })),
+			);
+			// The rail's own rule marks it off from the content; the tabs draw no rules of their own.
 			const rules = await nav.evaluate((el) => {
 				const link = el.querySelector("a") as HTMLElement;
 				return {
 					tabTop: getComputedStyle(link).borderTopWidth,
-					tabHeight: link.getBoundingClientRect().height,
-					stripBottom: getComputedStyle(el).borderBottomWidth,
+					tabTall: link.getBoundingClientRect().height >= 28,
+					railEnd: getComputedStyle(el).borderInlineEndWidth,
 				};
 			});
-			expect(rules).toEqual({ tabTop: "1px", tabHeight: TAB_ROW, stripBottom: "1px" });
+			expect(rules).toEqual({ tabTop: "0px", tabTall: true, railEnd: "1px" });
 
-			// Choosing a tab on the second row moves nothing.
+			// Choosing a tab low in the rail moves no tab.
 			await nav.getByRole("link", { name: "Settings", exact: true }).click();
 			await expect(nav.getByRole("link", { name: "Settings" })).toHaveAttribute(
 				"aria-current",
@@ -562,59 +576,16 @@ test.describe("admin layout", () => {
 			);
 			expect(await tabBoxes(page)).toEqual(boxes);
 
-			// The keyboard walks the tabs in the same order, across the row break.
+			// The keyboard walks the tabs in the same order, across the groups.
 			await nav.getByRole("link", { name: "Users", exact: true }).focus();
 			for (const name of ADMIN_TAB_NAMES.slice(1)) {
 				await page.keyboard.press("Tab");
-				await expect(nav.getByRole("link", { name, exact: true })).toBeFocused();
+				await expect(nav.getByRole("link", { name: tabName(name) })).toBeFocused();
 			}
 			await expectNoViolations(page, "[data-testid=app-header]");
 			await expectNoViolations(page, "[data-testid=admin-frame] > nav");
 		});
 	}
-
-	for (const rows of [1, 2]) {
-		test(`the Users detail panel fits the framed content with ${rows === 1 ? "one tab row" : "two tab rows"}`, async ({
-			page,
-		}) => {
-			// The tabs wrap below ONE_ROW_WIDTH, so 1024 px gives two rows.
-			await page.setViewportSize({
-				width: rows === 1 ? ONE_ROW_WIDTH : 1024,
-				height: 600,
-			});
-			await loginAs(page, "carol");
-			await page.goto("/admin/users");
-			await page
-				.getByTestId("page-admin")
-				.getByRole("button", { name: /^Show details for Carol Admin/ })
-				.click({ timeout: 15_000 });
-			expect((await frameLayout(page)).stripBox.height).toBe(stripHeight(rows));
-			const panel = page.getByTestId("workspace-detail");
-			await expect(panel).toBeVisible();
-			await expectFitsScroller(panel);
-		});
-	}
-
-	test("the Network test panel fits the framed content with one tab row and with two", async ({
-		page,
-	}) => {
-		// Wide enough for the panel to sit beside the lists.
-		await page.setViewportSize({ width: 1440, height: 600 });
-		await loginAs(page, "carol");
-		await page.goto("/admin/network");
-		const panel = page.getByRole("region", { name: "Test a host and refused names" });
-		await expect(panel).toBeVisible({ timeout: 15_000 });
-		expect(await panel.evaluate((el) => getComputedStyle(el).position)).toBe("sticky");
-		expect((await frameLayout(page)).stripBox.height).toBe(stripHeight(1));
-		await expectFitsScroller(panel);
-		// Wider tabs force a second row here; what wraps them does not matter to the panel.
-		await page.addStyleTag({
-			content:
-				"[data-testid=admin-frame] > nav > a { padding-inline: 48px !important; }",
-		});
-		expect((await frameLayout(page)).stripBox.height).toBe(stripHeight(2));
-		await expectFitsScroller(panel);
-	});
 
 	test("on the administrator help no tab is current or looks selected", async ({
 		page,
@@ -634,13 +605,11 @@ test.describe("admin layout", () => {
 		expect(new Set(backgrounds)).toEqual(new Set(["rgba(0, 0, 0, 0)"]));
 	});
 
-	test("in forced colours the current tab keeps its top bar", async ({ page }) => {
+	test("in forced colours the current tab keeps its start bar", async ({ page }) => {
 		await page.emulateMedia({ forcedColors: "active" });
 		await loginAs(page, "carol");
 		await page.goto("/admin/health");
-		const current = page
-			.getByRole("navigation", { name: "Administration" })
-			.getByRole("link", { name: "Health", exact: true });
+		const current = page.getByTestId("admin-tab-health");
 		await expect(current).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
 		const bar = await current.evaluate((el) => {
 			const probe = document.createElement("span");
@@ -649,9 +618,9 @@ test.describe("admin layout", () => {
 			const highlight = getComputedStyle(probe).color;
 			probe.remove();
 			const edge = getComputedStyle(el, "::before");
-			return { background: edge.backgroundColor, height: edge.height, highlight };
+			return { background: edge.backgroundColor, width: edge.width, highlight };
 		});
-		expect(bar.height).toBe("2px");
+		expect(bar.width).toBe("2px");
 		expect(bar.background).toBe(bar.highlight);
 		expect(bar.background).not.toBe("rgba(0, 0, 0, 0)");
 	});
@@ -663,9 +632,11 @@ test.describe("admin layout", () => {
 		await loginAs(page, "carol");
 		await page.goto("/admin/health");
 		const nav = page.getByRole("navigation", { name: "Administration" });
-		await expect(
-			nav.getByRole("link", { name: "Health", exact: true }),
-		).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+		await expect(page.getByTestId("admin-tab-health")).toHaveAttribute(
+			"aria-current",
+			"page",
+			{ timeout: 15_000 },
+		);
 		const weights = () =>
 			nav
 				.getByRole("link")
@@ -726,100 +697,4 @@ test.describe("admin layout", () => {
 			await expectNoViolations(page, "[data-testid=admin-frame] > nav");
 		});
 	}
-
-	test("a secondary button shows its border", async ({ page }) => {
-		await loginAs(page, "carol");
-		await page.goto("/admin/audit");
-		const clear = page.getByTestId("audit-filter-clear");
-		await expect(clear).toBeVisible({ timeout: 15_000 });
-		const color = await clear.evaluate((el) => getComputedStyle(el).borderTopColor);
-		expect(color).not.toBe("rgba(0, 0, 0, 0)");
-		expect(color).not.toBe("transparent");
-	});
-
-	test("the Audit table header stays in view under the tab strip when the content scrolls", async ({
-		page,
-	}) => {
-		await page.setViewportSize({ width: 1280, height: 600 });
-		const workspaceId = randomUUID();
-		await query(
-			`insert into audit_events (actor, target, action, result, metadata, at)
-			 select 'system', $1, 'workspace.stop_requested', 'success', '{}'::jsonb,
-			        now() - make_interval(secs => 50 - n)
-			 from generate_series(1, 50) as n order by n`,
-			[workspaceId],
-		);
-		await loginAs(page, "carol");
-		await page.goto(`/admin/audit?workspace=${workspaceId}`);
-
-		const table = page.getByTestId("audit-table");
-		await expect(table.locator("tbody tr")).toHaveCount(50, { timeout: 15_000 });
-		const main = page.getByTestId("page-admin");
-		await main.evaluate((el) => el.scrollBy(0, 800));
-
-		const header = table.locator("thead th").first();
-		const mainBox = await main.boundingBox();
-		const headerBox = await header.boundingBox();
-		expect(mainBox).not.toBeNull();
-		expect(headerBox).not.toBeNull();
-		if (!mainBox || !headerBox) return;
-		// Stuck at <main>'s top edge, right under the tab strip, so no row shows above it.
-		expect(Math.abs(headerBox.y - mainBox.y)).toBeLessThanOrEqual(1);
-		const strip = await boxOf(page.getByRole("navigation", { name: "Administration" }));
-		expect(Math.abs(headerBox.y - (strip.y + strip.height))).toBeLessThanOrEqual(1);
-		const firstRow = await table.locator("tbody tr").first().boundingBox();
-		expect(firstRow?.y ?? 0).toBeLessThan(mainBox.y);
-	});
-
-	test("Shift+Tab up a long Users list never hides the focused row under the header", async ({
-		page,
-	}) => {
-		await page.setViewportSize({ width: 1280, height: 600 });
-		const tag = randomUUID().slice(0, 8);
-		await query(
-			`insert into users (oidc_issuer, oidc_subject, email, display_name, role, last_login_at)
-			 select $1, 'e2e-' || $2 || '-' || n, 'focus-' || $2 || '-' || n || '@example.edu',
-			        'Focus ' || $2 || ' ' || lpad(n::text, 2, '0'), 'student', now()
-			 from generate_series(1, 40) as n`,
-			[DEX_ACCOUNT_ISSUER, tag],
-		);
-		await loginAs(page, "carol");
-		await page.goto("/admin");
-		const table = page.getByTestId("admin-accounts");
-		await expect(table).toBeVisible({ timeout: 15_000 });
-		await page.getByTestId("admin-filter-text").fill(`Focus ${tag}`);
-		const rows = page.locator("[data-testid^=account-row-]");
-		await expect(rows).toHaveCount(40);
-
-		await rows
-			.last()
-			.getByRole("button", { name: /^Show details for/ })
-			.focus();
-		const header = table.locator("thead th").first();
-		const firstId = await rows
-			.first()
-			.getByRole("button", { name: /^Show details for/ })
-			.getAttribute("id");
-		// Press until the first row's name has focus, however many stops a row has.
-		let checked = 0;
-		let reachedTop = false;
-		for (let step = 0; step < 200 && !reachedTop; step++) {
-			await page.keyboard.press("Shift+Tab");
-			const focused = await page.evaluate(() => {
-				const el = document.activeElement as HTMLElement | null;
-				return el?.tagName === "BUTTON" && el.id
-					? { id: el.id, top: el.getBoundingClientRect().top }
-					: null;
-			});
-			if (focused === null) continue;
-			const headerBox = await header.boundingBox();
-			if (!headerBox) throw new Error("the header has no box");
-			expect(focused.top).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
-			checked++;
-			reachedTop = focused.id === firstId;
-		}
-		// The walk really reached every row above the last, up to the first.
-		expect(reachedTop).toBe(true);
-		expect(checked).toBeGreaterThanOrEqual(39);
-	});
 });

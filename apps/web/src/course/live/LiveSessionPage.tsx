@@ -1,8 +1,9 @@
 import type { CourseLiveHelpDetail } from "@portikus/contracts";
 import { Button, EmptyState, Icon, useToast } from "@portikus/ui";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { usePageTitle } from "../../pageTitle.js";
+import { usePhoneLayout } from "../../shell/ShellDrawer.js";
 import { CourseFrame } from "../CourseFrame.js";
 import { dateTimeText } from "../time.js";
 import { focusHeadingOnArrival } from "./arrival.js";
@@ -154,8 +155,8 @@ function LiveSession() {
 				<>
 					{/* The terminal fills the window's height left below this point, as the
 					    workspace's does, so clicking into it never scrolls the heading away. */}
-					<div className="@container mt-5 flex flex-1 flex-col">
-						<div className="flex flex-1 flex-col gap-4 @5xl:flex-row">
+					<div className="mt-5 flex flex-1 flex-col">
+						<div className="flex flex-1 flex-col gap-4 min-[56rem]:flex-row">
 							<TerminalsSection
 								liveRef={ref}
 								detail={data}
@@ -166,15 +167,40 @@ function LiveSession() {
 								onDropped={() => void detail.refetch()}
 								onRetry={() => setAttach((count) => count + 1)}
 							/>
-							<div className="pk-live-context @5xl:w-80 @5xl:self-start">
+							<LiveContext>
 								<SessionFacts detail={data} />
 								<Previews liveRef={ref} enabled={live} />
-							</div>
+							</LiveContext>
 						</div>
 					</div>
 				</>
 			)}
 		</>
+	);
+}
+
+/**
+ * The request and the previews, beside the terminal where there is room.
+ * Under it on a phone they start folded to one row, so the terminal still
+ * fills the window without the page scrolling; the row opens them.
+ */
+function LiveContext({ children }: { children: ReactNode }) {
+	const phone = usePhoneLayout();
+	return (
+		<details
+			className="pk-live-context group min-[56rem]:w-72 min-[56rem]:self-start xl:w-80"
+			open={!phone}
+		>
+			<summary className="pk-live-context-summary pk-focus-ring">
+				<Icon
+					name="chevron-right"
+					size="sm"
+					className="pk-live-context-chevron group-open:rotate-90"
+				/>
+				Request and previews
+			</summary>
+			{children}
+		</details>
 	);
 }
 

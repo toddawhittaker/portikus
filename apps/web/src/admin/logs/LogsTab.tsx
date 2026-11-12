@@ -9,6 +9,7 @@ import {
 	Checkbox,
 	CONTROL_CLASS,
 	FIELD_CLASS,
+	Icon,
 	LABEL_CLASS,
 	TextField,
 	Toggletip,
@@ -71,8 +72,9 @@ function draftOf(filters: LogFilters): Draft {
 }
 
 /**
- * A filter chip that is a real checkbox: the box is drawn as the level's dot,
- * so the chip reads as a toggle and still checks like any box.
+ * A filter chip that is a real checkbox. Off and on look the same for every
+ * chip: on takes the accent tint and edge and a check before the label. A
+ * level's colour is only ever its dot, so it never reads as the on state.
  */
 function ChipCheck({
 	label,
@@ -93,6 +95,10 @@ function ChipCheck({
 				checked={checked}
 				onChange={(event) => onChange(event.target.checked)}
 			/>
+			<Icon name="check" size="sm" className="pk-chipcheck-tick" />
+			{kind === "service" ? null : (
+				<span className="pk-chipcheck-dot" aria-hidden={true} />
+			)}
 			<span>{label}</span>
 		</label>
 	);

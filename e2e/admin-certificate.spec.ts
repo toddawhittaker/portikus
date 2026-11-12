@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { boxOf, frameLayout } from "./admin-frame";
 import {
 	CERTIFICATE_JOBS_DIR,
 	FAKE_ROOT_PEM,
@@ -724,7 +725,7 @@ test("the Certificate tab uses the card's width and lists install steps as pairs
 	expect(box?.height ?? 99).toBeLessThan(24);
 });
 
-test("at 1024 pixels the form keeps two columns, and the table splits its width by content", async ({
+test("at 1024 pixels the source's fields stack under it beside the rail, nothing overflows, and the table splits its width by content", async ({
 	page,
 }) => {
 	await routePage(page);
@@ -733,10 +734,41 @@ test("at 1024 pixels the form keeps two columns, and the table splits its width 
 	await page.goto("/admin/certificate");
 	await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
 
-	const left = await page.getByRole("group", { name: "Source" }).boundingBox();
-	const right = await page.getByLabel("Account email").boundingBox();
-	expect(right?.x ?? 0).toBeGreaterThan((left?.x ?? 0) + (left?.width ?? 0));
-	expect(right?.y ?? 99).toBeLessThan((left?.y ?? 0) + (left?.height ?? 0));
+	// The navigation rail stays beside the content at this width.
+	const { railBox, mainBox } = await frameLayout(page);
+	expect(railBox.x + railBox.width).toBeLessThanOrEqual(mainBox.x + 1);
+
+	// Beside the rail the card is too narrow for two columns, so the chosen
+	// source's fields follow the choice in one column, never squeezed beside it.
+	const source = page.getByRole("group", { name: "Source" });
+	const email = page.getByLabel("Account email");
+	const left = await boxOf(source);
+	const right = await boxOf(email);
+	expect(right.y).toBeGreaterThanOrEqual(left.y + left.height);
+	expect(Math.round(right.x)).toBe(Math.round(left.x));
+	expect(right.width).toBeGreaterThan(left.width * 0.9);
+
+	// Nothing overflows: the choice, the fields and the buttons sit inside the
+	// content, and neither the content nor the page scrolls sideways.
+	for (const control of [
+		source,
+		email,
+		page.getByRole("button", { name: "Test only" }),
+	]) {
+		const box = await boxOf(control);
+		expect(box.x).toBeGreaterThanOrEqual(mainBox.x);
+		expect(box.x + box.width).toBeLessThanOrEqual(mainBox.x + mainBox.width + 1);
+	}
+	expect(
+		await page
+			.getByTestId("page-admin")
+			.evaluate((main) => main.scrollWidth - main.clientWidth),
+	).toBe(0);
+	expect(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+		),
+	).toBe(0);
 
 	// Certificate 28 percent, Issuer 24, Covers 28, Expires the rest.
 	const table = page.getByRole("table", { name: "Certificates in use" });

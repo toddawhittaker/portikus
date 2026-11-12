@@ -52,10 +52,14 @@ export function CleanUpGroup({
 				{/* A flex summary loses the browser's marker, so it draws the system chevron. */}
 				<summary
 					ref={summaryRef}
-					className="pk-focus-ring flex w-fit cursor-pointer list-none items-baseline gap-3 rounded-xs [&::-webkit-details-marker]:hidden"
+					className="pk-focus-ring flex w-fit cursor-pointer list-none flex-wrap items-baseline gap-x-3 gap-y-2 rounded-xs [&::-webkit-details-marker]:hidden"
 					data-testid="backups-cleanup-summary"
 				>
-					<h3 className="pk-text-heading m-0" id="backups-cleanup-title">
+					{/* The heading never breaks; on a narrow card the count wraps under it instead. */}
+					<h3
+						className="pk-text-heading m-0 whitespace-nowrap"
+						id="backups-cleanup-title"
+					>
 						<Icon
 							name="chevron-right"
 							size="md"

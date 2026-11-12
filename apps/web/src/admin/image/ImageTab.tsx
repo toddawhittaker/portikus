@@ -32,6 +32,7 @@ import { DiffView } from "./DiffView.js";
 import { PackagesSection } from "./PackagesSection.js";
 import { isActive, useAdminImage, useImageJob, useRequestImageJob } from "./queries.js";
 import "../backups/backups.css";
+import { TableBox } from "../TableBox.js";
 import { IMAGE_BUSY_REASON, RowAction } from "./RowAction.js";
 
 const INTRO = {
@@ -610,7 +611,7 @@ function ImagesGroup({
 			{data.images.length === 0 ? (
 				<p className="pk-muted m-0 text-[13px]">No images yet.</p>
 			) : (
-				<div className="pk-table-wrap">
+				<TableBox label="Workspace images on this host">
 					<table className="pk-table" data-testid="image-table">
 						<caption className="sr-only">Workspace images on this host</caption>
 						<thead>
@@ -704,7 +705,7 @@ function ImagesGroup({
 							})}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			)}
 			{data.otherWorkspaces > 0 ? (
 				<p className="pk-muted m-0 text-[13px]" data-testid="image-other-workspaces">

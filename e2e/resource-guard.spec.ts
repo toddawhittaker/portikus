@@ -121,7 +121,8 @@ test("the Health tab lists a throttled workspace and links to its panel", async 
 	await page.goto("/admin/health");
 	const list = page.getByTestId("health-guard");
 	await expect(list).toBeVisible({ timeout: 15_000 });
-	await list.getByRole("link", { name: student.name }).click();
+	// The row also links to the workspace's Logs, Audit and inspector, each naming the owner.
+	await list.getByRole("link", { name: student.name, exact: true }).click();
 	await expect(page.getByRole("region", { name: student.name })).toBeVisible();
 });
 
