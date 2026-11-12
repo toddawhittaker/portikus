@@ -5,7 +5,7 @@ visual design. The files here are a copy for reading and reference; the
 artifacts remain the place where the design is edited. `docs/DESIGN.md`
 explains the design itself and how engineering picks it up.
 
-## These files are ahead of the artifacts
+## The artifacts and these files are in sync
 
 On 2026-11-11 both artifacts were re-published from these files with the
 November 2026 look: warm ivory and charcoal surfaces, teal for actions and
@@ -13,8 +13,8 @@ selection, a violet agent hue, one `Badge` for every status, the 12, 14, 16,
 20 and 24px type scale, and the redrawn portico mark. The blob identifiers in
 `design-system.json` name the logo uploads of that publish.
 
-Since then the files here have taken in the administrator and instructor
-redesign, and both artifacts are to be republished from them:
+On 2026-11-12 (Epic 64) both artifacts were re-published again from these
+files, which had taken in the administrator and instructor redesign:
 
 - `system/tokens.json` has the new `accent-fill`, `accent-fill-hover`,
   `accent-fill-active`, `on-accent-fill` and `danger-fill` tokens and the
@@ -52,7 +52,7 @@ four variable font files under `fonts/`, and the eight logo SVGs under
 `assets/Logos/`.
 
 Source: https://claude.ai/artifact/TAPoWu8R6p6Q8GiY7yFmgu, version
-to be republished.
+1794525831-ffd4, last changed 2026-11-12 by Todd Whittaker.
 
 The logo SVGs are stored in the artifact under blob identifiers rather than
 file names. They were renamed on import to the names listed in
@@ -70,7 +70,7 @@ screens propose, and `portikus-console.css` the app's own stylesheet for the
 administrator and course screens.
 
 Source: https://claude.ai/artifact/RqyBryupN8TcL2pRHeh1vy, version
-to be republished, created 2026-09-17T01:01:47Z.
+1794525861-cb71, created 2026-09-17T01:01:47Z and re-published 2026-11-12.
 
 The administrator and course screens (`AdminWorkspaces*`, `AdminHealth*` and
 `CourseInstructor*`) are not drawn by hand. They are the markup the app

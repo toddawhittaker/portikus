@@ -171,10 +171,10 @@
   "designSystems": [
     {
       "artifact": "https://claude.ai/artifact/TAPoWu8R6p6Q8GiY7yFmgu",
-      "copiedAt": "2026-11-11T17:34:51Z",
+      "copiedAt": "2026-11-12T23:24:03Z",
       "namespace": "portikus",
       "title": "Portikus",
-      "version": "1794416429-1880"
+      "version": "1794525831-ffd4"
     }
   ],
   "launch": {
