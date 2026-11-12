@@ -434,7 +434,7 @@ body {
 	color: var(--accent-text);
 }
 .pk-list-row[aria-current="page"] .pk-icon {
-	color: var(--accent);
+	color: var(--accent-text);
 }
 .pk-list-row:focus-visible {
 	outline: var(--ring-width) solid var(--focus);

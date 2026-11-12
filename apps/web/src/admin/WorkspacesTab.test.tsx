@@ -577,14 +577,21 @@ test("the Account cell's second line wraps the full contact and carries it as a 
 	expect(contact.className).toContain("[overflow-wrap:anywhere]");
 });
 
-test("only the account tags, which a reader cannot guess, have a help button", async () => {
+test("the filters and column headers keep their help buttons (SPEC.md section 20.1)", async () => {
 	stubUsers();
 	await openTable();
 	expect(
 		screen
 			.getAllByRole("button", { name: /^About / })
 			.map((b) => b.getAttribute("aria-label")),
-	).toEqual(["About Account tags"]);
+	).toEqual([
+		"About Image filter",
+		"About Show archived",
+		"About Account tags",
+		"About Role",
+		"About Old image",
+		"About Activity",
+	]);
 	// Help sits beside the header text, so the header still reads as its name.
 	const table = screen.getByTestId("admin-accounts");
 	expect(within(table).getAllByRole("columnheader")[1]?.textContent).toBe("Account");

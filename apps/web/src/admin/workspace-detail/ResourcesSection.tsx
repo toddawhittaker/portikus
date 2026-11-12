@@ -27,7 +27,7 @@ import {
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "../queries.js";
-import { SECTION_HEADING } from "./shared.js";
+import { PANEL_HELP, SECTION_HEADING, TipTerm } from "./shared.js";
 
 function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
 	return `Home ${quota.homeGiB} GiB · Docker ${quota.dockerGiB} GiB`;
@@ -173,7 +173,9 @@ export function ResourcesSection({
 			<dl className="pk-dl">
 				{workspace && detail ? (
 					<>
-						<dt>Storage</dt>
+						<TipTerm label="Storage" tip={PANEL_HELP.storage}>
+							Storage
+						</TipTerm>
 						<dd className={EDIT_ROW}>
 							<span data-testid="detail-quota">
 								{storageText(workspace.quotaConfig)}
@@ -209,7 +211,9 @@ export function ResourcesSection({
 								<dd data-testid="detail-usage">{usageGap(detail.agent)}</dd>
 							</>
 						)}
-						<dt>Limits</dt>
+						<TipTerm label="Limits" tip={PANEL_HELP.limits}>
+							Limits
+						</TipTerm>
 						<dd className={EDIT_ROW}>
 							{/* Until the site's values arrive, a placeholder, so the line never
 							    shows "CPUs (site value)" and then changes to "2 CPUs (site value)". */}
@@ -228,7 +232,9 @@ export function ResourcesSection({
 						</dd>
 					</>
 				) : null}
-				<dt>Disconnect grace</dt>
+				<TipTerm label="Disconnect grace" tip={PANEL_HELP.grace}>
+					Disconnect grace
+				</TipTerm>
 				<dd className={EDIT_ROW}>
 					<span data-testid="detail-grace">
 						{user.shutdownGraceSeconds !== null

@@ -218,35 +218,39 @@ export function DestructiveSection({
 				Destructive
 			</h4>
 			<div className="pk-actions">
-				<Button
-					size="sm"
-					variant="danger-secondary"
-					data-testid="detail-reset-docker"
-					aria-label={`Reset Docker for ${ownerName}`}
-					aria-describedby={offReason(capabilities.resetDocker)}
-					aria-disabled={resetOff ? true : undefined}
-					aria-haspopup="dialog"
-					onClick={() => (resetOff ? undefined : setDialog("reset"))}
-				>
-					Reset Docker
-				</Button>
-				<Button
-					size="sm"
-					variant={archived ? "secondary" : "danger-secondary"}
-					data-testid="detail-archive"
-					aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
-					aria-haspopup={archived ? undefined : "dialog"}
-					loading={archived && archive.isPending}
-					aria-disabled={archive.isPending ? true : undefined}
-					onClick={() => {
-						// A second dialog mid-request would only race the first.
-						if (archive.isPending) return;
-						if (archived) unarchive();
-						else setDialog("archive");
-					}}
-				>
-					{archived ? "Unarchive" : "Archive workspace"}
-				</Button>
+				<WithTip label="Reset Docker" tip={PANEL_HELP.resetDocker}>
+					<Button
+						size="sm"
+						variant="danger-secondary"
+						data-testid="detail-reset-docker"
+						aria-label={`Reset Docker for ${ownerName}`}
+						aria-describedby={offReason(capabilities.resetDocker)}
+						aria-disabled={resetOff ? true : undefined}
+						aria-haspopup="dialog"
+						onClick={() => (resetOff ? undefined : setDialog("reset"))}
+					>
+						Reset Docker
+					</Button>
+				</WithTip>
+				<WithTip label="Archive workspace" tip={archived ? null : PANEL_HELP.archive}>
+					<Button
+						size="sm"
+						variant={archived ? "secondary" : "danger-secondary"}
+						data-testid="detail-archive"
+						aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
+						aria-haspopup={archived ? undefined : "dialog"}
+						loading={archived && archive.isPending}
+						aria-disabled={archive.isPending ? true : undefined}
+						onClick={() => {
+							// A second dialog mid-request would only race the first.
+							if (archive.isPending) return;
+							if (archived) unarchive();
+							else setDialog("archive");
+						}}
+					>
+						{archived ? "Unarchive" : "Archive workspace"}
+					</Button>
+				</WithTip>
 			</div>
 
 			<ConfirmDialogRoot

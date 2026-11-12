@@ -1,6 +1,7 @@
 import type { AdminWorkspaceDetail } from "@portikus/contracts";
 import { Toggletip } from "@portikus/ui";
 import { shortTime } from "../../text.js";
+import { TableBox } from "../TableBox.js";
 import { PANEL_HELP, SECTION_HEADING } from "./shared.js";
 
 export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
@@ -10,7 +11,7 @@ export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 				Ports and connections
 			</h4>
 			{detail.ports.length === 0 ? null : (
-				<div className="pk-table-wrap">
+				<TableBox label="Listening ports">
 					<table className="pk-table" data-testid="detail-ports">
 						<caption className="sr-only">Listening ports</caption>
 						<thead>
@@ -40,7 +41,7 @@ export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 							))}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			)}
 			<p className="pk-text-compact m-0">
 				{detail.ports.length === 0 ? (

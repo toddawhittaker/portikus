@@ -147,15 +147,15 @@ button.pk-statusbar-item:focus-visible {
 	height: 20px;
 	padding: 0 var(--space-1\.5);
 	border-radius: var(--radius-full);
-	background: var(--accent);
-	color: var(--on-accent);
+	background: var(--accent-fill);
+	color: var(--on-accent-fill);
 	font-size: 12px;
 	font-weight: 600;
 	line-height: 20px;
 	text-align: center;
 }
 .pk-account-badge:hover .pk-account-badge-pill {
-	background: var(--accent-hover);
+	background: var(--accent-fill-hover);
 }
 .pk-account-badge:focus-visible {
 	outline: var(--ring-width) solid var(--focus);

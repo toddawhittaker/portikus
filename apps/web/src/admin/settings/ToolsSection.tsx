@@ -8,6 +8,7 @@ import { Checkbox, HINT_CLASS, LABEL_CLASS, Skeleton } from "@portikus/ui";
 import type { FormEvent } from "react";
 import { useSiteLimits } from "../health/queries.js";
 import { usePlatformSettings } from "../queries.js";
+import { TableBox } from "../TableBox.js";
 import { COMING_LATER_LANGUAGES, SHIPPED_LANGUAGES } from "./codeHelpLanguages.js";
 import { useDraft } from "./draft.js";
 import { estimate, LANGUAGE_MIB } from "./estimate.js";
@@ -265,7 +266,7 @@ function CodeHelpEstimate({ ticked }: { ticked: readonly CodeHelpLanguage[] }) {
 					? "Code help is off. The editor shows syntax colouring only."
 					: `Code help adds at most ${count.format(result.addedMiB)} MiB per student, if every student opens every ticked language.`}
 			</output>
-			<div className="pk-table-wrap">
+			<TableBox label="Memory per student, and students this server holds">
 				<table className="pk-table [&_th]:whitespace-normal">
 					<caption className="sr-only">
 						Memory per student, and students this server holds, with the languages
@@ -301,7 +302,7 @@ function CodeHelpEstimate({ ticked }: { ticked: readonly CodeHelpLanguage[] }) {
 						))}
 					</tbody>
 				</table>
-			</div>
+			</TableBox>
 			<p className={HINT_CLASS}>Worst case, with every ticked language open at once.</p>
 			<MoreAbout label="This estimate">
 				Memory only.{memory ? ` ${memory}` : ""} Workspace figures are from the

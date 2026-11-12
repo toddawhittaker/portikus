@@ -180,7 +180,7 @@ export function LogResults({
 				<div className="pk-workbench" data-inspecting={selectedLine ? "" : undefined}>
 					{/* A focusable region, so the keyboard can scroll a narrow box to columns with no control in them (SPEC.md section 25.8). */}
 					<section
-						className="pk-table-wrap overflow-clip"
+						className="pk-table-wrap pk-log-wrap overflow-clip"
 						aria-labelledby="logs-table-caption"
 						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus to scroll by keyboard
 						tabIndex={0}
@@ -203,8 +203,16 @@ export function LogResults({
 									{LEADING.map((column) => header(column))}
 									<th scope="col">Message</th>
 									{columns.status ? header("status", "pk-num") : null}
-									{columns.user ? <th scope="col">User</th> : null}
-									{columns.workspace ? <th scope="col">Workspace</th> : null}
+									{columns.user ? (
+										<th scope="col" className="pk-log-user">
+											User
+										</th>
+									) : null}
+									{columns.workspace ? (
+										<th scope="col" className="pk-log-workspace">
+											Workspace
+										</th>
+									) : null}
 								</tr>
 							</thead>
 							<tbody>
@@ -411,7 +419,7 @@ function LogRow({
 				<button
 					type="button"
 					data-journal-index={journalIndex}
-					className="pk-focus-ring inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center rounded-sm bg-transparent text-[var(--accent-text)]"
+					className="pk-log-toggle pk-focus-ring inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center rounded-sm bg-transparent text-[var(--accent-text)]"
 					aria-expanded={open}
 					aria-controls={open ? LOG_INSPECTOR_ID : undefined}
 					aria-label={`Full line, ${shortTime(line.at)}`}
@@ -438,7 +446,7 @@ function LogRow({
 			    word a line; the route under it wraps at its slashes (SPEC.md section 24.11). */}
 			<td className="pk-log-message whitespace-normal">
 				<div
-					className="min-w-[24ch] max-w-[72ch] break-words"
+					className="min-w-[22ch] max-w-[72ch] break-words"
 					data-testid="log-message"
 				>
 					{lineSummary(body)}

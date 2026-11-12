@@ -27,13 +27,15 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 		const table = course.getByTestId("course-members");
 		const unaRow = table.getByRole("row", { name: /Una Unenrolled/ });
 		await expect(unaRow).toBeVisible();
-		// Rex cannot remove himself.
+		// Rex cannot remove himself: his row has no actions menu to hold Remove.
 		await expect(
-			table.getByRole("button", { name: "Remove Rex Remover from course" }),
+			table.getByRole("button", { name: "Actions for Rex Remover" }),
 		).toHaveCount(0);
 
-		await unaRow
-			.getByRole("button", { name: "Remove Una Unenrolled from course" })
+		await unaRow.getByRole("button", { name: "Actions for Una Unenrolled" }).click();
+		await course
+			.getByRole("menu", { name: "Actions for Una Unenrolled" })
+			.getByRole("menuitem", { name: "Remove from course" })
 			.click();
 		const dialog = course.getByTestId("dialog-remove-member");
 		await expect(dialog).toContainText(
@@ -148,7 +150,8 @@ test("Shift+Tab up a long course never hides the focused Remove under the header
 		await page.setViewportSize({ width: 1280, height: 600 });
 		await page.goto(`/course/${course.id}`);
 		const table = page.getByTestId("course-members");
-		const removes = table.getByRole("button", { name: /^Remove / });
+		// Each row's Remove lives in its actions menu, so the menu button is what Tab reaches.
+		const removes = table.getByRole("button", { name: /^Actions for / });
 		await expect(removes).toHaveCount(40, { timeout: 15_000 });
 
 		await removes.last().focus();

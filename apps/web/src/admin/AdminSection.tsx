@@ -127,7 +127,8 @@ export function AdminGroup({
 	return (
 		<section className={LEVEL[level].section} aria-labelledby={id} data-testid={testId}>
 			<div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-				<div className="grid min-w-0 flex-1 gap-1">
+				{/* A 12rem basis, so the actions wrap under a narrow title rather than draw over it. */}
+				<div className="grid min-w-0 flex-[1_1_12rem] gap-1">
 					<div className="flex items-center gap-1">
 						<Heading className={LEVEL[level].heading} id={id} tabIndex={-1}>
 							{title}

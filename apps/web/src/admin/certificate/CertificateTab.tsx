@@ -21,6 +21,7 @@ import "../backups/backups.css";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
 import { Notice } from "../Notice.js";
+import { TableBox } from "../TableBox.js";
 import {
 	daysText,
 	expiry,
@@ -287,7 +288,7 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 				</dd>
 			</dl>
 			{status ? (
-				<div className="pk-table-wrap">
+				<TableBox label="Certificates in use">
 					<table
 						// Long issuers and name lists wrap in their own column, top-aligned so each row reads across.
 						className="pk-table [&_tbody_:is(th,td)]:py-2 [&_tbody_:is(th,td)]:align-middle [&_tbody_:is(th,td)]:whitespace-normal"
@@ -323,7 +324,7 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 							/>
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			) : (
 				<p className="pk-muted m-0 text-[13px]" data-testid="cert-not-checked">
 					The certificate has not been checked yet. The check runs every hour and after
@@ -510,7 +511,11 @@ function RootGroup() {
 					<code className="pk-mono-body [overflow-wrap:anywhere]">
 						/usr/local/share/ca-certificates/
 					</code>{" "}
-					and run <code className="pk-mono-body">sudo update-ca-certificates</code>.
+					and run{" "}
+					<code className="pk-mono-body whitespace-nowrap">
+						sudo update-ca-certificates
+					</code>
+					.
 				</dd>
 				<dt className="pk-muted">Firefox</dt>
 				<dd className="m-0">

@@ -51,7 +51,10 @@ test("an administrator resets a student's two-factor sign-in; the student sets u
 		[row.id],
 	);
 
-	const panel = await openDetail(page, name, "Account");
+	const panel = await openDetail(page, name, "Resources");
+	// The account's actions sit on the inspector's Account tab.
+	await panel.getByRole("tab", { name: "Account" }).click();
+	await expect(panel.getByRole("region", { name: "Account" })).toBeVisible();
 	await panel
 		.getByRole("button", { name: `Reset two-factor sign-in for ${name}` })
 		.click();
@@ -115,7 +118,10 @@ test("another administrator is refused on the install administrator", async ({
 	if (!admin) throw new Error("no install administrator account");
 
 	await openAdmin(page);
-	const panel = await openDetail(page, admin.display_name, "Account");
+	const panel = await openDetail(page, admin.display_name, "Resources");
+	// The account's actions sit on the inspector's Account tab.
+	await panel.getByRole("tab", { name: "Account" }).click();
+	await expect(panel.getByRole("region", { name: "Account" })).toBeVisible();
 	await panel.getByRole("button", { name: `Demote ${admin.display_name}` }).click();
 	const demote = page.getByRole("alertdialog", {
 		name: `Demote ${admin.display_name}?`,

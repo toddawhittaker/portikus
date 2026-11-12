@@ -93,9 +93,10 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 		await page.getByTestId("admin-filter-text").fill(name);
 		await page.getByRole("button", { name: `Show details for ${name}` }).click();
-		const section = page
-			.getByRole("region", { name })
-			.getByRole("region", { name: "Processes" });
+		const panel = page.getByRole("region", { name });
+		// The process list sits on the inspector's Activity tab.
+		await panel.getByRole("tab", { name: "Activity" }).click();
+		const section = panel.getByRole("region", { name: "Processes" });
 		await section.getByRole("button", { name: /Refresh processes/ }).click();
 		// Answer the request as the worker would.
 		await expect

@@ -21,7 +21,12 @@ async function openDetail(page: Page, name: string) {
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("admin-filter-text").fill(name);
 	await page.getByRole("button", { name: `Show details for ${name}` }).click();
-	return page.getByRole("region", { name });
+	const panel = page.getByRole("region", { name });
+	// The account's actions sit on the inspector's Account tab.
+	const account = panel.getByRole("tab", { name: "Account" });
+	await account.click();
+	await expect(account).toHaveAttribute("aria-selected", "true");
+	return panel;
 }
 
 test("an administrator links a course account to an SSO account, then unlinks it, and the holder is told", async ({

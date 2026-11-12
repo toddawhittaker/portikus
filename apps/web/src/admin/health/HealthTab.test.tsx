@@ -9,16 +9,8 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, renderWithQuery, stubFetch } from "../../test-utils.js";
-import {
-	guardRows,
-	HealthTab,
-	HealthView,
-	healthProblems,
-	isNearlyFull,
-	sampleAge,
-	stateRows,
-	usedPercent,
-} from "./HealthTab.js";
+import { guardRows, healthProblems, isNearlyFull, usedPercent } from "./attention.js";
+import { HealthTab, HealthView, sampleAge, stateRows } from "./HealthTab.js";
 
 afterEach(() => vi.unstubAllGlobals());
 

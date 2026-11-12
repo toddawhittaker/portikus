@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import { OFFSITE_KEY, resetKey, SERVER_KEY } from "./backup-key";
 import { expectNoViolations, loginAs, query, toast } from "./helpers";
-import { expectTokenFill } from "./token-colour";
 
 /**
  * The backup key on a server that backs itself up (ADR 0044): the reminder
@@ -240,11 +239,27 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await openTab(page);
 		await expect(page.getByTestId("backup-key-reminder")).toBeVisible();
-		// A warning fill, not a plain card.
-		await expectTokenFill(
-			page.getByTestId("backup-key-reminder"),
-			"--status-warning-soft",
-		);
+		// Marked as a warning, not a plain card: a warning-coloured leading edge and icon.
+		const marks = await page.getByTestId("backup-key-reminder").evaluate((node) => {
+			const probe = document.createElement("span");
+			probe.style.color = "var(--status-warning)";
+			node.append(probe);
+			const warning = getComputedStyle(probe).color;
+			probe.remove();
+			const style = getComputedStyle(node);
+			const icon = node.querySelector(".pk-attention-icon");
+			return {
+				warning,
+				edge: style.borderInlineStartColor,
+				edgeWidth: style.borderInlineStartWidth,
+				otherEdge: style.borderInlineEndColor,
+				icon: icon ? getComputedStyle(icon).color : null,
+			};
+		});
+		expect(marks.edge).toBe(marks.warning);
+		expect(marks.otherEdge).not.toBe(marks.warning);
+		expect(Number.parseFloat(marks.edgeWidth)).toBeGreaterThanOrEqual(3);
+		expect(marks.icon).toBe(marks.warning);
 		await expectNoViolations(page);
 
 		const download = page.getByTestId("backup-key-download");

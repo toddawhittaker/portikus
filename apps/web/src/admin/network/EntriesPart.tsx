@@ -15,6 +15,7 @@ import { AdminGroup } from "../AdminSection.js";
 import type { EntryDraft } from "./EntryDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 import "./network.css";
+import { TableBox } from "../TableBox.js";
 
 /** The administrator's own host names and address ranges, with labels. */
 export function EntriesPart({
@@ -77,7 +78,7 @@ export function EntriesPart({
 					from the refused names or the host test.
 				</p>
 			) : (
-				<div className="pk-table-wrap">
+				<TableBox label="Your hosts and ranges">
 					<table className="pk-table pk-host-table" data-testid="egress-entries">
 						<caption className="sr-only">Your hosts and ranges</caption>
 						<thead>
@@ -133,7 +134,7 @@ export function EntriesPart({
 							))}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			)}
 			<ConfirmDialogRoot
 				open={removing !== null}

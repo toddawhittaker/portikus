@@ -11,10 +11,6 @@ function accountContact(user: Pick<AdminUser, "email" | "preferredUsername">): s
 	return user.email ?? user.preferredUsername ?? "—";
 }
 
-/** On a phone the whole 44 px cell around a row's box takes the tap (SPEC.md section 25.8). */
-export const PHONE_HIT =
-	"max-sm:min-h-11 max-sm:min-w-11 max-sm:items-center max-sm:justify-center";
-
 export function rowButtonId(userId: string): string {
 	return `admin-row-open-${userId}`;
 }
@@ -54,7 +50,6 @@ export function AccountRow({
 				data-testid={`account-cell-${user.id}`}
 			>
 				<Checkbox
-					className={PHONE_HIT}
 					label={<span className="sr-only">Select {user.displayName}</span>}
 					checked={checked}
 					onChange={(event) => onCheck(event.target.checked)}
@@ -66,7 +61,7 @@ export function AccountRow({
 						<button
 							type="button"
 							id={rowButtonId(user.id)}
-							className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink [overflow-wrap:anywhere]"
+							className="pk-account-open pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink [overflow-wrap:anywhere]"
 							aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
 							aria-expanded={selected}
 							aria-controls={selected ? "workspace-detail" : undefined}
@@ -115,7 +110,7 @@ export function AccountRow({
 				)}
 			</td>
 			<td
-				className="py-2 whitespace-nowrap text-[13px] text-ink-muted"
+				className="py-2 whitespace-normal text-[13px] text-ink-muted"
 				data-testid={`account-activity-${user.id}`}
 			>
 				{accountActivityText(user, now)}

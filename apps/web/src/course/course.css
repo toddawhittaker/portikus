@@ -316,9 +316,10 @@
 }
 
 /*
- * A phone: the three counts share one compact row, and each member is a
- * card with the whole width for the name, then the workspace, then a row of
- * 44 px actions, as the live help queue does.
+ * A phone: each member is a compact card. The name, with role and last
+ * launch under it, shares the top row with the row's menu; the workspace
+ * and any wait come next; a shared project, when there is one, is the last
+ * row. Every target is 44 px.
  */
 @media (width < 35rem) {
 	.pk-members-table thead {
@@ -337,8 +338,9 @@
 		gap: var(--space-2);
 	}
 	.pk-members-table tbody tr {
+		position: relative;
 		display: grid;
-		grid-template-columns: minmax(0, 1fr);
+		grid-template-columns: minmax(0, 1fr) auto;
 		gap: var(--space-2);
 		padding: var(--space-3) var(--space-4);
 		border: 1px solid var(--line);
@@ -347,6 +349,7 @@
 	}
 	/* Grid items already; the wide-only cells keep their own display: none. */
 	.pk-members-table tbody tr > * {
+		grid-column: 1 / -1;
 		inline-size: auto;
 		block-size: auto;
 		padding: 0;
@@ -354,8 +357,27 @@
 		background: none;
 		white-space: normal;
 	}
+	.pk-members-table tbody tr > th {
+		grid-column: 1;
+		grid-row: 1;
+	}
 	.pk-members-table tbody tr > .pk-cell-actions:not(:has(a, button)) {
 		display: none;
+	}
+	/* With only the menu, the actions cell is the top row's end. */
+	.pk-members-table tbody tr > .pk-cell-actions:not(:has(a)) {
+		grid-column: 2;
+		grid-row: 1;
+		align-self: start;
+	}
+	/* With a shared project too, the link takes the last row and the menu stays at the top end. */
+	.pk-members-table tbody tr:has(.pk-cell-actions a) > th {
+		padding-inline-end: calc(var(--size-control-lg) + var(--space-1));
+	}
+	.pk-members-table .pk-cell-actions:has(a) .pk-row-actions > :not(a) {
+		position: absolute;
+		inset-block-start: var(--space-3);
+		inset-inline-end: var(--space-4);
 	}
 	.pk-members-table .pk-row-actions {
 		justify-content: flex-start;
@@ -366,10 +388,6 @@
 	}
 	.pk-members-table .pk-row-link {
 		padding-inline: 0;
-	}
-	/* The menu keeps a 44 px square target at the card's end, 8 px or more from the link. */
-	.pk-members-table .pk-row-actions > :not(a) {
-		margin-inline-start: auto;
 	}
 	.pk-members-table .pk-row-actions .pk-iconbtn {
 		min-inline-size: var(--size-control-lg);
@@ -586,6 +604,38 @@
 	border: 1px solid var(--line);
 	border-radius: var(--radius-md);
 	background: var(--surface-raised);
+}
+/* The fold's row: a phone's only view of the pane until opened; beside the terminal it is not needed. */
+.pk-live-context-summary {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-block-size: var(--size-control-lg);
+	padding-inline: var(--space-4);
+	font-size: var(--text-md);
+	font-weight: 600;
+	cursor: pointer;
+	list-style: none;
+}
+.pk-live-context-summary::-webkit-details-marker {
+	display: none;
+}
+.pk-live-context-chevron {
+	color: var(--ink-muted);
+	transition: transform var(--duration-fast) var(--ease-standard);
+}
+.pk-live-context[open] > .pk-live-context-summary {
+	border-block-end: 1px solid var(--line);
+}
+@media (width >= 56rem) {
+	.pk-live-context > .pk-live-context-summary {
+		display: none;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-live-context-chevron {
+		transition: none;
+	}
 }
 .pk-live-context-part {
 	display: grid;

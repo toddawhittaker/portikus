@@ -3,7 +3,7 @@ import { Icon, Meter } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import { formatBytes, WARN_AT } from "../monitor/format.js";
 import "../shell/status-bar.css";
-import { guardRows, healthProblems, usedPercent } from "./health/HealthTab.js";
+import { attentionOf, usedPercent } from "./health/attention.js";
 import { useHealthGlance } from "./health/queries.js";
 
 /**
@@ -19,9 +19,9 @@ export function AdminStatusBar() {
 	const total = report
 		? Object.values(report.workspacesByState).reduce((sum, n) => sum + n, 0)
 		: 0;
-	const guarded = report ? guardRows(report.guard).length : 0;
-	const problems = report ? healthProblems(report).length : 0;
-	const attention = guarded + problems;
+	const toLookAt = report ? attentionOf(report) : null;
+	const attention = toLookAt?.count ?? 0;
+	const guarded = toLookAt?.guard.length ?? 0;
 	return (
 		<footer className="pk-statusbar pk-admin-statusbar" data-testid="admin-status-bar">
 			<div className="pk-statusbar-where">
@@ -80,6 +80,7 @@ export function AdminStatusBar() {
 						to="/admin/$tab"
 						params={{ tab: "health" }}
 						className="pk-statusbar-item pk-statusbar-plain pk-admin-statusbar-state"
+						data-testid="admin-attention-pill"
 						data-tone={attention > 0 ? "warning" : "ok"}
 					>
 						{attention > 0 ? (
@@ -89,7 +90,7 @@ export function AdminStatusBar() {
 						)}
 						{attention === 0
 							? "All healthy"
-							: guarded > 0 && problems === 0
+							: guarded > 0 && toLookAt?.problems.length === 0
 								? `${guarded} throttled or flagged`
 								: `${attention} to look at`}
 					</Link>

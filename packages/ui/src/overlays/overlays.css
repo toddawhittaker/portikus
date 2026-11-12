@@ -263,7 +263,7 @@
 	color: var(--agent);
 }
 .pk-tab:not(.pk-tab--agent)[data-state="active"] > svg:first-child {
-	color: var(--accent);
+	color: var(--accent-text);
 }
 .pk-tab[data-state="active"]::before,
 .pk-tab[aria-current="page"]::before {

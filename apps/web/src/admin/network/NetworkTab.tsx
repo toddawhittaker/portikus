@@ -77,6 +77,12 @@ export function NetworkTab() {
 						{view.mode === "open" ? <BlockedSitesCard view={view} /> : null}
 						<AllowListGroup view={view} onEdit={edit} />
 						{view.mode === "allow-list" ? <BlockedSitesCard view={view} /> : null}
+						{/*
+						 * The server's own hosts come after the workspace rules, a separate and
+						 * rarer setting, and inside this column so the grid runs to the end of
+						 * the page and the side column stays in view the whole way down.
+						 */}
+						<ProxyHostsGroup />
 					</div>
 					{/*
 					 * Kept in view beside the long lists, so a test is always one field away.
@@ -97,8 +103,6 @@ export function NetworkTab() {
 					</section>
 				</div>
 			</div>
-			{/* The server's own hosts come after the workspace rules: a separate, rarer setting. */}
-			<ProxyHostsGroup />
 			{draft ? (
 				<EntryDialog
 					draft={draft}

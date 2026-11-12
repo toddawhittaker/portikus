@@ -549,7 +549,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 		page,
 	}) => {
 		await writeRegistryStatus();
-		await page.setViewportSize({ width: 1440, height: 900 });
+		// Wide enough, beside the navigation rail, for the settings grid's two 36rem columns.
+		await page.setViewportSize({ width: 1920, height: 900 });
 		await page.emulateMedia({ colorScheme });
 		await open(page);
 		const seed = page.getByTestId("docker-seed");

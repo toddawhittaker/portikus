@@ -54,8 +54,10 @@ const SECTIONS = [
 	"Email and alerts",
 ];
 
-test.describe("at 1280 px", () => {
-	test.use({ viewport: { width: 1280, height: 900 } });
+// The admin rail takes about 256 px beside the content, so 1440 px is the
+// width that leaves the Settings column the room for its index beside it.
+test.describe("at 1440 px", () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
 
 	test("five cards in one column, the index beside them, rows label left and box right", async ({
 		page,
@@ -105,15 +107,27 @@ test.describe("at 1280 px", () => {
 test.describe("at 390 px", () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test("the index wraps above the sections, rows stack, and nothing scrolls sideways", async ({
+	test("the index sits above the sections and scrolls in its own strip, rows stack, and nothing scrolls sideways", async ({
 		page,
 	}) => {
 		await open(page);
-		const index = await box(
-			page.getByRole("navigation", { name: "Settings sections" }),
-		);
+		const nav = page.getByRole("navigation", { name: "Settings sections" });
+		const index = await box(nav);
 		const first = await box(page.getByTestId("settings-stop"));
 		expect(index.y + index.height).toBeLessThanOrEqual(first.y);
+		expect(index.x).toBeGreaterThanOrEqual(0);
+		expect(index.x + index.width).toBeLessThanOrEqual(390);
+		// A link past the strip's edge comes into view inside the strip when focused.
+		const last = nav.getByRole("link").last();
+		await last.focus();
+		await expect
+			.poll(async () => {
+				const link = await box(last);
+				return (
+					link.x >= index.x - 1 && link.x + link.width <= index.x + index.width + 1
+				);
+			})
+			.toBe(true);
 		const label = await box(page.locator('label[for="settings-idleStopMinutes"]'));
 		const input = await box(page.getByTestId("settings-idleStopMinutes"));
 		expect(input.y).toBeGreaterThan(label.y + label.height);
@@ -165,6 +179,24 @@ test("the grace period is shown and saved in minutes, stored in seconds", async 
 	}
 });
 
+/**
+ * Press Tab until `target` has focus. The only stops on the way are a
+ * field's own "More about" disclosure: never a help button.
+ */
+async function tabPastDisclosures(page: Page, target: Locator): Promise<void> {
+	for (let step = 0; step < 3; step++) {
+		await page.keyboard.press("Tab");
+		if (await target.evaluate((el) => el === document.activeElement)) return;
+		const stop = await page.evaluate(() => {
+			const el = document.activeElement as HTMLElement | null;
+			return { tag: el?.tagName ?? "", text: el?.textContent?.trim() ?? "" };
+		});
+		expect(stop.tag).toBe("SUMMARY");
+		expect(stop.text).toMatch(/^More about /);
+	}
+	await expect(target).toBeFocused();
+}
+
 test("the stop times work from the keyboard alone, with no help buttons between fields", async ({
 	page,
 }) => {
@@ -174,14 +206,14 @@ test("the stop times work from the keyboard alone, with no help buttons between 
 	try {
 		await open(page);
 		await page.getByTestId("settings-shutdownGraceSeconds").focus();
-		await page.keyboard.press("Tab");
-		await expect(page.getByTestId("settings-idleStopMinutes")).toBeFocused();
+		await tabPastDisclosures(page, page.getByTestId("settings-idleStopMinutes"));
 		await page.keyboard.press("ControlOrMeta+A");
 		await page.keyboard.type("45");
-		await page.keyboard.press("Tab");
-		await expect(page.getByTestId("settings-keepRunningMaxHours")).toBeFocused();
-		await page.keyboard.press("Tab");
-		await expect(page.getByRole("button", { name: "Discard changes" })).toBeFocused();
+		await tabPastDisclosures(page, page.getByTestId("settings-keepRunningMaxHours"));
+		await tabPastDisclosures(
+			page,
+			page.getByRole("button", { name: "Discard changes" }),
+		);
 		await page.keyboard.press("Tab");
 		await expect(page.getByRole("button", { name: "Save stop times" })).toBeFocused();
 		await page.keyboard.press("Enter");
