@@ -488,7 +488,7 @@ export function questionResult(
 	answers: Record<string, string>,
 	notes: Record<string, string> = {},
 	reportSkipped = false,
-): PermissionResult {
+): { behavior: "allow"; updatedInput: Record<string, unknown> } {
 	const picked: Record<string, string> = {};
 	const annotations: Record<string, { notes?: string; unanswered?: "skipped" }> = {};
 	for (const { question } of questions) {

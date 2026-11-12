@@ -1,5 +1,6 @@
 import type { WebSocket } from "@fastify/websocket";
 import {
+	type ChatCardDecision,
 	type ChatClientMessage,
 	type ChatCommand,
 	type ChatEffort,
@@ -66,7 +67,8 @@ const PERMISSION_CARD: Extract<ChatOpenCard, { type: "permission" }> = {
 	title: "Run npm test",
 	input: { command: "npm test" },
 	options: [
-		{ id: "allow", label: "Allow" },
+		{ id: "allow", label: "Allow once" },
+		{ id: "always", label: "Always allow npm test commands for this chat" },
 		{ id: "deny", label: "Deny" },
 	],
 };
@@ -130,6 +132,13 @@ const DEFAULT_MODELS: ChatModelInfo[] = [
 	row("claude-sonnet-4-6", "Sonnet 4.6", "Efficient for routine tasks"),
 ];
 
+/** The fixed word for an option id, as the host sends it. */
+function decisionForOption(optionId: string): ChatCardDecision {
+	if (optionId === "always") return "allowedAlways";
+	if (optionId === "deny") return "denied";
+	return "allowed";
+}
+
 /** What a test reads back: one answer, as the browser sent it. */
 type FakeChatAnswer = Extract<
 	ChatClientMessage,
@@ -143,6 +152,8 @@ interface FakeChat {
 	history: Record<string, unknown>[];
 	openCards: ChatOpenCard[];
 	answers: FakeChatAnswer[];
+	/** What the student answered on each permission card, by tool call id; replayed on attach. */
+	decisions: Map<string, ChatCardDecision>;
 	received: string[];
 	settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode };
 	commands: ChatCommand[];
@@ -187,6 +198,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				],
 				openCards: [],
 				answers: [],
+				decisions: new Map(),
 				received: [],
 				settings: { model: "sonnet", effort: "medium", mode: "default" },
 				commands: DEFAULT_COMMANDS,
@@ -263,6 +275,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			title: "AskUserQuestion",
 			input: { questions: QUESTION_CARD.questions },
 		});
+		// The permission card's tool call, where the answered card leaves its decision.
+		record(id, all, {
+			type: "tool.started",
+			id: PERMISSION_CARD.id,
+			name: PERMISSION_CARD.toolName,
+			title: PERMISSION_CARD.title,
+			input: PERMISSION_CARD.input,
+		});
 		chat.openCards.push(QUESTION_CARD, PERMISSION_CARD);
 		emit(id, all, { type: "question.requested", ...withoutType(QUESTION_CARD) });
 		emit(id, all, { type: "permission.requested", ...withoutType(PERMISSION_CARD) });
@@ -274,9 +294,26 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const card = chat.openCards.find((one) => one.id === message.id);
 		// The first answer wins; a late one is dropped.
 		if (!card) return;
+		// As the host does, ignore an option the card does not offer and keep it open.
+		if (
+			card.type === "permission" &&
+			message.type === "permission.answer" &&
+			!card.options.some((option) => option.id === message.optionId)
+		) {
+			return;
+		}
 		chat.openCards = chat.openCards.filter((one) => one.id !== message.id);
 		chat.answers.push(message);
-		emit(id, chat.sockets, { type: "card.resolved", id: message.id });
+		const decision =
+			message.type === "permission.answer"
+				? decisionForOption(message.optionId)
+				: undefined;
+		if (decision) chat.decisions.set(message.id, decision);
+		emit(id, chat.sockets, {
+			type: "card.resolved",
+			id: message.id,
+			...(decision ? { decision } : {}),
+		});
 		if (message.type === "question.answer") {
 			record(id, chat.sockets, {
 				type: "tool.output",
@@ -327,6 +364,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				// Claude Code's /clear starts a new session; the host sends a fresh snapshot.
 				if (message.text.trim() === "/clear") {
 					chat.history = [];
+					chat.decisions.clear();
 					emit(id, chat.sockets, {
 						type: "snapshot",
 						cards: chat.openCards,
@@ -450,6 +488,16 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				truncated: false,
 			});
 			for (const event of chat.history) emit(id, [socket], event);
+			// After the history, as the host sends them: one per decision whose tool call it shows.
+			for (const event of chat.history) {
+				const decision =
+					event.type === "tool.started"
+						? chat.decisions.get(String(event.id))
+						: undefined;
+				if (decision) {
+					emit(id, [socket], { type: "card.resolved", id: event.id, decision });
+				}
+			}
 			// Before the settings, which tests wait for as the end of an attach.
 			emit(id, [socket], { type: "commands", commands: chat.commands });
 			emit(id, [socket], { type: "models", models: chat.models });

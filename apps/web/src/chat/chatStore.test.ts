@@ -808,3 +808,78 @@ test("watching a subagent sends the watch and the unwatch", () => {
 		{ type: "subagent.unwatch", toolUseId: "toolu_a" },
 	]);
 });
+
+const BASH_CALL = {
+	id: "t1",
+	name: "Bash",
+	title: "Run npm test",
+	input: { command: "npm test" },
+} as const;
+
+function decisionOf(state: ChatState, id: string): string | undefined {
+	const item = state.items.find((one) => one.kind === "tool" && one.id === id);
+	return item?.kind === "tool" ? item.decision : undefined;
+}
+
+test("an answered permission card's decision lands on its tool call", () => {
+	const state = feed([
+		snapshot(1),
+		frame("turn.started", 2, { at: 0 }),
+		frame("tool.started", 3, BASH_CALL),
+		frame("card.resolved", 4, { id: "t1", decision: "denied" }),
+	]);
+	expect(decisionOf(state, "t1")).toBe("denied");
+	expect(state.decisions).toEqual({ t1: "denied" });
+});
+
+test("a decision that arrives before its tool call still lands on it", () => {
+	const state = feed([
+		snapshot(1),
+		frame("card.resolved", 2, { id: "t1", decision: "allowedAlways" }),
+		frame("turn.started", 3, { at: 0 }),
+		frame("tool.started", 4, BASH_CALL),
+	]);
+	expect(decisionOf(state, "t1")).toBe("allowedAlways");
+});
+
+test("a repeated tool.started keeps the decision", () => {
+	const state = feed([
+		snapshot(1),
+		frame("tool.started", 2, BASH_CALL),
+		frame("card.resolved", 3, { id: "t1", decision: "allowed" }),
+		frame("tool.started", 4, BASH_CALL),
+	]);
+	expect(decisionOf(state, "t1")).toBe("allowed");
+});
+
+test("a card resolved with no decision leaves the tool call without one", () => {
+	const state = feed([
+		snapshot(1),
+		frame("tool.started", 2, BASH_CALL),
+		frame("card.resolved", 3, { id: "t1" }),
+	]);
+	expect(decisionOf(state, "t1")).toBeUndefined();
+	expect(state.decisions).toEqual({});
+});
+
+test("a new snapshot, as /clear or a reattach sends, empties the decisions, and the replay refills them", () => {
+	let state = feed([
+		snapshot(1),
+		frame("tool.started", 2, BASH_CALL),
+		frame("card.resolved", 3, { id: "t1", decision: "allowed" }),
+	]);
+	state = feed([snapshot(4)], state);
+	expect(state.decisions).toEqual({});
+	// A reattach: the history, then the host's replayed decision after it.
+	state = feed(
+		[
+			snapshot(10),
+			frame("turn.started", 11, { at: 0 }),
+			frame("tool.started", 12, BASH_CALL),
+			frame("turn.finished", 13, { at: 5, status: "done" }),
+			frame("card.resolved", 14, { id: "t1", decision: "denied" }),
+		],
+		state,
+	);
+	expect(decisionOf(state, "t1")).toBe("denied");
+});

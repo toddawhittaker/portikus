@@ -1,7 +1,7 @@
-import { Workspace } from "@portikus/contracts";
+import { type TerminalQuestionAnswer, Workspace } from "@portikus/contracts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { request } from "./request.js";
+import { request, sendJson } from "./request.js";
 
 /**
  * `POST /workspaces` is idempotent: it returns the signed-in student's
@@ -49,4 +49,20 @@ export function useWorkspaceAction(workspaceId: string) {
 				method: "POST",
 			}),
 	});
+}
+
+/**
+ * Answer the question a terminal's Claude Code is waiting on, or hand it back
+ * to the terminal (SPEC.md §10.8). A 409 means it is no longer waiting.
+ */
+export function answerTerminalQuestion(
+	workspaceId: string,
+	terminalId: string,
+	answer: TerminalQuestionAnswer,
+): Promise<unknown> {
+	return sendJson(
+		z.unknown(),
+		`/workspaces/${workspaceId}/terminals/${terminalId}/question`,
+		answer,
+	);
 }

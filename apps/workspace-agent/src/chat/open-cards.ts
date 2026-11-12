@@ -8,6 +8,7 @@ import {
 	permissionResult,
 	type ToolAsk,
 } from "./claude-adapter.js";
+import { DecisionMemory, decisionForOption } from "./decisions.js";
 import { splitSuggestions } from "./permission-rules.js";
 
 export interface OpenCard {
@@ -28,6 +29,18 @@ export class OpenCards {
 		private readonly broadcast: (event: ChatEventBody) => void,
 		private readonly grantRules: (rules: ChatSessionRule[]) => Promise<void>,
 	) {}
+
+	private readonly decisions = new DecisionMemory();
+
+	/** The answers to replay after a history: one per decision whose tool call it shows. */
+	replayDecisions(history: readonly ChatEventBody[]): ChatEventBody[] {
+		return this.decisions.replayFor(history);
+	}
+
+	/** Forget every answer, as when the chat moves to a new session. */
+	clearDecisions(): void {
+		this.decisions.clear();
+	}
 
 	/** The cards still open, for a snapshot. */
 	get current(): ChatOpenCard[] {
@@ -85,18 +98,21 @@ export class OpenCards {
 		if (open?.card.type !== "permission") return;
 		if (!open.card.options.some((option) => option.id === optionId)) return;
 		this.cards.delete(id);
+		let decision = decisionForOption(optionId);
 		try {
 			if (optionId === PERMISSION_OPTION.allowAlways && open.ask.suggestions) {
 				await this.grantRules(splitSuggestions(open.ask.suggestions).sessionRules);
 			}
 		} catch {
 			// The student chose to allow, so the tool still runs this once.
+			decision = "allowed";
 			throw new Error(
 				"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
 			);
 		} finally {
 			open.settle(permissionResult(optionId, open.input, open.ask, extras));
-			this.broadcast({ type: "card.resolved", id });
+			this.decisions.record(id, decision);
+			this.broadcast({ type: "card.resolved", id, decision });
 		}
 	}
 

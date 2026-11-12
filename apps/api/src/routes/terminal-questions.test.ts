@@ -77,7 +77,6 @@ async function ask(terminalId = world.a.terminalId, id = QUESTION_ID): Promise<v
 		state: "needs-input",
 		question: {
 			id,
-			expiresAt: new Date(Date.now() + 60_000).toISOString(),
 			questions: [
 				{
 					question: QUESTION_TEXT,

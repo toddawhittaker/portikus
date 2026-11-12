@@ -9,13 +9,13 @@ const TOKEN = "fake-chat-token";
 const ID = "550e8400-e29b-41d4-a716-446655440000";
 let agent: FakeAgent;
 
-beforeAll(async () => {
-	agent = await startFakeAgent(TOKEN);
+/** A fresh chat of its own, so a test that answers its cards leaves the others alone. */
+async function newChat(id: string): Promise<void> {
 	await fetch(`http://127.0.0.1:${agent.port}/terminals`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
 		body: JSON.stringify({
-			id: ID,
+			id,
 			cwd: "/home/student",
 			theme: "dark",
 			timezone: "UTC",
@@ -23,14 +23,19 @@ beforeAll(async () => {
 			kind: "chat",
 		}),
 	});
+}
+
+beforeAll(async () => {
+	agent = await startFakeAgent(TOKEN);
+	await newChat(ID);
 });
 
 afterAll(async () => {
 	await agent.close();
 });
 
-function connect(): Promise<{ ws: WebSocket; frames: string[] }> {
-	const ws = new WebSocket(`ws://127.0.0.1:${agent.port}/terminals/${ID}/chat`, {
+function connect(id = ID): Promise<{ ws: WebSocket; frames: string[] }> {
+	const ws = new WebSocket(`ws://127.0.0.1:${agent.port}/terminals/${id}/chat`, {
 		headers: { authorization: `Bearer ${TOKEN}` },
 	});
 	const frames: string[] = [];
@@ -244,4 +249,128 @@ test("the model list is sent before the settings, and a test can replace it for 
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ models: listed.models }),
 	});
+});
+
+for (const [optionId, decision] of [
+	["allow", "allowed"],
+	["always", "allowedAlways"],
+	["deny", "denied"],
+] as const) {
+	test(`answering a permission card with ${optionId} sends ${decision}, and a later attachment gets it after the history`, async () => {
+		const chatId = `550e8400-e29b-41d4-a716-44665544${optionId === "allow" ? "0001" : optionId === "always" ? "0002" : "0003"}`;
+		await newChat(chatId);
+		const first = await connect(chatId);
+		const second = await connect(chatId);
+		await expect.poll(() => types(second.frames).includes("settings")).toBe(true);
+		send(first.ws, "start");
+		await expect.poll(() => types(first.frames).at(-1)).toBe("turn.finished");
+		first.ws.send(
+			JSON.stringify({ type: "permission.answer", id: "card-permission", optionId }),
+		);
+		await expect
+			.poll(() => types(second.frames).filter((one) => one === "card.resolved").length)
+			.toBe(1);
+		const resolved = second.frames
+			.map((one) => JSON.parse(one))
+			.find((one) => one.type === "card.resolved");
+		expect(resolved).toMatchObject({ id: "card-permission", decision });
+
+		const late = await connect(chatId);
+		await expect.poll(() => types(late.frames).includes("settings")).toBe(true);
+		const lateTypes = types(late.frames);
+		expect(lateTypes.filter((one) => one === "card.resolved")).toHaveLength(1);
+		expect(lateTypes.indexOf("card.resolved")).toBeGreaterThan(
+			lateTypes.lastIndexOf("tool.started"),
+		);
+		for (const frame of late.frames) {
+			expect(ChatServerEvent.safeParse(JSON.parse(frame)).success, frame).toBe(true);
+		}
+		expect(
+			JSON.parse(late.frames.find((one) => one.includes('"card.resolved"')) ?? ""),
+		).toMatchObject({ id: "card-permission", decision });
+		for (const one of [first, second, late]) one.ws.close();
+	});
+}
+
+test("a question answer carries no decision, and /clear forgets them", async () => {
+	const chatId = "550e8400-e29b-41d4-a716-446655440004";
+	await newChat(chatId);
+	const first = await connect(chatId);
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	send(first.ws, "start");
+	await expect.poll(() => types(first.frames).at(-1)).toBe("turn.finished");
+	first.ws.send(
+		JSON.stringify({
+			type: "question.answer",
+			id: "card-question",
+			answers: { a: "b" },
+		}),
+	);
+	first.ws.send(
+		JSON.stringify({
+			type: "permission.answer",
+			id: "card-permission",
+			optionId: "allow",
+		}),
+	);
+	await expect
+		.poll(() => types(first.frames).filter((one) => one === "card.resolved").length)
+		.toBe(2);
+	const resolved = first.frames
+		.map((one) => JSON.parse(one))
+		.filter((one) => one.type === "card.resolved");
+	expect(resolved[0]).not.toHaveProperty("decision");
+	expect(resolved[1]).toMatchObject({ decision: "allowed" });
+
+	send(first.ws, "/clear");
+	await expect
+		.poll(() => types(first.frames).filter((one) => one === "snapshot").length)
+		.toBe(2);
+	const late = await connect(chatId);
+	await expect.poll(() => types(late.frames).includes("settings")).toBe(true);
+	expect(types(late.frames)).not.toContain("card.resolved");
+	first.ws.close();
+	late.ws.close();
+});
+
+test("the permission card offers Allow once, Always allow and Deny, and an unknown option leaves it open", async () => {
+	const chatId = "550e8400-e29b-41d4-a716-446655440005";
+	await newChat(chatId);
+	const first = await connect(chatId);
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	send(first.ws, "start");
+	await expect.poll(() => types(first.frames).at(-1)).toBe("turn.finished");
+	const permission = first.frames
+		.map((one) => JSON.parse(one))
+		.find((one) => one.type === "permission.requested");
+	expect(permission.options.map((option: { id: string }) => option.id)).toEqual([
+		"allow",
+		"always",
+		"deny",
+	]);
+
+	first.ws.send(
+		JSON.stringify({
+			type: "permission.answer",
+			id: "card-permission",
+			optionId: "bogus",
+		}),
+	);
+	first.ws.send(
+		JSON.stringify({
+			type: "permission.answer",
+			id: "card-permission",
+			optionId: "deny",
+		}),
+	);
+	await expect
+		.poll(() => types(first.frames).filter((one) => one === "card.resolved").length)
+		.toBe(1);
+	const reply = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/chats/${chatId}/answers`,
+	);
+	expect(((await reply.json()) as { answers: unknown[] }).answers).toEqual([
+		{ type: "permission.answer", id: "card-permission", optionId: "deny" },
+	]);
+	first.ws.close();
 });

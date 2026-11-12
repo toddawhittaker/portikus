@@ -6,8 +6,12 @@
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
+	AgentCodingAgentsChanged,
 	MAX_CODING_AGENT_TERMINALS,
+	MAX_SUBAGENTS_PER_TERMINAL,
 	MAX_TERMINAL_QUESTION_POST_BYTES,
+	MAX_TERMINAL_QUESTION_STRING_CHARS,
+	MAX_TERMINAL_QUESTIONS_HELD_BYTES,
 	type TerminalQuestion,
 	type TerminalQuestionPost,
 } from "@portikus/contracts";
@@ -44,6 +48,8 @@ const INPUT = {
 	],
 };
 
+const ONE = INPUT.questions[0] as (typeof INPUT.questions)[number];
+
 function post(overrides: Partial<TerminalQuestionPost> = {}): TerminalQuestionPost {
 	return {
 		tool_name: "AskUserQuestion",
@@ -54,15 +60,22 @@ function post(overrides: Partial<TerminalQuestionPost> = {}): TerminalQuestionPo
 }
 
 let shown: [string, TerminalQuestion | undefined][];
+let closed: Set<string>;
 let store: TerminalQuestions;
 
 beforeEach(() => {
 	shown = [];
+	closed = new Set();
 	store = new TerminalQuestions({
 		onChange: (id, question) => shown.push([id, question]),
-		now: () => NOW,
+		isOpen: async (id) => !closed.has(id),
 	});
 });
+
+/** Wait until the store has shown `count` questions; ask() checks the terminal first. */
+async function shownCount(count: number) {
+	await vi.waitFor(() => expect(shown).toHaveLength(count));
+}
 
 afterEach(() => {
 	vi.useRealTimers();
@@ -71,16 +84,8 @@ afterEach(() => {
 describe("the question store", () => {
 	test("an answer becomes the hook's allow with the answers in the input", async () => {
 		const waiting = store.ask(TERMINAL, post(), new AbortController().signal);
-		expect(shown).toEqual([
-			[
-				TERMINAL,
-				{
-					id: "toolu_01",
-					questions: INPUT.questions,
-					expiresAt: new Date(NOW.getTime() + TERMINAL_QUESTION_WAIT_MS).toISOString(),
-				},
-			],
-		]);
+		await shownCount(1);
+		expect(shown).toEqual([[TERMINAL, { id: "toolu_01", questions: INPUT.questions }]]);
 		expect(
 			store.answer(TERMINAL, {
 				id: "toolu_01",
@@ -106,6 +111,7 @@ describe("the question store", () => {
 
 	test("answer in the terminal lets Claude Code ask itself", async () => {
 		const waiting = store.ask(TERMINAL, post(), new AbortController().signal);
+		await shownCount(1);
 		expect(store.answer(TERMINAL, { id: "toolu_01", inTerminal: true })).toBe(true);
 		await expect(waiting).resolves.toBeNull();
 		expect(shown.at(-1)).toEqual([TERMINAL, undefined]);
@@ -113,6 +119,7 @@ describe("the question store", () => {
 
 	test("an answer for another call id or terminal is refused and the question waits", async () => {
 		const waiting = store.ask(TERMINAL, post(), new AbortController().signal);
+		await shownCount(1);
 		expect(store.answer(TERMINAL, { id: "toolu_02", inTerminal: true })).toBe(false);
 		expect(store.answer(OTHER, { id: "toolu_01", inTerminal: true })).toBe(false);
 		expect(shown).toHaveLength(1);
@@ -123,6 +130,7 @@ describe("the question store", () => {
 	test("a dropped hook connection clears the question", async () => {
 		const hook = new AbortController();
 		const waiting = store.ask(TERMINAL, post(), hook.signal);
+		await shownCount(1);
 		hook.abort();
 		await expect(waiting).resolves.toBeNull();
 		expect(shown.at(-1)).toEqual([TERMINAL, undefined]);
@@ -131,6 +139,7 @@ describe("the question store", () => {
 
 	test("a terminal holds one question; a second asks in the terminal", async () => {
 		const first = store.ask(TERMINAL, post(), new AbortController().signal);
+		await shownCount(1);
 		await expect(
 			store.ask(
 				TERMINAL,
@@ -141,7 +150,7 @@ describe("the question store", () => {
 		expect(shown).toHaveLength(1);
 		// Another terminal is not held up by the first.
 		const other = store.ask(OTHER, post(), new AbortController().signal);
-		expect(shown).toHaveLength(2);
+		await shownCount(2);
 		store.remove(TERMINAL);
 		store.remove(OTHER);
 		await expect(Promise.all([first, other])).resolves.toEqual([null, null]);
@@ -151,6 +160,7 @@ describe("the question store", () => {
 		const held = Array.from({ length: MAX_CODING_AGENT_TERMINALS }, (_, i) =>
 			store.ask(`t-${i}`, post(), new AbortController().signal),
 		);
+		await shownCount(MAX_CODING_AGENT_TERMINALS);
 		await expect(
 			store.ask(TERMINAL, post(), new AbortController().signal),
 		).resolves.toBeNull();
@@ -161,6 +171,8 @@ describe("the question store", () => {
 	test("the wait ends 10 seconds before the limit and Claude Code asks itself", async () => {
 		vi.useFakeTimers();
 		const waiting = store.ask(TERMINAL, post(), new AbortController().signal);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(shown).toHaveLength(1);
 		vi.advanceTimersByTime(TERMINAL_QUESTION_WAIT_MS - 1);
 		expect(shown).toHaveLength(1);
 		vi.advanceTimersByTime(1);
@@ -174,11 +186,177 @@ describe("the question store", () => {
 		["a name that only contains it", post({ tool_name: "mcp__x__AskUserQuestion" })],
 		["questions that do not fit", post({ tool_input: { questions: [] } })],
 		["input that is not an object", post({ tool_input: "Which database?" })],
+		[
+			"a question past the string cap",
+			post({
+				tool_input: {
+					questions: [
+						{
+							...ONE,
+							question: "x".repeat(MAX_TERMINAL_QUESTION_STRING_CHARS + 1),
+						},
+					],
+				},
+			}),
+		],
 	])("%s never waits or gets an allow", async (_, body) => {
 		await expect(
 			store.ask(TERMINAL, body, new AbortController().signal),
 		).resolves.toBeNull();
 		expect(shown).toEqual([]);
+	});
+
+	test("a terminal that is not open asks in the terminal", async () => {
+		closed.add(TERMINAL);
+		await expect(
+			store.ask(TERMINAL, post(), new AbortController().signal),
+		).resolves.toBeNull();
+		expect(shown).toEqual([]);
+		// A failed check counts as not open.
+		const failing = new TerminalQuestions({
+			onChange: (id, question) => shown.push([id, question]),
+			isOpen: () => Promise.reject(new Error("tmux failed")),
+		});
+		await expect(
+			failing.ask(TERMINAL, post(), new AbortController().signal),
+		).resolves.toBeNull();
+		expect(shown).toEqual([]);
+	});
+
+	test("20 terminals of maximal questions keep the frame well under the API's 1 MiB", async () => {
+		// The API's cap on an agent frame (apps/api preview registry).
+		const API_FRAME_BYTES = 1024 * 1024;
+		const board = new CodingAgentBoard({ now: () => NOW });
+		const held = new TerminalQuestions({
+			onChange: (id, question) => board.question(id, question),
+			isOpen: async () => true,
+		});
+		// Control characters take six bytes each in JSON, the most a character can.
+		const text = (length: number) => "\u0001".repeat(length);
+		// Every string the same length, the longest that keeps the post under its cap.
+		const maximal = (n: number): TerminalQuestionPost => {
+			const build = (length: number) => {
+				const option = (label: string) => ({
+					label: `${label}${text(length)}`,
+					description: text(length),
+					preview: text(length),
+				});
+				const one = (i: number) => ({
+					question: `${i}${text(length)}`,
+					header: "h".repeat(40),
+					multiSelect: true,
+					options: [option("a"), option("b"), option("c"), option("d")],
+				});
+				return post({
+					tool_use_id: `toolu_${n}`,
+					tool_input: { questions: [one(0), one(1), one(2), one(3)] },
+				});
+			};
+			let [low, high] = [0, MAX_TERMINAL_QUESTION_STRING_CHARS - 1];
+			while (low < high) {
+				const mid = Math.ceil((low + high) / 2);
+				if (JSON.stringify(build(mid)).length > MAX_TERMINAL_QUESTION_POST_BYTES)
+					high = mid - 1;
+				else low = mid;
+			}
+			const body = build(low);
+			expect(JSON.stringify(body).length).toBeGreaterThan(
+				MAX_TERMINAL_QUESTION_POST_BYTES - 1024,
+			);
+			return body;
+		};
+		const terminals = Array.from(
+			{ length: MAX_CODING_AGENT_TERMINALS },
+			(_, i) => `${i.toString(16).padStart(8, "0")}-3b1c-4d5e-9f60-718293a4b5c6`,
+		);
+		for (const [i, id] of terminals.entries()) {
+			board.set(id, "claude", "needs-input", i + 1);
+			for (let s = 0; s < MAX_SUBAGENTS_PER_TERMINAL; s++) {
+				board.subagent({
+					terminal: id,
+					event: "pre_tool_use",
+					at: i * 100 + s + 1,
+					tool_use_id: `toolu_sub_${s}`,
+					description: "d".repeat(120),
+					subagent_type: "t".repeat(64),
+				});
+			}
+		}
+		const waits = terminals.map((id, i) =>
+			held.ask(id, maximal(i), new AbortController().signal),
+		);
+		// Some are refused at once and ask in the terminal; the rest wait.
+		await vi.waitFor(() =>
+			expect(board.current().filter((one) => one.question).length).toBeGreaterThan(0),
+		);
+		const frame = JSON.stringify(
+			AgentCodingAgentsChanged.parse({
+				type: "workspace.coding-agents.changed",
+				terminals: board.current(),
+			}),
+		);
+		const questionBytes = board
+			.current()
+			.reduce(
+				(sum, one) => sum + (one.question ? JSON.stringify(one.question).length : 0),
+				0,
+			);
+		expect(questionBytes).toBeLessThanOrEqual(MAX_TERMINAL_QUESTIONS_HELD_BYTES);
+		expect(Buffer.byteLength(frame)).toBeLessThan(API_FRAME_BYTES * 0.75);
+		for (const id of terminals) held.remove(id);
+		await Promise.all(waits);
+	});
+
+	test("ordinary questions on all 20 terminals are all held", async () => {
+		const waits = Array.from({ length: MAX_CODING_AGENT_TERMINALS }, (_, i) =>
+			store.ask(`t-${i}`, post(), new AbortController().signal),
+		);
+		await shownCount(MAX_CODING_AGENT_TERMINALS);
+		for (let i = 0; i < MAX_CODING_AGENT_TERMINALS; i++) store.remove(`t-${i}`);
+		await expect(Promise.all(waits)).resolves.toEqual(
+			Array(MAX_CODING_AGENT_TERMINALS).fill(null),
+		);
+	});
+
+	test("a question's bytes are given back when it goes", async () => {
+		const big = (n: number) =>
+			post({
+				tool_use_id: `toolu_${n}`,
+				tool_input: {
+					questions: [
+						{
+							...ONE,
+							question: String(n).padEnd(MAX_TERMINAL_QUESTION_STRING_CHARS, "x"),
+							options: ONE.options.map((o) => ({
+								label: o.label.padEnd(MAX_TERMINAL_QUESTION_STRING_CHARS, "x"),
+								description: "x".repeat(MAX_TERMINAL_QUESTION_STRING_CHARS),
+								preview: "x".repeat(MAX_TERMINAL_QUESTION_STRING_CHARS),
+							})),
+						},
+					],
+				},
+			});
+		const each = JSON.stringify({
+			id: "toolu_0",
+			questions: (big(0).tool_input as typeof INPUT).questions,
+		}).length;
+		const fit = Math.floor(MAX_TERMINAL_QUESTIONS_HELD_BYTES / each);
+		// The byte cap, not the terminal cap, is what refuses here.
+		expect(fit).toBeLessThan(MAX_CODING_AGENT_TERMINALS);
+		const waits = Array.from({ length: fit }, (_, i) =>
+			store.ask(`t-${i}`, big(i), new AbortController().signal),
+		);
+		await shownCount(fit);
+		await expect(
+			store.ask(TERMINAL, big(99), new AbortController().signal),
+		).resolves.toBeNull();
+		store.remove("t-0");
+		await waits[0];
+		const after = store.ask(TERMINAL, big(99), new AbortController().signal);
+		await vi.waitFor(() => expect(shown.at(-1)?.[0]).toBe(TERMINAL));
+		store.remove(TERMINAL);
+		for (let i = 1; i < fit; i++) store.remove(`t-${i}`);
+		await Promise.all([after, ...waits]);
 	});
 });
 
@@ -188,7 +366,6 @@ describe("the board", () => {
 		const question: TerminalQuestion = {
 			id: "toolu_01",
 			questions: INPUT.questions,
-			expiresAt: NOW.toISOString(),
 		};
 		const frames: unknown[] = [];
 		board.subscribe((terminals) => frames.push(terminals));
@@ -279,6 +456,15 @@ describe("the loopback receiver", () => {
 		});
 		expect(response.statusCode).toBe(204);
 		expect(response.body).toBe("");
+		// A made-up terminal id is not an open terminal.
+		closed.add(OTHER);
+		const unknown = await app.inject({
+			method: "POST",
+			url: `${CODING_AGENT_QUESTION_PATH}?terminal=${OTHER}`,
+			payload: post(),
+		});
+		expect(unknown.statusCode).toBe(204);
+		expect(shown).toEqual([]);
 		await app.close();
 	});
 
@@ -309,6 +495,7 @@ describe("the loopback receiver", () => {
 	test("never takes an answer", async () => {
 		const app = receiver();
 		const waiting = store.ask(TERMINAL, post(), new AbortController().signal);
+		await shownCount(1);
 		const response = await app.inject({
 			method: "POST",
 			url: `/terminals/${TERMINAL}/question`,
@@ -332,6 +519,7 @@ describe("the answer route", () => {
 	test("an answer for the waiting question settles it", async () => {
 		const app = await route();
 		const waiting = store.ask(TERMINAL, post(), new AbortController().signal);
+		await shownCount(1);
 		const response = await app.inject({
 			method: "POST",
 			url: `/terminals/${TERMINAL}/question`,

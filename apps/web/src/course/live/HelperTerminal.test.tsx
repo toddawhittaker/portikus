@@ -12,6 +12,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../../api/queryClient.js";
 import { editorSettingsKey } from "../../editor/settingsQueries.js";
+import { enableWebglRenderer } from "../../terminal/webglRenderer.js";
 import {
 	HelperTerminal,
 	type HelperTerminalProps,
@@ -20,6 +21,11 @@ import {
 	swallowUnsafeSequences,
 } from "./HelperTerminal.js";
 import { helperCloseAction } from "./helperClose.js";
+
+const dropWebgl = vi.fn();
+vi.mock("../../terminal/webglRenderer.js", () => ({
+	enableWebglRenderer: vi.fn(() => dropWebgl),
+}));
 
 const PATH = "/courses/c1/live-help/s1/terminals/t1/ws";
 
@@ -49,6 +55,7 @@ class FakeWebSocket {
 
 afterEach(() => {
 	cleanup();
+	vi.clearAllMocks();
 	sockets.length = 0;
 	vi.unstubAllGlobals();
 	vi.useRealTimers();
@@ -129,6 +136,17 @@ function inputsSent(socket: FakeWebSocket): string[] {
 		.filter((frame) => frame.type === "input")
 		.map((frame) => frame.data ?? "");
 }
+
+test("the GPU renderer starts on the helper's terminal once and goes with it", () => {
+	const { view, update } = renderTerminal();
+	expect(enableWebglRenderer).toHaveBeenCalledTimes(1);
+	// A mode change keeps the terminal, so it keeps the renderer.
+	update({ typing: true });
+	expect(enableWebglRenderer).toHaveBeenCalledTimes(1);
+	expect(dropWebgl).not.toHaveBeenCalled();
+	view.unmount();
+	expect(dropWebgl).toHaveBeenCalledTimes(1);
+});
 
 test("it attaches to the live help path with a starting size", () => {
 	const { socket, host } = renderTerminal();

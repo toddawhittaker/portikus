@@ -14,6 +14,7 @@ import {
 	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENTS_PER_TERMINAL,
 	MAX_TERMINAL_QUESTION_POST_BYTES,
+	MAX_TERMINAL_QUESTION_STRING_CHARS,
 	PlanUsage,
 	TERMINAL_QUESTION_TIMEOUT_MS,
 	TerminalQuestion,
@@ -384,7 +385,7 @@ describe("terminal questions", () => {
 			{ label: "Postgres", description: "A server" },
 		],
 	};
-	const asked = { id: "toolu_01AbC", questions: [question], expiresAt: NOW };
+	const asked = { id: "toolu_01AbC", questions: [question] };
 
 	test("the default wait is thirty minutes", () => {
 		expect(TERMINAL_QUESTION_TIMEOUT_MS).toBe(30 * 60 * 1000);
@@ -413,8 +414,34 @@ describe("terminal questions", () => {
 		expect(parse({ ...asked, questions: [{ ...question, options: [] }] })).toBe(false);
 		expect(parse({ ...asked, id: "x".repeat(65) })).toBe(false);
 		expect(parse({ ...asked, id: "bad id" })).toBe(false);
-		expect(parse({ ...asked, expiresAt: "soon" })).toBe(false);
+		expect(parse({ ...asked, expiresAt: NOW })).toBe(false);
 		expect(parse({ ...asked, extra: 1 })).toBe(false);
+	});
+
+	test("each string is capped, header at the chat's 40 characters", () => {
+		const parse = (value: unknown) => TerminalQuestion.safeParse(value).success;
+		const at = "x".repeat(MAX_TERMINAL_QUESTION_STRING_CHARS);
+		const past = `${at}x`;
+		const option = (fields: object) => ({
+			...asked,
+			questions: [
+				{
+					...question,
+					options: [{ ...question.options[0], ...fields }, question.options[1]],
+				},
+			],
+		});
+		expect(parse({ ...asked, questions: [{ ...question, question: at }] })).toBe(true);
+		expect(parse({ ...asked, questions: [{ ...question, question: past }] })).toBe(
+			false,
+		);
+		expect(
+			parse({ ...asked, questions: [{ ...question, header: "x".repeat(41) }] }),
+		).toBe(false);
+		for (const field of ["label", "description", "preview"]) {
+			expect(parse(option({ [field]: at }))).toBe(true);
+			expect(parse(option({ [field]: past }))).toBe(false);
+		}
 	});
 
 	test("an answer carries picks with optional notes, or says answer in the terminal", () => {

@@ -237,3 +237,20 @@ test("an answer that could not be sent says so and can be sent again", () => {
 	expect(onAnswer).toHaveBeenCalledTimes(2);
 	expect(submit().getAttribute("aria-busy")).toBe("true");
 });
+
+test("an extra action sits first in the footer, before Skip all", () => {
+	render(
+		<QuestionCard
+			card={QUESTION}
+			onAnswer={vi.fn(() => true)}
+			takeFocus={() => false}
+			waiting={0}
+			extraAction={<button type="button">Elsewhere</button>}
+		/>,
+	);
+	const buttons = Array.from(
+		screen.getByTestId("chat-question-card").querySelectorAll("footer button"),
+	).map((button) => button.textContent);
+	expect(buttons[0]).toBe("Elsewhere");
+	expect(buttons[1]).toBe("Skip all");
+});

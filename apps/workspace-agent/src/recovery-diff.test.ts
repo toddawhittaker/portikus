@@ -176,8 +176,21 @@ describe("comparing with a recovery point", () => {
 
 	test("a read past its time limit says so", async () => {
 		const { pointId, sha256 } = await makePoint();
-		await expect(diff(pointId, sha256, "src/app.js", 1)).rejects.toMatchObject({
-			code: "RECOVERY_READ_TIMEOUT",
+		// A stand-in tar that never returns, so the time limit always wins. The
+		// agent spawns "tar" by name, so a shim earlier on PATH takes its place.
+		const shimDir = join(base, "shim");
+		await mkdir(shimDir);
+		await writeFile(join(shimDir, "tar"), "#!/bin/sh\nexec sleep 30\n", {
+			mode: 0o755,
 		});
+		const realPath = process.env.PATH;
+		process.env.PATH = `${shimDir}:${realPath ?? ""}`;
+		try {
+			await expect(diff(pointId, sha256, "src/app.js", 50)).rejects.toMatchObject({
+				code: "RECOVERY_READ_TIMEOUT",
+			});
+		} finally {
+			process.env.PATH = realPath;
+		}
 	});
 });
