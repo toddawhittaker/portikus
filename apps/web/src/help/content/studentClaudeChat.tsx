@@ -62,6 +62,24 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					on the card, never while you type in the message box.
 				</li>
 				<li>
+					After you answer a permission card, a quiet line under the tool's row says
+					what you chose: "Allowed", "Allowed for this chat", "Denied", or for a plan
+					"Plan approved" or "Kept planning". The lines fold into "Worked for" with the
+					rest of the turn. They stay when you reload or open the chat in another
+					browser, but are lost when the workspace stops. A card you cancel leaves no
+					line.
+				</li>
+				<li>
+					In a Claude Code (TUI) terminal, when Claude asks you a question, the same
+					question card appears over the bottom of the terminal, and the terminal does
+					not shrink. Answer on the card, or choose{" "}
+					<strong>Answer in the terminal</strong> to use Claude Code's own question
+					there. Only you, the workspace's owner, see the card; it is not shown in a
+					chat tab, and Portikus does not keep the question or your answer. If Claude
+					Code stops waiting, or you answered in the terminal first, the card says so
+					and goes away.
+				</li>
+				<li>
 					<strong>Deny</strong> and <strong>No, keep planning</strong> open a line,
 					"Tell Claude what to do instead". Type a reason and press Enter to send it to
 					Claude, or press Enter with nothing typed to deny without one. Escape goes
