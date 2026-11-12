@@ -56,7 +56,7 @@ export function filterMembers(
 			case "stopped":
 				return student && member.workspaceState === "stopped";
 			case "instructors":
-				return !student;
+				return member.role === "instructor";
 			default:
 				return true;
 		}

@@ -2,6 +2,7 @@ import { POOL_WARN_PERCENT } from "@portikus/contracts";
 import { Icon, Meter } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import { formatBytes, WARN_AT } from "../monitor/format.js";
+import { timeAgo } from "../text.js";
 import "../shell/status-bar.css";
 import { attentionOf, usedPercent } from "./health/attention.js";
 import { useHealthGlance } from "./health/queries.js";
@@ -39,8 +40,12 @@ export function AdminStatusBar() {
 					<div className="pk-statusbar-usage">
 						<span className="pk-statusbar-item">
 							<span className="pk-statusbar-label">Workspaces</span>
-							<span className="pk-num">
+							{/* "3/5" reads as a date or a fraction, so a screen reader hears it in words. */}
+							<span className="pk-num" aria-hidden="true">
 								{running}/{total}
+							</span>
+							<span className="sr-only">
+								{running} of {total} running
 							</span>
 						</span>
 						{host ? (
@@ -74,6 +79,18 @@ export function AdminStatusBar() {
 									<span className="pk-num">{host.loadAverage[0]?.toFixed(2)}</span>
 								</span>
 							</>
+						) : null}
+						{/* This report is not polled off the Health tab, so its age shows. */}
+						{report.sampledAt ? (
+							<span
+								className="pk-statusbar-item pk-admin-statusbar-extra"
+								data-testid="admin-status-age"
+							>
+								<span className="pk-statusbar-label">Sampled</span>
+								<time dateTime={report.sampledAt}>
+									{timeAgo(report.sampledAt, Date.now()).toLowerCase()}
+								</time>
+							</span>
 						) : null}
 					</div>
 					<Link

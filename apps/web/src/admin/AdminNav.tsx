@@ -73,8 +73,15 @@ export function AdminNav({
 			</button>
 			<div className="pk-adminnav-list" id={listId}>
 				{ADMIN_TAB_GROUPS.filter((group) => group.tabs.some(shown)).map((group) => (
-					<div className="pk-adminnav-group" key={group.label}>
-						<p className="pk-adminnav-group-label" aria-hidden={true}>
+					// Named by its visible label, so a screen reader hears "People" before Users.
+					// biome-ignore lint/a11y/useSemanticElements: a group of links, not form controls, so a fieldset does not fit
+					<div
+						className="pk-adminnav-group"
+						key={group.label}
+						role="group"
+						aria-labelledby={`${listId}-${group.label}`}
+					>
+						<p className="pk-adminnav-group-label" id={`${listId}-${group.label}`}>
 							{group.label}
 						</p>
 						<div className="pk-adminnav-tabs">

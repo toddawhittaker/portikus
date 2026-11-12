@@ -132,6 +132,9 @@
 /* Tokens per day: one column a day, Claude Code and Codex stacked, on a hairline baseline. */
 .pk-usage-chart {
 	display: grid;
+	/* The chart takes its place's width; its day labels never widen it. */
+	grid-template-columns: minmax(0, 1fr);
+	min-width: 0;
 	gap: var(--space-4);
 	margin: 0;
 	padding: var(--space-5) var(--space-6);
@@ -148,7 +151,8 @@
 }
 .pk-usage-legend {
 	display: flex;
-	gap: var(--space-4);
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-4);
 	font-size: var(--text-sm);
 	color: var(--ink-muted);
 }
@@ -213,5 +217,9 @@
 	}
 	.pk-usage-bars {
 		block-size: 112px;
+	}
+	/* A narrow day's label puts its date under its weekday. */
+	.pk-usage-tick {
+		white-space: normal;
 	}
 }

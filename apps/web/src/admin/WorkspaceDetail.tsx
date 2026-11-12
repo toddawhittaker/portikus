@@ -7,7 +7,7 @@ import {
 	TabsRoot,
 	TabsTrigger,
 } from "@portikus/ui";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "../shell/right-pane.css";
 import { errorText } from "../api/request.js";
 import { ProcessesSection } from "./ProcessesSection.js";
@@ -37,6 +37,11 @@ const INSPECTOR_TABS: readonly {
 	{ id: "account", label: "Account", icon: "users" },
 ];
 
+/** A throttle or memory flag is what the reader came for, so the guard then leads the Overview. */
+export function overviewOrder(problem: boolean): ("guard" | "resources")[] {
+	return problem ? ["guard", "resources"] : ["resources", "guard"];
+}
+
 /** The panel beside the table for one account and its workspace (SPEC.md §20.1). */
 export function WorkspaceDetail({
 	user,
@@ -54,11 +59,22 @@ export function WorkspaceDetail({
 	const userId = user.id;
 	// Sections that need the detail wait for it; an account without a workspace has none to wait for.
 	const settled = data !== null || workspaceId === null;
-	// A throttle or memory flag is what the reader came for, so the guard leads.
 	const problem =
 		data !== null && (data.cpuThrottle !== null || data.memoryFlag !== null);
 
 	const [tab, setTab] = useState<InspectorTab>("overview");
+	const focusHeading = useCallback(() => headingRef.current?.focus(), []);
+	// The head stays pinned while the panel scrolls; a control Tab reaches is
+	// kept below it, however tall the head grows (WCAG 2.4.11).
+	const headRef = useRef<HTMLDivElement>(null);
+	const [headHeight, setHeadHeight] = useState(0);
+	useEffect(() => {
+		const head = headRef.current;
+		if (!head || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(() => setHeadHeight(head.offsetHeight));
+		observer.observe(head);
+		return () => observer.disconnect();
+	}, []);
 	// Opening a panel moves focus to its heading so the change is announced, on its first tab.
 	useEffect(() => {
 		if (!userId) return;
@@ -73,9 +89,13 @@ export function WorkspaceDetail({
 			className="pk-card flex flex-col @4xl:sticky @4xl:top-0 @4xl:max-h-[calc(100cqh-3rem)] @4xl:w-[400px] @4xl:flex-none @4xl:self-start @4xl:overflow-auto"
 			aria-labelledby="detail-title"
 			data-testid="workspace-detail"
+			style={{ scrollPaddingTop: headHeight }}
 		>
 			{/* Stays in view while the panel scrolls, with the lifecycle actions. */}
-			<div className="pk-detail-head sticky top-0 z-[1] bg-surface-raised shadow-[0_1px_0_var(--line)]">
+			<div
+				ref={headRef}
+				className="pk-detail-head sticky top-0 z-[1] bg-surface-raised shadow-[0_1px_0_var(--line)]"
+			>
 				<div className="flex min-w-0 flex-col gap-2">
 					<div className="flex min-w-0 flex-col gap-0.5">
 						<h3
@@ -92,7 +112,13 @@ export function WorkspaceDetail({
 							</span>
 						) : null}
 					</div>
-					{data ? <HeadState detail={data} ownerName={user.displayName} /> : null}
+					{data ? (
+						<HeadState
+							detail={data}
+							ownerName={user.displayName}
+							onFocusLost={focusHeading}
+						/>
+					) : null}
 				</div>
 				<IconButton
 					icon="x"
@@ -153,13 +179,20 @@ export function WorkspaceDetail({
 							onReprovisioned={() => headingRef.current?.focus()}
 						/>
 					) : null}
-					{data && problem ? (
-						<GuardSection detail={data} ownerName={user.displayName} />
-					) : null}
-					{settled ? <ResourcesSection detail={data} user={user} /> : null}
-					{data && !problem ? (
-						<GuardSection detail={data} ownerName={user.displayName} />
-					) : null}
+					{/*
+					 * One keyed list, so when a flag comes or goes the guard moves rather
+					 * than mounting again: its state and any open dialog survive, and the
+					 * order on screen stays the order the keyboard follows.
+					 */}
+					{overviewOrder(problem).map((part) =>
+						part === "guard" ? (
+							data ? (
+								<GuardSection key="guard" detail={data} ownerName={user.displayName} />
+							) : null
+						) : settled ? (
+							<ResourcesSection key="resources" detail={data} user={user} />
+						) : null,
+					)}
 					{settled ? (
 						<WorkspaceSection detail={data} ownerName={user.displayName} />
 					) : null}

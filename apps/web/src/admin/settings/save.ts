@@ -39,7 +39,8 @@ export function useSaveSettings() {
 
 /**
  * After a save is refused for a field, focus the first such field once the
- * error is on the page, so a screen reader hears it with the field.
+ * error is on the page, so a screen reader hears it with the field. A field
+ * inside a closed disclosure opens it first, so a refused box is never hidden.
  */
 export function useFocusFirstError(
 	errors: Record<string, string | undefined>,
@@ -50,7 +51,11 @@ export function useFocusFirstError(
 		if (!pending.current) return;
 		pending.current = false;
 		const first = Object.keys(errors)[0];
-		if (first) document.getElementById(idOf(first))?.focus();
+		const field = first ? document.getElementById(idOf(first)) : null;
+		if (!field) return;
+		const fold = field.closest("details");
+		if (fold && !fold.open) fold.open = true;
+		field.focus();
 	}, [errors, idOf]);
 	return () => {
 		pending.current = true;

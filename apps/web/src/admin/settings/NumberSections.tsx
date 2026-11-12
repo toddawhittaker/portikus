@@ -1,6 +1,6 @@
 import type { UpdatePlatformSettingsRequest } from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
-import { type FormEvent, type ReactNode, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { usePlatformSettings } from "../queries.js";
 import { useDraft } from "./draft.js";
 import { GuardPreview } from "./GuardPreview.js";
@@ -62,10 +62,6 @@ interface GuardGroup {
 	keys: readonly NumberKey[];
 }
 
-const ADVANCED_KEYS: readonly NumberKey[] = ADVANCED_GROUPS.flatMap(
-	(group) => group.keys,
-);
-
 const GUARD_KEYS = [
 	"guardWindowMinutes",
 	...GUARD_GROUPS.flatMap((group) => group.keys),
@@ -91,10 +87,8 @@ function NumberSection<K extends NumberKey>({
 	keys: readonly K[];
 	saveLabel: string;
 	announceLoadFailure: boolean;
-	/** `busy` says whether any of the keys is changed or refused, so a closed part can open. */
 	layout: (
 		row: (key: K) => ReactNode,
-		busy: (keys: readonly NumberKey[]) => boolean,
 		/** The box's current text, saved or not, for a preview that follows the edits. */
 		value: (key: K) => string | undefined,
 	) => ReactNode;
@@ -128,7 +122,6 @@ function NumberSection<K extends NumberKey>({
 				// The same layout with each row's shape, so nothing moves when the values arrive.
 				skeleton={layout(
 					(key) => <SettingRowSkeleton key={key} />,
-					() => false,
 					() => undefined,
 				)}
 			/>
@@ -158,16 +151,7 @@ function NumberSection<K extends NumberKey>({
 	return (
 		<SectionCard section={section} description={description} more={more}>
 			<form className="grid min-w-0 gap-5" noValidate onSubmit={submit}>
-				{layout(
-					row,
-					(some) =>
-						keys.some(
-							(key) =>
-								some.includes(key) &&
-								(draft.isChanged(key) || draft.errors[key] !== undefined),
-						),
-					(key) => draft.value(key),
-				)}
+				{layout(row, (key) => draft.value(key))}
 				<SaveFooter
 					id={section.id}
 					count={draft.changed.length}
@@ -215,7 +199,7 @@ export function GuardSection() {
 			keys={GUARD_KEYS}
 			saveLabel="Save resource guard"
 			announceLoadFailure={false}
-			layout={(row, busy, value) => (
+			layout={(row, value) => (
 				<>
 					<GuardPreview value={value} />
 					<SettingRows>{row("guardWindowMinutes")}</SettingRows>
@@ -224,7 +208,7 @@ export function GuardSection() {
 							<SettingRows>{group.keys.map(row)}</SettingRows>
 						</SectionGroup>
 					))}
-					<AdvancedRules busy={busy(ADVANCED_KEYS)}>
+					<AdvancedRules>
 						{ADVANCED_GROUPS.map((group) => (
 							<SectionGroup key={group.id} id={group.id} title={group.title}>
 								<SettingRows>{group.keys.map(row)}</SettingRows>
@@ -239,19 +223,12 @@ export function GuardSection() {
 
 /**
  * When a slowed workspace gets full speed back and when it is held: closed
- * at first, and opened while one of its boxes is changed or refused, so a
- * box the save footer names is never hidden.
+ * at first. A refused box inside opens it when focus moves to the box
+ * (useFocusFirstError), so the box the save footer names is never hidden.
  */
-function AdvancedRules({ busy, children }: { busy: boolean; children: ReactNode }) {
-	const [open, setOpen] = useState(false);
-	const shown = open || busy;
+function AdvancedRules({ children }: { children: ReactNode }) {
 	return (
-		<details
-			className="group grid gap-3"
-			open={shown}
-			onToggle={(event) => setOpen(event.currentTarget.open)}
-			data-testid="guard-advanced"
-		>
+		<details className="group grid gap-3" data-testid="guard-advanced">
 			<summary className="pk-focus-ring inline-flex min-h-8 w-fit cursor-pointer list-none items-center gap-1.5 rounded-xs text-[14px] font-semibold text-ink [&::-webkit-details-marker]:hidden @max-[30rem]/card:min-h-11">
 				<Icon
 					name="chevron-right"

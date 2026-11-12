@@ -4,7 +4,7 @@ import { imageText, Markers, markerLabels, roleText } from "../markers.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 import { AccountMenu } from "./AccountMenu.js";
 import type { BulkAction } from "./BulkActions.js";
-import { accountActivityText } from "./filters.js";
+import { activityText } from "./filters.js";
 
 /** The Account cell's second line: the email, or the username when there is none. */
 function accountContact(user: Pick<AdminUser, "email" | "preferredUsername">): string {
@@ -113,7 +113,7 @@ export function AccountRow({
 				className="py-2 whitespace-normal text-[13px] text-ink-muted"
 				data-testid={`account-activity-${user.id}`}
 			>
-				{accountActivityText(user, now)}
+				{workspace ? activityText(workspace, now) : "—"}
 			</td>
 			<td className="pk-cell-actions py-2">
 				<AccountMenu user={user} currentUserId={currentUserId} onConfirm={onConfirm} />

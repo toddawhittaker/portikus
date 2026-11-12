@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { usePageTitle } from "../../pageTitle.js";
 import { usePhoneLayout } from "../../shell/ShellDrawer.js";
+import { timeAgo } from "../../text.js";
 import { CourseFrame } from "../CourseFrame.js";
 import { dateTimeText } from "../time.js";
 import { focusHeadingOnArrival } from "./arrival.js";
@@ -212,14 +213,16 @@ function SessionFacts({ detail }: { detail: CourseLiveHelpDetail }) {
 				Request
 			</h2>
 			<dl className="pk-live-facts m-0">
+				{/* The project and end time are under the heading already. */}
 				<dt>Student</dt>
 				<dd className="[overflow-wrap:anywhere]">{detail.session.displayName}</dd>
-				<dt>Project</dt>
-				<dd className="[overflow-wrap:anywhere]">{detail.session.projectName}</dd>
-				<dt>Ends</dt>
+				<dt>Asked</dt>
 				<dd>
-					<time dateTime={detail.session.endsAt}>
-						{dateTimeText(detail.session.endsAt)}
+					<time
+						dateTime={detail.session.startedAt}
+						title={dateTimeText(detail.session.startedAt)}
+					>
+						{timeAgo(detail.session.startedAt, Date.now())}
 					</time>
 				</dd>
 			</dl>
@@ -266,7 +269,7 @@ function TerminalsSection({
 	return (
 		<section
 			aria-labelledby="live-terminals-title"
-			className={`pk-live-frame @5xl:flex-1 ${showing ? "flex-1" : ""}`}
+			className={`pk-live-frame min-[56rem]:flex-1 ${showing ? "flex-1" : ""}`}
 			data-mode={detail.session.typing ? "type" : "view"}
 		>
 			{/* The student's tab strip: one tab per terminal, the shown one with the accent foot. */}

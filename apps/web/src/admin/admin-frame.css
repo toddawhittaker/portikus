@@ -183,10 +183,14 @@
 	border-radius: 1px;
 	background: var(--accent);
 }
+/* In forced colours the bar keeps the system's highlight, and so does a phone's boxed link edge. */
 @media (forced-colors: active) {
 	.pk-adminnav-link[aria-current="page"]::before {
 		forced-color-adjust: none;
 		background: Highlight;
+	}
+	.pk-adminnav-link[aria-current="page"] {
+		border-color: Highlight;
 	}
 }
 .pk-adminnav-toggle {
@@ -459,6 +463,29 @@
 @media (prefers-reduced-motion: reduce) {
 	.pk-save-footer[data-dirty] {
 		animation: none;
+	}
+}
+
+/*
+ * Settings: a field Tab lands on stays clear of the section links stuck
+ * above it and of the save bar floating below (WCAG 2.4.11). Where the links
+ * sit above the sections they keep one row that scrolls sideways, so their
+ * height is known.
+ */
+.pk-adminframe-scroll:has(.pk-section-index) {
+	scroll-padding-block: 5rem 7rem;
+}
+@container settings (width < 62rem) {
+	.pk-section-index {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+	.pk-section-index > li {
+		flex: none;
+	}
+	.pk-section-index a {
+		white-space: nowrap;
 	}
 }
 

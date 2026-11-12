@@ -1,7 +1,7 @@
-import type { ActiveCourseMember } from "@portikus/contracts";
+import type { ActiveCourseMember, CourseMember } from "@portikus/contracts";
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { ClassDots, ClassDotsKey } from "./ClassDots.js";
+import { ClassDots, ClassDotsKey, dotCounts } from "./ClassDots.js";
 
 function student(
 	userId: string,
@@ -56,4 +56,34 @@ test("a student with no workspace and one starting each get a key entry of their
 			(item) => item.textContent,
 		),
 	).toEqual(["Starting or stopping", "No workspace yet"]);
+});
+
+test("the counts group the class as the dots do, every kind with any student", () => {
+	const notStarted: CourseMember = {
+		status: "not_started",
+		userId: null,
+		displayName: "Nia New",
+		role: "student",
+		lastLaunchAt: null,
+		workspaceState: null,
+	};
+	const students: CourseMember[] = [
+		...CLASS,
+		student("e", "starting"),
+		student("f", "error"),
+		notStarted,
+	];
+	// d is waiting, so it counts once, as waiting, not also as running.
+	expect(dotCounts(students, new Set(["d"]))).toEqual([
+		{ kind: "waiting", count: 1, text: "1 waiting for help" },
+		{ kind: "error", count: 1, text: "1 workspace error" },
+		{ kind: "running", count: 2, text: "2 running" },
+		{ kind: "moving", count: 1, text: "1 starting or stopping" },
+		{ kind: "stopped", count: 1, text: "1 stopped" },
+		{ kind: "none", count: 1, text: "1 with no workspace yet" },
+	]);
+	expect(dotCounts(CLASS, new Set()).map((group) => group.kind)).toEqual([
+		"running",
+		"stopped",
+	]);
 });
