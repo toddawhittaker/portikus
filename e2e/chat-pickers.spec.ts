@@ -649,28 +649,75 @@ test("switching to a model that cannot run Auto while in Auto shows the chat in 
 		]);
 });
 
-test("Read replies aloud sits to the right of Model and Version", async ({
-	page,
-	context,
-}) => {
-	const student = await createStudent(context);
-	const project = await createProject(student.workspaceId, { name: "Switch place" });
-	await scriptHost(page);
-	await openProject(page, student.workspaceId, project.id);
-	const { view } = await withPickers(launchChat(page, student.workspaceId, project.id));
-	await page.setViewportSize({ width: 1280, height: 800 });
-	const box = async (testId: string) => {
-		const found = await view.getByTestId(testId).boundingBox();
-		if (!found) throw new Error(`${testId} has no layout`);
-		return found;
-	};
-	const model = await box("composer-model");
-	const version = await box("composer-version");
-	const aloud = await box("composer-read-aloud");
-	// Version sits right under Model, and the switch is in the last column, right of both.
-	expect(Math.abs(version.x - model.x)).toBeLessThan(2);
-	expect(version.y).toBeGreaterThan(model.y);
-	expect(version.y - (model.y + model.height)).toBeLessThan(12);
-	expect(aloud.x).toBeGreaterThan(model.x);
-	expect(aloud.x + aloud.width).toBeGreaterThanOrEqual(model.x + model.width);
-});
+for (const colorScheme of ["dark", "light"] as const) {
+	test(`the options are label-over-value fields on one line, Read aloud in the heading row, and wrap when narrow (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Fields" });
+		await scriptHost(page);
+		await openProject(page, student.workspaceId, project.id);
+		const { view } = await withPickers(
+			launchChat(page, student.workspaceId, project.id),
+		);
+		await page.setViewportSize({ width: 1280, height: 800 });
+		const box = async (target: Locator) => {
+			const found = await target.boundingBox();
+			if (!found) throw new Error("no layout");
+			return found;
+		};
+		const fields = [
+			"composer-agent",
+			"composer-model",
+			"composer-version",
+			"composer-effort",
+			"composer-mode",
+		];
+		const boxes = await Promise.all(
+			fields.map((testId) => box(view.getByTestId(testId))),
+		);
+		// One line, in order, Model and Version side by side.
+		for (const [index, one] of boxes.entries()) {
+			expect(Math.abs(one.y - (boxes[0]?.y ?? 0))).toBeLessThan(2);
+			if (index > 0) expect(one.x).toBeGreaterThan((boxes[index - 1]?.x ?? 0) + 1);
+		}
+		const [, model, version] = boxes;
+		if (!model || !version) throw new Error("no model or version");
+		expect(version.x - (model.x + model.width)).toBeLessThan(24);
+		// Each label sits over its value, both starting at the same edge.
+		for (const testId of fields) {
+			const label = await box(view.getByTestId(testId).locator(".pk-picker-label"));
+			const value = await box(view.getByTestId(testId).locator(".pk-picker-value"));
+			expect(Math.abs(label.x - value.x)).toBeLessThan(2);
+			expect(label.y + label.height).toBeLessThanOrEqual(value.y + 1);
+		}
+		// The switch shares the title's row and ends at the panel's end.
+		const panel = await box(view.getByTestId("composer-picks"));
+		const title = await box(view.locator(".pk-composer-picks-title"));
+		const aloud = await box(view.getByTestId("composer-read-aloud"));
+		expect(
+			Math.abs(aloud.y + aloud.height / 2 - (title.y + title.height / 2)),
+		).toBeLessThan(4);
+		expect(aloud.y + aloud.height).toBeLessThanOrEqual((boxes[0]?.y ?? 0) + 1);
+		expect(panel.x + panel.width - (aloud.x + aloud.width)).toBeLessThan(16);
+		await expectNoViolations(page, '[data-testid="composer-picks"]');
+
+		// A narrow pane wraps the fields onto more lines, never past the panel's edge.
+		await page.setViewportSize({ width: 400, height: 800 });
+		const narrow = await box(view.getByTestId("composer-picks"));
+		const lines = new Set<number>();
+		for (const testId of fields) {
+			const one = await box(view.getByTestId(testId));
+			lines.add(Math.round(one.y));
+			expect(one.x).toBeGreaterThanOrEqual(narrow.x - 1);
+			expect(one.x + one.width).toBeLessThanOrEqual(narrow.x + narrow.width + 1);
+		}
+		expect(lines.size).toBeGreaterThan(1);
+		const narrowModel = await box(view.getByTestId("composer-model"));
+		const narrowVersion = await box(view.getByTestId("composer-version"));
+		expect(Math.abs(narrowModel.y - narrowVersion.y)).toBeLessThan(2);
+		await expectNoViolations(page, '[data-testid="composer-picks"]');
+	});
+}
