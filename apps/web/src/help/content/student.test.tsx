@@ -141,6 +141,13 @@ test("getting started names the five New tab choices", () => {
 	}
 });
 
+test("the Claude topic describes the decision line and the terminal question card", () => {
+	const text = topicText("student-claude-chat");
+	expect(text).toContain("Allowed for this chat");
+	expect(text).toContain("Plan approved");
+	expect(text).toContain("Answer in the terminal");
+});
+
 test("the phone topic names both drawer buttons and how a drawer closes", () => {
 	const text = topicText("student-phone");
 	expect(text).toContain("Projects");

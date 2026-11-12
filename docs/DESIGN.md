@@ -410,12 +410,13 @@ needs-input tag all use it. A new status picks a tone rather than a new
 pill, and always carries a word or letter, never colour alone. Git marks are
 not badges: each is a 12 px semibold letter in the kind's colour (M amber,
 U and A green, D red, R blue, and a conflict magenta with the alert icon),
-and a file-type icon is a distinct glyph per family, lightly tinted.
+A file-type icon is a distinct glyph per family, and a source file is a page stamped with a short language tag (py, js, ts, and so on). Every file and folder icon is lightly tinted by family or language, at least 3:1 on every row background; magenta is never a tint. Secrets (.env, .pem, .key) get a key glyph with the strongest tint.
 
 **Cards and elevation.** A card resting in the flow of the work area (the
 composer, a chat's step groups and shell boxes, check output) has a 1 px
 line and the small shadow. A card that asks for attention or floats has
-the medium shadow: permission and question cards, which also carry a 4 px
+the medium shadow: permission and question cards (a terminal's question card floats over the
+bottom of the pane without resizing it), which also carry a 4 px
 amber start border, the workspace starting card, menus, popovers and
 toasts. Dialogs have the large shadow. Errors in the chat and on the
 workspace card have a 4 px red start border.
