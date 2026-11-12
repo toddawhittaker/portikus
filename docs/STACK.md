@@ -681,6 +681,7 @@ The packages chosen for that path, at exact versions pinned in
 | `@xterm/xterm` | browser | terminal emulator |
 | `@xterm/addon-fit` | browser | size the terminal to its pane |
 | `@xterm/addon-web-links` | browser | detect links for §14.9 linkification |
+| `@xterm/addon-webgl` | browser | draw box and block characters to fill the cell, so borders have no gaps |
 
 `@xterm/xterm` is the maintained scope of the package STACK calls xterm.js;
 the old `xterm` package name is not used.
