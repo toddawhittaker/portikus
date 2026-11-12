@@ -160,6 +160,10 @@ list was made and may already be fixed.
 - The full chat path with a signed-in Claude account (subagent rows, `!` commands, read aloud, the context meter) has not been run end to end on a VM. The pilot still needs a check that `SubagentStop` hooks fire under the SDK and that only `/clear` changes the session id.
 - Haiku sometimes ignores a message sent while Claude works (#1801).
 - Permission decisions shown in the chat live in the chat host's memory, so a host restart or a resumed ended chat loses them.
+- Answering a permission card splits an open tool group, because a call with a decision stands alone (a visual jump).
+- The "Answered in the terminal or timed out" notice on a terminal's question card shows for 4 seconds only.
+- A long decision target in the chat is cut with an ellipsis; its full text is in a tooltip.
+- A terminal's question on a visible tab is not announced to a screen reader when focus is in another pane (#1944).
 - Codex delta metrics are unconfirmed on a real Codex turn (#1531), and Codex has no subagent hooks, so it shows no subagent rows.
 - Accepted: if a student stops Claude Code with Esc, its tab shows "working" until the next prompt, because Claude sends no hook for it.
 - A GUI and a terminal session of Claude Code can still run one session at once; Help says not to.
