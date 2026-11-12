@@ -178,9 +178,11 @@ function Pick({
 				>
 					{/* The space keeps the name "Model Opus", not "ModelOpus". */}
 					<span className="pk-picker-label">{label}</span>{" "}
-					{warning ? <Icon name="alert" size="sm" /> : null}
-					<span className="pk-picker-value">{shown}</span>
-					<Icon name="chevron-down" size="sm" />
+					<span className="pk-picker-current">
+						{warning ? <Icon name="alert" size="sm" /> : null}
+						<span className="pk-picker-value">{shown}</span>
+						<Icon name="chevron-down" size="sm" />
+					</span>
 				</button>
 			</MenuTrigger>
 			<Menu label={label} align="start" className="pk-picker-menu">
@@ -228,21 +230,21 @@ function Pick({
 	);
 }
 
-/** The "Read replies aloud" switch (ADR 0071), a row of the options panel. */
+/** The "Read replies aloud" switch (ADR 0071), in the options panel's heading row. */
 function ReadAloudSwitch({ readAloud }: { readAloud: ReadAloud }) {
 	return (
 		<button
 			type="button"
 			role="switch"
 			aria-checked={readAloud.on}
-			className={`pk-picker pk-picker-switch${readAloud.on ? " is-changed" : ""}`}
+			className="pk-picks-aloud"
 			data-testid="composer-read-aloud"
 			onClick={() => readAloud.set(!readAloud.on)}
 		>
-			<span className="pk-picker-label">Read replies aloud</span>
-			<Icon name="speaker" size="sm" />
-			{/* The state is the switch's own; the words are for the eye. */}
-			<span className="pk-picker-value" aria-hidden={true}>
+			<span>Read replies aloud</span>
+			{/* The state is the switch's own; the track and the word are for the eye. */}
+			<span className="pk-picks-aloud-track" aria-hidden={true} />
+			<span className="pk-picks-aloud-state" aria-hidden={true}>
 				{readAloud.on ? "On" : "Off"}
 			</span>
 		</button>
@@ -379,64 +381,66 @@ export function ComposerPickers({
 				}}
 			>
 				<legend className="pk-composer-picks-title">Chat options</legend>
-				<Pick
-					label="Agent"
-					testId="composer-agent"
-					value="claude"
-					choices={AGENTS}
-					start={START.agent}
-					onChoose={() => {}}
-				/>
-				{shown ? (
-					<>
-						{/* Stacked as one cell, so Version sits under Model at any panel width. */}
-						<div className="pk-picker-pair">
-							<Pick
-								label="Model"
-								testId="composer-model"
-								value={current?.family ?? shown.model}
-								choices={familyChoices(models, shown.model)}
-								onChoose={(model) => ask({ model })}
-							/>
-							{versions.length > 0 ? (
+				{isSpeechSupported() ? <ReadAloudSwitch readAloud={readAloud} /> : null}
+				<div className="pk-composer-picks-fields">
+					<Pick
+						label="Agent"
+						testId="composer-agent"
+						value="claude"
+						choices={AGENTS}
+						start={START.agent}
+						onChoose={() => {}}
+					/>
+					{shown ? (
+						<>
+							{/* One unit, so Version never wraps away from Model. */}
+							<div className="pk-picker-pair">
 								<Pick
-									label="Version"
-									testId="composer-version"
-									value={current?.pinned ?? current?.family ?? shown.model}
-									choices={versions}
+									label="Model"
+									testId="composer-model"
+									value={current?.family ?? shown.model}
+									choices={familyChoices(models, shown.model)}
 									onChoose={(model) => ask({ model })}
 								/>
-							) : null}
-						</div>
-						<Pick
-							label="Effort"
-							testId="composer-effort"
-							value={shown.effort}
-							choices={EFFORTS}
-							start={START.effort}
-							changed={shown.effort !== START.effort}
-							onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
-						/>
-						<Pick
-							label="Permissions"
-							testId="composer-mode"
-							value={shown.mode}
-							choices={MODES}
-							start={startMode}
-							changed={shown.mode !== startMode}
-							warning={bypass}
-							describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
-							onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
-						/>
-					</>
-				) : (
-					<>
-						<Waiting label="Model" />
-						<Waiting label="Effort" />
-						<Waiting label="Permissions" />
-					</>
-				)}
-				{isSpeechSupported() ? <ReadAloudSwitch readAloud={readAloud} /> : null}
+								{versions.length > 0 ? (
+									<Pick
+										label="Version"
+										testId="composer-version"
+										value={current?.pinned ?? current?.family ?? shown.model}
+										choices={versions}
+										onChoose={(model) => ask({ model })}
+									/>
+								) : null}
+							</div>
+							<Pick
+								label="Effort"
+								testId="composer-effort"
+								value={shown.effort}
+								choices={EFFORTS}
+								start={START.effort}
+								changed={shown.effort !== START.effort}
+								onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
+							/>
+							<Pick
+								label="Permissions"
+								testId="composer-mode"
+								value={shown.mode}
+								choices={MODES}
+								start={startMode}
+								changed={shown.mode !== startMode}
+								warning={bypass}
+								describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
+								onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
+							/>
+						</>
+					) : (
+						<>
+							<Waiting label="Model" />
+							<Waiting label="Effort" />
+							<Waiting label="Permissions" />
+						</>
+					)}
+				</div>
 			</fieldset>
 			{/* Outside the panel, so Ask never reads as the whole story while it is closed. */}
 			{askWithRules ? (

@@ -492,21 +492,30 @@ test("on a model without Auto the start mode is Ask", () => {
 	expect(mode.className).not.toContain("is-changed");
 });
 
-test("Read replies aloud is the last item of the panel, after Model and Version", () => {
+test("Read replies aloud heads the panel beside its title, then the settings in order", () => {
 	installFakeSpeech();
 	try {
 		draw();
-		const names = Array.from(
-			screen.getByTestId("composer-picks").querySelectorAll("button"),
-		).map((button) => button.getAttribute("data-testid"));
+		const panel = screen.getByTestId("composer-picks");
+		const names = Array.from(panel.querySelectorAll("button")).map((button) =>
+			button.getAttribute("data-testid"),
+		);
 		expect(names).toEqual([
+			"composer-read-aloud",
 			"composer-agent",
 			"composer-model",
 			"composer-version",
 			"composer-effort",
 			"composer-mode",
-			"composer-read-aloud",
 		]);
+		// The switch sits in the heading row, not among the settings.
+		expect(panel.querySelector("legend")?.nextElementSibling).toBe(
+			screen.getByTestId("composer-read-aloud"),
+		);
+		// Model and Version are one unit, so they wrap together.
+		expect(screen.getByTestId("composer-model").parentElement).toBe(
+			screen.getByTestId("composer-version").parentElement,
+		);
 	} finally {
 		removeFakeSpeech();
 	}
