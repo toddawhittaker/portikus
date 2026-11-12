@@ -3,9 +3,16 @@ import { act, cleanup, render } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { type UseXtermOptions, useXterm } from "./useXterm";
+import { enableWebglRenderer } from "./webglRenderer";
+
+const dropWebgl = vi.fn();
+vi.mock("./webglRenderer", () => ({
+	enableWebglRenderer: vi.fn(() => dropWebgl),
+}));
 
 afterEach(() => {
 	cleanup();
+	vi.clearAllMocks();
 	vi.unstubAllGlobals();
 });
 
@@ -88,6 +95,14 @@ test("the terminal is attached once when it opens and let go when it unmounts", 
 	expect(options.attach).toHaveBeenCalledTimes(1);
 	view.unmount();
 	expect(dispose).toHaveBeenCalledTimes(1);
+});
+
+test("the GPU renderer starts on the open terminal and goes with it", () => {
+	const { view } = renderHost();
+	expect(enableWebglRenderer).toHaveBeenCalledTimes(1);
+	expect(dropWebgl).not.toHaveBeenCalled();
+	view.unmount();
+	expect(dropWebgl).toHaveBeenCalledTimes(1);
 });
 
 test("a click in the terminal reports focus", () => {

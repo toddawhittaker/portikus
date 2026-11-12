@@ -84,6 +84,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 60, documentation refresh.** The guides, the in-app Help and the documentation images brought up to date, and this file cut down to this form.
 - **Epic 61, UI refresh.** A new look for the student and administrator screens in both themes: a warm palette with teal actions and a violet agent hue, a type scale, a context meter in the chat composer and clearer admin pages (DESIGN.md section 11).
 - **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, a read-only panel for watching a subagent, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache; pilot testing then reshaped the Chat options panel into labelled fields, gave split panes an even focus ring, made the subagent panel a floating card, dropped the Agent card's raw text and lined up the Running pane's ports (ADR 0074).
+- **Epic 63, fix batch.** A quiet line in the chat for each permission decision, a browser question card for Claude Code's questions in a terminal tab (ADR 0075), every terminal drawn with WebGL so box lines have no gaps, a language tag and colour on every file-type icon in the Files pane, and two flaky tests made certain.
 
 ## Open items
 
@@ -151,14 +152,18 @@ list was made and may already be fixed.
 - Turning a code help language off does not close sockets already open.
 - Code help for more languages is #1652 and a debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
 - Wanted: picking an element in the preview to send to the agent (#1708), and stored check history (#1237).
-- Vertical box-drawing characters show a gap of 1 to 2 px between rows in a terminal at line height 1.1 (#1919).
-- More file-type icons, and colour for them, are wanted (#1921).
+- The Playwright projects other than `terminal-webgl` run Chromium with 3D off, so most terminal specs exercise the DOM renderer; only `e2e/terminal-webgl.spec.ts` covers WebGL.
 - The editor's per-file zoom is lost when the student leaves the workspace route, because it lives only in the layout store; SPEC.md says it survives. Terminal and chat zoom do survive, in the tab's sessionStorage.
 
 ### Chat and coding agents
 
 - The full chat path with a signed-in Claude account (subagent rows, `!` commands, read aloud, the context meter) has not been run end to end on a VM. The pilot still needs a check that `SubagentStop` hooks fire under the SDK and that only `/clear` changes the session id.
-- Haiku sometimes ignores a message sent while Claude works (#1801). A record of each permission decision is #1785. A browser question card for terminal Claude Code is #1762.
+- Haiku sometimes ignores a message sent while Claude works (#1801).
+- Permission decisions shown in the chat live in the chat host's memory, so a host restart or a resumed ended chat loses them.
+- Answering a permission card splits an open tool group, because a call with a decision stands alone (a visual jump).
+- The "Answered in the terminal or timed out" notice on a terminal's question card shows for 4 seconds only.
+- A long decision target in the chat is cut with an ellipsis; its full text is in a tooltip.
+- A terminal's question on a visible tab is not announced to a screen reader when focus is in another pane (#1944).
 - Codex delta metrics are unconfirmed on a real Codex turn (#1531), and Codex has no subagent hooks, so it shows no subagent rows.
 - Accepted: if a student stops Claude Code with Esc, its tab shows "working" until the next prompt, because Claude sends no hook for it.
 - A GUI and a terminal session of Claude Code can still run one session at once; Help says not to.
@@ -177,7 +182,6 @@ list was made and may already be fixed.
 - A toast can cover a focused row near the bottom of a drawer (WCAG 2.4.11), and the plan meter popover can cover a toast.
 - The Audit tab and the other refreshing admin tabs do not announce new rows to screen readers. The Health heat map's cell values are not readable by sighted keyboard users.
 - The shared Checkbox's unavailable look is faint in both themes.
-- The design system's Icon copy (`design/system`, `bundle.js`) lacks the new glyphs: the pencil and the file-type icons.
 - A course profile change picked up when the window regains focus can remove the control that has focus.
 
 ### Infrastructure, packaging and backups

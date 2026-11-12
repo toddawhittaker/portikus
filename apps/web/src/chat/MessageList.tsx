@@ -20,6 +20,7 @@ import type {
 	ChatToolItem,
 	ChatTurn,
 } from "./chatStore.js";
+import { DecisionLine } from "./DecisionLine.js";
 import { formatElapsed, isoDuration } from "./elapsed.js";
 import {
 	type ChangedFile,
@@ -323,6 +324,11 @@ function AskedSummary({ tool }: { tool: ChatToolItem }) {
 	);
 }
 
+/** A call whose permission card the student answered; it stands alone so its line sits under it. */
+function standsAlone(item: ChatToolItem): boolean {
+	return item.decision !== undefined || isAsked(item);
+}
+
 /** One item inside a turn, or one outside any turn. */
 function Step({ item }: { item: ChatItem }) {
 	switch (item.kind) {
@@ -331,9 +337,12 @@ function Step({ item }: { item: ChatItem }) {
 		case "tool":
 			if (isAsked(item)) return <AskedSummary tool={item} />;
 			return (
-				<li className="pk-chat-step">
-					<ToolBlock tool={item} />
-				</li>
+				<>
+					<li className="pk-chat-step">
+						<ToolBlock tool={item} />
+					</li>
+					<DecisionLine tool={item} />
+				</>
 			);
 		case "shell":
 			return <ShellCommand shell={item} />;
@@ -451,7 +460,7 @@ function ToolGroup({ run }: { run: ToolRun }) {
 
 /** Items in order, each run of tool calls under one group. */
 function Steps({ items }: { items: readonly ChatItem[] }) {
-	return groupTools(items, isAsked).map((shown) =>
+	return groupTools(items, standsAlone).map((shown) =>
 		shown.kind === "tools" ? (
 			<ToolGroup key={shown.key} run={shown} />
 		) : (

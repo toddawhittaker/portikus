@@ -6,6 +6,7 @@ import {
 	type CodingAgentSubagentPost,
 	MAX_CODING_AGENT_TERMINALS,
 	MAX_SUBAGENTS_PER_TERMINAL,
+	type TerminalQuestion,
 } from "@portikus/contracts";
 
 /** Claude Code's subagent type when the call names none. */
@@ -68,6 +69,11 @@ export class CodingAgentBoard {
 	 * post keeps it. Drawn from prompts, so it is never logged (ADR 0074).
 	 */
 	private readonly titles = new Map<string, string>();
+	/**
+	 * The question each terminal's Claude Code waits on, kept by the question
+	 * store, which holds at most one per terminal (ADR 0075). Never logged.
+	 */
+	private readonly questions = new Map<string, TerminalQuestion>();
 
 	constructor(options: CodingAgentBoardOptions = {}) {
 		this.now = options.now ?? (() => new Date());
@@ -76,12 +82,14 @@ export class CodingAgentBoard {
 	current(): AgentCodingAgentStatus[] {
 		return [...this.entries.values()].map((entry) => {
 			const title = this.titles.get(entry.terminalId);
+			const question = this.questions.get(entry.terminalId);
 			return {
 				...entry,
 				subagents: [...(this.subagents.get(entry.terminalId)?.rows.values() ?? [])].map(
 					({ row }) => ({ ...row }),
 				),
 				...(title ? { title } : {}),
+				...(question ? { question } : {}),
 			};
 		});
 	}
@@ -102,6 +110,15 @@ export class CodingAgentBoard {
 				this.titles.delete(oldest);
 			}
 		}
+		if (this.entries.has(terminalId)) this.changed();
+	}
+
+	/** Show a terminal's waiting question, or that it has none. A closed terminal's is refused. */
+	question(terminalId: string, question: TerminalQuestion | undefined): void {
+		if (question && this.firedAt.get(terminalId)?.removed) return;
+		if (this.questions.get(terminalId) === question) return;
+		if (question) this.questions.set(terminalId, question);
+		else this.questions.delete(terminalId);
 		if (this.entries.has(terminalId)) this.changed();
 	}
 
@@ -289,6 +306,7 @@ export class CodingAgentBoard {
 		this.remember(terminalId, this.firedAt.get(terminalId)?.at ?? 0, true);
 		this.subagents.delete(terminalId);
 		this.titles.delete(terminalId);
+		this.questions.delete(terminalId);
 		if (this.entries.delete(terminalId)) this.changed();
 	}
 

@@ -444,6 +444,7 @@ export class ChatHost {
 		this.title.reset();
 		void this.title.refresh(sessionId);
 		this.subagents.reset();
+		this.cards.clearDecisions();
 		const context = this.context.current();
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old session; it reattaches.
@@ -545,7 +546,8 @@ export class ChatHost {
 			truncated: replay.truncated,
 		});
 		writeLine(socket, JSON.stringify(snapshot));
-		for (const event of replay.events) writeLine(socket, this.frame(event));
+		const replayed = [...replay.events, ...this.cards.replayDecisions(replay.events)];
+		for (const event of replayed) writeLine(socket, this.frame(event));
 		// The reply streaming now, as one delta that later deltas append to.
 		if (partial) {
 			writeLine(

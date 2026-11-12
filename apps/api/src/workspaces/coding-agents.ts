@@ -7,6 +7,10 @@ import type { Kysely } from "kysely";
  * runs in the student's container, so a terminal id the database does not
  * hold for this workspace, or one outside any project, is dropped. One query
  * per call.
+ *
+ * A terminal question is kept only for a terminal tab; a chat answers its
+ * own (SPEC.md 10.8). The list goes only to the workspace's owner (SPEC.md
+ * 24.1), which the caller ensures.
  */
 export async function withProjects(
 	db: Kysely<Database>,
@@ -28,13 +32,17 @@ export async function withProjects(
 	const joined: CodingAgentTerminal[] = [];
 	for (const state of states) {
 		const row = found.get(state.terminalId);
-		if (row?.project_id)
+		if (row?.project_id) {
+			const kind = row.kind === "chat" ? "chat" : "terminal";
+			const { question, ...rest } = state;
 			joined.push({
-				...state,
+				...rest,
+				...(question && kind === "terminal" ? { question } : {}),
 				projectId: row.project_id,
 				name: row.name,
-				kind: row.kind === "chat" ? "chat" : "terminal",
+				kind,
 			});
+		}
 	}
 	return joined;
 }

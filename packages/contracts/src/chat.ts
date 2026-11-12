@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { MAX_AGENT_TITLE_CHARS } from "./coding-agent-status.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
@@ -20,6 +19,8 @@ export const MAX_CHAT_ATTACHMENTS = 10;
 export const MAX_CHAT_TEXT_CHARS = 100_000;
 /** Longest deny reason or "keep planning" text a permission answer may carry. */
 const MAX_CHAT_ANSWER_MESSAGE_CHARS = 2000;
+/** Longest conversation title shown for a chat tab. */
+export const MAX_AGENT_TITLE_CHARS = 80;
 export const MAX_CHAT_QUESTIONS = 4;
 export const MIN_CHAT_QUESTION_OPTIONS = 2;
 export const MAX_CHAT_QUESTION_OPTIONS = 4;
@@ -366,6 +367,14 @@ export const ChatSubagentEvent = z.discriminatedUnion("type", [
 ]);
 export type ChatSubagentEvent = z.infer<typeof ChatSubagentEvent>;
 
+/**
+ * How the student answered a permission card, in words that do not depend on
+ * the host's own option ids. Approving a plan is "allowed" and keeping
+ * planning is "denied"; the card's tool (ExitPlanMode) tells them apart.
+ */
+export const ChatCardDecision = z.enum(["allowed", "allowedAlways", "denied"]);
+export type ChatCardDecision = z.infer<typeof ChatCardDecision>;
+
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	SnapshotEvent,
 	TurnStartedEvent,
@@ -384,7 +393,18 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		...Envelope,
 		...QuestionCardFields,
 	}),
-	z.object({ type: z.literal("card.resolved"), ...Envelope, id: z.string().min(1) }),
+	/**
+	 * A card was answered or cleared. `decision` is present only when a
+	 * permission card was answered; a cancelled card, or one cleared when the
+	 * session ended, carries none. Older hosts omit it and older browsers
+	 * ignore it.
+	 */
+	z.object({
+		type: z.literal("card.resolved"),
+		...Envelope,
+		id: z.string().min(1),
+		decision: ChatCardDecision.optional(),
+	}),
 	TurnFinishedEvent,
 	/**
 	 * A subagent's conversation, sent only to an attachment watching that

@@ -30,6 +30,7 @@ import { dropZone } from "../work/dropZone.js";
 import { agentLabel } from "./agentLabel.js";
 import { PaneFrame } from "./PaneFrame.js";
 import { TerminalPane } from "./TerminalPane.js";
+import { TerminalQuestion } from "./TerminalQuestion.js";
 import {
 	type DropKind,
 	dropKind,
@@ -340,6 +341,11 @@ export function TerminalLeaf({
 								: (held) => (held ? speech.start() : speech.stop())
 						}
 						dictation={dictation}
+					/>
+					<TerminalQuestion
+						workspaceId={workspaceId}
+						terminalId={terminal.id}
+						visible={visible}
 					/>
 					{dropActive ? (
 						<div

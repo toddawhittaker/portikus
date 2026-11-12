@@ -1093,6 +1093,8 @@ The server must create actual PTYs inside the user's workspace.
 
 The terminal's line height is 1.1. Each terminal zooms on its own (section 13.1).
 
+Added by Epic 63: every terminal view (terminal panes, the administrator's root shell, the live-help helper view and a check's output) draws with WebGL where the browser has it, so box and block characters fill their cells and vertical lines show no gaps at line height 1.1. A browser without WebGL2, or a terminal whose WebGL context is lost (a browser keeps about 16 live contexts per page and drops the oldest), falls back to the DOM renderer without a log and without retrying (STACK.md section 34).
+
 ### 9.2 Terminal persistence during browser disconnect
 
 Within the 10-minute disconnect grace period, terminal processes must continue even when no browser is attached.
@@ -1483,6 +1485,10 @@ Added by Epic 62 (ADR 0074): the chat host reads the conversation title from Cla
 
 Added by Epic 62: the client may send `subagent.watch` and `subagent.unwatch` naming an Agent call (an id of at most 200 characters, used only as a lookup key). The host turns on the SDK's `forwardSubagentText` and sends that socket `subagent` frames, each wrapping a snapshot, turn, message or tool event numbered on a sequence of its own, so the chat's own sequence never has a gap: first the subagent's transcript from `getSubagentMessages` (at most its last 500 entries, with images kept only for the last 20), then live events. One watch per attachment; a new watch replaces the last. A watch is found again after a host restart from each subagent transcript's first entry. `/clear` ends each running subagent's view as interrupted. Subagent text is held in memory only and never logged (STACK.md section 15).
 
+Added by Epic 63: a permission card the student answers leaves a quiet line at its tool call: "Allowed: ...", "Allowed for this chat: ...", "Denied: ...", and for a plan "Plan approved" or "Kept planning". The host sends the decision (`allowed`, `allowedAlways` or `denied`) with `card.resolved`, keeps up to about 500 by tool call id in memory only, forgets them on `/clear`, and replays them after the history on attach, so every browser shows the same lines for the host's life; a restart or a resumed ended chat loses them. A cancelled card, or one cleared when the session ends or is interrupted, leaves no line. The line sits straight after the tool call's row and folds into "Worked for" with it at the end of the turn, as an answered question does; a call with a decision stands alone rather than joining a "N tool calls" group. The deny reason stays in the card's answer only, and a long target is cut with an ellipsis, with its full text in a tooltip.
+
+Added by Epic 63 (ADR 0075): in a terminal tab, Claude Code's `AskUserQuestion` waits up to 30 minutes on a PreToolUse hook, `portikus-agent-question`, while the workspace's owner may answer it on a card in the browser. The card is the chat's question card, shown over the bottom of the terminal pane without resizing the terminal, with an **Answer in the terminal** button. The workspace agent holds one waiting question per terminal, only for an open terminal (one with a tmux session), as `question` on the terminal's coding-agents entry, and the hook skips chat tabs. Each string in a terminal question (the question, an option's label, description and preview) is at most 4 KiB, a header at most 40 characters, and the agent holds at most 512 KiB of question text across all terminals and at most 20 waiting terminals; a question past a limit is asked in the terminal. Escape does not answer in the terminal; only the button does. When the answer arrives after Claude Code stopped waiting, the card goes away and "Answered in the terminal or timed out" shows for a few seconds in a polite status. A send that fails keeps the student's choices and notes on the card so it can be sent again. "Answer in the terminal", a timeout, a question that does not fit the contract, another tool or a dropped hook connection leaves Claude Code to draw its own dialog.
+
 Added by Epic 59 (ADR 0068): plan usage is the seven-day window only; Claude no longer has a five-hour limit in the bar. The workspace agent reports a list keyed by provider id (the agent id), so a later provider adds only a source: Claude's figure from the chat host (the SDK's usage request, run one at a time with a ten-second limit, and `rate_limit_event`) or the status line, and Codex's from `account/rateLimits/read`. The status bar shows each provider's percent and reset day and time ("Claude 91% resets Thu 7:21 PM"), hides a figure past its reset time, and warns once at 85 percent. Today's tokens and cost show only when a provider reports no plan figure. The workspace agent and the API are upgraded together, because the report and meter shapes changed.
 
 ### 10.9 Agent-session baseline and review unit
@@ -1531,7 +1537,7 @@ P0 file-tree operations:
 - download directory/project as archive;
 - extract a zip into a new folder beside it (§11.6).
 
-Each file family (code, web page, style sheet, data, Markdown, settings, image, archive) has its own glyph, lightly tinted; other files show a plain page.
+Each file family (code, web page, style sheet, data, Markdown, settings, image, archive, PDF, document, spreadsheet, notebook, audio, video, font, lock file and secret) has its own glyph; other files show a plain page. A source file is a page stamped with a short language tag (`py`, `js`, `ts`, `c++`, `sh`, and so on) drawn as text, never a logo. Every file and folder icon is lightly tinted by family or language, and keeps 3:1 against every row background (section 25.8); magenta is kept for Git conflicts. Lock files are known by exact name; `.env`, `.pem` and `.key` files are secrets, with a key glyph and the strongest tint.
 
 Rows are dragged with the browser's own drag and drop. A drag that starts on a selected row carries the whole selection in tree order, and the drag image reads "N items"; a drag that starts on an unselected row carries only that row. Dropping on a folder moves every carried item one at a time with the single-move rules and replace prompts, leaving out items that cannot go there. Dropping on a pane edge opens the first carried file as a split and the other files as top-level tabs, and skips folders, because a pane holds one item. The row menu of a selection holding files offers Open N files (N counts files only), which opens them the same way, beside the focused pane on its right edge; with no pane that can take a split, every file opens as a tab, and the result is announced in the tree's live region. A drop that would
 leave the item where it is, or move a folder into itself, is refused and not
@@ -4320,6 +4326,8 @@ names on port 443 and register an LTI platform; both are audited
 the API caps it, strips control characters and checks it against the
 contract (ADR 0060).
 
+Added by Epic 63 (ADR 0075): a terminal's Claude Code question is answered only by the workspace's owner. The hook's post to the loopback receiver (`/coding-agent-question`) is unauthenticated like every loopback route, so a forged post can only show the owner a card on their own screen; it is capped at 64 KiB and one per terminal and cannot answer anything. The answer arrives from the API, `POST /workspaces/:id/terminals/:tid/question`, which an administrator, instructor, share viewer or live-help helper gets a 404 from, as for a chat or a closed terminal; the API forwards it to the workspace agent's authenticated port and replies 409 when the question was already answered or timed out. The question is dropped from the coding-agents entry for chat tabs and for anyone but the owner. A process in the workspace can post a made-up question for an open terminal; that is accepted, because it only shows the owner a card. Questions and answers are never logged, stored or audited (STACK.md section 15).
+
 As built (Epic 29): the API and the worker reach the workspace agent
 through one shared client, `packages/agent-client`. It keeps the size cap
 on responses, refuses redirects, and skips an empty body. A stream that
@@ -5485,6 +5493,8 @@ Added by Epic 58.1: a question card shows one question at a time. Focus starts o
 Added by Epic 59: the left pane's agent rows are a list of links named "Agents in <project>", with one `aria-expanded` disclosure per project. The state is part of each link's name, the full agent name is in it even where the visible name is cut at two lines (keyboard focus shows it whole), the link of the agent on show carries `aria-current="page"`, and the ticking time is hidden from assistive technology. The composer is a `combobox` while its `/` or `@` list can show, with `aria-expanded`, `aria-controls` and `aria-activedescendant`; the list is a `listbox`, the editor keeps focus and the keys, and a polite status gives the result count. Deny's reason field is labelled, Enter sends it and Escape returns focus to Deny; digits are ordinary text while it is open. A `!` command is a named group with its output in a focusable, named region, and its end is announced ("Command finished", "Command failed with exit code N"). Shell mode is shown by a label and the type, not colour alone, and is said once. Syntax colours meet 4.5:1 on their backgrounds in both themes, and the language is named in text. The read-aloud switch and speaker button are native controls in the Tab order, and stopping speech never needs a timed action. The context meter is a `Meter` named "Context"; the context and cache readouts hide their ticking digits from assistive technology and announce only the cache going cold and context crossing 75 and then 90 percent, once each (the figures "34.2k / 1M" are hidden; the meter's value reads "about 34 thousand of 1 million tokens"); the "files changed" line is a native disclosure whose counts are spelled out. A status-bar plan figure's name starts with its visible text.
 
 Added by Epic 62: on a narrow screen the pane bar's drawer buttons are named "Show projects" and "Show files", so a control and the region it opens never share a name; the visible words stay "Projects" and "Files". Icon-only controls such as the Checks pencil ("Edit checks") have a tooltip that opens on hover and on focus. A Git letter, a folder's dot and a file-type icon carry words for screen readers and on hover, and the letter, not its colour, says the kind; they keep 4.5:1 on the pane, hovered, selected and conflict rows in both themes. Monitor's rows are 26 px with 24 px buttons, and a figure near its limit also carries the alert icon (decorative; the words stay). A pane's zoom button or zoom key announces the new zoom in a polite status ("Terminal 1 zoom 130%"); the wheel and a pinch say nothing. The subagent panel is a card floating over the chat's log, inset from the pane's edges so it never covers the pane's focus ring. It takes the keyboard on its heading as it opens; Escape or its close button closes it and returns the keyboard to what opened it. While it is open, the log behind it is dimmed and inert. In a split, the pane that holds the keyboard, whether a terminal, a chat or a file, wears a focus ring of even width on all four sides at any zoom, in the colour of its own scheme (a chat uses the page's focus colour); a pane alone in its tab, and the side panes, show none. The "Read replies aloud" switch keeps its role and name in the Chat options heading row, ahead of the fields in the Tab order. A polite status says whether the subagent is working or finished.
+
+Added by Epic 63: a terminal's question card takes the keyboard only when focus is in that pane's terminal or nowhere, never from another pane or from a hidden tab; when it goes away while it holds focus, focus returns to the terminal. The "Answered in the terminal or timed out" notice is a polite live status. A decision line in the chat is words ("Allowed", "Denied"), not colour alone, in muted ink at 4.5:1. A file-type icon keeps 3:1 against plain, hovered, focused and selected rows in both themes.
 
 ### 25.9 Browser support
 
@@ -7282,6 +7292,24 @@ Acceptance:
 
 - every text and control pairing meets WCAG AA in both themes;
 - a chat's title is never logged (ADR 0074).
+
+### Epic 63 — Fix batch
+
+Built on `epic/63-fix-batch`. No migration. See DESIGN.md section 11, ADR 0075 and sections 9.1, 10.8, 11.2, 24.1 and 25.8.
+
+Includes:
+
+- a quiet line in the chat for each permission decision, sent with `card.resolved` and replayed on attach;
+- a browser question card for Claude Code's questions in a terminal tab, through a waiting hook, with "Answer in the terminal";
+- every terminal view drawn with WebGL, with a DOM fallback;
+- a language tag and colour on file icons, and glyphs for PDFs, documents, spreadsheets, notebooks, audio, video, fonts, lock files and secrets;
+- two flaky tests made certain (the sealed-secret tamper and the recovery read timeout).
+
+Acceptance:
+
+- only the workspace owner sees or answers a terminal's question, and no question or answer is logged or stored (ADR 0075);
+- box characters fill their cells in every terminal view at line height 1.1;
+- every file and folder icon meets 3:1 on every row background in both themes.
 
 ### Estimated total
 

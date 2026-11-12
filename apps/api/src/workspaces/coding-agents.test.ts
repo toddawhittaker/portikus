@@ -152,3 +152,36 @@ test.skipIf(skip)(
 		expect(joined[0]?.subagents).toEqual(subagents);
 	},
 );
+
+const question = {
+	id: "toolu_01Q",
+	questions: [
+		{
+			question: "Which database?",
+			header: "DB",
+			options: [
+				{ label: "Postgres", description: "The default" },
+				{ label: "SQLite", description: "A file" },
+			],
+			multiSelect: false,
+		},
+	],
+} satisfies NonNullable<AgentCodingAgentStatus["question"]>;
+
+test.skipIf(skip)("a terminal tab's question reaches its owner", async () => {
+	const ws = await workspace("question-owner");
+	const t = await terminal(ws, await project(ws, "alpha"));
+	const joined = await withProjects(tdb.db, ws, [{ ...state(t), question }]);
+	expect(joined[0]?.question).toEqual(question);
+});
+
+test.skipIf(skip)(
+	"a question is dropped for a chat tab, even for the owner",
+	async () => {
+		const ws = await workspace("question-chat");
+		const chat = await terminal(ws, await project(ws, "alpha"), "chat");
+		const joined = await withProjects(tdb.db, ws, [{ ...state(chat), question }]);
+		expect(joined).toHaveLength(1);
+		expect(joined[0]).not.toHaveProperty("question");
+	},
+);

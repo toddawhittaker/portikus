@@ -11,12 +11,16 @@ import {
 	CodingAgentSubagentPost,
 	CodingAgentTitlePost,
 	MAX_AGENT_USAGE_MODELS_PER_DAY,
+	MAX_TERMINAL_QUESTION_POST_BYTES,
 	TerminalId,
+	TerminalQuestionPost,
 } from "@portikus/contracts";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AgentLimits, type AgentLimitsStore } from "./agent-limits-route.js";
 import type { CodingAgentBoard } from "./coding-agent-status.js";
+import { abortOnDisconnect } from "./errors.js";
+import type { TerminalQuestions } from "./terminal-questions.js";
 
 /**
  * Coding-agent usage counters, fed by Claude Code and Codex exporting
@@ -316,6 +320,12 @@ export const CODING_AGENT_SUBAGENT_PATH = "/coding-agent-subagent";
 /** Where a chat host posts its conversation title (ADR 0074). */
 export const CODING_AGENT_TITLE_PATH = "/coding-agent-title";
 
+/**
+ * Where the question hook script posts and waits for the answer
+ * (scripts/portikus-agent-question), with `?terminal=<id>`.
+ */
+export const CODING_AGENT_QUESTION_PATH = "/coding-agent-question";
+
 /** Where Claude Code's status line script posts (scripts/portikus-claude-status). */
 export const CLAUDE_LIMITS_PATH = "/claude-limits";
 
@@ -378,12 +388,16 @@ function claudeLimits(
 export interface AgentSignals {
 	board: CodingAgentBoard;
 	limits: AgentLimitsStore;
+	/** Unset in tests that do not exercise questions; the route then answers 204. */
+	questions?: TerminalQuestions;
 	now?: () => Date;
 }
 
+const QuestionQuery = z.object({ terminal: TerminalId }).strict();
+
 /**
- * The loopback receiver: OTLP/HTTP metrics, hook states, chat titles and
- * Claude Code's plan limits. JSON only (Fastify answers 415 to any other type), size
+ * The loopback receiver: OTLP/HTTP metrics, hook states, chat titles,
+ * terminal questions and Claude Code's plan limits. JSON only (Fastify answers 415 to any other type), size
  * capped (413), and anything off-contract is refused (400). It logs
  * nothing: a body is the sender's, and may hold anything (ADR 0012).
  */
@@ -436,6 +450,26 @@ export function buildAgentUsageReceiver(
 			if (!parsed.success) return reply.code(400).send({});
 			signals.board.title(parsed.data.terminal, parsed.data.title);
 			return reply.code(204).send();
+		},
+	);
+	// The hook waits on this request for the student's answer. A 200 carries
+	// the hook's reply; a 204 lets Claude Code ask in the terminal (ADR 0075).
+	app.post(
+		CODING_AGENT_QUESTION_PATH,
+		{ bodyLimit: MAX_TERMINAL_QUESTION_POST_BYTES },
+		async (request, reply) => {
+			const query = QuestionQuery.safeParse(request.query);
+			const parsed = TerminalQuestionPost.safeParse(request.body);
+			if (!query.success || !parsed.success) return reply.code(400).send({});
+			const answered = signals.questions
+				? await signals.questions.ask(
+						query.data.terminal,
+						parsed.data,
+						abortOnDisconnect(reply),
+					)
+				: null;
+			if (!answered) return reply.code(204).send();
+			return reply.code(200).send(answered);
 		},
 	);
 	app.post(

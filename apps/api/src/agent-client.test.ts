@@ -359,3 +359,59 @@ test("a language server is reached on its own socket path, with the slug encoded
 		"ws://10.0.0.5:7000/projects/my%20app/language-servers/typescript",
 	);
 });
+
+test("an answered terminal question posts the body behind the token and reads 204 as taken", async () => {
+	let seen: { method?: string; url?: string; auth?: string; body: string } = {
+		body: "",
+	};
+	const port = await startUpstream((request, response) => {
+		const chunks: Buffer[] = [];
+		request.on("data", (chunk: Buffer) => chunks.push(chunk));
+		request.on("end", () => {
+			seen = {
+				method: request.method,
+				url: request.url,
+				auth: request.headers.authorization,
+				body: Buffer.concat(chunks).toString(),
+			};
+			response.writeHead(204);
+			response.end();
+		});
+	});
+	const client = new AgentClient("127.0.0.1", port, "real-token");
+
+	const answer = { id: "toolu_1", inTerminal: true as const };
+	await expect(client.answerTerminalQuestion("term-1", answer)).resolves.toBe(true);
+	expect(seen).toEqual({
+		method: "POST",
+		url: "/terminals/term-1/question",
+		auth: "Bearer real-token",
+		body: JSON.stringify(answer),
+	});
+});
+
+test("a terminal question the agent no longer holds reads as gone, not as an error", async () => {
+	const port = await startUpstream((_request, response) => {
+		response.writeHead(409, { "content-type": "application/json" });
+		response.end("{}");
+	});
+	const client = new AgentClient("127.0.0.1", port, "t");
+
+	await expect(
+		client.answerTerminalQuestion("term-1", { id: "toolu_1", answers: {} }),
+	).resolves.toBe(false);
+});
+
+test("any other agent failure on a terminal question is raised", async () => {
+	const port = await startUpstream((_request, response) => {
+		response.writeHead(404, { "content-type": "application/json" });
+		response.end(
+			JSON.stringify({ error: { code: "TERMINAL_NOT_FOUND", message: "no" } }),
+		);
+	});
+	const client = new AgentClient("127.0.0.1", port, "t");
+
+	await expect(
+		client.answerTerminalQuestion("term-1", { id: "toolu_1", inTerminal: true }),
+	).rejects.toMatchObject({ code: "TERMINAL_NOT_FOUND" });
+});

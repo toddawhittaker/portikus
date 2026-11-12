@@ -355,7 +355,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.keyboard.press("Enter");
 
 		await expect(view.getByTestId("chat-question-card")).toHaveCount(0);
-		await expect(view.getByRole("button", { name: "Allow" })).toBeFocused();
+		await expect(view.getByRole("button", { name: "Allow once" })).toBeFocused();
 		await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
 		await page.keyboard.press("Enter");
 		await expect(view.getByTestId("chat-permission-card")).toHaveCount(0);
@@ -383,6 +383,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		// The tool's image is drawn from the frame; the reply's remote image never loads.
 		await view.getByTestId("chat-worked").locator("> summary").click();
+		// The answered card's Bash call stands alone with its decision line, so the Read is a row of its own.
+		await expect(view.getByTestId("chat-tool-group")).toHaveCount(0);
+		await expect(view.getByTestId("chat-decision")).toHaveText("Allowed: npm test");
 		await view.getByTestId("chat-tool-tool-1").locator("> summary").click();
 		await expect(view.getByRole("img", { name: "Output of Read" })).toBeVisible();
 		expect(remote).toEqual([]);

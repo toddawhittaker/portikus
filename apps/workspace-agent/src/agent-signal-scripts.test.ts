@@ -4,12 +4,18 @@
  * and send only state words and limit numbers (ADR 0012).
  */
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, symlinkSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import { mkdtempSync, readFileSync, symlinkSync } from "node:fs";
+import {
+	createServer,
+	type IncomingMessage,
+	type Server,
+	type ServerResponse,
+} from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TERMINAL_QUESTION_TIMEOUT_MS } from "@portikus/contracts";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
 const STATE_SCRIPT = fileURLToPath(
@@ -28,9 +34,12 @@ interface Received {
 let server: Server;
 let received: Received[];
 let receiverUrl: string;
+/** How the fake receiver answers; a 204 unless a test says otherwise. */
+let respond: (response: ServerResponse) => void;
 
 beforeEach(async () => {
 	received = [];
+	respond = (response) => response.writeHead(204).end();
 	server = createServer((request: IncomingMessage, response) => {
 		let body = "";
 		request.on("data", (chunk: Buffer) => {
@@ -38,7 +47,7 @@ beforeEach(async () => {
 		});
 		request.on("end", () => {
 			received.push({ path: request.url, body });
-			response.writeHead(204).end();
+			respond(response);
 		});
 	});
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -54,18 +63,24 @@ function run(
 	args: string[],
 	input: string,
 	env: Record<string, string | undefined>,
-): Promise<{ code: number | null; stdout: string; ms: number }> {
+): Promise<{ code: number | null; stdout: string; stderr: string; ms: number }> {
 	const started = Date.now();
 	return new Promise((resolve, reject) => {
 		const child = spawn(script, args, {
 			env: { PATH: process.env.PATH, TZ: "UTC", ...env },
 		});
 		let stdout = "";
+		let stderr = "";
 		child.stdout.on("data", (chunk: Buffer) => {
 			stdout += chunk.toString("utf8");
 		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString("utf8");
+		});
 		child.on("error", reject);
-		child.on("close", (code) => resolve({ code, stdout, ms: Date.now() - started }));
+		child.on("close", (code) =>
+			resolve({ code, stdout, stderr, ms: Date.now() - started }),
+		);
 		child.stdin.on("error", () => {});
 		child.stdin.end(input);
 	});
@@ -448,4 +463,116 @@ test("the subagent hook exits 0 within its second when the receiver never answer
 		silent.closeAllConnections();
 		await new Promise<void>((resolve) => silent.close(() => resolve()));
 	}
+});
+
+const QUESTION_SCRIPT = fileURLToPath(
+	new URL("../scripts/portikus-agent-question", import.meta.url),
+);
+
+const QUESTION_INPUT = JSON.stringify({
+	session_id: "secret-session",
+	transcript_path: "/home/student/.claude/projects/secret.jsonl",
+	cwd: "/home/student/secret-project",
+	permission_mode: "default",
+	hook_event_name: "PreToolUse",
+	tool_name: "AskUserQuestion",
+	tool_use_id: "toolu_01",
+	tool_input: {
+		questions: [
+			{
+				question: "Which database?",
+				header: "Database",
+				multiSelect: false,
+				options: [
+					{ label: "SQLite", description: "A file" },
+					{ label: "Postgres", description: "A server" },
+				],
+			},
+		],
+	},
+});
+
+const QUESTION_ENV = { PORTIKUS_TERMINAL: `pk-${TERMINAL_ID}` };
+
+test("the question hook posts only the tool name, call id and input", async () => {
+	const { code, stdout, stderr } = await run(QUESTION_SCRIPT, [], QUESTION_INPUT, {
+		...QUESTION_ENV,
+		PORTIKUS_AGENT_RECEIVER: receiverUrl,
+	});
+	expect(code).toBe(0);
+	// A 204 lets Claude Code ask in the terminal, so the hook prints nothing.
+	expect(stdout).toBe("");
+	expect(stderr).toBe("");
+	expect(received).toHaveLength(1);
+	expect(received[0]?.path).toBe(`/coding-agent-question?terminal=${TERMINAL_ID}`);
+	const input = JSON.parse(QUESTION_INPUT) as Record<string, unknown>;
+	expect(JSON.parse(received[0]?.body ?? "")).toEqual({
+		tool_name: input.tool_name,
+		tool_use_id: input.tool_use_id,
+		tool_input: input.tool_input,
+	});
+	expect(received[0]?.body).not.toContain("secret");
+});
+
+test("the question hook prints the receiver's reply on a 200, and only then", async () => {
+	const answer = JSON.stringify({
+		hookSpecificOutput: { permissionDecision: "allow" },
+	});
+	respond = (response) =>
+		response.writeHead(200, { "content-type": "application/json" }).end(answer);
+	const answered = await run(QUESTION_SCRIPT, [], QUESTION_INPUT, {
+		...QUESTION_ENV,
+		PORTIKUS_AGENT_RECEIVER: receiverUrl,
+	});
+	expect(answered.code).toBe(0);
+	expect(JSON.parse(answered.stdout)).toEqual(JSON.parse(answer));
+
+	for (const status of [400, 413, 500]) {
+		respond = (response) => response.writeHead(status).end(answer);
+		const refused = await run(QUESTION_SCRIPT, [], QUESTION_INPUT, {
+			...QUESTION_ENV,
+			PORTIKUS_AGENT_RECEIVER: receiverUrl,
+		});
+		expect(refused).toMatchObject({ code: 0, stdout: "", stderr: "" });
+	}
+});
+
+test("in a chat tab the question hook exits at once and posts nothing", async () => {
+	const { code, stdout, stderr, ms } = await run(QUESTION_SCRIPT, [], QUESTION_INPUT, {
+		...QUESTION_ENV,
+		PORTIKUS_CHAT_TAB: "1",
+		PORTIKUS_AGENT_RECEIVER: receiverUrl,
+	});
+	expect({ code, stdout, stderr }).toEqual({ code: 0, stdout: "", stderr: "" });
+	expect(ms).toBeLessThan(1000);
+	expect(received).toEqual([]);
+});
+
+test("the question hook exits 0 within a second when no receiver listens", async () => {
+	const { code, stdout, stderr, ms } = await run(QUESTION_SCRIPT, [], QUESTION_INPUT, {
+		...QUESTION_ENV,
+		PORTIKUS_AGENT_RECEIVER: "http://127.0.0.1:1",
+	});
+	expect({ code, stdout, stderr }).toEqual({ code: 0, stdout: "", stderr: "" });
+	expect(ms).toBeLessThan(1000);
+});
+
+test("outside a Portikus terminal, or for input that is not JSON, the question hook does nothing", async () => {
+	for (const [input, env] of [
+		[QUESTION_INPUT, {}],
+		["not json", QUESTION_ENV],
+	] as const) {
+		const result = await run(QUESTION_SCRIPT, [], input, {
+			...env,
+			PORTIKUS_AGENT_RECEIVER: receiverUrl,
+		});
+		expect(result).toMatchObject({ code: 0, stdout: "", stderr: "" });
+	}
+	expect(received).toEqual([]);
+});
+
+test("the question hook gives up 5 seconds before Claude Code's hook timeout", () => {
+	const script = readFileSync(QUESTION_SCRIPT, "utf8");
+	const maxTime = Number(/--max-time (\d+)/.exec(script)?.[1]);
+	expect(maxTime * 1000).toBe(TERMINAL_QUESTION_TIMEOUT_MS - 5000);
 });
