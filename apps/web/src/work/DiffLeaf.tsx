@@ -466,6 +466,9 @@ export function DiffLeaf({
 		);
 	}
 
+	// The Monaco diff is on screen, so the pane menu can offer the color scheme;
+	// loading, failed, binary and too-large states have nothing to recolor.
+	const showsDiff = data !== undefined && !data.binary && !data.tooLarge;
 	const note = data === undefined ? null : statusNote(data, base);
 	// The badge comes from the same table the tree and the Changes list use,
 	// so one file never wears two letters (SPEC.md §12.6).
@@ -473,7 +476,7 @@ export function DiffLeaf({
 
 	return (
 		<div className="pk-doc-leaf pk-file-leaf" data-testid={`diff-pane-${path}`}>
-			<FileHeader path={path}>
+			<FileHeader path={path} editorScheme={showsDiff}>
 				{kind !== null ? (
 					<span
 						className="pk-diff-status"

@@ -1,5 +1,7 @@
+import { act, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { expect, test } from "vitest";
-import { createLayoutStore } from "./store";
+import { createLayoutStore, LayoutStoreContext, useEditorZoom } from "./store";
 import { filePaths, layoutTerminalIds, terminalIds } from "./tree";
 
 /** SPEC.md §11.2: a rename or move from the files pane keeps the file's tab. */
@@ -410,6 +412,26 @@ test("a file's zoom is kept for the session and dropped with the tab", () => {
 	expect(layout.getState().zooms).toEqual({ "src/app.ts": 130 });
 	layout.getState().closeTab("file:src/app.ts");
 	expect(layout.getState().zooms).toEqual({});
+});
+
+test("the editor and the diff of one file read one zoom, outside a workspace each keeps its own", () => {
+	const layout = store();
+	const wrapper = ({ children }: { children: ReactNode }) => (
+		<LayoutStoreContext.Provider value={layout}>{children}</LayoutStoreContext.Provider>
+	);
+	const editor = renderHook(() => useEditorZoom("src/app.ts"), { wrapper });
+	const diff = renderHook(() => useEditorZoom("src/app.ts"), { wrapper });
+	expect(editor.result.current[0]).toBe(100);
+	act(() => diff.result.current[1](120));
+	expect(editor.result.current[0]).toBe(120);
+	expect(diff.result.current[0]).toBe(120);
+	// Another file's zoom is its own.
+	const other = renderHook(() => useEditorZoom("src/other.ts"), { wrapper });
+	expect(other.result.current[0]).toBe(100);
+
+	const alone = renderHook(() => useEditorZoom("src/app.ts"));
+	act(() => alone.result.current[1](80));
+	expect(alone.result.current[0]).toBe(80);
 });
 
 test("a file tab's view state is kept and dropped with the tab", () => {

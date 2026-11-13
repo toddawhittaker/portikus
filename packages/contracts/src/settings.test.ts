@@ -5,6 +5,7 @@ import {
 	CreateDexUserRequest,
 	DEFAULT_ACCEPTABLE_USE_TEXT,
 	DEFAULT_TIMEZONE,
+	EDITOR_SCHEMES,
 	EDITOR_SETTINGS_DEFAULTS,
 	EditorSettings,
 	githubHref,
@@ -351,6 +352,7 @@ test("the editor settings defaults are a valid, complete set", () => {
 		appearance: "system",
 		screenReaderMode: false,
 		agentNotifications: "ask",
+		editorScheme: "portikus",
 	});
 });
 
@@ -471,6 +473,21 @@ test("agent notifications default to ask and take ask, on or off", () => {
 	expect(
 		UpdateEditorSettingsRequest.safeParse({ agentNotifications: true }).success,
 	).toBe(false);
+});
+
+/** The editor scheme starts as Portikus and takes only the schemes the editor ships. */
+test("the editor scheme defaults to portikus and takes only known schemes", () => {
+	expect(EDITOR_SETTINGS_DEFAULTS.editorScheme).toBe("portikus");
+	for (const value of EDITOR_SCHEMES) {
+		expect(UpdateEditorSettingsRequest.safeParse({ editorScheme: value }).success).toBe(
+			true,
+		);
+	}
+	for (const value of ["", "Portikus", "monokai", 1, null]) {
+		expect(UpdateEditorSettingsRequest.safeParse({ editorScheme: value }).success).toBe(
+			false,
+		);
+	}
 });
 
 /** Links are https URLs or bare usernames, nothing else. */

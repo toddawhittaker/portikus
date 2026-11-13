@@ -51,6 +51,7 @@ function entry(question?: Question): CodingAgentTerminal {
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 	vi.useRealTimers();
 });
 
@@ -234,4 +235,134 @@ test("it does not take the keyboard from another pane or a hidden tab", async ()
 	draw({ visible: false });
 	await card();
 	expect(document.activeElement).toBe(document.body);
+});
+
+const ASKING = "Claude Code in zsh is asking a question";
+
+test("a question for a visible pane while focus is elsewhere is announced once", async () => {
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	expect(screen.getByRole("status").textContent).toBe("");
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe(ASKING);
+	// A status refresh that keeps the same question says nothing more.
+	act(() => {
+		elsewhere.store.update(
+			[{ ...entry(QUESTION), since: "2026-11-12T04:31:00.000Z" }],
+			false,
+		);
+	});
+	expect(screen.getByRole("status").textContent).toBe(ASKING);
+	expect(screen.getAllByText(ASKING)).toHaveLength(1);
+});
+
+test("a second question is announced again", async () => {
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	act(() => {
+		elsewhere.store.update([entry()], false);
+	});
+	expect(screen.getByRole("status").textContent).toBe("");
+	act(() => {
+		elsewhere.store.update([entry({ ...QUESTION, id: "toolu_02" })], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe(ASKING);
+});
+
+test("a question that replaces another with no gap is announced again, as a new node", async () => {
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	const first = screen.getByText(ASKING);
+	act(() => {
+		elsewhere.store.update([entry({ ...QUESTION, id: "toolu_02" })], false);
+	});
+	await waitFor(() => expect(screen.getByText(ASKING)).not.toBe(first));
+	expect(screen.getAllByText(ASKING)).toHaveLength(1);
+});
+
+test("a question the card takes the keyboard for clears the last question's announcement", async () => {
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe(ASKING);
+	terminalInput().focus();
+	act(() => {
+		elsewhere.store.update([entry({ ...QUESTION, id: "toolu_02" })], false);
+	});
+	await waitFor(() => expect(screen.getByRole("status").textContent).toBe(""));
+});
+
+test("no announcement while the browser window has no focus: the toast tells the student", async () => {
+	vi.spyOn(document, "hasFocus").mockReturnValue(false);
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe("");
+});
+
+test("no announcement when focus is in the pane, or nowhere, because the card takes it", async () => {
+	const inPane = draw({ question: null });
+	terminalInput().focus();
+	act(() => {
+		inPane.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe("");
+	cleanup();
+	draw();
+	await card();
+	expect(screen.getByRole("status").textContent).toBe("");
+});
+
+test("no announcement for a hidden tab: its toast tells the student", async () => {
+	const hidden = draw({ visible: false, question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		hidden.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe("");
+});
+
+test("a tab shown later does not announce a question that arrived while it was hidden", async () => {
+	const store = createAgentStatusStore(() => true);
+	store.update([entry(QUESTION)], true);
+	const tree = (visible: boolean) => (
+		<ToastProvider>
+			<AgentStatusContext.Provider value={store}>
+				<section className="pk-term">
+					<textarea className="xterm-helper-textarea" aria-label="Terminal input" />
+					<TerminalQuestion
+						workspaceId={WORKSPACE}
+						terminalId={TERMINAL}
+						visible={visible}
+					/>
+				</section>
+				<input aria-label="Elsewhere" />
+			</AgentStatusContext.Provider>
+		</ToastProvider>
+	);
+	const view = render(tree(false));
+	await card();
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	view.rerender(tree(true));
+	expect(screen.getByRole("status").textContent).toBe("");
 });

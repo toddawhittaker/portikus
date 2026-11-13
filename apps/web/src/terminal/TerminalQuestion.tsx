@@ -13,7 +13,7 @@ import { Button, useToast } from "@portikus/ui";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../api/request.js";
 import { answerTerminalQuestion } from "../api/workspace.js";
-import { useAgentStatus } from "./codingAgentStatus.js";
+import { questionAnnouncement, useAgentStatus } from "./codingAgentStatus.js";
 import "./terminal.css";
 
 // Questions are rare, so the card and the chat styles it shares load on the first one.
@@ -27,6 +27,24 @@ const QuestionCard = lazy(() =>
 export const QUESTION_GONE = "Answered in the terminal or timed out";
 const GONE_MS = 4000;
 
+/**
+ * What a new question does about the keyboard: the card takes it from this
+ * pane's terminal or from nowhere; a visible pane whose student is typing
+ * elsewhere gets a spoken announcement instead; a hidden tab gets neither,
+ * because its toast already tells the student; a window that does not have
+ * focus is the same, since the persistent toast speaks for it (SPEC.md §25.8).
+ */
+function questionFocus(
+	visible: boolean,
+	active: Element | null,
+	pane: Element | null,
+): "take" | "announce" | "none" {
+	if (!visible) return "none";
+	if (active === null || active === document.body) return "take";
+	if (pane?.contains(active)) return "take";
+	return document.hasFocus() ? "announce" : "none";
+}
+
 export interface TerminalQuestionProps {
 	workspaceId: string;
 	terminalId: string;
@@ -38,16 +56,43 @@ export function TerminalQuestion({
 	terminalId,
 	visible,
 }: TerminalQuestionProps) {
-	const question = useAgentStatus().terminals.find(
-		(one) => one.terminalId === terminalId,
-	)?.question;
+	const agent = useAgentStatus().terminals.find((one) => one.terminalId === terminalId);
+	const question = agent?.question;
 	const toast = useToast();
+	const region = useRef<HTMLDivElement | null>(null);
+	/** The question whose announcement was decided, so a refresh never says it twice. */
+	const decided = useRef<string | null>(null);
+	/** The spoken text for the question on screen; empty once it leaves. */
+	const [announcement, setAnnouncement] = useState("");
 	/** A question this tab has settled, hidden before the agent's list catches up. */
 	const [settled, setSettled] = useState<string | null>(null);
 	const [sending, setSending] = useState(false);
 	const [gone, setGone] = useState(false);
 	/** Bumped when an answer fails to send, so the card can send again with its choices kept. */
 	const [failedSends, setFailedSends] = useState(0);
+
+	const shownId = question && question.id !== settled ? question.id : null;
+	const agentKind = agent?.agent;
+	const agentName = agent?.name;
+	useEffect(() => {
+		if (shownId === null) {
+			decided.current = null;
+			setAnnouncement("");
+			return;
+		}
+		// Decided once on arrival, before the lazy card tries for the keyboard.
+		if (decided.current === shownId) return;
+		decided.current = shownId;
+		const pane = region.current?.closest(".pk-term") ?? null;
+		// Every new question starts from an empty region, so the last one's words never linger.
+		setAnnouncement(
+			agentKind &&
+				agentName &&
+				questionFocus(visible, document.activeElement, pane) === "announce"
+				? questionAnnouncement(agentKind, agentName)
+				: "",
+		);
+	}, [shownId, visible, agentKind, agentName]);
 
 	useEffect(() => {
 		if (!gone) return;
@@ -91,7 +136,19 @@ export function TerminalQuestion({
 					onSend={(answer) => void send(answer)}
 				/>
 			) : null}
-			<div role="status" aria-live="polite">
+			<div
+				ref={region}
+				role="status"
+				aria-live="polite"
+				data-testid={`terminal-question-live-${terminalId}`}
+			>
+				{announcement ? (
+					// Keyed by question, so a swap from one question to the next is a new
+					// node a screen reader speaks even when the words are the same.
+					<span key={shownId} className="pk-visually-hidden">
+						{announcement}
+					</span>
+				) : null}
 				{gone ? (
 					<p
 						className="pk-term-flag pk-term-question-gone"
@@ -135,10 +192,13 @@ function QuestionOverlay({
 
 	/** Take the keyboard only from this pane's terminal or from nowhere. */
 	function takeFocus(): boolean {
-		if (!visible) return false;
-		const active = document.activeElement;
-		if (active === null || active === document.body) return true;
-		return box.current?.closest(".pk-term")?.contains(active) ?? false;
+		return (
+			questionFocus(
+				visible,
+				document.activeElement,
+				box.current?.closest(".pk-term") ?? null,
+			) === "take"
+		);
 	}
 
 	return (

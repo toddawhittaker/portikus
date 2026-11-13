@@ -18,6 +18,14 @@ const BY_NAME: Record<string, IconName> = {
 	".gitignore": "file-config",
 	".gitattributes": "file-config",
 	".editorconfig": "file-config",
+	".dockerignore": "file-config",
+	".npmrc": "file-config",
+	".prettierrc": "file-config",
+	// A compiler's default output name, which has no extension.
+	"a.out": "file-binary",
+	// SSH private keys, which have no extension either.
+	id_rsa: "file-key",
+	id_ed25519: "file-key",
 	license: "file-markdown",
 	readme: "file-markdown",
 	// Lock files a package manager writes; matched whole so data.json stays data.
@@ -26,6 +34,8 @@ const BY_NAME: Record<string, IconName> = {
 	"yarn.lock": "file-lock",
 	"poetry.lock": "file-lock",
 	"cargo.lock": "file-lock",
+	// Pinned Python dependencies; matched whole so notes.txt stays text.
+	"requirements.txt": "file-lock",
 };
 
 /** Extensions, lower case and without the dot. */
@@ -47,6 +57,8 @@ const BY_EXTENSION: Record<string, IconName> = {
 	sh: "file-shell",
 	bash: "file-shell",
 	zsh: "file-shell",
+	bat: "file-shell",
+	ps1: "file-shell",
 	go: "file-go",
 	rs: "file-rust",
 	cs: "file-csharp",
@@ -82,7 +94,10 @@ const BY_EXTENSION: Record<string, IconName> = {
 	pdf: "file-pdf",
 	xlsx: "file-sheet",
 	ods: "file-sheet",
+	pptx: "file-slides",
+	odp: "file-slides",
 	ipynb: "file-notebook",
+	log: "file-log",
 	// Pictures, sound and video.
 	png: "file-image",
 	jpg: "file-image",
@@ -114,10 +129,27 @@ const BY_EXTENSION: Record<string, IconName> = {
 	bz2: "file-archive",
 	xz: "file-archive",
 	jar: "file-archive",
+	// Databases: binary data, not the sql scripts that build them.
+	db: "file-database",
+	sqlite: "file-database",
+	sqlite3: "file-database",
+	duckdb: "file-database",
+	mdb: "file-database",
+	// Compiled output and programs, which will not open as text.
+	class: "file-binary",
+	o: "file-binary",
+	pyc: "file-binary",
+	exe: "file-binary",
+	so: "file-binary",
+	dll: "file-binary",
+	wasm: "file-binary",
 	// Secrets: keys and certificates a student should notice.
 	pem: "file-key",
 	key: "file-key",
 	env: "file-key",
+	crt: "file-key",
+	cer: "file-key",
+	pub: "file-key",
 	// Settings.
 	lock: "file-lock",
 	ini: "file-config",
