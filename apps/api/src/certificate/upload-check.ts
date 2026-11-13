@@ -51,62 +51,86 @@ export function checkUpload(
 	now: Date = new Date(),
 	trusted: X509Certificate[] = roots(),
 ): UploadRefusal | null {
-	const pems = upload.certificate.match(PEM_CERTIFICATE) ?? [];
-	let chain: X509Certificate[];
-	try {
-		if (pems.length === 0) throw new Error("no certificate");
-		chain = pems.map((pem) => new X509Certificate(pem));
-	} catch {
+	const chain = readChain(upload.certificate);
+	if (!chain) {
 		return {
 			check: "certificate-readable",
 			message: "The certificate is not a readable PEM certificate.",
 		};
 	}
 	const leaf = chain[0] as X509Certificate;
+	return (
+		(upload.privateKey === undefined ? null : checkKey(upload.privateKey, leaf)) ??
+		checkChain(leaf, chain, trusted) ??
+		checkDates(chain, now) ??
+		checkNames(leaf, names)
+	);
+}
 
-	if (upload.privateKey !== undefined) {
-		let key: ReturnType<typeof createPrivateKey>;
-		try {
-			key = createPrivateKey(upload.privateKey);
-		} catch {
-			return {
-				check: "key-readable",
-				message: "The private key is not a readable, unencrypted PEM key.",
-			};
-		}
-		if (!spki(createPublicKey(key)).equals(spki(leaf.publicKey))) {
-			return {
-				check: "key-matches",
-				message: "The private key does not match the certificate.",
-			};
-		}
+/** Every certificate in the upload, leaf first, or null when none can be read. */
+function readChain(certificate: string): X509Certificate[] | null {
+	const pems = certificate.match(PEM_CERTIFICATE) ?? [];
+	if (pems.length === 0) return null;
+	try {
+		return pems.map((pem) => new X509Certificate(pem));
+	} catch {
+		return null;
 	}
+}
 
-	// Walk up from the leaf: each step must be signed by an included
-	// certificate, until one is self-signed or a system root signed it.
-	let current = leaf;
-	let complete = false;
-	for (let step = 0; step < MAX_CHAIN; step++) {
-		if (trusted.some((root) => issuedBy(current, root))) {
-			complete = true;
-			break;
-		}
-		if (issuedBy(current, current)) {
-			complete = true;
-			break;
-		}
-		const parent = chain.find((c) => c !== current && issuedBy(current, c));
-		if (!parent) break;
-		current = parent;
-	}
-	if (!complete) {
+function checkKey(privateKey: string, leaf: X509Certificate): UploadRefusal | null {
+	let key: ReturnType<typeof createPrivateKey>;
+	try {
+		key = createPrivateKey(privateKey);
+	} catch {
 		return {
-			check: "chain-complete",
-			message:
-				"The chain does not reach a trusted root. Include every intermediate certificate after the site certificate.",
+			check: "key-readable",
+			message: "The private key is not a readable, unencrypted PEM key.",
 		};
 	}
+	if (!spki(createPublicKey(key)).equals(spki(leaf.publicKey))) {
+		return {
+			check: "key-matches",
+			message: "The private key does not match the certificate.",
+		};
+	}
+	return null;
+}
 
+function checkChain(
+	leaf: X509Certificate,
+	chain: X509Certificate[],
+	trusted: X509Certificate[],
+): UploadRefusal | null {
+	if (reachesRoot(leaf, chain, trusted)) return null;
+	return {
+		check: "chain-complete",
+		message:
+			"The chain does not reach a trusted root. Include every intermediate certificate after the site certificate.",
+	};
+}
+
+/**
+ * Walk up from the leaf: each step must be signed by an included
+ * certificate, until one is self-signed or a system root signed it.
+ */
+function reachesRoot(
+	leaf: X509Certificate,
+	chain: X509Certificate[],
+	trusted: X509Certificate[],
+): boolean {
+	let current = leaf;
+	for (let step = 0; step < MAX_CHAIN; step++) {
+		if (trusted.some((root) => issuedBy(current, root))) return true;
+		if (issuedBy(current, current)) return true;
+		const parent = chain.find((c) => c !== current && issuedBy(current, c));
+		if (!parent) return false;
+		current = parent;
+	}
+	return false;
+}
+
+function checkDates(chain: X509Certificate[], now: Date): UploadRefusal | null {
 	for (const cert of chain) {
 		if (new Date(cert.validFrom) > now || new Date(cert.validTo) < now) {
 			return {
@@ -115,17 +139,18 @@ export function checkUpload(
 			};
 		}
 	}
+	return null;
+}
 
+function checkNames(leaf: X509Certificate, names: string[]): UploadRefusal | null {
 	// A wildcard is covered when any one name under it would be.
 	const missing = names.filter((name) => {
 		const host = name.startsWith("*.") ? `portikus-check${name.slice(1)}` : name;
 		return leaf.checkHost(host) === undefined;
 	});
-	if (missing.length > 0) {
-		return {
-			check: "names-cover",
-			message: `The certificate does not cover ${missing.join(" and ")}.`,
-		};
-	}
-	return null;
+	if (missing.length === 0) return null;
+	return {
+		check: "names-cover",
+		message: `The certificate does not cover ${missing.join(" and ")}.`,
+	};
 }
