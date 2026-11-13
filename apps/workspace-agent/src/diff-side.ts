@@ -36,6 +36,19 @@ function isBinary(side: Side): boolean {
 	return side.content?.subarray(0, SNIFF_BYTES).includes(0) ?? false;
 }
 
+function diffStatus(
+	before: Side,
+	after: Side,
+	unmerged: boolean,
+	origPath: string | undefined,
+): GitDiff["status"] {
+	if (unmerged) return "U";
+	if (origPath) return "R";
+	if (before.content === null && !before.tooLarge) return "A";
+	if (after.content === null && !after.tooLarge) return "D";
+	return "M";
+}
+
 export function finishDiff(
 	before: Side,
 	after: Side,
@@ -44,15 +57,9 @@ export function finishDiff(
 ): GitDiff {
 	const tooLarge = before.tooLarge || after.tooLarge;
 	const binary = !tooLarge && (isBinary(before) || isBinary(after));
-	let status: GitDiff["status"];
-	if (unmerged) status = "U";
-	else if (origPath) status = "R";
-	else if (before.content === null && !before.tooLarge) status = "A";
-	else if (after.content === null && !after.tooLarge) status = "D";
-	else status = "M";
 	const hide = tooLarge || binary;
 	return {
-		status,
+		status: diffStatus(before, after, unmerged, origPath),
 		...(origPath ? { oldPath: origPath } : {}),
 		before: hide || before.content === null ? null : before.content.toString("utf8"),
 		after: hide || after.content === null ? null : after.content.toString("utf8"),
