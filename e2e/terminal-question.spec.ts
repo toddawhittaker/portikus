@@ -274,6 +274,40 @@ test("a question announces itself when the keyboard is in the editor beside it",
 	await expect(live).toHaveText("");
 });
 
+test("a question that replaces another with no gap is announced again", async ({
+	page,
+	context,
+}) => {
+	const { workspaceId, terminalId, lines } = await openTerminalBesideFile(
+		page,
+		context,
+	);
+	await lines.click();
+	const live = page.getByTestId(`terminal-question-live-${terminalId}`);
+	await setQuestion(workspaceId, terminalId, QUESTION);
+	await expect(live).toHaveText("Claude Code in Terminal 1 is asking a question");
+
+	// Count the spoken nodes that arrive from here on: a screen reader speaks
+	// an added node, and the second question's words are the same as the first's.
+	await live.evaluate((region) => {
+		const spoken = { added: 0 };
+		new MutationObserver((records) => {
+			for (const record of records) spoken.added += record.addedNodes.length;
+		}).observe(region, { childList: true, subtree: true });
+		(window as unknown as { spoken: typeof spoken }).spoken = spoken;
+	});
+	// The fake agent replaces the whole list in one post: no empty refresh between.
+	await setQuestion(workspaceId, terminalId, { ...QUESTION, id: "toolu_e2e_second" });
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() => (window as unknown as { spoken: { added: number } }).spoken.added,
+			),
+		)
+		.toBeGreaterThan(0);
+	await expect(live).toHaveText("Claude Code in Terminal 1 is asking a question");
+});
+
 test("no announcement when the keyboard is already in the terminal", async ({
 	page,
 	context,

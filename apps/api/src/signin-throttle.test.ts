@@ -120,12 +120,13 @@ describe.skipIf(skip)("password guesses, counted in PostgreSQL", () => {
 
 	test("other clients' failures never refuse a fresh client (SPEC.md 24.13)", async () => {
 		const { throttle } = fixture(t.db);
-		// A hundred addresses each use up their allowance.
+		// Five addresses each use up their allowance.
 		await Promise.all(
-			Array.from({ length: 100 }, async (_, a) => {
+			Array.from({ length: 5 }, async (_, a) => {
 				for (let i = 0; i < 31; i += 1) await throttle.passwordAttempt(`10.0.${a}.1`);
 			}),
 		);
+		expect(await allowed(throttle.passwordAttempt("10.0.0.1"))).toBe(false);
 		expect(await allowed(throttle.passwordAttempt("203.0.113.99"))).toBe(true);
 		expect(await allowed(throttle.accountAttempt("fresh@example.edu"))).toBe(true);
 	});
