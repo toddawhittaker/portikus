@@ -105,6 +105,18 @@ function skipRegex(src, start) {
 	return i;
 }
 
+// Pushes each line of the block comment opening at start onto out; returns
+// the index past its end and the line it ends on.
+function readBlockComment(src, start, startLine, out) {
+	const end = src.indexOf("*/", start + 2);
+	const stop = end === -1 ? src.length : end;
+	const lines = src.slice(start + 2, stop).split("\n");
+	lines.forEach((text, n) => {
+		out.push({ line: startLine + n, text });
+	});
+	return { i: stop + 2, line: startLine + lines.length - 1 };
+}
+
 // Returns [{ line, text }] per comment line; string and regex literals are
 // skipped so "https://" or a backtick inside them is not taken for code.
 function cComments(src, isCss) {
@@ -122,14 +134,7 @@ function cComments(src, isCss) {
 			out.push({ line, text: src.slice(i + 2, stop) });
 			i = stop;
 		} else if (ch === "/" && src[i + 1] === "*") {
-			const end = src.indexOf("*/", i + 2);
-			const stop = end === -1 ? src.length : end;
-			const lines = src.slice(i + 2, stop).split("\n");
-			lines.forEach((text, n) => {
-				out.push({ line: line + n, text });
-			});
-			line += lines.length - 1;
-			i = stop + 2;
+			({ i, line } = readBlockComment(src, i, line, out));
 		} else if (ch === '"' || ch === "'" || ch === "`") {
 			({ i, line } = skipString(src, i, line));
 		} else if (ch === "/" && !isCss && regexAllowed(src, i)) {
@@ -205,20 +210,24 @@ export function scanText(path, src) {
 	if (/\.(test|spec)\.tsx?$/.test(path)) spans = spans.concat(testTitles(src));
 	const hits = [];
 	for (const { line, text } of spans) {
-		let clean = text;
-		for (const allow of ALLOWED) clean = clean.replace(allow, "");
-		// One hit per comment line is enough to point the reader at it.
-		for (const { name, re } of PATTERNS) {
-			// In a stylesheet a bare short number is a colour; an explicit "issue" prefix still hits.
-			if (re === BARE_HASH && path.endsWith(".css")) continue;
-			const m = clean.match(new RegExp(re.source, re.flags.replace("g", "")));
-			if (m) {
-				hits.push({ path, line, name, match: m[0] });
-				break;
-			}
-		}
+		const hit = firstHit(path, text);
+		if (hit) hits.push({ path, line, ...hit });
 	}
 	return hits;
+}
+
+// The first history pattern in one comment line, if any. One hit per comment
+// line is enough to point the reader at it.
+function firstHit(path, text) {
+	let clean = text;
+	for (const allow of ALLOWED) clean = clean.replace(allow, "");
+	for (const { name, re } of PATTERNS) {
+		// In a stylesheet a bare short number is a colour; an explicit "issue" prefix still hits.
+		if (re === BARE_HASH && path.endsWith(".css")) continue;
+		const m = clean.match(new RegExp(re.source, re.flags.replace("g", "")));
+		if (m) return { name, match: m[0] };
+	}
+	return null;
 }
 
 // A source file past this many lines likely does two jobs and should be
