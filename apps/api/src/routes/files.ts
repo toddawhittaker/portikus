@@ -13,7 +13,7 @@ import {
 	WriteFileResponse,
 } from "@portikus/contracts";
 import { readableToWeb } from "@portikus/observability";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { recordActivity } from "../activity.js";
 import {
 	AGENT_EXTRACT_TIMEOUT_MS,
@@ -26,6 +26,7 @@ import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import {
+	type HeadersDeadline,
 	headersDeadline,
 	INLINE_CSP,
 	inlineType,
@@ -39,6 +40,7 @@ import {
 } from "../workspaces/long-operation.js";
 import {
 	agentUrl,
+	type ProjectScope,
 	scopedProject,
 	sendAgentError,
 } from "../workspaces/project-scope.js";
@@ -51,6 +53,158 @@ function writeHeaders(incoming: Record<string, string | string[] | undefined>) {
 		if (typeof value === "string") headers[name] = value;
 	}
 	return headers;
+}
+
+/** Turn an unsuccessful agent response into the browser's error. */
+async function relayFailure(reply: FastifyReply, response: Response) {
+	const error = await readAgentError(response);
+	// A stale write needs the current etag so the editor can recover
+	// (SPEC.md §13.5).
+	const etag = response.headers.get("etag");
+	if (etag) reply.header("etag", etag);
+	return sendAgentError(reply, error);
+}
+
+function tooLarge(reply: FastifyReply) {
+	return sendError(
+		reply,
+		413,
+		"FILE_TOO_LARGE",
+		"That file is larger than the upload limit.",
+	);
+}
+
+/**
+ * A pass-through stream that counts the bytes itself, so the upload cap holds
+ * whatever the agent does with the stream (SPEC.md §11.2). Past the cap it
+ * drops the rest and aborts the request through `deadline`.
+ */
+function uploadCounter(deadline: HeadersDeadline) {
+	let sent = 0;
+	let overCap = false;
+	const stream = new Transform({
+		transform(chunk: Buffer, _encoding, done) {
+			sent += chunk.length;
+			if (sent > MAX_UPLOAD_BYTES) {
+				overCap = true;
+				deadline.abort();
+				done();
+				return;
+			}
+			done(null, chunk);
+		},
+	});
+	return { stream, overCap: () => overCap };
+}
+
+/** One file, streamed, so a download of any size never sits in memory. */
+async function streamFile(
+	scope: ProjectScope,
+	request: FastifyRequest,
+	reply: FastifyReply,
+) {
+	const path = queryPath(request, reply, { allowRoot: false });
+	if (path === null) return;
+	const query = request.query as { download?: string; inline?: string };
+	const download = query.download === "1";
+	// The viewer's mode: the real type of an image or PDF, never a guess.
+	const wantsInline = !download && query.inline === "1";
+	const inline = wantsInline ? inlineType(path) : null;
+	if (wantsInline && inline === null) {
+		return sendError(
+			reply,
+			415,
+			"VALIDATION_FAILED",
+			"Only images and PDF files can be shown here. Download the file to open it.",
+		);
+	}
+
+	// One file streams straight through and races with nothing, so it
+	// takes no long-operation slot; the zip download still does.
+	const deadline = headersDeadline();
+	let response: Response;
+	try {
+		response = await scope.agent.fetchRaw(
+			"GET",
+			// An inline file streams like a download, so a large PDF is not
+			// held to the editor's 2 MiB cap.
+			agentUrl(
+				scope.slug,
+				"file",
+				download || inline ? { path, download: "1" } : { path },
+			),
+			{ signal: deadline.signal },
+		);
+	} catch (error) {
+		return sendAgentError(reply, error);
+	} finally {
+		deadline.clear();
+	}
+	if (!response.ok) {
+		return relayFailure(reply, response);
+	}
+	if (!response.body) {
+		return sendError(
+			reply,
+			503,
+			"AGENT_UNAVAILABLE",
+			"The workspace agent sent no response body.",
+		);
+	}
+
+	return sendFile(reply, response, response.body, path, download, inline);
+}
+
+/** A conditional write, streamed through to the agent (SPEC.md §13.5). */
+async function writeFile(
+	db: ServerDeps["db"],
+	scope: ProjectScope,
+	request: FastifyRequest,
+	reply: FastifyReply,
+) {
+	// A write by the owner is activity; reads are not (ADR 0032).
+	await recordActivity(db, scope.workspaceId);
+	const path = queryPath(request, reply, { allowRoot: false });
+	if (path === null) return;
+
+	const headers = writeHeaders(request.headers);
+
+	const deadline = headersDeadline();
+	const counter = uploadCounter(deadline);
+
+	let response: Response;
+	try {
+		response = await scope.agent.fetchRaw(
+			"PUT",
+			agentUrl(scope.slug, "file", { path }),
+			{
+				headers,
+				body: readableToWeb(request.raw.pipe(counter.stream)),
+				signal: deadline.signal,
+			},
+		);
+	} catch (error) {
+		if (counter.overCap()) return tooLarge(reply);
+		return sendAgentError(reply, error);
+	} finally {
+		deadline.clear();
+	}
+	if (counter.overCap()) return tooLarge(reply);
+	if (!response.ok) return relayFailure(reply, response);
+
+	const parsed = WriteFileResponse.safeParse(await readJson(response));
+	if (!parsed.success) {
+		return sendError(
+			reply,
+			503,
+			"AGENT_UNAVAILABLE",
+			"The workspace agent did not confirm the write.",
+		);
+	}
+	reply.header("etag", parsed.data.etag);
+	// The next save is conditional on this etag too.
+	reply.header("cache-control", "no-transform");
+	return parsed.data;
 }
 
 /**
@@ -72,16 +226,6 @@ export function registerFileRoutes(
 			if (request.method === "GET" || request.method === "HEAD") return;
 			if (!(await limitWrites(request, reply))) return reply;
 		});
-
-		/** Turn an unsuccessful agent response into the browser's error. */
-		async function relayFailure(reply: FastifyReply, response: Response) {
-			const error = await readAgentError(response);
-			// A stale write needs the current etag so the editor can recover
-			// (SPEC.md §13.5).
-			const etag = response.headers.get("etag");
-			if (etag) reply.header("etag", etag);
-			return sendAgentError(reply, error);
-		}
 
 		// One directory listing, straight from the agent.
 		instance.get("/workspaces/:id/projects/:pid/tree", async (request, reply) => {
@@ -113,60 +257,10 @@ export function registerFileRoutes(
 			return parsed.data;
 		});
 
-		// Streamed, so a download of any size never sits in memory.
 		instance.get("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
-			const path = queryPath(request, reply, { allowRoot: false });
-			if (path === null) return;
-			const query = request.query as { download?: string; inline?: string };
-			const download = query.download === "1";
-			// The viewer's mode: the real type of an image or PDF, never a guess.
-			const wantsInline = !download && query.inline === "1";
-			const inline = wantsInline ? inlineType(path) : null;
-			if (wantsInline && inline === null) {
-				return sendError(
-					reply,
-					415,
-					"VALIDATION_FAILED",
-					"Only images and PDF files can be shown here. Download the file to open it.",
-				);
-			}
-
-			// One file streams straight through and races with nothing, so it
-			// takes no long-operation slot; the zip download still does.
-			const deadline = headersDeadline();
-			let response: Response;
-			try {
-				response = await scope.agent.fetchRaw(
-					"GET",
-					// An inline file streams like a download, so a large PDF is not
-					// held to the editor's 2 MiB cap.
-					agentUrl(
-						scope.slug,
-						"file",
-						download || inline ? { path, download: "1" } : { path },
-					),
-					{ signal: deadline.signal },
-				);
-			} catch (error) {
-				return sendAgentError(reply, error);
-			} finally {
-				deadline.clear();
-			}
-			if (!response.ok) {
-				return relayFailure(reply, response);
-			}
-			if (!response.body) {
-				return sendError(
-					reply,
-					503,
-					"AGENT_UNAVAILABLE",
-					"The workspace agent sent no response body.",
-				);
-			}
-
-			return sendFile(reply, response, response.body, path, download, inline);
+			return streamFile(scope, request, reply);
 		});
 
 		// A local image an assistant reply shows (SPEC.md §24.1). The agent
@@ -219,75 +313,9 @@ export function registerFileRoutes(
 			write.put("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 				const scope = await scopedProject(db, config, request, reply);
 				if (!scope) return;
-				// A write by the owner is activity; reads are not (ADR 0032).
-				await recordActivity(db, scope.workspaceId);
-				const path = queryPath(request, reply, { allowRoot: false });
-				if (path === null) return;
-
-				const headers = writeHeaders(request.headers);
-
-				// The control plane counts the bytes itself, so the cap holds
-				// whatever the agent does with the stream (SPEC.md §11.2).
-				const deadline = headersDeadline();
-				let sent = 0;
-				let overCap = false;
-				const counter = new Transform({
-					transform(chunk: Buffer, _encoding, done) {
-						sent += chunk.length;
-						if (sent > MAX_UPLOAD_BYTES) {
-							overCap = true;
-							deadline.abort();
-							done();
-							return;
-						}
-						done(null, chunk);
-					},
-				});
-
-				let response: Response;
-				try {
-					response = await scope.agent.fetchRaw(
-						"PUT",
-						agentUrl(scope.slug, "file", { path }),
-						{
-							headers,
-							body: readableToWeb(request.raw.pipe(counter)),
-							signal: deadline.signal,
-						},
-					);
-				} catch (error) {
-					if (overCap) return tooLarge(reply);
-					return sendAgentError(reply, error);
-				} finally {
-					deadline.clear();
-				}
-				if (overCap) return tooLarge(reply);
-				if (!response.ok) return relayFailure(reply, response);
-
-				const parsed = WriteFileResponse.safeParse(await readJson(response));
-				if (!parsed.success) {
-					return sendError(
-						reply,
-						503,
-						"AGENT_UNAVAILABLE",
-						"The workspace agent did not confirm the write.",
-					);
-				}
-				reply.header("etag", parsed.data.etag);
-				// The next save is conditional on this etag too.
-				reply.header("cache-control", "no-transform");
-				return parsed.data;
+				return writeFile(db, scope, request, reply);
 			});
 		});
-
-		function tooLarge(reply: FastifyReply) {
-			return sendError(
-				reply,
-				413,
-				"FILE_TOO_LARGE",
-				"That file is larger than the upload limit.",
-			);
-		}
 
 		instance.delete("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
