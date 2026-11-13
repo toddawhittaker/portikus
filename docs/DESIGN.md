@@ -313,11 +313,12 @@ warnings and errors (the status colours) and find matches (the accent),
 on a transparent ground with no border. It gives the same whole-file
 overview in a few pixels instead of a second, unreadable copy of the code.
 
-**Editor zoom is per editor and per session.** Ctrl with the mouse wheel over
+**Editor zoom is per file and per session.** Ctrl with the mouse wheel over
 the editor, Ctrl+Shift+Plus and Ctrl+Shift+Minus step it by ten percentage
 points, Ctrl+0 returns to 100%, and a thin bar under the editor shows the
-percentage with minus, plus and Reset. It changes the editor font only, never
-the browser's page zoom, and nothing is saved: every file opens at 100%.
+percentage with minus, plus and Reset. A file has one zoom shared by Edit and
+Diff, and the diff view has the same bar. It changes the editor font only,
+never the browser's page zoom, and nothing is saved: every file opens at 100%.
 
 **Language is guessed from the first line when the name says nothing.** A file
 such as `.git/hooks/pre-applypatch.sample` is highlighted as shell because of
