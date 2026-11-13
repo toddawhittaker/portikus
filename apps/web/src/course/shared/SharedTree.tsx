@@ -5,7 +5,13 @@
  */
 import { Icon } from "@portikus/ui";
 import { fileIconName } from "../../files/fileIcon.js";
-import { DIR_TITLE, type GitDecorations, isIgnored } from "../../files/gitStatus.js";
+import {
+	DIR_TITLE,
+	type GitDecoration,
+	type GitDecorationKind,
+	type GitDecorations,
+	isIgnored,
+} from "../../files/gitStatus.js";
 import {
 	displayName,
 	entryCount,
@@ -104,13 +110,7 @@ function Entry(
 	const decoration = git.byPath.get(path);
 	const dirty = isDir ? git.changedDirs.get(path) : undefined;
 	const ignored = git.repo && isIgnored(path, git.ignored);
-	const status = decoration
-		? decoration.title
-		: dirty
-			? DIR_TITLE[dirty]
-			: ignored
-				? "ignored"
-				: null;
+	const status = rowStatus(decoration, dirty, ignored);
 	const isCurrent = !isDir && current === path;
 	return (
 		<li>
@@ -129,17 +129,10 @@ function Entry(
 						<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
 					) : null}
 				</span>
-				<Icon
-					name={isDir ? (open ? "folder-open" : "folder") : fileIconName(name)}
-					size="md"
-				/>
+				<Icon name={entryIcon(name, isDir, open)} size="md" />
 				<span className={`pk-changes-path${ignored ? " pk-muted" : ""}`}>{shown}</span>
 				{status ? <span className="pk-visually-hidden">, {status}</span> : null}
-				{decoration ? (
-					<GitLetter decoration={decoration} />
-				) : dirty ? (
-					<GitDot kind={dirty} />
-				) : null}
+				{gitMark(decoration, dirty)}
 			</button>
 			{open ? (
 				<ul className="pk-changes-list">
@@ -148,4 +141,29 @@ function Entry(
 			) : null}
 		</li>
 	);
+}
+
+/** What a screen reader hears after the name: the file's change, the folder's, or ignored. */
+function rowStatus(
+	decoration: GitDecoration | undefined,
+	dirty: GitDecorationKind | undefined,
+	ignored: boolean,
+): string | null {
+	if (decoration) return decoration.title;
+	if (dirty) return DIR_TITLE[dirty];
+	return ignored ? "ignored" : null;
+}
+
+function entryIcon(name: string, isDir: boolean, open: boolean) {
+	if (!isDir) return fileIconName(name);
+	return open ? "folder-open" : "folder";
+}
+
+/** A file's letter, or the dot of a folder holding changes. */
+function gitMark(
+	decoration: GitDecoration | undefined,
+	dirty: GitDecorationKind | undefined,
+) {
+	if (decoration) return <GitLetter decoration={decoration} />;
+	return dirty ? <GitDot kind={dirty} /> : null;
 }
