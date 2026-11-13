@@ -63,16 +63,8 @@ const REQUIRED: Partial<Record<LmsField, string>> = {
 	deploymentIds: "Enter at least one deployment ID.",
 };
 
-/**
- * The platform the draft describes, or the problems with it: the contracts'
- * own rules, plus a clash with another platform or with the operator's.
- */
-export function checkDraft(
-	draft: LmsDraft,
-	others: AdminLtiPlatform[],
-	operator: OperatorLtiPlatform[],
-): { platform: AdminLtiPlatform } | { errors: LmsErrors } {
-	const platform = toPlatform(draft);
+/** The required fields the platform leaves empty. */
+function missingFields(platform: AdminLtiPlatform): LmsErrors {
 	const errors: LmsErrors = {};
 	for (const [field, message] of Object.entries(REQUIRED) as [LmsField, string][]) {
 		const empty =
@@ -81,14 +73,15 @@ export function checkDraft(
 				: !platform[field];
 		if (empty) errors[field] = message;
 	}
-	const parsed = AdminLtiPlatform.safeParse(platform);
-	if (!parsed.success) {
-		for (const issue of parsed.error.issues) {
-			const field = issue.path[0] as LmsField | undefined;
-			if (field && !(field in errors)) errors[field] = `Not valid: ${issue.message}.`;
-		}
-	}
-	const taken = [...others, ...operator];
+	return errors;
+}
+
+/** A name, or an issuer and client ID, already taken, on fields with no other problem. */
+function addClashes(
+	errors: LmsErrors,
+	platform: AdminLtiPlatform,
+	taken: readonly (AdminLtiPlatform | OperatorLtiPlatform)[],
+): void {
 	if (taken.some((p) => p.name === platform.name) && !errors.name) {
 		errors.name = "Another platform already has this name.";
 	}
@@ -101,6 +94,27 @@ export function checkDraft(
 		errors.clientId =
 			"A platform with this issuer and client ID is already registered.";
 	}
+}
+
+/**
+ * The platform the draft describes, or the problems with it: the contracts'
+ * own rules, plus a clash with another platform or with the operator's.
+ */
+export function checkDraft(
+	draft: LmsDraft,
+	others: AdminLtiPlatform[],
+	operator: OperatorLtiPlatform[],
+): { platform: AdminLtiPlatform } | { errors: LmsErrors } {
+	const platform = toPlatform(draft);
+	const errors = missingFields(platform);
+	const parsed = AdminLtiPlatform.safeParse(platform);
+	if (!parsed.success) {
+		for (const issue of parsed.error.issues) {
+			const field = issue.path[0] as LmsField | undefined;
+			if (field && !(field in errors)) errors[field] = `Not valid: ${issue.message}.`;
+		}
+	}
+	addClashes(errors, platform, [...others, ...operator]);
 	if (others.length + 1 > MAX_ADMIN_LTI_PLATFORMS) {
 		errors.name = `At most ${MAX_ADMIN_LTI_PLATFORMS} platforms can be registered here.`;
 	}
