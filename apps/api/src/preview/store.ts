@@ -445,6 +445,20 @@ export function createPreviewLookupCache(
 		};
 	}
 
+	/** Drop expired entries, and the oldest while full, to make room for one more. */
+	function evictOldest(at: number): void {
+		// Map order is insertion order, so the oldest entries come first.
+		for (const [k, entry] of entries) {
+			if (
+				at - entry.at < PREVIEW_LOOKUP_TTL_MS &&
+				entries.size < PREVIEW_LOOKUP_MAX_ENTRIES
+			) {
+				break;
+			}
+			entries.delete(k);
+		}
+	}
+
 	const cache = {
 		async get(token: string): Promise<PreviewLookup> {
 			const key = hashSessionToken(token);
@@ -457,16 +471,7 @@ export function createPreviewLookupCache(
 			const lookup = await load(token);
 			if (!lookup.session || !lookup.user || !lookup.workspace) return lookup;
 			if (started !== generation) return lookup;
-			// Map order is insertion order, so the oldest entries come first.
-			for (const [k, entry] of entries) {
-				if (
-					at - entry.at < PREVIEW_LOOKUP_TTL_MS &&
-					entries.size < PREVIEW_LOOKUP_MAX_ENTRIES
-				) {
-					break;
-				}
-				entries.delete(k);
-			}
+			evictOldest(at);
 			entries.set(key, { at, lookup });
 			return lookup;
 		},
