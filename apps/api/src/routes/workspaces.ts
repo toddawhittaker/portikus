@@ -41,10 +41,8 @@ export function registerWorkspaceRoutes(
 	app.post("/workspaces", async (request, reply) => {
 		const user = requireUser(request);
 
-		const body = CreateWorkspaceRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(CreateWorkspaceRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const ownerUserId = user.id;
 
@@ -165,10 +163,8 @@ export function registerWorkspaceRoutes(
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
-		const body = SetKeepRunningRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(SetKeepRunningRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 		const settings = await db
 			.selectFrom("settings")
 			.select("keep_running_max_hours")
@@ -179,7 +175,7 @@ export function registerWorkspaceRoutes(
 			fromJson<GuardConfig>(row.guard_config),
 		);
 		const now = new Date();
-		const requested = new Date(body.data.until);
+		const requested = new Date(body.until);
 		const refusal = keepRunningRefusal(requested, now, maxHours);
 		if (refusal === "off") {
 			return sendError(

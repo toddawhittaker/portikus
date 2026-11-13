@@ -13,7 +13,7 @@ import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { effectiveProfile } from "../courses/profile.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { siteSwitches } from "../site/switches.js";
 import { toEditorSettings } from "../users/editor-settings.js";
 
@@ -77,16 +77,14 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 	app.put("/me/settings", async (request, reply) => {
 		const user = requireUser(request);
 
-		const body = UpdateEditorSettingsRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateEditorSettingsRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		// Merged in the one statement, so two saves at once both survive.
 		const updated = await db
 			.updateTable("users")
 			.set({
-				editor_settings: sql`coalesce(editor_settings, '{}'::jsonb) || ${JSON.stringify(body.data)}::jsonb`,
+				editor_settings: sql`coalesce(editor_settings, '{}'::jsonb) || ${JSON.stringify(body)}::jsonb`,
 				updated_at: new Date().toISOString(),
 			})
 			.where("id", "=", user.id)
@@ -153,14 +151,12 @@ function registerProfileRoutes(app: FastifyInstance, db: ServerDeps["db"]): void
 
 	app.put("/me/profile", async (request, reply) => {
 		const user = requireUser(request);
-		const body = UpdateProfileRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateProfileRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 		const changes: { profile_github?: string | null; profile_website?: string | null } =
 			{};
-		if (body.data.github !== undefined) changes.profile_github = body.data.github;
-		if (body.data.website !== undefined) changes.profile_website = body.data.website;
+		if (body.github !== undefined) changes.profile_github = body.github;
+		if (body.website !== undefined) changes.profile_website = body.website;
 		await db
 			.updateTable("users")
 			.set({ ...changes, updated_at: new Date().toISOString() })

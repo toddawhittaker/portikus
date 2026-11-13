@@ -279,11 +279,9 @@ export function registerTerminalRoutes(
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 
-		const filter = ListQuery.safeParse(request.query ?? {});
-		if (!filter.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", filter.error.message);
-		}
-		const projectId = filter.data.projectId;
+		const filter = parseOr400(ListQuery, request.query ?? {}, reply);
+		if (!filter) return reply;
+		const projectId = filter.projectId;
 
 		let openQuery = listTerminalRows(db, params.id).where("ended_at", "is", null);
 		if (projectId) openQuery = openQuery.where("project_id", "=", projectId);
@@ -368,10 +366,8 @@ export function registerTerminalRoutes(
 		const user = requireUser(request);
 		const params = parseOr400(WorkspaceParam, request.params, reply);
 		if (!params) return;
-		const body = CreateTerminalRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(CreateTerminalRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
@@ -394,18 +390,18 @@ export function registerTerminalRoutes(
 			return terminalLimit(reply);
 		}
 
-		const refs = await createRefs(db, params.id, body.data, rows);
+		const refs = await createRefs(db, params.id, body, rows);
 		if (!refs.ok) return sendError(reply, 404, refs.code, refs.message);
 		const { project } = refs;
-		const resumeChatOf = body.data.resumeChatOf;
+		const resumeChatOf = body.resumeChatOf;
 
 		const id = crypto.randomUUID();
-		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
+		const cwd = body.cwd ?? project?.path ?? DEFAULT_CWD;
 		// A new terminal starts in the scheme the user chose in their settings
 		// unless the caller asked for one outright, and in
 		// the zone they chose.
 		const settings = await userTerminalSettings(db, user.id);
-		const theme = body.data.theme ?? settings.terminalTheme;
+		const theme = body.theme ?? settings.terminalTheme;
 
 		// The early check can race a parallel create; the lock makes the
 		// recount, the name, the position and the insert one step so the cap
@@ -422,8 +418,7 @@ export function registerTerminalRoutes(
 				return false;
 			}
 			const position = locked.reduce((max, row) => Math.max(max, row.position + 1), 0);
-			const name =
-				body.data.name ?? chooseTerminalName(locked, project ? project.id : null);
+			const name = body.name ?? chooseTerminalName(locked, project ? project.id : null);
 			await trx
 				.insertInto("terminals")
 				.values({
@@ -434,8 +429,8 @@ export function registerTerminalRoutes(
 					position,
 					project_id: project ? project.id : null,
 					theme,
-					agent: body.data.agent ?? null,
-					kind: body.data.kind ?? "terminal",
+					agent: body.agent ?? null,
+					kind: body.kind ?? "terminal",
 				})
 				.execute();
 			return true;
@@ -445,7 +440,7 @@ export function registerTerminalRoutes(
 		// Taken only once the capped insert holds, so a refused create leaves
 		// no point behind (SPEC.md 9.7), and still before the session starts.
 		const recoveryPointId =
-			body.data.agent !== undefined && project
+			body.agent !== undefined && project
 				? await agentSessionPoint(request, agent, params.id, project, user.id)
 				: null;
 
@@ -457,8 +452,8 @@ export function registerTerminalRoutes(
 				cwd,
 				theme,
 				timezone: settings.timezone,
-				...launcherFields(body.data.agent),
-				...(body.data.kind === "chat" ? { kind: "chat" as const } : {}),
+				...launcherFields(body.agent),
+				...(body.kind === "chat" ? { kind: "chat" as const } : {}),
 				...(resumeChatOf && { resumeChatOf }),
 			});
 			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
@@ -497,10 +492,8 @@ export function registerTerminalRoutes(
 		const user = requireUser(request);
 		const params = parseOr400(TerminalParam, request.params, reply);
 		if (!params) return;
-		const body = UpdateTerminalRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateTerminalRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
@@ -510,8 +503,8 @@ export function registerTerminalRoutes(
 		const updated = await db
 			.updateTable("terminals")
 			.set({
-				...(body.data.name === undefined ? {} : { name: body.data.name }),
-				...(body.data.theme === undefined ? {} : { theme: body.data.theme }),
+				...(body.name === undefined ? {} : { name: body.name }),
+				...(body.theme === undefined ? {} : { theme: body.theme }),
 			})
 			.where("id", "=", params.tid)
 			.where("workspace_id", "=", params.id)

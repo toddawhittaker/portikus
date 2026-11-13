@@ -93,10 +93,8 @@ export function registerProjectLayoutRoutes(
 			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
-			const body = ProjectLayout.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(ProjectLayout, request.body ?? {}, reply);
+			if (!body) return reply;
 			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			const basedOn = parseIfMatch(request.headers["if-match"]);
@@ -104,7 +102,7 @@ export function registerProjectLayoutRoutes(
 				return layoutChanged(reply);
 			}
 
-			const text = JSON.stringify(body.data);
+			const text = JSON.stringify(body);
 			const userId = requireUser(request).id;
 			// A soft bound: two saves racing may pass it by one layout each.
 			if (
@@ -135,8 +133,8 @@ export function registerProjectLayoutRoutes(
 				{
 					workspaceId: scope.workspaceId,
 					projectId: row.id,
-					tabs: body.data.tabs.length,
-					panes: body.data.tabs.reduce((total, tab) => total + countPanes(tab.root), 0),
+					tabs: body.tabs.length,
+					panes: body.tabs.reduce((total, tab) => total + countPanes(tab.root), 0),
 				},
 				"layout saved",
 			);

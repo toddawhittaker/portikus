@@ -37,15 +37,13 @@ export function registerProjectDeleteRoute(
 			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
-			const body = DeleteProjectRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(DeleteProjectRequest, request.body ?? {}, reply);
+			if (!body) return reply;
 			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			// Typing the folder name back is the whole safeguard, so it is checked
 			// against the row rather than anything the browser chose.
-			if (body.data.slug !== row.slug) {
+			if (body.slug !== row.slug) {
 				return sendError(
 					reply,
 					400,

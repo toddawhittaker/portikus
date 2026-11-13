@@ -235,10 +235,8 @@ export function registerRecoveryRoutes(
 			const user = requireUser(request);
 			const params = parseOr400(PointParam, request.params, reply);
 			if (!params) return;
-			const body = RestoreRecoveryPointRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(RestoreRecoveryPointRequest, request.body ?? {}, reply);
+			if (!body) return reply;
 			const found = await scoped(request, reply);
 			if (!found) return;
 			const { scope, project } = found;
@@ -257,7 +255,7 @@ export function registerRecoveryRoutes(
 					workspaceId: scope.workspaceId,
 					project,
 					point,
-					skipSafetyPoint: body.data.skipSafetyPoint === true,
+					skipSafetyPoint: body.skipSafetyPoint === true,
 				});
 			} finally {
 				releaseLongOperation(scope.workspaceId);

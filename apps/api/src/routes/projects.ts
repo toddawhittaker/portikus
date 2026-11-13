@@ -225,10 +225,8 @@ export function registerProjectRoutes(
 	app.get("/workspaces/:id/projects", async (request, reply) => {
 		const scope = await owned(request, reply);
 		if (!scope) return;
-		const query = ListQuery.safeParse(request.query ?? {});
-		if (!query.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", query.error.message);
-		}
+		const query = parseOr400(ListQuery, request.query ?? {}, reply);
+		if (!query) return reply;
 
 		let directories: Map<string, AgentDirectory> | null = null;
 		let truncated = false;
@@ -258,7 +256,7 @@ export function registerProjectRoutes(
 
 		// A project the student renamed with `mv` follows its directory to the
 		// new slug, keeping its id, tabs and layout.
-		if (directories && query.data.state === "active") {
+		if (directories && query.state === "active") {
 			const relocated = await relocateMovedProjects(db, scope.workspaceId, directories);
 			for (const move of relocated) {
 				request.log.info(
@@ -271,7 +269,7 @@ export function registerProjectRoutes(
 		// Anything Git-enabled under ~/projects is a project (ADR 0010,
 		// Discovery). Archiving does not remove the row, so an archived slug is
 		// never re-added; that also means an archived listing discovers nothing.
-		if (directories && query.data.state === "active") {
+		if (directories && query.state === "active") {
 			// The pane polls every ten seconds, so read first and write only when
 			// a directory is genuinely new (rows of any state count as known).
 			const known = await db
@@ -305,7 +303,7 @@ export function registerProjectRoutes(
 		}
 
 		const rows = await listRows(db, scope.workspaceId)
-			.where("state", "=", query.data.state)
+			.where("state", "=", query.state)
 			.execute();
 
 		request.log.debug(
@@ -359,11 +357,9 @@ export function registerProjectRoutes(
 		async (request, reply) => {
 			const scope = await owned(request, reply);
 			if (!scope) return;
-			const body = CreateProjectRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
-			const created = await createProject(db, config, scope, reply, body.data);
+			const body = parseOr400(CreateProjectRequest, request.body ?? {}, reply);
+			if (!body) return reply;
+			const created = await createProject(db, config, scope, reply, body);
 			if (!created) return;
 			return reply.status(201).send(toProject(created.row, created.isGitRepo, false));
 		},
@@ -499,23 +495,21 @@ export function registerProjectRoutes(
 			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
-			const body = UpdateProjectRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(UpdateProjectRequest, request.body ?? {}, reply);
+			if (!body) return reply;
 			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 
 			let current = row;
 
-			if (body.data.name !== undefined && body.data.name !== current.name) {
-				const renamed = await renameProject(scope, current, body.data.name, reply);
+			if (body.name !== undefined && body.name !== current.name) {
+				const renamed = await renameProject(scope, current, body.name, reply);
 				if (!renamed) return;
 				current = renamed;
 			}
 
-			if (body.data.state !== undefined && body.data.state !== current.state) {
-				const archiving = body.data.state === "archived";
+			if (body.state !== undefined && body.state !== current.state) {
+				const archiving = body.state === "archived";
 				if (archiving && scope.agent) {
 					await recoveryPointBeforeArchive(
 						request,
@@ -525,7 +519,7 @@ export function registerProjectRoutes(
 						user.id,
 					);
 				}
-				const state = body.data.state;
+				const state = body.state;
 				const projectId = current.id;
 				let endedHelp: EndedLiveHelp | null = null;
 				current = await db.transaction().execute(async (trx) => {
@@ -578,16 +572,14 @@ export function registerProjectRoutes(
 			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
-			const body = DuplicateProjectRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(DuplicateProjectRequest, request.body ?? {}, reply);
+			if (!body) return reply;
 			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
 
-			const slug = slugify(body.data.name);
+			const slug = slugify(body.name);
 			if (slug === "") {
 				return sendError(
 					reply,
@@ -626,7 +618,7 @@ export function registerProjectRoutes(
 				.values({
 					workspace_id: scope.workspaceId,
 					slug,
-					name: body.data.name,
+					name: body.name,
 					path: projectPath(slug),
 					source: "new",
 				})

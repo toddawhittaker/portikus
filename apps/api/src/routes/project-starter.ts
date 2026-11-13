@@ -9,7 +9,7 @@ import {
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { consumeStarterLaunch, findStarterLaunch } from "../lti/starter.js";
 import { createProject } from "../workspaces/create-project.js";
 import { ownedScope, toProject } from "../workspaces/project-scope.js";
@@ -31,14 +31,12 @@ export function registerProjectStarterRoute(
 		async (request, reply) => {
 			const scope = await ownedScope(db, config, request, reply);
 			if (!scope) return;
-			const body = StarterProjectRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(StarterProjectRequest, request.body ?? {}, reply);
+			if (!body) return reply;
 			// Another user's starter, an expired one and a used one all look alike.
 			const starter = await findStarterLaunch(
 				db,
-				body.data.starterId,
+				body.starterId,
 				requireUser(request).id,
 			);
 			if (!starter) {

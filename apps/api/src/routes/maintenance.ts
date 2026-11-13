@@ -63,10 +63,8 @@ export function registerMaintenanceRoutes(
 			const user = requireUser(req);
 			const params = parseOr400(UuidParam, req.params, reply);
 			if (!params) return;
-			const body = RebuildWorkspaceRequest.safeParse(req.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(RebuildWorkspaceRequest, req.body ?? {}, reply);
+			if (!body) return reply;
 			const row = await findOwnedWorkspace(db, user, params.id);
 			if (!row) {
 				return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
@@ -75,9 +73,9 @@ export function registerMaintenanceRoutes(
 				reply,
 				user.id,
 				params.id,
-				body.data.resetDocker ? "rebuild-reset-docker" : "rebuild",
+				body.resetDocker ? "rebuild-reset-docker" : "rebuild",
 				"workspace.rebuild_requested",
-				{ resetDocker: body.data.resetDocker, ip: req.ip },
+				{ resetDocker: body.resetDocker, ip: req.ip },
 			);
 		},
 	);

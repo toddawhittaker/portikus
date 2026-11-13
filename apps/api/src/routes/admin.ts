@@ -165,10 +165,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	app.put("/admin/settings", adminOnly, async (request, reply) => {
 		const user = requireUser(request);
 
-		const body = UpdatePlatformSettingsRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdatePlatformSettingsRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const before = await db
 			.selectFrom("settings")
@@ -185,23 +183,23 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			updated_by: user.id,
 		};
 		const audits: { action: string; details: Record<string, unknown> }[] = [];
-		if (body.data.shutdownGraceSeconds !== undefined) {
-			changes.shutdown_grace_seconds = body.data.shutdownGraceSeconds;
+		if (body.shutdownGraceSeconds !== undefined) {
+			changes.shutdown_grace_seconds = body.shutdownGraceSeconds;
 			audits.push({
 				action: "settings.shutdown_grace_updated",
 				details: {
 					from: before.shutdown_grace_seconds,
-					to: body.data.shutdownGraceSeconds,
+					to: body.shutdownGraceSeconds,
 				},
 			});
 		}
-		if (body.data.logLevel !== undefined) {
-			changes.log_level = body.data.logLevel;
+		if (body.logLevel !== undefined) {
+			changes.log_level = body.logLevel;
 			audits.push({
 				action: "settings.log_level_updated",
 				details: {
 					from: toLogLevel(before.log_level),
-					to: body.data.logLevel,
+					to: body.logLevel,
 				},
 			});
 		}
@@ -220,7 +218,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const guardFrom: Record<string, number> = {};
 		const guardTo: Record<string, number> = {};
 		for (const [field, column] of guardFields) {
-			const value = body.data[field];
+			const value = body[field];
 			if (value === undefined || value === before[column]) continue;
 			changes[column] = value;
 			guardFrom[field] = before[column];
@@ -251,7 +249,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			],
 		] as const;
 		for (const [field, column, action] of singleFields) {
-			const value = body.data[field];
+			const value = body[field];
 			if (value === undefined || value === before[column]) continue;
 			Object.assign(changes, { [column]: value });
 			audits.push({ action, details: { from: before[column], to: value } });
@@ -260,14 +258,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			changes,
 			audits,
 			before.code_help_languages,
-			body.data.codeHelpLanguages,
+			body.codeHelpLanguages,
 		);
-		if (body.data.acceptableUseText !== undefined) {
-			changes.acceptable_use_text = body.data.acceptableUseText;
+		if (body.acceptableUseText !== undefined) {
+			changes.acceptable_use_text = body.acceptableUseText;
 			// Any change to the text everyone sees asks everyone to accept again;
 			// the audit row holds versions, never the text.
 			const oldText = before.acceptable_use_text ?? DEFAULT_ACCEPTABLE_USE_TEXT;
-			const newText = body.data.acceptableUseText ?? DEFAULT_ACCEPTABLE_USE_TEXT;
+			const newText = body.acceptableUseText ?? DEFAULT_ACCEPTABLE_USE_TEXT;
 			if (oldText !== newText) {
 				changes.acceptable_use_version = before.acceptable_use_version + 1;
 				audits.push({
@@ -467,10 +465,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
 
-		const body = UpdateAdminUserSettingsRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateAdminUserSettingsRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const before = await db
 			.selectFrom("users")
@@ -486,7 +482,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			const row = await trx
 				.updateTable("users")
 				.set({
-					shutdown_grace_seconds: body.data.shutdownGraceSeconds,
+					shutdown_grace_seconds: body.shutdownGraceSeconds,
 					updated_at: new Date().toISOString(),
 				})
 				.where("id", "=", params.id)
@@ -499,7 +495,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				result: "ok",
 				metadata: {
 					from: before.shutdown_grace_seconds,
-					to: body.data.shutdownGraceSeconds,
+					to: body.shutdownGraceSeconds,
 					ip: request.ip,
 					userAgent: request.headers["user-agent"] ?? null,
 				},

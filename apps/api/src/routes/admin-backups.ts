@@ -270,11 +270,9 @@ export function registerAdminBackupRoutes(
 
 	app.post("/admin/backups/restores", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const body = BackupRestoreRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const { stamp, workspaceId } = body.data;
+		const body = parseOr400(BackupRestoreRequest, request.body ?? {}, reply);
+		if (!body) return reply;
+		const { stamp, workspaceId } = body;
 		const { host } = await loadStatus();
 		const set = host?.sets.find((s) => s.stamp === stamp);
 		if (!set) return sendError(reply, 404, "NOT_FOUND", "No such backup set");
