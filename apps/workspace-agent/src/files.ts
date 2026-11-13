@@ -89,18 +89,7 @@ export async function resolveInProject(
 	if (options.noLinks) await refuseLinkedComponents(root, relPath);
 
 	const requested = join(root, relPath);
-	let parent: string;
-	try {
-		parent = await realpath(dirname(requested));
-	} catch (error) {
-		if (errorCode(error) === "ENOENT") {
-			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
-		}
-		throw new AgentFailure("PATH_INVALID", "invalid path");
-	}
-	if (!contains(root, parent)) {
-		throw new AgentFailure("PATH_INVALID", "path leaves the project");
-	}
+	const parent = await realParentInside(root, requested);
 	const path = join(parent, basename(requested));
 
 	if (options.refuseSymlink || options.linkOk) {
@@ -118,6 +107,32 @@ export async function resolveInProject(
 		}
 	}
 
+	return resolveFinal(root, path, options.mustExist);
+}
+
+/** The real directory that holds `requested`, refused unless it is inside `root`. */
+async function realParentInside(root: string, requested: string): Promise<string> {
+	let parent: string;
+	try {
+		parent = await realpath(dirname(requested));
+	} catch (error) {
+		if (errorCode(error) === "ENOENT") {
+			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
+		}
+		throw new AgentFailure("PATH_INVALID", "invalid path");
+	}
+	if (!contains(root, parent)) {
+		throw new AgentFailure("PATH_INVALID", "path leaves the project");
+	}
+	return parent;
+}
+
+/** Follow `path` to the end and refuse it unless it stays inside `root`. */
+async function resolveFinal(
+	root: string,
+	path: string,
+	mustExist: boolean,
+): Promise<ResolvedPath> {
 	try {
 		const real = await realpath(path);
 		if (!contains(root, real)) {
@@ -130,7 +145,7 @@ export async function resolveInProject(
 			// Fail closed: anything we cannot resolve is treated as an escape.
 			throw new AgentFailure("PATH_INVALID", "invalid path");
 		}
-		if (options.mustExist) {
+		if (mustExist) {
 			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
 		}
 		return { path, exists: false, isSymlink: false };
