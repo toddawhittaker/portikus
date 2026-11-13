@@ -201,6 +201,35 @@ export function useProjectEvents(
 			};
 		}
 
+		/**
+		 * The same socket carries filesystem batches and browser-open
+		 * requests. A frame that is neither is ignored.
+		 */
+		function onFrame(from: WebSocket, frame: unknown): void {
+			const browser = BrowserOpenRequestSchema.safeParse(frame);
+			if (browser.success) {
+				onBrowserOpenRef.current?.(browser.data);
+				return;
+			}
+			if (WatchLimited.safeParse(frame).success) {
+				onWatchLimited(from);
+				return;
+			}
+			const parsed = FsEvent.safeParse(frame);
+			if (!parsed.success) return;
+			pending.push(parsed.data);
+			if (debounce === undefined) debounce = setTimeout(flush, INVALIDATE_DEBOUNCE_MS);
+		}
+
+		function onWatchLimited(from: WebSocket): void {
+			if (limitedHere) return;
+			limitedHere = true;
+			setLimited(true);
+			startFallback();
+			// The agent has closed its watcher, so this socket carries nothing more.
+			from.close();
+		}
+
 		function connect(): void {
 			if (stopped) return;
 			const path = `/workspaces/${workspaceId}/projects/${projectId}/events`;
@@ -217,35 +246,7 @@ export function useProjectEvents(
 				everOpened = true;
 			};
 
-			next.onmessage = (event: MessageEvent) => {
-				let frame: unknown;
-				try {
-					frame = JSON.parse(String(event.data));
-				} catch {
-					return;
-				}
-				// The same socket carries filesystem batches and browser-open
-				// requests. A frame that is neither is ignored.
-				const browser = BrowserOpenRequestSchema.safeParse(frame);
-				if (browser.success) {
-					onBrowserOpenRef.current?.(browser.data);
-					return;
-				}
-				if (WatchLimited.safeParse(frame).success) {
-					if (limitedHere) return;
-					limitedHere = true;
-					setLimited(true);
-					startFallback();
-					// The agent has closed its watcher, so this socket carries nothing more.
-					next.close();
-					return;
-				}
-				const parsed = FsEvent.safeParse(frame);
-				if (!parsed.success) return;
-				pending.push(parsed.data);
-				if (debounce === undefined)
-					debounce = setTimeout(flush, INVALIDATE_DEBOUNCE_MS);
-			};
+			next.onmessage = (event: MessageEvent) => onFrame(next, parseFrame(event.data));
 
 			next.onclose = (event: CloseEvent) => {
 				if (stopped) return;
@@ -277,4 +278,13 @@ export function useProjectEvents(
 	}, [client, workspaceId, projectId, showHidden]);
 
 	return { limited };
+}
+
+/** A frame's JSON, or null when it is not JSON; no frame schema accepts null. */
+function parseFrame(data: unknown): unknown {
+	try {
+		return JSON.parse(String(data));
+	} catch {
+		return null;
+	}
 }
