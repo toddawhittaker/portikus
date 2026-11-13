@@ -5,7 +5,15 @@
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { Button, EmptyState, Icon, PaneHandle } from "@portikus/ui";
-import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
+import {
+	lazy,
+	type ReactNode,
+	Suspense,
+	useDeferredValue,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { Group, Panel } from "react-resizable-panels";
 import type { CodeEditorHandle } from "../editor/CodeEditor.js";
 import { FileOpening } from "../editor/FileOpening.js";
@@ -14,7 +22,7 @@ import { useEditorSettings } from "../editor/settingsQueries.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
 import { baseName, displayName, parentOf } from "../files/paths.js";
 import { fileInlineUrl, useTree } from "../files/queries.js";
-import { viewerKind, viewerVersion } from "../files/viewable.js";
+import { type ViewerKind, viewerKind, viewerVersion } from "../files/viewable.js";
 import {
 	type PendingView,
 	useEditorViewState,
@@ -216,24 +224,15 @@ function FileTab({
 
 	const data = file.data;
 
-	// A PDF or raster image is shown even when it happens to hold no NUL byte
-	// and the server calls it text.
-	const viewer =
-		data?.tooLarge === true ||
-		data?.binary === true ||
-		(data !== undefined && (kind === "image" || kind === "pdf"));
-	// An SVG small enough to edit has a picture view and a text view.
-	const svgModes = svg && !viewer;
-	// So does a CSV file: its table and its text.
-	const csvModes = csv && !viewer;
-	const viewModes = svgModes || csvModes;
+	const { viewer, svgModes, csvModes, viewModes, viewOnly } = fileModes(
+		data,
+		kind,
+		svg,
+		csv,
+	);
 	// The pill says nothing useful about a file that cannot be edited, and
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
-	// An image, a PDF, or a file too large or not text is only looked at: it
-	// has no other view, and its diff would only say it changed in binary.
-	// A raster image or PDF is known by its name before it loads.
-	const viewOnly = viewer || kind === "image" || kind === "pdf";
 
 	// The two sides of the Markdown split follow each other by source line:
 	// the first line showing on the left is the first line showing on the
@@ -345,6 +344,11 @@ function FileTab({
 	}
 
 	function body() {
+		return unavailableBody() ?? textBody();
+	}
+
+	/** What the tab shows instead of the text: why it is gone, or a viewer. */
+	function unavailableBody() {
 		if (text === null && gone) {
 			return (
 				<EmptyState
@@ -373,6 +377,10 @@ function FileTab({
 			return <p className="pk-file-note">Loading…</p>;
 		}
 		if (viewer && data) return viewerBody(data);
+		return null;
+	}
+
+	function textBody() {
 		if (text === null || !revealReady) {
 			return <FileOpening name={name} />;
 		}
@@ -392,12 +400,17 @@ function FileTab({
 		if (csvModes && view === "view") {
 			return <CsvView path={path} text={text} onShowText={() => pressView("edit")} />;
 		}
-		const editor = (
+		const editor = editorElement(text);
+		return markdown ? markdownSplit(editor) : editor;
+	}
+
+	function editorElement(value: string) {
+		return (
 			<Suspense fallback={<FileOpening name={name} />}>
 				<CodeEditor
 					path={path}
 					projectId={projectId}
-					value={text}
+					value={value}
 					version={`${etag}:${conflictEdits}`}
 					onChange={buffer.onChange}
 					onSave={buffer.saveNow}
@@ -413,21 +426,14 @@ function FileTab({
 				/>
 			</Suspense>
 		);
-		if (!markdown) return editor;
-		// A Markdown tab is always a split: the raw text on the left, and on
-		// the right either the rendered file or its diff (SPEC.md §13.4).
-		// The preview is read-only; every edit happens in Monaco.
-		const preview = (
-			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
-				<MarkdownPreview
-					text={previewText}
-					path={path}
-					imageUrl={(target) => fileInlineUrl(workspaceId, projectId, target)}
-					scrollRef={previewScroll}
-					onScroll={followPreview}
-				/>
-			</Suspense>
-		);
+	}
+
+	/**
+	 * A Markdown tab is always a split: the raw text on the left, and on
+	 * the right either the rendered file or its diff (SPEC.md §13.4).
+	 * The preview is read-only; every edit happens in Monaco.
+	 */
+	function markdownSplit(editor: ReactNode) {
 		return (
 			<Group
 				orientation="horizontal"
@@ -440,7 +446,15 @@ function FileTab({
 				</Panel>
 				<PaneHandle orientation="vertical" label="Resize preview" />
 				<Panel id="md-preview-pane" minSize="20%" className="pk-split-panel">
-					{preview}
+					<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
+						<MarkdownPreview
+							text={previewText}
+							path={path}
+							imageUrl={(target) => fileInlineUrl(workspaceId, projectId, target)}
+							scrollRef={previewScroll}
+							onScroll={followPreview}
+						/>
+					</Suspense>
 				</Panel>
 			</Group>
 		);
@@ -558,6 +572,35 @@ function FileTab({
 			) : null}
 		</>
 	);
+}
+
+/** Which ways a file can be shown, from what its read said and its name. */
+function fileModes(
+	data: { tooLarge?: boolean; binary?: boolean } | undefined,
+	kind: ViewerKind | null,
+	svg: boolean,
+	csv: boolean,
+) {
+	// A PDF or raster image is shown even when it happens to hold no NUL byte
+	// and the server calls it text.
+	const viewer =
+		data?.tooLarge === true ||
+		data?.binary === true ||
+		(data !== undefined && (kind === "image" || kind === "pdf"));
+	// An SVG small enough to edit has a picture view and a text view.
+	const svgModes = svg && !viewer;
+	// So does a CSV file: its table and its text.
+	const csvModes = csv && !viewer;
+	return {
+		viewer,
+		svgModes,
+		csvModes,
+		viewModes: svgModes || csvModes,
+		// An image, a PDF, or a file too large or not text is only looked at: it
+		// has no other view, and its diff would only say it changed in binary.
+		// A raster image or PDF is known by its name before it loads.
+		viewOnly: viewer || kind === "image" || kind === "pdf",
+	};
 }
 
 /**
