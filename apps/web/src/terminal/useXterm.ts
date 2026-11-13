@@ -467,23 +467,26 @@ export function useXterm({
 		}
 		container.addEventListener("paste", onPaste, { capture: true });
 
+		/** A lone picture goes to `pasteImage`; otherwise the plain text is typed. */
+		async function pasteClipboardItems(items: ClipboardItem[]) {
+			const type = pastedImageType(items.flatMap((item) => item.types));
+			const first = items[0];
+			if (type && first) {
+				await handlers.current.pasteImage?.(await first.getType(type), type);
+				return;
+			}
+			const textItem = items.find((item) => item.types.includes("text/plain"));
+			if (!textItem) return;
+			const blob = await textItem.getType("text/plain");
+			term.paste(sanitizePaste(await blob.text()));
+		}
+
 		/** A right-click has no paste event, so read the clipboard's items. */
 		async function pasteFromMenu() {
 			// term.paste brackets the text when the program asked for it.
 			if (typeof navigator.clipboard?.read === "function") {
 				try {
-					const items = await navigator.clipboard.read();
-					const type = pastedImageType(items.flatMap((item) => item.types));
-					const first = items[0];
-					if (type && first) {
-						await handlers.current.pasteImage?.(await first.getType(type), type);
-						return;
-					}
-					const textItem = items.find((item) => item.types.includes("text/plain"));
-					if (textItem) {
-						const blob = await textItem.getType("text/plain");
-						term.paste(sanitizePaste(await blob.text()));
-					}
+					await pasteClipboardItems(await navigator.clipboard.read());
 				} catch {
 					// Refused: nothing the student can act on.
 				}
@@ -502,24 +505,28 @@ export function useXterm({
 		if (dictationTarget) dictationTarget.current = (text) => term.paste(text);
 
 		const platform = currentPlatform();
-		term.attachCustomKeyEventHandler((event) => {
-			// Alt+Shift+M listens while held.
+		/** Alt+Shift+M listens while held; true when the event was that shortcut. */
+		function handleVoiceKey(event: KeyboardEvent): boolean {
 			const voice = handlers.current.onVoiceHold;
-			if (voice) {
-				if (event.type === "keydown" && isVoiceShortcut(event)) {
-					event.preventDefault();
-					if (!voiceHeld) {
-						voiceHeld = true;
-						voice(true);
-					}
-					return false;
+			if (!voice) return false;
+			if (event.type === "keydown" && isVoiceShortcut(event)) {
+				event.preventDefault();
+				if (!voiceHeld) {
+					voiceHeld = true;
+					voice(true);
 				}
-				if (event.type === "keyup" && voiceHeld && endsVoiceShortcut(event)) {
-					voiceHeld = false;
-					voice(false);
-					return false;
-				}
+				return true;
 			}
+			if (event.type === "keyup" && voiceHeld && endsVoiceShortcut(event)) {
+				voiceHeld = false;
+				voice(false);
+				return true;
+			}
+			return false;
+		}
+
+		term.attachCustomKeyEventHandler((event) => {
+			if (handleVoiceKey(event)) return false;
 			if (isLeaveShortcut(event)) {
 				event.preventDefault();
 				handlers.current.onLeave();
