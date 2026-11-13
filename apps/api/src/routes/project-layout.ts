@@ -8,7 +8,7 @@ import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
-import type { ProjectRow, Scope } from "../workspaces/project-scope.js";
+import type { OwnedProject, OwnedScope } from "../workspaces/project-scope.js";
 import type { WorkspaceHub } from "../workspaces/workspace-hub.js";
 
 /** The layout version as an entity tag, so a save can name what it was based on. */
@@ -63,12 +63,8 @@ export function registerProjectLayoutRoutes(
 	db: Kysely<Database>,
 	hub: WorkspaceHub,
 	limitWrites: (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>,
-	owned: (request: FastifyRequest, reply: FastifyReply) => Promise<Scope | null>,
-	ownedProject: (
-		workspaceId: string,
-		projectId: string,
-		reply: FastifyReply,
-	) => Promise<ProjectRow | null>,
+	owned: OwnedScope,
+	ownedProject: OwnedProject,
 ): void {
 	app.get("/workspaces/:id/projects/:pid/layout", async (request, reply) => {
 		const params = parseOr400(ProjectParam, request.params, reply);
