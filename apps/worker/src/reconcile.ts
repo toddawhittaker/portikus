@@ -320,10 +320,31 @@ async function startInBackground(
 
 /** Step 3c: stop running workspaces that should stop or whose grace period passed. */
 async function stopRunning(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, log, record } = ctx;
 	// 3c: running -> stopping (desired stopped/restarting, or deadline passed)
+	await stopRequested(ctx);
+	await stopForOperation(ctx);
+	await stopAfterGrace(ctx);
+}
+
+/** Move a running workspace to stopping and send the stop, unless the row moved on. */
+async function beginStop(
+	ctx: SweepContext,
+	ws: { id: string; incus_instance_name: string | null },
+	reason: string,
+): Promise<void> {
+	const { db, controller, config, now, log, record } = ctx;
+	const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
+	if (!moved) return;
+	ctx.transitions++;
+	record(ws.id, reason);
+	await endOpenTerminals(db, ws.id, now);
+	stopInBackground(db, controller, config, ws, log);
+}
+
+/** Stop a workspace whose owner wants it stopped or restarted, or that is archived. */
+async function stopRequested(ctx: SweepContext): Promise<void> {
 	// First: explicit desired stopped or restarting, or archived whatever it wants.
-	const toStopExplicit = await db
+	const toStopExplicit = await ctx.db
 		.selectFrom("workspaces")
 		.select(["id", "incus_instance_name"])
 		.where("state", "=", "running")
@@ -338,17 +359,17 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 
 	for (const ws of toStopExplicit) {
 		if (!ws.incus_instance_name) continue;
-		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
-		if (!moved) continue;
-		ctx.transitions++;
-		record(ws.id, "stop requested");
-		await endOpenTerminals(db, ws.id, now);
-		stopInBackground(db, controller, config, ws, log);
+		await beginStop(ctx, ws, "stop requested");
 	}
+}
 
-	// A pending maintenance operation stops a running workspace without
-	// touching desired_state, so it restarts afterwards (ADR 0021). A rebuild
-	// first waits for the recovery loop to try a point of each project.
+/**
+ * A pending maintenance operation stops a running workspace without
+ * touching desired_state, so it restarts afterwards (ADR 0021). A rebuild
+ * first waits for the recovery loop to try a point of each project.
+ */
+async function stopForOperation(ctx: SweepContext): Promise<void> {
+	const { db, now } = ctx;
 	const toStopForOperation = await db
 		.selectFrom("workspaces")
 		.select(["id", "incus_instance_name", "pending_operation", "pending_operation_at"])
@@ -365,14 +386,13 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 		) {
 			continue;
 		}
-		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
-		if (!moved) continue;
-		ctx.transitions++;
-		record(ws.id, `stop for ${ws.pending_operation}`);
-		await endOpenTerminals(db, ws.id, now);
-		stopInBackground(db, controller, config, ws, log);
+		await beginStop(ctx, ws, `stop for ${ws.pending_operation}`);
 	}
+}
 
+/** Stop a workspace whose grace period passed with no connections. */
+async function stopAfterGrace(ctx: SweepContext): Promise<void> {
+	const { db, controller, config, now, log, record } = ctx;
 	// Deadline passed with zero connections: single UPDATE with count subquery.
 	// Setting desired_state here is safe because the same statement asserts
 	// there are no connections; a connect that lands later wins on its own.
