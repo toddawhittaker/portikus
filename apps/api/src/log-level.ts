@@ -2,7 +2,7 @@ import { LogLevel } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { applyLevel, errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
-import { agentClientFor } from "./agent-client.js";
+import { type AgentClient, agentClientFor } from "./agent-client.js";
 
 /** How often the API re-reads the runtime log level (ADR 0012). */
 const DEFAULT_INTERVAL_MS = 5000;
@@ -53,6 +53,26 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 		return parsed.success ? parsed.data : null;
 	}
 
+	async function pushToAgent(
+		workspaceId: string,
+		agent: AgentClient,
+		level: LogLevel | null,
+	): Promise<void> {
+		try {
+			await agent.setLogLevel(level);
+			pushed.set(workspaceId, level);
+		} catch (error) {
+			logger.debug(
+				{
+					workspaceId,
+					level,
+					error: errorMessage(error),
+				},
+				"could not set the workspace agent log level",
+			);
+		}
+	}
+
 	async function pushToAgents(level: LogLevel | null): Promise<void> {
 		const rows = await db
 			.selectFrom("workspaces")
@@ -66,20 +86,7 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 			stillRunning.add(workspaceId);
 			if (pushed.has(workspaceId) && pushed.get(workspaceId) === level) continue;
 			const agent = agentClientFor(row, agentPort);
-			if (!agent) continue;
-			try {
-				await agent.setLogLevel(level);
-				pushed.set(workspaceId, level);
-			} catch (error) {
-				logger.debug(
-					{
-						workspaceId,
-						level,
-						error: errorMessage(error),
-					},
-					"could not set the workspace agent log level",
-				);
-			}
+			if (agent) await pushToAgent(workspaceId, agent, level);
 		}
 		// A workspace that stopped must be pushed again when it comes back.
 		for (const workspaceId of [...pushed.keys()]) {
