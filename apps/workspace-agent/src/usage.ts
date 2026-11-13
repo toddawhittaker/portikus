@@ -219,6 +219,62 @@ interface Sample {
 	net: { receive: number; transmit: number } | null;
 }
 
+/**
+ * Each process's row, sorted by pid, and the workspace's CPU use: the ticks
+ * of processes seen in both samples over the time between them. Without an
+ * earlier sample there is nothing to compare, so every percentage is null.
+ */
+function processRows(
+	processes: ReadonlyMap<number, ProcessSnap>,
+	previous: Sample | null,
+	total: number | null,
+): { rows: UsageProcess[]; cpuPercent: number | null } {
+	const rows: UsageProcess[] = [];
+	let usedTicks = 0;
+	let compared = false;
+	for (const [pid, process] of processes) {
+		// /proc here is the workspace container, so the list is this
+		// student's, including Docker. The selected Running row looks a
+		// pid up in the same list.
+		const earlier = previous?.processes.get(pid);
+		let cpuPercent: number | null = null;
+		if (previous?.total != null && total != null && earlier !== undefined) {
+			compared = true;
+			const delta = process.ticks - earlier;
+			if (delta > 0) usedTicks += delta;
+			cpuPercent = roundPercent(
+				cpuPercentBetween(
+					{ ticks: earlier, total: previous.total },
+					{ ticks: process.ticks, total },
+				),
+			);
+		}
+		rows.push({
+			pid,
+			cpuPercent,
+			residentBytes: process.residentBytes,
+			command: process.command,
+			startTicks: process.startTicks,
+			ppid: process.ppid,
+			session: process.session,
+			stoppable: process.stoppable,
+			commandLine: process.commandLine,
+		});
+	}
+	rows.sort((left, right) => left.pid - right.pid);
+
+	let cpuPercent: number | null = null;
+	if (compared && previous?.total != null && total != null) {
+		cpuPercent = roundPercent(
+			cpuPercentBetween(
+				{ ticks: 0, total: previous.total },
+				{ ticks: usedTicks, total },
+			),
+		);
+	}
+	return { rows, cpuPercent };
+}
+
 /** Reads one usage sample, remembering the previous one for the rates. */
 export class UsageSampler {
 	private readonly procRoot: string;
@@ -271,49 +327,7 @@ export class UsageSampler {
 			this.storage(),
 		]);
 		const previous = this.previous;
-		const rows: UsageProcess[] = [];
-		let usedTicks = 0;
-		let compared = false;
-		for (const [pid, process] of processes) {
-			// /proc here is the workspace container, so the list is this
-			// student's, including Docker. The selected Running row looks a
-			// pid up in the same list.
-			const earlier = previous?.processes.get(pid);
-			let cpuPercent: number | null = null;
-			if (previous?.total != null && total != null && earlier !== undefined) {
-				compared = true;
-				const delta = process.ticks - earlier;
-				if (delta > 0) usedTicks += delta;
-				cpuPercent = roundPercent(
-					cpuPercentBetween(
-						{ ticks: earlier, total: previous.total },
-						{ ticks: process.ticks, total },
-					),
-				);
-			}
-			rows.push({
-				pid,
-				cpuPercent,
-				residentBytes: process.residentBytes,
-				command: process.command,
-				startTicks: process.startTicks,
-				ppid: process.ppid,
-				session: process.session,
-				stoppable: process.stoppable,
-				commandLine: process.commandLine,
-			});
-		}
-		rows.sort((left, right) => left.pid - right.pid);
-
-		let cpuPercent: number | null = null;
-		if (compared && previous?.total != null && total != null) {
-			cpuPercent = roundPercent(
-				cpuPercentBetween(
-					{ ticks: 0, total: previous.total },
-					{ ticks: usedTicks, total },
-				),
-			);
-		}
+		const { rows, cpuPercent } = processRows(processes, previous, total);
 
 		const elapsed = previous ? at - previous.at : 0;
 		const network = {
