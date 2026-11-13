@@ -66,47 +66,14 @@ export function createHealthSampler(
 
 	return async function tick(): Promise<void> {
 		try {
-			let sample: HealthSample;
 			// The database, not the controller, is the source of truth for state.
 			const running = await db
 				.selectFrom("workspaces")
 				.select((eb) => eb.fn.countAll<string>().as("n"))
 				.where("state", "=", "running")
 				.executeTakeFirstOrThrow();
-			const runningWorkspaces = Number(running.n);
-			try {
-				sample = {
-					controller: { reachable: true, errorCode: null },
-					host: await controller.hostSnapshot(
-						AbortSignal.timeout(HOST_SNAPSHOT_TIMEOUT_MS),
-					),
-					runningWorkspaces,
-				};
-			} catch (e) {
-				const errorCode =
-					e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
-				logger.debug({ errorCode }, "host snapshot failed");
-				sample = {
-					controller: { reachable: false, errorCode },
-					host: null,
-					runningWorkspaces,
-				};
-			}
-			const at = now();
-			const inserted = await db
-				.insertInto("health_samples")
-				.values({ observed_at: at.toISOString(), sample: JSON.stringify(sample) })
-				.returning("id")
-				.executeTakeFirstOrThrow();
-			// Only the newest sample keeps the per-instance list, so the series stays small.
-			await db
-				.updateTable("health_samples")
-				.set({ sample: sql`jsonb_set(sample, '{host,instances}', '[]'::jsonb)` })
-				.where("id", "<>", inserted.id)
-				.where(sql<boolean>`jsonb_array_length(sample->'host'->'instances') > 0`)
-				.execute();
-			const cutoff = new Date(at.getTime() - HEALTH_RETENTION_DAYS * 86_400_000);
-			await db.deleteFrom("health_samples").where("observed_at", "<", cutoff).execute();
+			const sample = await takeSample(controller, logger, Number(running.n));
+			await storeSample(db, sample, now());
 
 			unreachableSamples = sample.controller.reachable ? 0 : unreachableSamples + 1;
 			// Raised once per outage: only on the sample that reaches the count.
@@ -135,6 +102,53 @@ export function createHealthSampler(
 			logger.warn({ error: errorMessage(e) }, "health sample failed");
 		}
 	};
+}
+
+/** Ask the controller for the host's state; an unreachable controller is part of the sample. */
+async function takeSample(
+	controller: ControllerClient,
+	logger: Logger,
+	runningWorkspaces: number,
+): Promise<HealthSample> {
+	try {
+		return {
+			controller: { reachable: true, errorCode: null },
+			host: await controller.hostSnapshot(
+				AbortSignal.timeout(HOST_SNAPSHOT_TIMEOUT_MS),
+			),
+			runningWorkspaces,
+		};
+	} catch (e) {
+		const errorCode = e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+		logger.debug({ errorCode }, "host snapshot failed");
+		return {
+			controller: { reachable: false, errorCode },
+			host: null,
+			runningWorkspaces,
+		};
+	}
+}
+
+/** Store a sample, trim the older ones' instance lists and prune past retention. */
+async function storeSample(
+	db: Kysely<Database>,
+	sample: HealthSample,
+	at: Date,
+): Promise<void> {
+	const inserted = await db
+		.insertInto("health_samples")
+		.values({ observed_at: at.toISOString(), sample: JSON.stringify(sample) })
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	// Only the newest sample keeps the per-instance list, so the series stays small.
+	await db
+		.updateTable("health_samples")
+		.set({ sample: sql`jsonb_set(sample, '{host,instances}', '[]'::jsonb)` })
+		.where("id", "<>", inserted.id)
+		.where(sql<boolean>`jsonb_array_length(sample->'host'->'instances') > 0`)
+		.execute();
+	const cutoff = new Date(at.getTime() - HEALTH_RETENTION_DAYS * 86_400_000);
+	await db.deleteFrom("health_samples").where("observed_at", "<", cutoff).execute();
 }
 
 /** Record a storage-pool notification for every enabled administrator (ADR 0033). */
