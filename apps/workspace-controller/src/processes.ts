@@ -151,17 +151,22 @@ async function readCgroupMembers(
 			if (rel === "") throw err;
 			continue;
 		}
-		const procs = await readFile(`${dir}/cgroup.procs`, "utf8").catch(() => "");
-		for (const line of procs.split("\n")) {
-			if (!DIGITS.test(line)) continue;
-			members.add(Number(line));
-			if (members.size > MAX_PIDS) throw new Error("instance has too many processes");
-		}
+		await addCgroupProcs(dir, members);
 		for (const e of entries) {
 			if (e.isDirectory()) pending.push(rel === "" ? e.name : `${rel}/${e.name}`);
 		}
 	}
 	return members;
+}
+
+/** Add the PIDs listed in one cgroup's `cgroup.procs`; a missing file adds none. */
+async function addCgroupProcs(dir: string, members: Set<number>): Promise<void> {
+	const procs = await readFile(`${dir}/cgroup.procs`, "utf8").catch(() => "");
+	for (const line of procs.split("\n")) {
+		if (!DIGITS.test(line)) continue;
+		members.add(Number(line));
+		if (members.size > MAX_PIDS) throw new Error("instance has too many processes");
+	}
 }
 
 interface HostProcess extends StatFields {
