@@ -249,6 +249,74 @@ async function createRefs(
 	return { ok: true, project };
 }
 
+/**
+ * Insert a new terminal's row, or answer false when the workspace is at its
+ * cap. The early check can race a parallel create; the lock makes the
+ * recount, the name, the position and the insert one step so the cap holds
+ * and parallel creates never share a name (SPEC.md 9.7).
+ */
+async function insertCapped(
+	db: Kysely<Database>,
+	workspaceId: string,
+	body: CreateTerminalRequest,
+	row: { id: string; cwd: string; theme: TerminalTheme; projectId: string | null },
+): Promise<boolean> {
+	return db.transaction().execute(async (trx) => {
+		await sql`select pg_advisory_xact_lock(hashtext('portikus.terminal-create'), hashtext(${workspaceId}))`.execute(
+			trx,
+		);
+		const locked = await listTerminalRows(trx, workspaceId).execute();
+		if (
+			locked.filter((terminal) => terminal.ended_at === null).length >=
+			MAX_TERMINALS_PER_WORKSPACE
+		) {
+			return false;
+		}
+		const position = locked.reduce(
+			(max, terminal) => Math.max(max, terminal.position + 1),
+			0,
+		);
+		const name = body.name ?? chooseTerminalName(locked, row.projectId);
+		await trx
+			.insertInto("terminals")
+			.values({
+				id: row.id,
+				workspace_id: workspaceId,
+				name,
+				cwd: row.cwd,
+				position,
+				project_id: row.projectId,
+				theme: row.theme,
+				agent: body.agent ?? null,
+				kind: body.kind ?? "terminal",
+			})
+			.execute();
+		return true;
+	});
+}
+
+/**
+ * Start a new terminal's tmux session. Its Git baselines are null when the
+ * agent sent none it could vouch for.
+ */
+async function startSession(
+	agent: AgentClient,
+	body: CreateTerminalRequest,
+	session: { id: string; cwd: string; theme: TerminalTheme; timezone: string },
+): Promise<{ objectId: string | null; head: string | null }> {
+	const resumeChatOf = body.resumeChatOf;
+	const created = await agent.createTerminal({
+		...session,
+		...launcherFields(body.agent),
+		...(body.kind === "chat" ? { kind: "chat" as const } : {}),
+		...(resumeChatOf && { resumeChatOf }),
+	});
+	return {
+		objectId: gitObjectOrNull(created.baselineObjectId),
+		head: gitObjectOrNull(created.baselineHead),
+	};
+}
+
 function listTerminalRows(db: Kysely<Database>, workspaceId: string) {
 	return db
 		.selectFrom("terminals")
@@ -393,7 +461,6 @@ export function registerTerminalRoutes(
 		const refs = await createRefs(db, params.id, body, rows);
 		if (!refs.ok) return sendError(reply, 404, refs.code, refs.message);
 		const { project } = refs;
-		const resumeChatOf = body.resumeChatOf;
 
 		const id = crypto.randomUUID();
 		const cwd = body.cwd ?? project?.path ?? DEFAULT_CWD;
@@ -403,37 +470,11 @@ export function registerTerminalRoutes(
 		const settings = await userTerminalSettings(db, user.id);
 		const theme = body.theme ?? settings.terminalTheme;
 
-		// The early check can race a parallel create; the lock makes the
-		// recount, the name, the position and the insert one step so the cap
-		// holds and parallel creates never share a name (SPEC.md 9.7).
-		const inserted = await db.transaction().execute(async (trx) => {
-			await sql`select pg_advisory_xact_lock(hashtext('portikus.terminal-create'), hashtext(${params.id}))`.execute(
-				trx,
-			);
-			const locked = await listTerminalRows(trx, params.id).execute();
-			if (
-				locked.filter((row) => row.ended_at === null).length >=
-				MAX_TERMINALS_PER_WORKSPACE
-			) {
-				return false;
-			}
-			const position = locked.reduce((max, row) => Math.max(max, row.position + 1), 0);
-			const name = body.name ?? chooseTerminalName(locked, project ? project.id : null);
-			await trx
-				.insertInto("terminals")
-				.values({
-					id,
-					workspace_id: params.id,
-					name,
-					cwd,
-					position,
-					project_id: project ? project.id : null,
-					theme,
-					agent: body.agent ?? null,
-					kind: body.kind ?? "terminal",
-				})
-				.execute();
-			return true;
+		const inserted = await insertCapped(db, params.id, body, {
+			id,
+			cwd,
+			theme,
+			projectId: project ? project.id : null,
 		});
 		if (!inserted) return terminalLimit(reply);
 
@@ -444,20 +485,14 @@ export function registerTerminalRoutes(
 				? await agentSessionPoint(request, agent, params.id, project, user.id)
 				: null;
 
-		let baselineObjectId: string | null = null;
-		let baselineHead: string | null = null;
+		let baseline: { objectId: string | null; head: string | null };
 		try {
-			const created = await agent.createTerminal({
+			baseline = await startSession(agent, body, {
 				id,
 				cwd,
 				theme,
 				timezone: settings.timezone,
-				...launcherFields(body.agent),
-				...(body.kind === "chat" ? { kind: "chat" as const } : {}),
-				...(resumeChatOf && { resumeChatOf }),
 			});
-			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
-			baselineHead = gitObjectOrNull(created.baselineHead);
 		} catch (error) {
 			// The row only means something if the agent has the tmux session.
 			await db.deleteFrom("terminals").where("id", "=", id).execute();
@@ -467,8 +502,8 @@ export function registerTerminalRoutes(
 		const saved = await db
 			.updateTable("terminals")
 			.set({
-				baseline_object_id: baselineObjectId,
-				baseline_head: baselineHead,
+				baseline_object_id: baseline.objectId,
+				baseline_head: baseline.head,
 				recovery_point_id: recoveryPointId,
 			})
 			.where("id", "=", id)
