@@ -174,51 +174,29 @@ export class CodingAgentBoard {
 		// A call that fired before the session ended can arrive after its clear.
 		if (fired?.clearedAt !== undefined && post.at <= fired.clearedAt) return;
 		const rows = this.subagentRows(terminalId);
-		let changed = false;
+		const changed = this.applySubagentPost(rows, post);
+		if (changed && this.entries.has(terminalId)) this.changed();
+	}
+
+	/** Apply one post to a terminal's rows; true when a row changed. */
+	private applySubagentPost(
+		rows: SubagentRows,
+		post: CodingAgentSubagentPost,
+	): boolean {
 		switch (post.event) {
 			case "pre_tool_use":
-				changed = this.startSubagent(rows, post);
-				break;
+				return this.startSubagent(rows, post);
 			case "post_tool_use":
-				changed = this.subagentReturned(rows, post);
-				break;
-			case "post_tool_use_failure": {
-				const id = post.tool_use_id;
-				if (id === undefined || !this.newer(rows, id, post.at)) break;
-				changed = rows.rows.delete(id);
-				break;
-			}
-			case "subagent_stop": {
-				if (post.agent_id === undefined) break;
-				const found = [...rows.rows.entries()].find(
-					([, entry]) => entry.agentId === post.agent_id,
-				);
-				if (!found) {
-					rememberBounded(rows.earlyStops, post.agent_id, post.at);
-					break;
-				}
-				changed = this.newer(rows, found[0], post.at) && this.finish(found[1], post.at);
-				break;
-			}
+				return this.subagentReturned(rows, post);
+			case "post_tool_use_failure":
+				return this.subagentFailed(rows, post);
+			case "subagent_stop":
+				return this.subagentStopped(rows, post);
 			case "stop":
-				for (const [id, entry] of rows.rows) {
-					if (entry.background || entry.at >= post.at) continue;
-					if (this.finish(entry, post.at)) {
-						rememberBounded(rows.seen, id, post.at);
-						changed = true;
-					}
-				}
-				break;
+				return this.finishForeground(rows, post.at);
 			case "user_prompt_submit":
-				for (const [id, entry] of rows.rows) {
-					if (entry.row.state !== "finished" || entry.at >= post.at) continue;
-					rows.rows.delete(id);
-					rememberBounded(rows.seen, id, post.at);
-					changed = true;
-				}
-				break;
+				return this.dropFinished(rows, post.at);
 		}
-		if (changed && this.entries.has(terminalId)) this.changed();
 	}
 
 	private subagentRows(terminalId: string): SubagentRows {
@@ -288,6 +266,49 @@ export class CodingAgentBoard {
 		if (stoppedAt === undefined) return false;
 		rows.earlyStops.delete(post.agent_id);
 		return this.finish(entry, Math.max(entry.at, stoppedAt));
+	}
+
+	private subagentFailed(rows: SubagentRows, post: CodingAgentSubagentPost): boolean {
+		const id = post.tool_use_id;
+		if (id === undefined || !this.newer(rows, id, post.at)) return false;
+		return rows.rows.delete(id);
+	}
+
+	private subagentStopped(rows: SubagentRows, post: CodingAgentSubagentPost): boolean {
+		if (post.agent_id === undefined) return false;
+		const found = [...rows.rows.entries()].find(
+			([, entry]) => entry.agentId === post.agent_id,
+		);
+		if (!found) {
+			rememberBounded(rows.earlyStops, post.agent_id, post.at);
+			return false;
+		}
+		return this.newer(rows, found[0], post.at) && this.finish(found[1], post.at);
+	}
+
+	/** Finish working foreground rows whose last post fired before `at`. */
+	private finishForeground(rows: SubagentRows, at: number): boolean {
+		let changed = false;
+		for (const [id, entry] of rows.rows) {
+			if (entry.background || entry.at >= at) continue;
+			if (this.finish(entry, at)) {
+				rememberBounded(rows.seen, id, at);
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
+	/** Drop finished rows whose last post fired before `at`. */
+	private dropFinished(rows: SubagentRows, at: number): boolean {
+		let changed = false;
+		for (const [id, entry] of rows.rows) {
+			if (entry.row.state !== "finished" || entry.at >= at) continue;
+			rows.rows.delete(id);
+			rememberBounded(rows.seen, id, at);
+			changed = true;
+		}
+		return changed;
 	}
 
 	private finish(entry: SubagentRow, at: number): boolean {
