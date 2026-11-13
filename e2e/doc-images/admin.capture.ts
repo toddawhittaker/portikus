@@ -117,6 +117,12 @@ test.beforeAll(async () => {
 			JSON.stringify({ memoryMiB: 6144 }),
 		],
 	);
+	// Every admin shot shares one health state, so the rail badge and the
+	// status bar count the same attention items on every page.
+	await seedHealth();
+	// The class runs the image the health sample names as current, so no row
+	// carries an Old image tag it would not have on a fresh install.
+	await query("update workspaces set image_version = $1", ["a41c9e02d7b85f13ce90"]);
 });
 
 for (const colorScheme of SCHEMES) {
