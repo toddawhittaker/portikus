@@ -98,6 +98,79 @@ export interface BlockedCounter {
 	close(): Promise<void>;
 }
 
+interface BlockedCount {
+	source: string;
+	name: string;
+	n: number;
+}
+
+/** Split a batch keyed by day, source and name into each day's counts. */
+function groupByDay(batch: Map<string, number>): Map<string, BlockedCount[]> {
+	const byDay = new Map<string, BlockedCount[]>();
+	for (const [key, n] of batch) {
+		const [day = "", source = "", name = ""] = key.split("\t");
+		const list = byDay.get(day) ?? [];
+		list.push({ source, name, n });
+		byDay.set(day, list);
+	}
+	return byDay;
+}
+
+/** Add one day's counts to the table under the daily name cap. */
+async function storeDay(
+	db: Kysely<Database>,
+	day: string,
+	rows: BlockedCount[],
+): Promise<void> {
+	await db.transaction().execute(async (trx) => {
+		// Serialise flushes for the day so two cannot both pass the cap.
+		await sql`select pg_advisory_xact_lock(hashtext(${`egress_blocked:${day}`}))`.execute(
+			trx,
+		);
+		const known = new Set(
+			(
+				await trx
+					.selectFrom("egress_blocked_names")
+					.select("name")
+					.distinct()
+					.where("day", "=", sql<Date>`${day}::date`)
+					.execute()
+			).map((r) => r.name),
+		);
+		known.delete(OTHER_NAMES);
+		const merged = new Map<string, number>();
+		for (const r of rows) {
+			let name = r.name;
+			if (name !== OTHER_NAMES && !known.has(name)) {
+				if (known.size >= BLOCKED_NAMES_PER_DAY) name = OTHER_NAMES;
+				else known.add(name);
+			}
+			const k = `${r.source}\t${name}`;
+			merged.set(k, (merged.get(k) ?? 0) + r.n);
+		}
+		for (const [k, n] of merged) {
+			const [source = "", name = ""] = k.split("\t");
+			await trx
+				.insertInto("egress_blocked_names")
+				.values({ day, name, source, count: n })
+				.onConflict((oc) =>
+					oc.columns(["day", "name", "source"]).doUpdateSet({
+						count: sql`egress_blocked_names.count + excluded.count`,
+					}),
+				)
+				.execute();
+		}
+	});
+}
+
+/** A DNS message with the two-byte length prefix DNS over TCP needs. */
+function tcpFrame(reply: Buffer): Buffer {
+	const framed = Buffer.alloc(2 + reply.length);
+	framed.writeUInt16BE(reply.length, 0);
+	reply.copy(framed, 2);
+	return framed;
+}
+
 export function createBlockedCounter(options: BlockedCounterOptions): BlockedCounter {
 	const { db, logger } = options;
 	const now = options.now ?? (() => new Date());
@@ -123,54 +196,7 @@ export function createBlockedCounter(options: BlockedCounterOptions): BlockedCou
 		if (pending.size === 0) return;
 		const batch = pending;
 		pending = new Map();
-		const byDay = new Map<string, { source: string; name: string; n: number }[]>();
-		for (const [key, n] of batch) {
-			const [day = "", source = "", name = ""] = key.split("\t");
-			const list = byDay.get(day) ?? [];
-			list.push({ source, name, n });
-			byDay.set(day, list);
-		}
-		for (const [day, rows] of byDay) {
-			await db.transaction().execute(async (trx) => {
-				// Serialise flushes for the day so two cannot both pass the cap.
-				await sql`select pg_advisory_xact_lock(hashtext(${`egress_blocked:${day}`}))`.execute(
-					trx,
-				);
-				const known = new Set(
-					(
-						await trx
-							.selectFrom("egress_blocked_names")
-							.select("name")
-							.distinct()
-							.where("day", "=", sql<Date>`${day}::date`)
-							.execute()
-					).map((r) => r.name),
-				);
-				known.delete(OTHER_NAMES);
-				const merged = new Map<string, number>();
-				for (const r of rows) {
-					let name = r.name;
-					if (name !== OTHER_NAMES && !known.has(name)) {
-						if (known.size >= BLOCKED_NAMES_PER_DAY) name = OTHER_NAMES;
-						else known.add(name);
-					}
-					const k = `${r.source}\t${name}`;
-					merged.set(k, (merged.get(k) ?? 0) + r.n);
-				}
-				for (const [k, n] of merged) {
-					const [source = "", name = ""] = k.split("\t");
-					await trx
-						.insertInto("egress_blocked_names")
-						.values({ day, name, source, count: n })
-						.onConflict((oc) =>
-							oc.columns(["day", "name", "source"]).doUpdateSet({
-								count: sql`egress_blocked_names.count + excluded.count`,
-							}),
-						)
-						.execute();
-				}
-			});
-		}
+		for (const [day, rows] of groupByDay(batch)) await storeDay(db, day, rows);
 	}
 
 	async function prune(): Promise<void> {
@@ -214,11 +240,7 @@ export function createBlockedCounter(options: BlockedCounterOptions): BlockedCou
 					return;
 				}
 				if (q.type === QTYPE_A) count(q.name, "dns");
-				const reply = nxdomain(msg, q.end);
-				const framed = Buffer.alloc(2 + reply.length);
-				framed.writeUInt16BE(reply.length, 0);
-				reply.copy(framed, 2);
-				socket.write(framed);
+				socket.write(tcpFrame(nxdomain(msg, q.end)));
 			}
 		});
 	}
