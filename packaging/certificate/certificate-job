@@ -2235,46 +2235,14 @@ class Runner:
         if seeded and self.pending_admin_email() is None:
             print("unchanged", file=out)
             return 0
-        try:
-            settings = validate_settings(json.loads(stdin.read(), object_pairs_hook=_no_duplicates))
-        except ValueError:
-            journal("first-install: the settings are not JSON")
+        settings = self.first_install_settings(stdin)
+        if settings is None:
             return 2
-        except Refused as err:
-            journal(f"first-install: the settings are refused: {err}")
-            return 2
-        try:
-            if settings["source"] == "internal":
-                self.refuse_internal_on_public("first-install", first_install=True)
-        except Refused as err:
-            journal(f"first-install: the settings are refused: {err}")
-            return 2
-        except JobFailed:
-            # No site name to look up yet; the hourly check looks once there is.
-            pass
         lock_fd = self.locked(blocking=True)
         try:
-            secrets = self.resolve_secrets(settings)
-            uploads = None
-            if settings["source"] == "files":
-                site, _, suffix = read_api_env(self.api_env)
-                uploads = self.check_uploads(settings, site, suffix)
-            new = self.state(".new")
-            remove(new)
-            self.build_generation(new, settings, secrets, uploads, self.view(settings, secrets, uploads))
-            if seeded and self.same_generation(new):
-                remove(new)
+            if not self.install_first_generation(settings, seeded):
                 print("unchanged", file=out)
                 return 0
-            self.install(new)
-            remove(new)
-            # The unit's reload is `caddy reload --force`; a Caddy not running yet is left alone.
-            self.run(["systemctl", "try-reload-or-restart", "caddy"], timeout=180)
-            self.sync_trust(restart=False)
-            try:
-                self.write_status()
-            except JobFailed as err:
-                journal(f"first-install: no status yet: {err}")
         except (Refused, JobFailed) as err:
             journal(f"first-install: {err}")
             return 1
@@ -2283,6 +2251,50 @@ class Runner:
         print("changed", file=out)
         return 0
 
+    def first_install_settings(self, stdin):
+        """The checked settings on stdin, or None after journaling why they are refused."""
+        try:
+            settings = validate_settings(json.loads(stdin.read(), object_pairs_hook=_no_duplicates))
+        except ValueError:
+            journal("first-install: the settings are not JSON")
+            return None
+        except Refused as err:
+            journal(f"first-install: the settings are refused: {err}")
+            return None
+        try:
+            if settings["source"] == "internal":
+                self.refuse_internal_on_public("first-install", first_install=True)
+        except Refused as err:
+            journal(f"first-install: the settings are refused: {err}")
+            return None
+        except JobFailed:
+            # No site name to look up yet; the hourly check looks once there is.
+            pass
+        return settings
+
+    def install_first_generation(self, settings, seeded):
+        """Build and install the generation for settings. False when it matches the one in force."""
+        secrets = self.resolve_secrets(settings)
+        uploads = None
+        if settings["source"] == "files":
+            site, _, suffix = read_api_env(self.api_env)
+            uploads = self.check_uploads(settings, site, suffix)
+        new = self.state(".new")
+        remove(new)
+        self.build_generation(new, settings, secrets, uploads, self.view(settings, secrets, uploads))
+        if seeded and self.same_generation(new):
+            remove(new)
+            return False
+        self.install(new)
+        remove(new)
+        # The unit's reload is `caddy reload --force`; a Caddy not running yet is left alone.
+        self.run(["systemctl", "try-reload-or-restart", "caddy"], timeout=180)
+        self.sync_trust(restart=False)
+        try:
+            self.write_status()
+        except JobFailed as err:
+            journal(f"first-install: no status yet: {err}")
+        return True
 
 def main(argv):
     if argv[1:] == ["recover"]:
