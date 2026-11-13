@@ -75,6 +75,96 @@ function CancelButton({
 	);
 }
 
+/** The reasons confirm or Cancel is off, in a live region that is always mounted. */
+function reasonRegion(
+	id: string,
+	disabledReason: React.ReactNode,
+	cancelDisabledReason: React.ReactNode,
+): React.ReactElement {
+	return (
+		// Always mounted so a screen reader hears the reason when it appears.
+		<div id={`${id}-reason`} role="status" className="pk-text-compact">
+			{disabledReason ? (
+				<p className="m-0 mt-2" data-testid="dialog-disabled-reason">
+					{disabledReason}
+				</p>
+			) : null}
+			{cancelDisabledReason ? (
+				<p
+					id={`${id}-cancel-reason`}
+					className="m-0 mt-2"
+					data-testid="dialog-cancel-disabled-reason"
+				>
+					{cancelDisabledReason}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+/** A bulleted list of static copy. */
+function staticList(items: React.ReactNode[] | undefined): React.ReactElement {
+	return (
+		<ul className="m-0 list-disc pl-4 text-ink-muted">
+			{(items ?? []).map((item, index) => (
+				// The list is static copy, so the index is a stable key.
+				// biome-ignore lint/suspicious/noArrayIndexKey: static copy
+				<li key={index}>{item}</li>
+			))}
+		</ul>
+	);
+}
+
+/** What the action removes beside what it keeps. */
+function consequences(
+	lost: React.ReactNode[] | undefined,
+	survives: React.ReactNode[] | undefined,
+	destructive: boolean,
+): React.ReactElement {
+	return (
+		<div className="pk-consequence">
+			<div className="pk-lost rounded-md bg-surface-sunken p-3">
+				<h3
+					className={`mb-1 text-sm font-semibold ${destructive ? "text-status-danger" : "text-ink"}`}
+				>
+					Will be removed
+				</h3>
+				{staticList(lost)}
+			</div>
+			<div className="rounded-md bg-surface-sunken p-3">
+				<h3 className="mb-1 text-sm font-semibold text-ink">Will be kept</h3>
+				{staticList(survives)}
+			</div>
+		</div>
+	);
+}
+
+/** The field the person types `confirmText` into before the danger button enables. */
+function typedConfirmation(
+	id: string,
+	confirmText: string,
+	typed: string,
+	setTyped: (value: string) => void,
+): React.ReactElement {
+	return (
+		<div className="mt-4">
+			<TextField
+				id={`${id}-typed`}
+				label={
+					<>
+						Type <span className="font-mono">{confirmText}</span> to confirm
+					</>
+				}
+				mono
+				value={typed}
+				onChange={(event) => setTyped(event.target.value)}
+				autoComplete="off"
+				spellCheck={false}
+			/>
+		</div>
+	);
+}
+
 /** The destructive confirmation. Render it inside a ConfirmDialogRoot. */
 export function ConfirmDialog({
 	id = "pk-confirm",
@@ -134,71 +224,17 @@ export function ConfirmDialog({
 							</RadixAlertDialog.Description>
 						) : null}
 						{children ? <div className="mt-2">{children}</div> : null}
-						{/* Always mounted so a screen reader hears the reason when it appears. */}
-						<div id={`${id}-reason`} role="status" className="pk-text-compact">
-							{disabled && disabledReason ? (
-								<p className="m-0 mt-2" data-testid="dialog-disabled-reason">
-									{disabledReason}
-								</p>
-							) : null}
-							{cancelDisabled && cancelDisabledReason ? (
-								<p
-									id={`${id}-cancel-reason`}
-									className="m-0 mt-2"
-									data-testid="dialog-cancel-disabled-reason"
-								>
-									{cancelDisabledReason}
-								</p>
-							) : null}
-						</div>
+						{reasonRegion(
+							id,
+							disabled ? disabledReason : null,
+							cancelDisabled ? cancelDisabledReason : null,
+						)}
 					</div>
 				</div>
 				{lost || survives || confirmText ? (
 					<div className="px-6 pt-4">
-						{lost || survives ? (
-							<div className="pk-consequence">
-								<div className="pk-lost rounded-md bg-surface-sunken p-3">
-									<h3
-										className={`mb-1 text-sm font-semibold ${destructive ? "text-status-danger" : "text-ink"}`}
-									>
-										Will be removed
-									</h3>
-									<ul className="m-0 list-disc pl-4 text-ink-muted">
-										{(lost ?? []).map((item, index) => (
-											// The list is static copy, so the index is a stable key.
-											// biome-ignore lint/suspicious/noArrayIndexKey: static copy
-											<li key={index}>{item}</li>
-										))}
-									</ul>
-								</div>
-								<div className="rounded-md bg-surface-sunken p-3">
-									<h3 className="mb-1 text-sm font-semibold text-ink">Will be kept</h3>
-									<ul className="m-0 list-disc pl-4 text-ink-muted">
-										{(survives ?? []).map((item, index) => (
-											// biome-ignore lint/suspicious/noArrayIndexKey: static copy
-											<li key={index}>{item}</li>
-										))}
-									</ul>
-								</div>
-							</div>
-						) : null}
-						{confirmText ? (
-							<div className="mt-4">
-								<TextField
-									id={`${id}-typed`}
-									label={
-										<>
-											Type <span className="font-mono">{confirmText}</span> to confirm
-										</>
-									}
-									mono
-									value={typed}
-									onChange={(event) => setTyped(event.target.value)}
-									autoComplete="off"
-									spellCheck={false}
-								/>
-							</div>
-						) : null}
+						{lost || survives ? consequences(lost, survives, destructive) : null}
+						{confirmText ? typedConfirmation(id, confirmText, typed, setTyped) : null}
 					</div>
 				) : null}
 				<div className="flex justify-end gap-2 p-6">
