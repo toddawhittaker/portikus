@@ -2,10 +2,10 @@ import type { CodingAgentState, CodingAgentTerminal } from "@portikus/contracts"
 import { describe, expect, it } from "vitest";
 import {
 	alertTitle,
-	questionAnnouncement,
 	createAgentStatusStore,
 	marksByProject,
 	mostUrgent,
+	questionAnnouncement,
 	urgency,
 } from "./codingAgentStatus.js";
 

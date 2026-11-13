@@ -33,7 +33,7 @@ const GONE_MS = 4000;
  * elsewhere gets a spoken announcement instead; a hidden tab gets neither,
  * because its toast already tells the student (SPEC.md §25.8).
  */
-export function questionFocus(
+function questionFocus(
 	visible: boolean,
 	active: Element | null,
 	pane: Element | null,
