@@ -87,6 +87,24 @@ export async function writeStartFiles(
 	);
 }
 
+interface InstanceNetworkState {
+	status: string;
+	network?: Record<
+		string,
+		{ addresses?: Array<{ family: string; address: string; scope: string }> }
+	>;
+}
+
+/** The eth0 global IPv4 entry of a running instance, if it has one yet. */
+function runningGlobalIpv4(
+	state: InstanceNetworkState,
+): { family: string; address: string; scope: string } | undefined {
+	if (state.status !== "Running" || !state.network?.eth0) return undefined;
+	return state.network.eth0.addresses?.find(
+		(a) => a.family === "inet" && a.scope === "global",
+	);
+}
+
 /** Poll the instance state until it is Running with a global IPv4 address. */
 export async function waitForAddress(
 	client: Pick<IncusClient, "request">,
@@ -100,22 +118,9 @@ export async function waitForAddress(
 			`/1.0/instances/${encodeURIComponent(name)}/state`,
 			undefined,
 			signal,
-		)) as {
-			status: string;
-			network?: Record<
-				string,
-				{ addresses?: Array<{ family: string; address: string; scope: string }> }
-			>;
-		};
-
-		if (state.status === "Running" && state.network?.eth0) {
-			const addr = state.network.eth0.addresses?.find(
-				(a) => a.family === "inet" && a.scope === "global",
-			);
-			if (addr) {
-				return addr.address;
-			}
-		}
+		)) as InstanceNetworkState;
+		const addr = runningGlobalIpv4(state);
+		if (addr) return addr.address;
 
 		try {
 			await sleep(500, undefined, { signal });
