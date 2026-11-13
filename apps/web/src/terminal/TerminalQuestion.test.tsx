@@ -51,6 +51,7 @@ function entry(question?: Question): CodingAgentTerminal {
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 	vi.useRealTimers();
 });
 
@@ -274,6 +275,47 @@ test("a second question is announced again", async () => {
 	});
 	await card();
 	expect(screen.getByRole("status").textContent).toBe(ASKING);
+});
+
+test("a question that replaces another with no gap is announced again, as a new node", async () => {
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	const first = screen.getByText(ASKING);
+	act(() => {
+		elsewhere.store.update([entry({ ...QUESTION, id: "toolu_02" })], false);
+	});
+	await waitFor(() => expect(screen.getByText(ASKING)).not.toBe(first));
+	expect(screen.getAllByText(ASKING)).toHaveLength(1);
+});
+
+test("a question the card takes the keyboard for clears the last question's announcement", async () => {
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe(ASKING);
+	terminalInput().focus();
+	act(() => {
+		elsewhere.store.update([entry({ ...QUESTION, id: "toolu_02" })], false);
+	});
+	await waitFor(() => expect(screen.getByRole("status").textContent).toBe(""));
+});
+
+test("no announcement while the browser window has no focus: the toast tells the student", async () => {
+	vi.spyOn(document, "hasFocus").mockReturnValue(false);
+	const elsewhere = draw({ question: null });
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	act(() => {
+		elsewhere.store.update([entry(QUESTION)], false);
+	});
+	await card();
+	expect(screen.getByRole("status").textContent).toBe("");
 });
 
 test("no announcement when focus is in the pane, or nowhere, because the card takes it", async () => {

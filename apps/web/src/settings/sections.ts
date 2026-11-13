@@ -69,7 +69,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 					{ id: "colour-scheme", label: "Color scheme" },
 					{
 						id: "editor-colour-scheme",
-						label: "Editor colour scheme",
+						label: "Editor color scheme",
 						terms: "color theme syntax highlighting VS Code",
 					},
 				],

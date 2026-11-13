@@ -176,7 +176,6 @@ export function editorAriaLabel(
 	return `${kind}, ${path}. ${tabFocusKey(platform)} makes Tab leave the editor.`;
 }
 
-let monacoApi: typeof Monaco | null = null;
 const defined = new Set<string>();
 
 /** Define both halves of a scheme the first time it is used, not every scheme at load. */
@@ -211,8 +210,10 @@ export function getMonaco(): Promise<typeof Monaco> {
 			schemas: [],
 			enableSchemaRequest: false,
 		});
-		monacoApi = monaco;
 		ensureThemes(monaco, activeEditorScheme());
+		// A scheme chosen later is defined as it is chosen, so a caller that
+		// sets the theme by name never finds it missing.
+		onEditorSchemeChange(() => ensureThemes(monaco, activeEditorScheme()));
 		return monaco;
 	})();
 	return loading;
@@ -220,14 +221,12 @@ export function getMonaco(): Promise<typeof Monaco> {
 
 /**
  * The theme name matching the student's scheme and what the page is showing
- * right now (shell/theme.ts). Once Monaco has loaded this also defines the
- * scheme's themes, so a caller that got Monaco first can use the name at once.
+ * right now (shell/theme.ts). A plain lookup, safe as a render snapshot: getMonaco
+ * defines the themes at load and again whenever the scheme changes.
  */
 export function currentThemeName(): string {
-	const scheme = activeEditorScheme();
-	if (monacoApi) ensureThemes(monacoApi, scheme);
 	const mode: PageMode = pageIsDark() ? "dark" : "light";
-	return themeName(scheme, mode);
+	return themeName(activeEditorScheme(), mode);
 }
 
 let watching = false;
