@@ -36,6 +36,10 @@ describe("Icon", () => {
 			"file-font",
 			"file-lock",
 			"file-key",
+			"file-database",
+			"file-binary",
+			"file-slides",
+			"file-log",
 			"folder",
 			"folder-open",
 		] as const;
