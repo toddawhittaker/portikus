@@ -2,7 +2,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import { type PendingOperation, RebuildWorkspaceRequest } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import {
 	requestPendingOperation,
 	sendPendingOperationRefusal,
@@ -43,7 +43,7 @@ export function registerMaintenanceRoutes(
 		if (!params) return;
 		const row = await findOwnedWorkspace(db, user, params.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		return request(
 			reply,
@@ -67,7 +67,7 @@ export function registerMaintenanceRoutes(
 			if (!body) return reply;
 			const row = await findOwnedWorkspace(db, user, params.id);
 			if (!row) {
-				return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+				return sendWorkspaceNotFound(reply);
 			}
 			return request(
 				reply,

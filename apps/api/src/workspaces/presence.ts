@@ -4,6 +4,7 @@ import type { Database } from "@portikus/db";
 import type { preHandlerAsyncHookHandler } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
+import { sendWorkspaceNotFound } from "../http.js";
 import {
 	countActive,
 	findOwnedWorkspace,
@@ -102,9 +103,7 @@ export function workspaceUpgradeGuard(
 			? await findWorkspaceOwnedBy(db, params.data.id, user.id)
 			: await findOwnedWorkspace(db, user, params.data.id);
 		if (!row) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendWorkspaceNotFound(reply);
 		}
 		// An administrator's socket is not presence, so it is capped by its own count.
 		const active =

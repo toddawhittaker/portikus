@@ -15,7 +15,7 @@ import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Insertable, sql } from "kysely";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import { lifecycleLimit } from "../rate-limit.js";
 import {
 	findOwnedWorkspace,
@@ -135,7 +135,7 @@ export function registerWorkspaceRoutes(
 
 		const row = await findOwnedWorkspace(db, user, params.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		return workspaceView(db, config, row);
@@ -161,7 +161,7 @@ export function registerWorkspaceRoutes(
 		if (!params) return;
 		const row = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const body = parseOr400(SetKeepRunningRequest, request.body ?? {}, reply);
 		if (!body) return reply;
@@ -237,7 +237,7 @@ export function registerWorkspaceRoutes(
 		if (!params) return;
 		const row = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const now = new Date();
 		const updated = await db
@@ -282,7 +282,7 @@ export function registerWorkspaceRoutes(
 
 		const row = await findOwnedWorkspace(db, user, params.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		// Stopping an archived workspace is fine; starting it is not (SPEC.md §20.1).

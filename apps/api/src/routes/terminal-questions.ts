@@ -4,7 +4,12 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { parseFieldsOr400, parseOr400, sendError } from "../http.js";
+import {
+	parseFieldsOr400,
+	parseOr400,
+	sendError,
+	sendWorkspaceNotFound,
+} from "../http.js";
 import { sendAgentError } from "../workspaces/project-scope.js";
 import { findWorkspaceOwnedBy } from "../workspaces/workspace-view.js";
 
@@ -31,7 +36,7 @@ export function registerTerminalQuestionRoutes(
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const terminal = await db
 			.selectFrom("terminals")

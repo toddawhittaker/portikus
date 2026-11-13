@@ -20,7 +20,7 @@ import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound } from "../http.js";
 import { toEditorSettings } from "../users/editor-settings.js";
 import {
 	createPendingWork,
@@ -344,7 +344,7 @@ export function registerTerminalRoutes(
 		if (!params) return;
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		const filter = parseOr400(ListQuery, request.query ?? {}, reply);
@@ -439,7 +439,7 @@ export function registerTerminalRoutes(
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		const agent = agentClientFor(workspace, config.AGENT_PORT);
@@ -532,7 +532,7 @@ export function registerTerminalRoutes(
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		const updated = await db
@@ -562,7 +562,7 @@ export function registerTerminalRoutes(
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		const row = await db

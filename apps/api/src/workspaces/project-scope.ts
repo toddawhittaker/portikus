@@ -6,7 +6,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
-import { ProjectParam, sendError } from "../http.js";
+import { ProjectParam, sendError, sendWorkspaceNotFound } from "../http.js";
 import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 /** Where every project directory lives inside the workspace (SPEC.md §7.1). */
@@ -157,7 +157,7 @@ export async function ownedScope(
 	}
 	const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
 	if (!workspace) {
-		sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		sendWorkspaceNotFound(reply);
 		return null;
 	}
 	const running = workspace.state === "running";

@@ -19,7 +19,7 @@ import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Selectable } from "kysely";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import {
 	requestPendingOperation,
 	sendPendingOperationRefusal,
@@ -287,7 +287,7 @@ export function registerAdminBackupRoutes(
 			.select(["id", "state", "incus_instance_name"])
 			.where("id", "=", workspaceId)
 			.executeTakeFirst();
-		if (!ws) return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		if (!ws) return sendWorkspaceNotFound(reply);
 		const instance = ws.incus_instance_name;
 		if (!instance || !set.instances.includes(instance)) {
 			return sendError(

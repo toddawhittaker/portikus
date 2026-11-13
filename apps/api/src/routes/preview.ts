@@ -12,7 +12,7 @@ import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound } from "../http.js";
 import { fromLoopback } from "../loopback.js";
 import { previewPagePolicy } from "../page-policy.js";
 import {
@@ -203,7 +203,7 @@ export function registerPreviewRoutes(
 		if (!params) return reply;
 		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		return reply.send({ services: servicesOf(params.id) });
 	});
@@ -222,7 +222,7 @@ export function registerPreviewRoutes(
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		if (workspace.state !== "running") {
 			return sendError(
@@ -287,7 +287,7 @@ export function registerPreviewRoutes(
 
 		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const payload = await issuePreviewGrant(deps, request, reply, {
 			userId: user.id,
@@ -318,7 +318,7 @@ export function registerPreviewRoutes(
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const port = query.data.port;
 		if (!portAllowed(config, port)) {
@@ -381,7 +381,7 @@ export function registerPreviewRoutes(
 		if (!params) return reply;
 		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		await revokeWorkspacePreviewSessions(db, params.id);
 		// A reset in this process takes effect at once, not two seconds late.

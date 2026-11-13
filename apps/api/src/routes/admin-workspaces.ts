@@ -35,7 +35,7 @@ import {
 	readJson,
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import {
 	fromJson,
@@ -141,10 +141,6 @@ async function recentAudit(
 	}));
 }
 
-function workspaceNotFound(reply: FastifyReply) {
-	return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
-}
-
 async function workspaceExists(trx: Kysely<Database>, id: string): Promise<boolean> {
 	const row = await trx
 		.selectFrom("workspaces")
@@ -183,7 +179,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		const ownerId = row.owner_user_id as string;
 		const owner = await db
@@ -280,7 +276,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		const already = (row.archived_at !== null) === archive;
 		if (!already) {
@@ -326,7 +322,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		if (row.state === "provisioning") {
 			return sendError(
@@ -428,7 +424,7 @@ export function registerAdminWorkspaceRoutes(
 			return true;
 		});
 		if (!found) {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		return reply.status(204).send();
 	});
@@ -483,7 +479,7 @@ export function registerAdminWorkspaceRoutes(
 			return "cleared";
 		});
 		if (outcome === "not_found") {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		if (outcome === "not_set") {
 			return mark === "cpu_throttle"
@@ -566,7 +562,7 @@ export function registerAdminWorkspaceRoutes(
 			return true;
 		});
 		if (!found) {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		return reply.status(204).send();
 	});
@@ -607,7 +603,7 @@ export function registerAdminWorkspaceRoutes(
 			return "moved";
 		});
 		if (outcome === "not_found") {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		if (outcome === "not_in_error") {
 			return sendError(
@@ -631,7 +627,7 @@ export function registerAdminWorkspaceRoutes(
 		if (!params) return;
 		const row = await loadRow(params.id);
 		if (!row) {
-			return workspaceNotFound(reply);
+			return sendWorkspaceNotFound(reply);
 		}
 		if (row.state !== "running") {
 			return sendError(
