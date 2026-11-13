@@ -53,6 +53,8 @@ vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
 	jsonDefaults: { setDiagnosticsOptions: () => {} },
 }));
 vi.mock("monaco-editor/editor/editor.api.js", () => ({
+	KeyMod: { CtrlCmd: 1, Shift: 2 },
+	KeyCode: { Equal: 4, Minus: 8, Digit0: 16 },
 	Uri: { parse: (value: string) => ({ toString: () => value, value }) },
 	languages: { getLanguages: () => [{ id: "typescript", extensions: [".ts"] }] },
 	editor: {
@@ -72,9 +74,13 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 				},
 				// The Markdown split scrolls the working-copy side by line;
 				// nothing scrolls in jsdom, so this only has to answer.
-				getOriginalEditor: () => ({ updateOptions: nameSide("original") }),
+				getOriginalEditor: () => ({
+					updateOptions: nameSide("original"),
+					addCommand: () => {},
+				}),
 				getModifiedEditor: () => ({
 					updateOptions: nameSide("modified"),
+					addCommand: () => {},
 					onDidScrollChange: () => {},
 					getVisibleRanges: () => [],
 					getTopForLineNumber: () => 0,

@@ -1851,6 +1851,8 @@ Added by Epic 62: terminal and chat panes zoom on their own, like the editor: 50
 
 Added by Epic 65: a student picks an editor colour scheme in Settings (Appearance). Each scheme is a light and dark pair that follows the page appearance. Portikus Light and Dark are the default and the only schemes held to the 4.5:1 contrast of section 25.8. The reference schemes (VS Code, IntelliJ, GitHub, Solarized, Catppuccin and High contrast) are copied exactly as published, with their licence notices shipped in the build, and their contrast is the student's choice. In every scheme the scrollbar's Git and problem marks keep the Portikus colours.
 
+Also added by Epic 65: a file pane switched to Diff keeps the editor's zoom. The diff has the same bar under it with the zoom buttons and percentage, and the zoom keys and Ctrl (Cmd) + wheel work on either side of it. A file has one zoom, shared by Edit and Diff: the diff opens at the editor's zoom, both sides zoom together, and a change made in the diff shows in the editor. The diff's bar has no language or code help status.
+
 ### 13.2 Editing scope
 
 The editor should prioritize:
