@@ -126,6 +126,48 @@ function usageGap(agent: AdminWorkspaceDetail["agent"]): string {
 		: "Not measured: the workspace agent is not answering";
 }
 
+/**
+ * The CPU, memory and (without storage meters) home disk use the agent sent,
+ * or one line saying why there is none.
+ */
+function usageRows(detail: AdminWorkspaceDetail) {
+	const usage = detail.usage ?? null;
+	if (!usage) {
+		return (
+			<>
+				<dt>Use</dt>
+				<dd data-testid="detail-usage">{usageGap(detail.agent)}</dd>
+			</>
+		);
+	}
+	return (
+		<>
+			{detail.storage ? null : (
+				<>
+					<dt>Home disk</dt>
+					<dd data-testid="detail-disk-use">
+						{formatBytes(usage.disk.usedBytes)} of {formatBytes(usage.disk.totalBytes)}
+					</dd>
+				</>
+			)}
+			<dt>CPU use</dt>
+			<dd data-testid="detail-cpu-use">{formatCpu(usage.cpuPercent)}</dd>
+			<dt>Memory use</dt>
+			<dd data-testid="detail-memory-use">
+				{formatBytes(usage.memory.usedBytes)} of {formatBytes(usage.memory.totalBytes)}
+			</dd>
+		</>
+	);
+}
+
+/** The account's own disconnect grace, or the site's when it has none. */
+function graceText(ownSeconds: number | null, siteSeconds: number | null): string {
+	if (ownSeconds !== null) return graceValueText(ownSeconds);
+	return siteSeconds === null
+		? "Site setting"
+		: `${graceValueText(siteSeconds)} (site setting)`;
+}
+
 type ResourceDialog = "quota" | "limits" | "grace";
 
 /**
@@ -151,7 +193,6 @@ export function ResourcesSection({
 	const site = siteLimits(health.data?.host);
 	const siteGrace = settings.data?.shutdownGraceSeconds ?? null;
 	const workspace = detail?.workspace ?? null;
-	const usage = detail?.usage ?? null;
 
 	function close(reset: () => void) {
 		return (open: boolean) => {
@@ -186,31 +227,7 @@ export function ResourcesSection({
 								onClick={() => setDialog("quota")}
 							/>
 						</dd>
-						{usage ? (
-							<>
-								{detail.storage ? null : (
-									<>
-										<dt>Home disk</dt>
-										<dd data-testid="detail-disk-use">
-											{formatBytes(usage.disk.usedBytes)} of{" "}
-											{formatBytes(usage.disk.totalBytes)}
-										</dd>
-									</>
-								)}
-								<dt>CPU use</dt>
-								<dd data-testid="detail-cpu-use">{formatCpu(usage.cpuPercent)}</dd>
-								<dt>Memory use</dt>
-								<dd data-testid="detail-memory-use">
-									{formatBytes(usage.memory.usedBytes)} of{" "}
-									{formatBytes(usage.memory.totalBytes)}
-								</dd>
-							</>
-						) : (
-							<>
-								<dt>Use</dt>
-								<dd data-testid="detail-usage">{usageGap(detail.agent)}</dd>
-							</>
-						)}
+						{usageRows(detail)}
 						<TipTerm label="Limits" tip={PANEL_HELP.limits}>
 							Limits
 						</TipTerm>
@@ -237,11 +254,7 @@ export function ResourcesSection({
 				</TipTerm>
 				<dd className={EDIT_ROW}>
 					<span data-testid="detail-grace">
-						{user.shutdownGraceSeconds !== null
-							? graceValueText(user.shutdownGraceSeconds)
-							: siteGrace === null
-								? "Site setting"
-								: `${graceValueText(siteGrace)} (site setting)`}
+						{graceText(user.shutdownGraceSeconds, siteGrace)}
 					</span>
 					<EditButton
 						testId="detail-grace-edit"
