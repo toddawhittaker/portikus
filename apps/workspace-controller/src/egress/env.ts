@@ -31,12 +31,8 @@ const KEYS = [
 // Linux interface names are at most 15 bytes.
 export const BRIDGE_RE = /^[a-z0-9][a-z0-9-]{0,14}$/;
 
-/**
- * Parse `KEY=value` lines, refusing anything unexpected: an unknown or
- * repeated key, a missing key, or a value outside its pattern. Every value
- * ends up in nft or dnsmasq text, so each is checked here, not trusted.
- */
-export function parseEgressEnv(text: string): EgressEnv {
+/** The `KEY=value` lines by key, refusing a malformed line or an unknown or repeated key. */
+function readKeyValues(text: string): Map<string, string> {
 	const values = new Map<string, string>();
 	for (const raw of text.split("\n")) {
 		const line = raw.trim();
@@ -51,6 +47,16 @@ export function parseEgressEnv(text: string): EgressEnv {
 		if (values.has(key)) throw new Error(`egress.env repeats ${key}`);
 		values.set(key, value);
 	}
+	return values;
+}
+
+/**
+ * Parse `KEY=value` lines, refusing anything unexpected: an unknown or
+ * repeated key, a missing key, or a value outside its pattern. Every value
+ * ends up in nft or dnsmasq text, so each is checked here, not trusted.
+ */
+export function parseEgressEnv(text: string): EgressEnv {
+	const values = readKeyValues(text);
 	const get = (key: (typeof KEYS)[number]): string => {
 		const v = values.get(key);
 		if (v === undefined) throw new Error(`egress.env is missing ${key}`);
