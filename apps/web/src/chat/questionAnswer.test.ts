@@ -1,4 +1,4 @@
-import type { ChatQuestion } from "@portikus/contracts";
+import type { ChatCardQuestion, ChatQuestion } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
 	askedQuestions,
@@ -7,6 +7,7 @@ import {
 	emptyDraft,
 	isSettled,
 	readAnswers,
+	secretQuestions,
 } from "./questionAnswer";
 
 function question(text: string, multiSelect: boolean): ChatQuestion {
@@ -139,4 +140,42 @@ test("answers are read from Claude Code's result, and a missing one is skipped",
 	expect(
 		readAnswers(["Which size?"], "The user did not answer the questions."),
 	).toEqual([{ question: "Which size?", answer: null }]);
+});
+
+const FREE: ChatCardQuestion = {
+	question: "What is the API key?",
+	header: "Key",
+	multiSelect: false,
+	options: [],
+	secret: true,
+};
+
+test("a question with nothing to pick is answered by what the student typed", () => {
+	expect(draftAnswer(FREE, { ...emptyDraft, other: "  sk-123  " })).toBe("sk-123");
+	expect(draftAnswer(FREE, emptyDraft)).toBe("");
+	expect(isSettled(FREE, emptyDraft)).toBe(false);
+	expect(isSettled(FREE, { ...emptyDraft, skipped: true })).toBe(true);
+	expect(buildQuestionAnswer([FREE], [{ ...emptyDraft, other: "sk-123" }])).toEqual({
+		ok: true,
+		answers: { "What is the API key?": "sk-123" },
+	});
+	expect(buildQuestionAnswer([FREE], [emptyDraft])).toEqual({
+		ok: false,
+		missing: [0],
+	});
+});
+
+test("the questions an asked call marks secret are found by their text", () => {
+	const input = {
+		questions: [
+			{ question: "Key?", secret: true },
+			{ question: "Name?", secret: false },
+			{ question: "Plain?" },
+			{ secret: true },
+			"junk",
+		],
+	};
+	expect([...secretQuestions(input)]).toEqual(["Key?"]);
+	expect(secretQuestions(null).size).toBe(0);
+	expect(secretQuestions({ questions: "x" }).size).toBe(0);
 });

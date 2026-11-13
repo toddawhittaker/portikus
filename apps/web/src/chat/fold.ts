@@ -1,5 +1,5 @@
 import type { ChatItem, ChatMessageItem, ChatToolItem } from "./chatStore.js";
-import { projectPath, toolLine } from "./toolView.js";
+import { projectPath, toolLine, toolView } from "./toolView.js";
 
 /**
  * A finished turn as the conversation shows it: its first and final
@@ -78,27 +78,36 @@ export function groupTools(
 	return shown;
 }
 
-/** One file a turn's Edit, MultiEdit or Write calls changed, with its summed counts. */
+/** One file a turn's edits, writes or file changes touched, with its summed counts. */
 export interface ChangedFile {
 	path: string;
 	added: number;
 	removed: number;
 }
 
-const CHANGING_TOOLS = new Set(["Edit", "MultiEdit", "Write"]);
+const CHANGING_TOOLS = new Set(["Edit", "MultiEdit", "Write", "fileChange"]);
 
 /**
  * The files a turn changed, in the order first touched (SPEC.md §10.8). Only
  * calls that finished count, since a failed edit changed nothing; a Write
- * counts every line it wrote as added. Deletions are not seen: no tool here
- * deletes a file. The host drops subagents' calls, so these are the main
- * thread's alone.
+ * counts every line it wrote as added. A Codex file change counts each file
+ * it added, edited, moved (under its new path) or deleted. The host drops
+ * subagents' calls, so these are the main thread's alone.
  */
 export function changedFiles(items: readonly ChatItem[], slug?: string): ChangedFile[] {
 	const files = new Map<string, ChangedFile>();
 	for (const item of items) {
 		if (item.kind !== "tool" || item.status !== "done") continue;
 		if (!CHANGING_TOOLS.has(item.name)) continue;
+		if (item.name === "fileChange") {
+			const detail = toolView(item.name, item.input, item.title).detail;
+			if (detail?.kind !== "files") continue;
+			for (const change of detail.files) {
+				const named = change.movePath ?? change.path;
+				count(files, projectPath(slug, named) ?? named, change.added, change.removed);
+			}
+			continue;
+		}
 		const line = toolLine(item.name, item.input, item.title);
 		const named = line.path ?? (line.verb ? line.target : null);
 		if (named === null) continue;
@@ -108,12 +117,21 @@ export function changedFiles(items: readonly ChatItem[], slug?: string): Changed
 			line.detail?.kind === "write"
 				? { added: writtenLines(line.detail.content), removed: 0 }
 				: { added: line.added, removed: line.removed };
-		const file = files.get(path) ?? { path, added: 0, removed: 0 };
-		file.added += counts.added;
-		file.removed += counts.removed;
-		files.set(path, file);
+		count(files, path, counts.added, counts.removed);
 	}
 	return [...files.values()];
+}
+
+function count(
+	files: Map<string, ChangedFile>,
+	path: string,
+	added: number,
+	removed: number,
+): void {
+	const file = files.get(path) ?? { path, added: 0, removed: 0 };
+	file.added += added;
+	file.removed += removed;
+	files.set(path, file);
 }
 
 function writtenLines(content: string): number {
