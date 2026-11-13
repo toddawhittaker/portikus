@@ -26,6 +26,11 @@ interface MinuteCount {
 
 type Direction = "forward" | "backward";
 
+interface LevelHit {
+	at: number;
+	level: "error" | "warn";
+}
+
 /**
  * Error and warn lines per minute for the last 7 days, kept in memory
  * (docs/adr/0036). Counting starts with the last hour, then moves forward to
@@ -109,7 +114,33 @@ export class LogCounter {
 		to: number,
 		direction: Direction,
 	): Promise<number> {
-		const seen: { at: number; level: "error" | "warn" }[] = [];
+		const forward = direction === "forward";
+		const { finished, seen, lastAt } = await this.readSlice(from, to, direction);
+		if (finished) {
+			for (const hit of seen) this.add(hit.at, hit.level);
+			return forward ? to : from;
+		}
+		// The cap hit: keep only entries strictly before (or after) the last
+		// one read, since more entries may share its millisecond.
+		const progressed =
+			lastAt !== undefined && (forward ? lastAt > from : lastAt + 1 < to);
+		if (!progressed) return this.passOverSlow(from, to, direction);
+		const stoppedAt = lastAt as number;
+		for (const hit of seen) {
+			if (forward ? hit.at < stoppedAt : hit.at > stoppedAt) {
+				this.add(hit.at, hit.level);
+			}
+		}
+		return forward ? stoppedAt : stoppedAt + 1;
+	}
+
+	/** Read the errors and warnings in [from, to), and the time of the last entry read. */
+	private async readSlice(
+		from: number,
+		to: number,
+		direction: Direction,
+	): Promise<{ finished: boolean; seen: LevelHit[]; lastAt: number | undefined }> {
+		const seen: LevelHit[] = [];
 		let lastAt: number | undefined;
 		const result = await this.reader.read(
 			{
@@ -128,32 +159,21 @@ export class LogCounter {
 				return "continue";
 			},
 		);
-		if (result.reason === "end") {
-			for (const hit of seen) this.add(hit.at, hit.level);
-			return direction === "forward" ? to : from;
+		return { finished: result.reason === "end", seen, lastAt };
+	}
+
+	/**
+	 * Nothing read within the limit: try again an hour at a time, and pass
+	 * over an hour that is still too slow, so counting never stalls.
+	 */
+	private passOverSlow(from: number, to: number, direction: Direction): number {
+		const forward = direction === "forward";
+		if (to - from > HOUR_MS) {
+			this.sliceMs = HOUR_MS;
+			return forward ? from : to;
 		}
-		// The cap hit: keep only entries strictly before (or after) the last
-		// one read, since more entries may share its millisecond.
-		const progressed =
-			lastAt !== undefined &&
-			(direction === "forward" ? lastAt > from : lastAt + 1 < to);
-		if (!progressed) {
-			// Nothing read within the limit: try again an hour at a time, and
-			// pass over an hour that is still too slow, so counting never stalls.
-			if (to - from > HOUR_MS) {
-				this.sliceMs = HOUR_MS;
-				return direction === "forward" ? from : to;
-			}
-			this.skipped.push({ from, to });
-			return direction === "forward" ? to : from;
-		}
-		const stoppedAt = lastAt as number;
-		for (const hit of seen) {
-			if (direction === "forward" ? hit.at < stoppedAt : hit.at > stoppedAt) {
-				this.add(hit.at, hit.level);
-			}
-		}
-		return direction === "forward" ? stoppedAt : stoppedAt + 1;
+		this.skipped.push({ from, to });
+		return forward ? to : from;
 	}
 
 	private add(at: number, level: "error" | "warn"): void {
