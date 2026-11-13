@@ -296,108 +296,14 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 	switch (event.type) {
 		case "snapshot":
 			return applySnapshot(state, event, now);
-		case "turn.started": {
-			const open = turnId === null ? undefined : state.turns[turnId];
-			const id = open?.estimated ? open.id : `turn-${event.seq}`;
-			return {
-				...state,
-				currentTurnId: id,
-				pendingSplit: null,
-				turns: {
-					...state.turns,
-					[id]: {
-						id,
-						startedAt: event.at,
-						finishedAt: null,
-						status: "running",
-						estimated: false,
-					},
-				},
-			};
-		}
-		case "turn.finished": {
-			if (turnId === null) return state;
-			const turn = state.turns[turnId];
-			const left = TOOL_LEFT_RUNNING[event.status];
-			return {
-				...state,
-				currentTurnId: null,
-				pendingSplit: null,
-				turns: turn
-					? {
-							...state.turns,
-							[turnId]: { ...turn, finishedAt: event.at, status: event.status },
-						}
-					: state.turns,
-				items: state.items.map((item) => {
-					if (item.kind === "message" && item.streaming)
-						return { ...item, streaming: false };
-					if (item.kind === "tool" && item.status === "running")
-						return { ...item, status: left };
-					return item;
-				}),
-			};
-		}
-		case "text.delta": {
-			const key = `message:${event.messageId}`;
-			const items = replaceItem(state.items, key, (item) =>
-				item.kind === "message"
-					? { ...item, markdown: item.markdown + event.text }
-					: item,
-			);
-			if (items) return { ...state, items };
-			const split = takeInSentMessage(state, now);
-			return {
-				...split,
-				items: [
-					...split.items,
-					{
-						kind: "message",
-						key,
-						id: event.messageId,
-						role: "assistant",
-						markdown: event.text,
-						attachments: [],
-						streaming: true,
-						turnId: split.currentTurnId,
-					},
-				],
-			};
-		}
-		case "message": {
-			const key = `message:${event.id}`;
-			const fields = {
-				markdown: event.markdown,
-				attachments: event.attachments ?? [],
-				streaming: false,
-			};
-			const items = replaceItem(state.items, key, (item) =>
-				item.kind === "message" ? { ...item, ...fields } : item,
-			);
-			const lastUserMessageSeq =
-				event.role === "user" ? event.seq : state.lastUserMessageSeq;
-			if (items) return { ...state, items, lastUserMessageSeq };
-			if (event.role === "user" && isWorking(state)) {
-				return sentWhileWorking(state, { ...fields, id: event.id }, event.seq);
-			}
-			const split = event.role === "user" ? state : takeInSentMessage(state, now);
-			return {
-				...split,
-				lastUserMessageSeq,
-				items: [
-					...split.items,
-					{
-						kind: "message",
-						key,
-						id: event.id,
-						role: event.role,
-						...fields,
-						// What the student wrote is never folded into a turn's work.
-						turnId: event.role === "user" ? null : split.currentTurnId,
-					},
-				],
-			};
-		}
+		case "turn.started":
+			return startTurn(state, event);
+		case "turn.finished":
+			return finishTurn(state, event);
+		case "text.delta":
+			return appendText(state, event, now);
+		case "message":
+			return applyMessage(state, event, now);
 		case "tool.started":
 			return startTool(state, event, now);
 		case "tool.output": {
@@ -460,6 +366,130 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 		case "context":
 			return { ...state, context: contextUsage(event, now) };
 	}
+}
+
+/** A turn began; an estimated turn already open becomes this one. */
+function startTurn(
+	state: ChatState,
+	event: Extract<ChatServerEvent, { type: "turn.started" }>,
+): ChatState {
+	const turnId = state.currentTurnId;
+	const open = turnId === null ? undefined : state.turns[turnId];
+	const id = open?.estimated ? open.id : `turn-${event.seq}`;
+	return {
+		...state,
+		currentTurnId: id,
+		pendingSplit: null,
+		turns: {
+			...state.turns,
+			[id]: {
+				id,
+				startedAt: event.at,
+				finishedAt: null,
+				status: "running",
+				estimated: false,
+			},
+		},
+	};
+}
+
+/** The turn ended: its streaming text stops and its running tools take the turn's outcome. */
+function finishTurn(
+	state: ChatState,
+	event: Extract<ChatServerEvent, { type: "turn.finished" }>,
+): ChatState {
+	const turnId = state.currentTurnId;
+	if (turnId === null) return state;
+	const turn = state.turns[turnId];
+	const left = TOOL_LEFT_RUNNING[event.status];
+	return {
+		...state,
+		currentTurnId: null,
+		pendingSplit: null,
+		turns: turn
+			? {
+					...state.turns,
+					[turnId]: { ...turn, finishedAt: event.at, status: event.status },
+				}
+			: state.turns,
+		items: state.items.map((item) => {
+			if (item.kind === "message" && item.streaming)
+				return { ...item, streaming: false };
+			if (item.kind === "tool" && item.status === "running")
+				return { ...item, status: left };
+			return item;
+		}),
+	};
+}
+
+/** More of an assistant message: added to it, or a new message when it is the first part. */
+function appendText(
+	state: ChatState,
+	event: Extract<ChatServerEvent, { type: "text.delta" }>,
+	now: number,
+): ChatState {
+	const key = `message:${event.messageId}`;
+	const items = replaceItem(state.items, key, (item) =>
+		item.kind === "message" ? { ...item, markdown: item.markdown + event.text } : item,
+	);
+	if (items) return { ...state, items };
+	const split = takeInSentMessage(state, now);
+	return {
+		...split,
+		items: [
+			...split.items,
+			{
+				kind: "message",
+				key,
+				id: event.messageId,
+				role: "assistant",
+				markdown: event.text,
+				attachments: [],
+				streaming: true,
+				turnId: split.currentTurnId,
+			},
+		],
+	};
+}
+
+/** A whole message: it replaces a streamed one, or joins the conversation. */
+function applyMessage(
+	state: ChatState,
+	event: Extract<ChatServerEvent, { type: "message" }>,
+	now: number,
+): ChatState {
+	const key = `message:${event.id}`;
+	const fields = {
+		markdown: event.markdown,
+		attachments: event.attachments ?? [],
+		streaming: false,
+	};
+	const items = replaceItem(state.items, key, (item) =>
+		item.kind === "message" ? { ...item, ...fields } : item,
+	);
+	const lastUserMessageSeq =
+		event.role === "user" ? event.seq : state.lastUserMessageSeq;
+	if (items) return { ...state, items, lastUserMessageSeq };
+	if (event.role === "user" && isWorking(state)) {
+		return sentWhileWorking(state, { ...fields, id: event.id }, event.seq);
+	}
+	const split = event.role === "user" ? state : takeInSentMessage(state, now);
+	return {
+		...split,
+		lastUserMessageSeq,
+		items: [
+			...split.items,
+			{
+				kind: "message",
+				key,
+				id: event.id,
+				role: event.role,
+				...fields,
+				// What the student wrote is never folded into a turn's work.
+				turnId: event.role === "user" ? null : split.currentTurnId,
+			},
+		],
+	};
 }
 
 /** A tool call began, or a held live event repeats a replayed one; it takes any decision already known. */
