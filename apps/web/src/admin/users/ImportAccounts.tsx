@@ -9,6 +9,7 @@ import { Button, Checkbox, Dialog, DialogRoot, FileInput } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { downloadBlob } from "../../common/download.js";
+import { plural } from "../../text.js";
 import { Notice } from "../Notice.js";
 import { useAccountEmail, useConfirmImport, usePreviewImport } from "../queries.js";
 import { passwordsCsv, SAMPLE_IMPORT_CSV } from "./importCsv.js";
@@ -39,10 +40,6 @@ function tagClass(tone: "ok" | "warning" | "error"): string {
 	return tone === "warning" ? "pk-tag pk-tag--warning" : "pk-tag pk-tag--error";
 }
 
-function plural(count: number, one: string, many: string): string {
-	return `${count} ${count === 1 ? one : many}`;
-}
-
 function confirmBody(csv: string, sendEmail: boolean): AccountImportRequest {
 	return sendEmail ? { csv, sendEmail } : { csv };
 }
@@ -51,8 +48,24 @@ function downloadCsv(fileName: string, text: string): void {
 	downloadBlob(fileName, new Blob([text], { type: "text/csv" }));
 }
 
+const IMPORT_DESCRIPTION = `One row per person with the columns name, email, username, role and kind, at most ${ACCOUNT_IMPORT_MAX_ROWS} rows. Kind password adds a Portikus password; kind invite invites someone who signs in through your single sign-on provider (for Microsoft Entra, put the user principal name in username). Role is student or instructor; add administrators one at a time.`;
+
 const STATUS_ID = "import-status";
 const WARNING_ID = "import-password-warning";
+
+/** "2 accounts added, 1 invitation sent, 0 rows skipped. 1 person was emailed." */
+function resultText(result: AccountImportResultRow[]): string {
+	const count = (outcome: AccountImportResultRow["outcome"]) =>
+		result.filter((r) => r.outcome === outcome).length;
+	const emailed = result.filter((r) => r.emailed).length;
+	return `${plural(count("created"), "account", "accounts")} added, ${plural(
+		count("invited"),
+		"invitation",
+		"invitations",
+	)} sent, ${plural(count("skipped") + count("invalid"), "row", "rows")} skipped${
+		count("failed") > 0 ? `, ${count("failed")} failed` : ""
+	}.${emailed > 0 ? ` ${plural(emailed, "person was", "people were")} emailed.` : ""}`;
+}
 
 /** The one status line the dialog keeps mounted, so each change is announced (SPEC.md section 25.8). */
 function statusText(
@@ -61,18 +74,7 @@ function statusText(
 	ready: number,
 	result: AccountImportResultRow[] | null,
 ): string {
-	if (result) {
-		const count = (outcome: AccountImportResultRow["outcome"]) =>
-			result.filter((r) => r.outcome === outcome).length;
-		const emailed = result.filter((r) => r.emailed).length;
-		return `${plural(count("created"), "account", "accounts")} added, ${plural(
-			count("invited"),
-			"invitation",
-			"invitations",
-		)} sent, ${plural(count("skipped") + count("invalid"), "row", "rows")} skipped${
-			count("failed") > 0 ? `, ${count("failed")} failed` : ""
-		}.${emailed > 0 ? ` ${plural(emailed, "person was", "people were")} emailed.` : ""}`;
-	}
+	if (result) return resultText(result);
 	if (checking) return "Checking the file…";
 	if (!rows) return "No file checked yet.";
 	const skipped = rows.length - ready;
@@ -177,11 +179,7 @@ export function ImportAccounts({
 				testId="import-dialog"
 				size="lg"
 				title={result ? "Import finished" : "Import from CSV"}
-				description={
-					result
-						? undefined
-						: `One row per person with the columns name, email, username, role and kind, at most ${ACCOUNT_IMPORT_MAX_ROWS} rows. Kind password adds a Portikus password; kind invite invites someone who signs in through your single sign-on provider (for Microsoft Entra, put the user principal name in username). Role is student or instructor; add administrators one at a time.`
-				}
+				description={result ? undefined : IMPORT_DESCRIPTION}
 				footer={footer}
 			>
 				<div className="flex flex-col gap-3">
