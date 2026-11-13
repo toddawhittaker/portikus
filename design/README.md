@@ -81,14 +81,35 @@ the inspector, Health, and the CS 1210 Course page), with only the root
 element replaced so the artboard sets its size and theme. They load
 `portikus-console.css` in place of `portikus-screens.css`, whose class names
 would clash with the app's. That file is the CSS of the administrator and
-course pages compiled with the repo's Tailwind 4.3.3 from `apps/web/src`: the
-stylesheets `app.css` imports and `app.css` itself, then the page-level ones
-(`admin-frame.css`, `status-bar.css`, `right-pane.css`, `health.css`,
-`logs.css`, `settings.css`, `course.css`, `glance.css`) in the order the app
-loads them, with the utilities used under `admin`, `course`, `shell`,
-`common` and `monitor`. Token values still come from `portikus-tokens.css`
-and the `packages/ui` styles from `bundle.css`. The 1024 Users screens add
-the real Reset Docker confirmation in an open `ConfirmDialogRoot`.
+course pages, compiled with the repo's Tailwind 4.3.3 from `apps/web/src`. It is not the whole of what
+`app.css` imports. In file order it holds:
+
+1. A one-line comment saying what the file is, then Tailwind's own
+   banner and its `properties`, `theme`, `base`, `components` and `utilities`
+   layers. The `theme` layer carries only the variables from the `@theme`
+   block of `packages/ui/src/theme.css` that the utilities use. The
+   `utilities` layer carries only the classes used under `admin`, `course`,
+   `shell`, `common` and `monitor`. The `base` layer ends with the
+   `@layer base` rule of `console.css`, and `components` holds the two rules
+   of `@layer components` in `app.css`.
+2. The stylesheets `app.css` imports from `apps/web/src`: `running/running.css`,
+   `shell/header.css`, `tables.css`, `controls.css` and `console.css`.
+3. `app.css` itself, without its imports.
+4. The page-level stylesheets: `admin/admin-frame.css`,
+   `shell/status-bar.css`, `shell/right-pane.css`, `admin/health/health.css`,
+   `admin/logs/logs.css`, `admin/settings/settings.css`, `course/course.css`
+   and `course/glance.css`.
+5. The last part of `bundle.css`, from its type-scale `:root` rule to the end
+   of its reduced-motion rule: the type scale, the light terminal colours, the
+   density variables and the reduced-motion durations. It is byte-identical to
+   those lines of `system/components/bundle.css`.
+6. Tailwind's `@property` declarations.
+
+Nothing else from `packages/ui` is in the file: the fonts, the primitives and
+overlays styles and the rest of `theme.css` are not. Token values come from
+`portikus-tokens.css` and the component styles from `bundle.css`. The 1024
+Users screens add the real Reset Docker confirmation in an open
+`ConfirmDialogRoot`.
 
 These screens are Claude Design canvas documents, not ordinary web pages. Each
 one loads a `support.js` runtime that is not part of the artifact's files and
