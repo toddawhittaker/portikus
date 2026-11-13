@@ -56,7 +56,11 @@ export default defineConfig({
 			exclude: [
 				"**/*.test.*",
 				"**/*.d.ts",
-				// Test doubles and fixtures.
+				// Test doubles and fixtures. Recorded fixtures are data, not
+				// code; coverage would otherwise try to parse them.
+				"**/test-fixtures/**",
+				"**/*.jsonl",
+				"**/*.md",
 				"apps/api/src/testing/**",
 				"apps/worker/src/fake-controller.ts",
 				"apps/workspace-controller/src/fake-provider.ts",
