@@ -6,7 +6,6 @@
 import type * as Monaco from "monaco-editor";
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { baseName } from "../files/paths.js";
-import { useEditorZoom } from "../layout/store.js";
 import { CodeHelpStatus } from "../lsp/CodeHelpStatus.js";
 import { modelFitsLimit } from "../lsp/client.js";
 import { useCodeHelp } from "../lsp/context.js";
@@ -28,8 +27,9 @@ import {
 } from "./monaco.js";
 import { editorScrollTop, editorTopLine } from "./scrollSync.js";
 import { useScreenReaderMode } from "./settingsQueries.js";
+import { useFileZoom } from "./useFileZoom.js";
 import { ZoomControls } from "./ZoomControls.js";
-import { fontSizeFor, stepZoom, wheelZoom } from "./zoom.js";
+import { fontSizeFor } from "./zoom.js";
 import { addZoomCommands } from "./zoomCommands.js";
 import "./editor.css";
 
@@ -111,17 +111,11 @@ export function CodeEditor({
 	const host = useRef<HTMLDivElement | null>(null);
 	// The whole tab: Monaco above, the zoom bar below.
 	const container = useRef<HTMLDivElement | null>(null);
-	// Zoom is per open file and lasts for this session only (SPEC.md §13.1).
-	// The layout store holds it, beside the cursor and scroll position.
-	const [zoom, setZoom] = useEditorZoom(path);
+	// Zoom is per open file and lasts for this session only (SPEC.md §13.1),
+	// and the file's diff shares it.
+	const { zoom, setZoom, current, set } = useFileZoom(path, host);
 	// Shown on the bar under the editor, so the guessed language is visible.
 	const [language, setLanguage] = useState("plaintext");
-	// The editor and the wheel handler are set up once, so they read the newest
-	// zoom through a ref rather than being rebuilt on every step.
-	const zoomRef = useRef(zoom);
-	zoomRef.current = zoom;
-	const setZoomRef = useRef(setZoom);
-	setZoomRef.current = setZoom;
 	// Same reason: the editor is created once, so it reads the newest wrap
 	// setting here and through the effect below.
 	const wrapRef = useRef(wordWrap);
@@ -212,17 +206,12 @@ export function CodeEditor({
 				model,
 				theme: currentThemeName(),
 				renderLineHighlight: "line",
-				fontSize: fontSizeFor(zoomRef.current),
+				fontSize: fontSizeFor(current()),
 				wordWrap: wrapRef.current,
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 				ariaLabel: editorAriaLabel("Editor", path),
 			});
-			addZoomCommands(
-				monaco,
-				editor,
-				() => zoomRef.current,
-				(percent) => setZoomRef.current(percent),
-			);
+			addZoomCommands(monaco, editor, current, set);
 			editorRef.current = editor;
 			modelRef.current = model;
 			// Monaco loads after the first renders, so the model starts from the
@@ -359,17 +348,6 @@ export function CodeEditor({
 			accessibilitySupport: accessibilitySupport(screenReaderMode),
 		});
 	}, [screenReaderMode]);
-
-	// Ctrl + wheel zooms the editor only, never the page (SPEC.md §13.1).
-	useEffect(() => {
-		const node = host.current;
-		if (!node) return;
-		const onWheel = wheelZoom((steps) =>
-			setZoomRef.current(stepZoom(zoomRef.current, steps)),
-		);
-		node.addEventListener("wheel", onWheel, { passive: false });
-		return () => node.removeEventListener("wheel", onWheel);
-	}, []);
 
 	// Ctrl/Cmd+S saves now instead of opening the browser's save dialog
 	// (SPEC.md §13.5). It is a listener rather than a JSX handler because the

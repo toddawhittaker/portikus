@@ -5,7 +5,6 @@
  */
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
-import { useEditorZoom } from "../layout/store.js";
 import {
 	accessibilitySupport,
 	baseEditorOptions,
@@ -16,8 +15,9 @@ import {
 	watchTheme,
 } from "./monaco.js";
 import { useScreenReaderMode } from "./settingsQueries.js";
+import { useFileZoom } from "./useFileZoom.js";
 import { ZoomControls } from "./ZoomControls.js";
-import { fontSizeFor, stepZoom, wheelZoom } from "./zoom.js";
+import { fontSizeFor } from "./zoom.js";
 import { addZoomCommands } from "./zoomCommands.js";
 import "./editor.css";
 
@@ -61,13 +61,8 @@ export function DiffViewer({
 }: DiffViewerProps) {
 	const host = useRef<HTMLDivElement | null>(null);
 	// The same zoom as the file's editor, so the diff opens at it and a change
-	// here carries back (SPEC.md §13.1). Read through refs: the diff editor is
-	// built once.
-	const [zoom, setZoom] = useEditorZoom(path);
-	const zoomRef = useRef(zoom);
-	zoomRef.current = zoom;
-	const setZoomRef = useRef(setZoom);
-	setZoomRef.current = setZoom;
+	// here carries back (SPEC.md §13.1).
+	const { zoom, setZoom, current, set } = useFileZoom(path, host);
 	const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
 	const modelsRef = useRef<{
 		original: Monaco.editor.ITextModel;
@@ -121,17 +116,12 @@ export function DiffViewer({
 				enableSplitViewResizing: false,
 				useInlineViewWhenSpaceIsLimited: false,
 				renderOverviewRuler: false,
-				fontSize: fontSizeFor(zoomRef.current),
+				fontSize: fontSizeFor(current()),
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 			});
 			nameSides(editor, path, modifiedLabelRef.current);
 			for (const side of [editor.getOriginalEditor(), editor.getModifiedEditor()]) {
-				addZoomCommands(
-					monaco,
-					side,
-					() => zoomRef.current,
-					(percent) => setZoomRef.current(percent),
-				);
+				addZoomCommands(monaco, side, current, set);
 			}
 			editor.setModel(models);
 			if (editableRef.current) {
@@ -153,7 +143,7 @@ export function DiffViewer({
 			modelsRef.current = null;
 			applied.current = null;
 		};
-	}, [path]);
+	}, [path, current, set]);
 
 	// A refreshed diff keeps the place the student had scrolled to, so a live
 	// update does not lose their review context (SPEC.md §12.6).
@@ -175,17 +165,6 @@ export function DiffViewer({
 	useEffect(() => {
 		editorRef.current?.updateOptions({ fontSize: fontSizeFor(zoom) });
 	}, [zoom]);
-
-	// Ctrl + wheel zooms the diff only, never the page (SPEC.md §13.1).
-	useEffect(() => {
-		const node = host.current;
-		if (!node) return;
-		const onWheel = wheelZoom((steps) =>
-			setZoomRef.current(stepZoom(zoomRef.current, steps)),
-		);
-		node.addEventListener("wheel", onWheel, { passive: false });
-		return () => node.removeEventListener("wheel", onWheel);
-	}, []);
 
 	// Screen-reader support follows the student's setting, live.
 	useEffect(() => {
