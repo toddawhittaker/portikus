@@ -14,6 +14,8 @@ export const AGENT_INSTRUCTIONS_HOST_PATH =
 /**
  * Claude Code's managed settings, shipped beside the instructions template.
  * They blank BROWSER so Claude Code offers its paste-code URL (BROWSER-HANDLING.md 19.2).
+ * Their env must never set CLAUDE_CODE_ENTRYPOINT: a label Claude Code does
+ * not recognize bills students for extra auto-mode classifier calls.
  */
 export const CLAUDE_MANAGED_SETTINGS_HOST_PATH =
 	"/usr/lib/portikus/workspace-agent/claude-managed-settings.json";
