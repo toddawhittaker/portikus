@@ -152,6 +152,19 @@ function NavButton({
 	);
 }
 
+/** The typed auto-save delay as seconds, or why it is refused. */
+function parseDelay(delay: string): {
+	parsedDelay: number | null;
+	delayError: string | null;
+} {
+	const parsedDelay = /^\d+$/.test(delay.trim()) ? Number(delay.trim()) : null;
+	const delayError =
+		parsedDelay === null || parsedDelay < MIN_DELAY || parsedDelay > MAX_DELAY
+			? `Give a whole number of seconds between ${MIN_DELAY} and ${MAX_DELAY}.`
+			: null;
+	return { parsedDelay, delayError };
+}
+
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const settings = useEditorSettings();
 	const update = useUpdateEditorSettings();
@@ -203,11 +216,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const delay =
 		delayText ?? String(draft.autoSaveDelaySeconds ?? current.autoSaveDelaySeconds);
 
-	const parsedDelay = /^\d+$/.test(delay.trim()) ? Number(delay.trim()) : null;
-	const delayError =
-		parsedDelay === null || parsedDelay < MIN_DELAY || parsedDelay > MAX_DELAY
-			? `Give a whole number of seconds between ${MIN_DELAY} and ${MAX_DELAY}.`
-			: null;
+	const { parsedDelay, delayError } = parseDelay(delay);
 
 	const me = useMe();
 	const localPassword = me.status === "authenticated" && me.user.localPassword;
@@ -387,6 +396,109 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 		setHighlightId(controlId);
 	}
 
+	/** The open section's page. */
+	function sectionPane() {
+		if (sectionId === TWO_FACTOR?.id && localPassword) {
+			return <TwoFactorPane highlightId={highlightId} />;
+		}
+		if (sectionId === PASSWORD?.id && localPassword) {
+			return <PasswordPane highlightId={highlightId} />;
+		}
+		if (sectionId === PROFILE?.id) {
+			return (
+				<ProfilePane
+					highlightId={highlightId}
+					links={links}
+					onLinksChange={setLinks}
+					onCommitLinks={commitLinks}
+				/>
+			);
+		}
+		return (
+			<div className="relative grid gap-6">
+				{/* The section list already shows which section is open. */}
+				<h2 id="settings-section-preferences" className="sr-only">
+					Preferences
+				</h2>
+				{PREFERENCES?.groups.map((group) => (
+					<section
+						key={group.title}
+						className="pk-settings-group grid gap-4"
+						aria-labelledby={`settings-${group.title}`}
+					>
+						<h3 id={`settings-${group.title}`} className="pk-text-heading text-ink">
+							{group.title}
+						</h3>
+						{group.controls.map((control) => (
+							<ControlFrame
+								key={control.id}
+								control={control}
+								highlighted={highlightId === control.id}
+							>
+								{preferenceControl(control)}
+							</ControlFrame>
+						))}
+					</section>
+				))}
+			</div>
+		);
+	}
+
+	function notificationsControl(control: SettingsControl) {
+		if (!desktopSupported()) {
+			return (
+				<p className="pk-text-compact m-0 text-ink-muted">
+					This browser does not offer desktop notifications.
+				</p>
+			);
+		}
+		return (
+			<div className="grid gap-2" ref={notificationsField}>
+				<ChoiceField
+					label={control.label}
+					hint="Shows a notification outside the browser when a coding agent needs you or finishes and this page is not in front. It names the agent only."
+					name="desktop-notifications"
+					options={NOTIFICATION_OPTIONS}
+					value={agentNotifications}
+					onChange={chooseNotifications}
+					alsoDescribedBy={
+						permission === "denied" ? "desktop-notifications-blocked" : undefined
+					}
+				/>
+				{agentNotifications === "on" && permission === "default" ? (
+					<div>
+						<Button
+							size="sm"
+							variant="secondary"
+							data-testid="settings-notifications-allow"
+							onClick={() => void allowInBrowser()}
+						>
+							Allow in this browser
+						</Button>
+					</div>
+				) : null}
+				{/* Always mounted, so a screen reader hears the outcome. */}
+				<p
+					className="sr-only"
+					aria-live="polite"
+					data-testid="settings-notifications-status"
+				>
+					{notificationNote}
+				</p>
+				{permission === "denied" ? (
+					<p
+						id="desktop-notifications-blocked"
+						className="pk-text-compact m-0 text-ink-muted"
+						data-testid="settings-notifications-blocked"
+					>
+						Your browser has blocked notifications for this site. Allow them in the site
+						settings next to the address, then choose On.
+					</p>
+				) : null}
+			</div>
+		);
+	}
+
 	function preferenceControl(control: SettingsControl) {
 		switch (control.id) {
 			case "auto-save":
@@ -464,58 +576,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 					</div>
 				);
 			case "desktop-notifications":
-				if (!desktopSupported()) {
-					return (
-						<p className="pk-text-compact m-0 text-ink-muted">
-							This browser does not offer desktop notifications.
-						</p>
-					);
-				}
-				return (
-					<div className="grid gap-2" ref={notificationsField}>
-						<ChoiceField
-							label={control.label}
-							hint="Shows a notification outside the browser when a coding agent needs you or finishes and this page is not in front. It names the agent only."
-							name="desktop-notifications"
-							options={NOTIFICATION_OPTIONS}
-							value={agentNotifications}
-							onChange={chooseNotifications}
-							alsoDescribedBy={
-								permission === "denied" ? "desktop-notifications-blocked" : undefined
-							}
-						/>
-						{agentNotifications === "on" && permission === "default" ? (
-							<div>
-								<Button
-									size="sm"
-									variant="secondary"
-									data-testid="settings-notifications-allow"
-									onClick={() => void allowInBrowser()}
-								>
-									Allow in this browser
-								</Button>
-							</div>
-						) : null}
-						{/* Always mounted, so a screen reader hears the outcome. */}
-						<p
-							className="sr-only"
-							aria-live="polite"
-							data-testid="settings-notifications-status"
-						>
-							{notificationNote}
-						</p>
-						{permission === "denied" ? (
-							<p
-								id="desktop-notifications-blocked"
-								className="pk-text-compact m-0 text-ink-muted"
-								data-testid="settings-notifications-blocked"
-							>
-								Your browser has blocked notifications for this site. Allow them in the
-								site settings next to the address, then choose On.
-							</p>
-						) : null}
-					</div>
-				);
+				return notificationsControl(control);
 			case "screen-reader-mode":
 				return (
 					// The tip sits beside the checkbox, not inside its label.
@@ -705,48 +766,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 							ref={pane}
 							className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]"
 						>
-							{sectionId === TWO_FACTOR?.id && localPassword ? (
-								<TwoFactorPane highlightId={highlightId} />
-							) : sectionId === PASSWORD?.id && localPassword ? (
-								<PasswordPane highlightId={highlightId} />
-							) : sectionId === PROFILE?.id ? (
-								<ProfilePane
-									highlightId={highlightId}
-									links={links}
-									onLinksChange={setLinks}
-									onCommitLinks={commitLinks}
-								/>
-							) : (
-								<div className="relative grid gap-6">
-									{/* The section list already shows which section is open. */}
-									<h2 id="settings-section-preferences" className="sr-only">
-										Preferences
-									</h2>
-									{PREFERENCES?.groups.map((group) => (
-										<section
-											key={group.title}
-											className="pk-settings-group grid gap-4"
-											aria-labelledby={`settings-${group.title}`}
-										>
-											<h3
-												id={`settings-${group.title}`}
-												className="pk-text-heading text-ink"
-											>
-												{group.title}
-											</h3>
-											{group.controls.map((control) => (
-												<ControlFrame
-													key={control.id}
-													control={control}
-													highlighted={highlightId === control.id}
-												>
-													{preferenceControl(control)}
-												</ControlFrame>
-											))}
-										</section>
-									))}
-								</div>
-							)}
+							{sectionPane()}
 						</div>
 						{saveError !== null ? (
 							<p
