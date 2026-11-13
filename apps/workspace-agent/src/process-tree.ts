@@ -84,6 +84,22 @@ export async function collectProcessTree(
 	if (!root) return [];
 	// A pid reused since the root started belongs to someone else.
 	if (rootStartTime !== undefined && root.startTime !== rootStartTime) return [];
+	const chosen = withDescendants(root, processes);
+	// Only a session the root leads: otherwise the session could be the agent's.
+	if (root.session === root.pid) {
+		for (const entry of processes) {
+			if (entry.session === root.pid) chosen.set(entry.pid, entry);
+		}
+	}
+	chosen.delete(process.pid);
+	return [...chosen.values()].map(({ pid, startTime }) => ({ pid, startTime }));
+}
+
+/** The root and every process below it by parent pid, keyed by pid. */
+function withDescendants(
+	root: ProcStat,
+	processes: readonly ProcStat[],
+): Map<number, ProcStat> {
 	const children = new Map<number, ProcStat[]>();
 	for (const entry of processes) {
 		const list = children.get(entry.ppid) ?? [];
@@ -100,14 +116,7 @@ export async function collectProcessTree(
 			queue.push(child.pid);
 		}
 	}
-	// Only a session the root leads: otherwise the session could be the agent's.
-	if (root.session === root.pid) {
-		for (const entry of processes) {
-			if (entry.session === root.pid) chosen.set(entry.pid, entry);
-		}
-	}
-	chosen.delete(process.pid);
-	return [...chosen.values()].map(({ pid, startTime }) => ({ pid, startTime }));
+	return chosen;
 }
 
 async function alive(target: TreeProcess): Promise<boolean> {
@@ -168,14 +177,7 @@ export async function stopProcesses(
 	for (const target of targets) {
 		if (await alive(target)) signal(target.pid, "SIGTERM");
 	}
-	const deadline = Date.now() + graceMs;
-	let left = [...targets];
-	while (left.length > 0 && Date.now() < deadline) {
-		await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-		const still: TreeProcess[] = [];
-		for (const target of left) if (await alive(target)) still.push(target);
-		left = still;
-	}
+	const left = await survivors(targets, graceMs);
 	if (rootPid !== undefined && targets.length > 0) {
 		const known = new Set(left.map((target) => target.pid));
 		for (const member of sessionMembers(rootPid)) {
@@ -185,6 +187,22 @@ export async function stopProcesses(
 	for (const target of left) {
 		if (await alive(target)) signal(target.pid, "SIGKILL");
 	}
+}
+
+/** Poll until every target has exited or `graceMs` passes; returns those still alive. */
+async function survivors(
+	targets: readonly TreeProcess[],
+	graceMs: number,
+): Promise<TreeProcess[]> {
+	const deadline = Date.now() + graceMs;
+	let left = [...targets];
+	while (left.length > 0 && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+		const still: TreeProcess[] = [];
+		for (const target of left) if (await alive(target)) still.push(target);
+		left = still;
+	}
+	return left;
 }
 
 /** Stop a process and everything it started (SPEC.md §9.7, §18.1). */
