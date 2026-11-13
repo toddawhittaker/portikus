@@ -47,26 +47,18 @@ export function parsePorcelainV2(text: string): GitStatus {
 	for (let i = 0; i < records.length; i += 1) {
 		const record = records[i];
 		if (!record) continue;
-		const kind = record[0];
 
-		if (kind === "#") {
+		if (record[0] === "#") {
 			readBranchHeader(status, record);
 			continue;
 		}
 
-		let item: string | GitEntry | null;
-		if (kind === "!") {
-			item = record.slice(2);
-		} else {
-			// A rename's original path is the next NUL-separated field.
-			const origPath = kind === "2" ? (records[i + 1] ?? "") : undefined;
-			if (kind === "2") i += 1;
-			item = parseEntry(record, origPath);
-			if (!item) continue;
-			// Every `u` record is a conflict, including both-added (AA) and
-			// both-deleted (DD) (SPEC.md §12.8).
-			if (item.unmerged) status.conflicts += 1;
-		}
+		const { item, consumed } = readRecord(records, i);
+		i += consumed;
+		if (item === null) continue;
+		// Every `u` record is a conflict, including both-added (AA) and
+		// both-deleted (DD) (SPEC.md §12.8).
+		if (typeof item !== "string" && item.unmerged) status.conflicts += 1;
 
 		if (budget <= 0) {
 			status.truncated = true;
@@ -77,6 +69,24 @@ export function parsePorcelainV2(text: string): GitStatus {
 		else status.entries.push(item);
 	}
 	return status;
+}
+
+/**
+ * An ignored path or an entry from the record at `index`, with how many
+ * extra fields it used: a rename's original path is the next NUL-separated
+ * field.
+ */
+function readRecord(
+	records: string[],
+	index: number,
+): { item: string | GitEntry | null; consumed: number } {
+	const record = records[index] ?? "";
+	const kind = record[0];
+	if (kind === "!") return { item: record.slice(2), consumed: 0 };
+	if (kind === "2") {
+		return { item: parseEntry(record, records[index + 1] ?? ""), consumed: 1 };
+	}
+	return { item: parseEntry(record, undefined), consumed: 0 };
 }
 
 /** Apply one `# branch.*` header line to `status`. */
