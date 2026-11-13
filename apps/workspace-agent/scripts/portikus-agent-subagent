@@ -1,6 +1,6 @@
 #!/bin/bash
-# A Claude Code hook: tells the workspace agent which subagents the agent in
-# this terminal has started and finished (SPEC.md §10.8, ADR 0070).
+# A Claude Code or Codex hook: tells the workspace agent which subagents the
+# agent in this terminal has started and finished (SPEC.md §10.8, ADR 0070).
 # Usage: portikus-agent-subagent <event>
 # The hook's input holds the subagent's prompt; jq keeps only the allow-listed
 # fields below, and the prompt never leaves this script (ADR 0012). It never
@@ -25,6 +25,10 @@ pre_tool_use | post_tool_use | post_tool_use_failure)
 		{subagent_type: (.tool_input.subagent_type | strings)},
 		{run_in_background: (.tool_input.run_in_background | booleans)},
 		{agent_id: (.tool_response | objects | .agentId // .agent_id | strings)}' ;;
+# Codex's SubagentStart names the agent and its type; its reply and transcript
+# paths are never read.
+subagent_start) keep='{agent_id: (.agent_id | strings)},
+		{subagent_type: (.agent_type | strings)}' ;;
 subagent_stop) keep='{agent_id: (.agent_id | strings)}' ;;
 # The prompt and the reply are all these events carry, so nothing is read.
 *)

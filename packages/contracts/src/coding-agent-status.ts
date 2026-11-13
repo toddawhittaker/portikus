@@ -204,6 +204,7 @@ const CodingAgentSubagentEvent = z.enum([
 	"pre_tool_use",
 	"post_tool_use",
 	"post_tool_use_failure",
+	"subagent_start",
 	"subagent_stop",
 	"user_prompt_submit",
 	"stop",
@@ -223,7 +224,9 @@ function cutText(text: string, max: number): string {
 /**
  * A hook's report to `POST /coding-agent-subagent`. Only the allow-listed
  * fields travel, never the prompt. A long description or type is cut to fit
- * rather than refused, so the row still appears.
+ * rather than refused, so the row still appears. A subagent start (Codex
+ * names no tool call) is keyed by its agent id, which becomes the row's id,
+ * so it must fit one.
  */
 export const CodingAgentSubagentPost = z
 	.object({
@@ -245,7 +248,16 @@ export const CodingAgentSubagentPost = z
 		agent_id: z.string().min(1).max(128).optional(),
 		run_in_background: z.boolean().optional(),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(post) =>
+			post.event !== "subagent_start" ||
+			(post.agent_id !== undefined && ToolCallId.safeParse(post.agent_id).success),
+		{
+			message: "a subagent start needs an agent id that fits a row id",
+			path: ["agent_id"],
+		},
+	);
 export type CodingAgentSubagentPost = z.infer<typeof CodingAgentSubagentPost>;
 
 /**

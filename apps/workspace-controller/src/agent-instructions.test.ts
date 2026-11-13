@@ -12,7 +12,9 @@ import {
 	AGENT_SCRIPTS_DIR,
 	CLAUDE_MANAGED_SETTINGS_PATH,
 	CLAUDE_SYSTEM_PATH,
+	CODEX_MANAGED_PATH,
 	CODEX_SYSTEM_PATH,
+	codexManagedConfig,
 	codexSystemConfig,
 	writeAgentInstructions,
 	writeClaudeManagedSettings,
@@ -33,7 +35,7 @@ beforeEach(() => {
 });
 
 describe("writeAgentInstructions", () => {
-	test("writes both system files, root-owned and 0644", async () => {
+	test("writes the three system files, root-owned and 0644", async () => {
 		expect(await writeAgentInstructions(files, "ws-a", templatePath)).toBe(true);
 		expect(files.files.get(CLAUDE_SYSTEM_PATH)).toEqual({
 			type: "file",
@@ -41,19 +43,25 @@ describe("writeAgentInstructions", () => {
 			mode: "0644",
 			uid: 0,
 		});
-		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(
-			codexSystemConfig(TEMPLATE),
-		);
+		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(codexSystemConfig());
 		expect(files.files.get(CODEX_SYSTEM_PATH)?.mode).toBe("0644");
+		expect(files.files.get(CODEX_MANAGED_PATH)).toEqual({
+			type: "file",
+			content: codexManagedConfig(TEMPLATE),
+			mode: "0644",
+			uid: 0,
+		});
 	});
 
 	test("an edited file is rewritten at the next start", async () => {
 		files.files.set(CLAUDE_SYSTEM_PATH, { type: "file", content: "edited" });
 		files.files.set(CODEX_SYSTEM_PATH, { type: "file", content: "edited" });
+		files.files.set(CODEX_MANAGED_PATH, { type: "file", content: "edited" });
 		await writeAgentInstructions(files, "ws-a", templatePath);
 		expect(files.files.get(CLAUDE_SYSTEM_PATH)?.content).toBe(TEMPLATE);
-		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(
-			codexSystemConfig(TEMPLATE),
+		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(codexSystemConfig());
+		expect(files.files.get(CODEX_MANAGED_PATH)?.content).toBe(
+			codexManagedConfig(TEMPLATE),
 		);
 	});
 
@@ -62,9 +70,22 @@ describe("writeAgentInstructions", () => {
 		await writeAgentInstructions(files, "ws-a", templatePath);
 		expect(files.files.get("/etc/claude-code")?.type).toBe("directory");
 		expect(files.files.get(CLAUDE_SYSTEM_PATH)?.content).toBe(TEMPLATE);
-		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(
-			codexSystemConfig(TEMPLATE),
+		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(codexSystemConfig());
+		expect(files.files.get(CODEX_MANAGED_PATH)?.content).toBe(
+			codexManagedConfig(TEMPLATE),
 		);
+	});
+
+	test("an older start's instructions and hooks in config.toml are replaced, not doubled", async () => {
+		files.files.set(CODEX_SYSTEM_PATH, {
+			type: "file",
+			content:
+				'developer_instructions = "old"\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\n',
+		});
+		await writeAgentInstructions(files, "ws-a", templatePath);
+		const kept = files.files.get(CODEX_SYSTEM_PATH)?.content ?? "";
+		expect(kept).not.toContain("developer_instructions");
+		expect(kept).not.toContain("hooks");
 	});
 
 	test("a host without the template writes nothing", async () => {
@@ -78,11 +99,15 @@ describe("writeAgentInstructions", () => {
 			files.ops = [];
 			files.files.set(CLAUDE_SYSTEM_PATH, { type, content: "" });
 			files.files.set(CODEX_SYSTEM_PATH, { type, content: "" });
+			files.files.set(CODEX_MANAGED_PATH, { type, content: "" });
 			expect(await writeAgentInstructions(files, "ws-a", templatePath)).toBe(true);
 			expect(files.ops).toEqual([
 				"POST /etc/claude-code",
 				`DELETE ${CLAUDE_SYSTEM_PATH}`,
 				`POST ${CLAUDE_SYSTEM_PATH}`,
+				"POST /etc/codex",
+				`DELETE ${CODEX_MANAGED_PATH}`,
+				`POST ${CODEX_MANAGED_PATH}`,
 				"POST /etc/codex",
 				`DELETE ${CODEX_SYSTEM_PATH}`,
 				`POST ${CODEX_SYSTEM_PATH}`,
@@ -112,9 +137,20 @@ describe("writeAgentInstructions", () => {
 		await expect(writeAgentInstructions(files, "ws-a", templatePath)).rejects.toThrow(
 			CLAUDE_SYSTEM_PATH,
 		);
-		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(
-			codexSystemConfig(TEMPLATE),
+		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(codexSystemConfig());
+		expect(files.files.get(CODEX_MANAGED_PATH)?.content).toBe(
+			codexManagedConfig(TEMPLATE),
 		);
+	});
+
+	test("a Codex file that cannot be written does not skip the other", async () => {
+		files.files.set(CODEX_MANAGED_PATH, { type: "directory", content: "" });
+		files.files.set(`${CODEX_MANAGED_PATH}/x`, { type: "file", content: "" });
+		await expect(writeAgentInstructions(files, "ws-a", templatePath)).rejects.toThrow(
+			CODEX_MANAGED_PATH,
+		);
+		expect(files.files.get(CLAUDE_SYSTEM_PATH)?.content).toBe(TEMPLATE);
+		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(codexSystemConfig());
 	});
 });
 
@@ -176,20 +212,67 @@ describe("writeClaudeManagedSettings", () => {
 });
 
 describe("codexSystemConfig", () => {
-	test("keeps the update switch and quotes the template as a TOML basic string", () => {
-		const config = codexSystemConfig(TEMPLATE);
-		expect(config).toContain("check_for_update_on_startup = false\n");
-		expect(config).toContain(
-			'developer_instructions = "Use \\"portikus-open\\".\\nA \\\\ backslash.\\n"\n',
+	test("holds only the update switch, which the image also ships", () => {
+		expect(codexSystemConfig()).toBe(
+			"# Written by Portikus at every workspace start; edits do not last.\n" +
+				"check_for_update_on_startup = false\n",
 		);
 	});
 
+	test("holds none of what the managed file owns, so nothing runs twice", () => {
+		const config = codexSystemConfig();
+		for (const owned of ["developer_instructions", "[[hooks", "[otel]", "[features]"]) {
+			expect(config).not.toContain(owned);
+		}
+	});
+});
+
+describe("codexManagedConfig", () => {
+	/** Every hook: event, matcher, then the script and its arguments. */
+	const HOOKS: [event: string, matcher: string | undefined, command: string][] = [
+		["UserPromptSubmit", undefined, "portikus-agent-state codex working"],
+		["UserPromptSubmit", undefined, "portikus-agent-subagent user_prompt_submit"],
+		["PreToolUse", "request_user_input", "portikus-agent-state codex needs-input"],
+		["PostToolUse", undefined, "portikus-agent-state codex working"],
+		["PermissionRequest", undefined, "portikus-agent-state codex needs-input"],
+		["SubagentStart", undefined, "portikus-agent-subagent subagent_start"],
+		["SubagentStop", undefined, "portikus-agent-subagent subagent_stop"],
+		["Stop", undefined, "portikus-agent-state codex finished"],
+		["Interrupt", undefined, "portikus-agent-state codex finished"],
+		["SessionEnd", undefined, "portikus-agent-state codex clear"],
+	];
+
+	type Group = {
+		matcher?: string;
+		hooks: { type: string; command: string; timeout: number }[];
+	};
+	const parsed = () =>
+		parse(codexManagedConfig(TEMPLATE)) as {
+			developer_instructions: string;
+			check_for_update_on_startup?: unknown;
+			features: Record<string, unknown>;
+			otel: Record<string, unknown>;
+			hooks: Record<string, Group[]>;
+		};
+
+	test("quotes the template as a TOML basic string, so Codex gets it exactly", () => {
+		const config = codexManagedConfig(TEMPLATE);
+		expect(config).toContain(
+			'developer_instructions = "Use \\"portikus-open\\".\\nA \\\\ backslash.\\n"\n',
+		);
+		expect(parsed().developer_instructions).toBe(TEMPLATE);
+	});
+
+	test("turns the Codex daemon off, so hooks carry their own terminal's id", () => {
+		expect(parsed().features).toEqual({ daemon_auto_start: false });
+	});
+
 	test("sends metrics, and only metrics, to the usage receiver as JSON with prompts off", () => {
-		const config = codexSystemConfig(TEMPLATE);
-		const otel = config.split("\n[otel]\n")[1] ?? "";
-		// Every top-level key comes before the table, or TOML would read it as an otel key.
+		const config = codexManagedConfig(TEMPLATE);
+		const otel = config.split("\n[otel]\n")[1]?.split("\n[[hooks.")[0] ?? "";
+		// Every top-level key comes before the tables, or TOML would read it as a table key.
 		expect(config.indexOf("developer_instructions")).toBeLessThan(
-			config.indexOf("[otel]"),
+			config.indexOf("[features]"),
 		);
 		expect(otel).toContain("log_user_prompt = false\n");
 		expect(otel).toContain('exporter = "none"\n');
@@ -197,59 +280,66 @@ describe("codexSystemConfig", () => {
 		expect(otel).toContain(
 			`metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:${AGENT_USAGE_PORT}/v1/metrics", protocol = "json" } }\n`,
 		);
+		expect(parsed().otel.log_user_prompt).toBe(false);
 	});
 
-	test("hooks each state event to the state script, with a 5-second backstop", () => {
-		const config = codexSystemConfig(TEMPLATE);
-		const hooks = config.slice(config.indexOf("[[hooks."));
+	test("holds the hook tables after every other table", () => {
+		const config = codexManagedConfig(TEMPLATE);
 		expect(config.indexOf("[otel]")).toBeLessThan(config.indexOf("[[hooks."));
-		for (const [event, state] of [
-			["UserPromptSubmit", "working"],
-			["PostToolUse", "working"],
-			["PermissionRequest", "needs-input"],
-			["Stop", "finished"],
-			["Interrupt", "finished"],
-			["SessionEnd", "clear"],
-		]) {
-			expect(hooks).toContain(
-				`[[hooks.${event}]]\n[[hooks.${event}.hooks]]\ntype = "command"\n` +
-					`command = "${AGENT_SCRIPTS_DIR}/portikus-agent-state codex ${state}"\n` +
-					"timeout = 5\n",
-			);
-		}
-		// Nothing but hook tables follows the first one.
-		expect(hooks.match(/^\[\[hooks\.[A-Za-z]+\]\]$/gm)).toHaveLength(6);
+		expect(config.indexOf("[features]")).toBeLessThan(config.indexOf("[[hooks."));
 	});
 
-	test("parses as TOML with one command hook per event", () => {
-		const parsed = parse(codexSystemConfig(TEMPLATE)) as {
-			developer_instructions: string;
-			features: Record<string, unknown>;
-			hooks: Record<
-				string,
-				{ hooks: { type: string; command: string; timeout: number }[] }[]
-			>;
-		};
-		expect(parsed.developer_instructions).toBe(TEMPLATE);
-		expect(parsed.features.daemon_auto_start).toBe(false);
-		const states: Record<string, string> = {
-			UserPromptSubmit: "working",
-			PostToolUse: "working",
-			PermissionRequest: "needs-input",
-			Stop: "finished",
-			Interrupt: "finished",
-			SessionEnd: "clear",
-		};
-		expect(Object.keys(parsed.hooks).sort()).toEqual(Object.keys(states).sort());
-		for (const [event, state] of Object.entries(states)) {
-			const groups = parsed.hooks[event];
-			expect(groups).toHaveLength(1);
-			expect(groups?.[0]?.hooks).toEqual([
-				{
-					type: "command",
-					command: `${AGENT_SCRIPTS_DIR}/portikus-agent-state codex ${state}`,
-					timeout: 5,
-				},
+	test("leaves the update switch to the system file", () => {
+		expect(parsed().check_for_update_on_startup).toBeUndefined();
+	});
+
+	test("hooks each event to its script, with a 5-second backstop and only the listed matchers", () => {
+		const groups = parsed().hooks;
+		expect(Object.keys(groups).sort()).toEqual(
+			[...new Set(HOOKS.map(([event]) => event))].sort(),
+		);
+		const seen: [string, string | undefined, string][] = [];
+		for (const [event, list] of Object.entries(groups)) {
+			for (const group of list) {
+				// One command per group, so each matcher applies to exactly one script.
+				expect(group.hooks).toHaveLength(1);
+				const hook = group.hooks[0];
+				expect(hook?.type).toBe("command");
+				expect(hook?.timeout).toBe(5);
+				const command = hook?.command ?? "";
+				expect(command.startsWith(`${AGENT_SCRIPTS_DIR}/`)).toBe(true);
+				seen.push([event, group.matcher, command.slice(AGENT_SCRIPTS_DIR.length + 1)]);
+			}
+		}
+		expect(seen).toHaveLength(HOOKS.length);
+		for (const hook of HOOKS) expect(seen).toContainEqual(hook);
+	});
+
+	test("a question the student sees in the Codex terminal marks the tab needing input, and answering clears it", () => {
+		const { hooks } = parsed();
+		const asks = hooks.PreToolUse ?? [];
+		expect(asks).toHaveLength(1);
+		expect(asks[0]?.matcher).toBe("request_user_input");
+		expect(asks[0]?.hooks[0]?.command).toBe(
+			`${AGENT_SCRIPTS_DIR}/portikus-agent-state codex needs-input`,
+		);
+		// The unmatched PostToolUse that follows the answer is what clears it.
+		const after = hooks.PostToolUse ?? [];
+		expect(after).toHaveLength(1);
+		expect(after[0]?.matcher).toBeUndefined();
+		expect(after[0]?.hooks[0]?.command).toBe(
+			`${AGENT_SCRIPTS_DIR}/portikus-agent-state codex working`,
+		);
+	});
+
+	test("the subagent hooks read nothing themselves: only the subagent script sees their input", () => {
+		const { hooks } = parsed();
+		for (const event of ["SubagentStart", "SubagentStop"]) {
+			const commands = (hooks[event] ?? []).flatMap((g) =>
+				g.hooks.map((h) => h.command),
+			);
+			expect(commands).toEqual([
+				`${AGENT_SCRIPTS_DIR}/portikus-agent-subagent ${event === "SubagentStart" ? "subagent_start" : "subagent_stop"}`,
 			]);
 		}
 	});
