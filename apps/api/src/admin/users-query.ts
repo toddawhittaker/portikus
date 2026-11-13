@@ -34,23 +34,34 @@ function matchesText(user: AdminUser, needle: string): boolean {
 	].some((field) => field?.toLowerCase().includes(needle));
 }
 
+function matchesState(
+	workspace: AdminUser["workspace"],
+	state: AdminUsersQuery["state"],
+): boolean {
+	if (!state) return true;
+	if (state === "none") return !workspace;
+	return workspace?.state === state;
+}
+
+function matchesImage(
+	workspace: AdminUser["workspace"],
+	image: AdminUsersQuery["image"],
+): boolean {
+	if (!image) return true;
+	const current = workspace?.image.current;
+	return image === "current" ? current === true : current === false;
+}
+
 function matches(user: AdminUser, query: AdminUsersQuery): boolean {
 	const workspace = user.workspace;
 	if (query.pending) return Boolean(workspace?.pendingOperation);
 	if (!query.archived && user.markers.archived) return false;
-	if (query.state === "none" && workspace) return false;
-	if (query.state && query.state !== "none" && workspace?.state !== query.state) {
-		return false;
-	}
+	if (!matchesState(workspace, query.state)) return false;
 	if (query.role && user.role !== query.role) return false;
 	if (query.unlinkedCourse && (!isCourseAccount(user) || user.markers.linked)) {
 		return false;
 	}
-	if (query.image) {
-		const current = workspace?.image.current;
-		if (query.image === "current" && current !== true) return false;
-		if (query.image === "older" && current !== false) return false;
-	}
+	if (!matchesImage(workspace, query.image)) return false;
 	const needle = query.q?.trim().toLowerCase() ?? "";
 	return needle === "" || matchesText(user, needle);
 }
