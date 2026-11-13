@@ -123,67 +123,46 @@ async function handleLine(
 ): Promise<void> {
 	const trimmed = line.trim();
 	if (trimmed === "") return;
-	let body: unknown;
-	try {
-		body = JSON.parse(trimmed);
-	} catch {
+	const request = parseRequest(trimmed);
+	if (!request) {
 		writeReply(socket, { ok: false, reason: "invalid" });
 		return;
 	}
-	const parsed = BrokerOpenRequest.safeParse(body);
-	if (!parsed.success) {
-		writeReply(socket, { ok: false, reason: "invalid" });
-		return;
-	}
-	const classified = classifyBrokerUrl(parsed.data.url);
+	const classified = classifyBrokerUrl(request.url);
 	if (classified.outcome === "reject") {
 		writeReply(socket, { ok: false, reason: classified.reason });
 		return;
 	}
 
 	const now = Date.now();
-	for (const [id, at] of recent) {
-		if (now - at > DEDUP_MS) recent.delete(id);
-	}
-	if (recent.has(parsed.data.requestId)) {
+	forgetExpired(recent, now);
+	if (recent.has(request.requestId)) {
 		writeReply(socket, { ok: true });
 		return;
 	}
 
-	const executable = parsed.data.executable;
 	const brokerClass =
 		classified.outcome === "external"
 			? "external"
-			: (await processIsCodex(executable, parsed.data.pid))
+			: (await processIsCodex(request.executable, request.pid))
 				? "loopback-login"
 				: "loopback-preview";
-
-	const source =
-		executable || parsed.data.pid !== undefined || parsed.data.cwd
-			? {
-					...(executable ? { executable } : {}),
-					...(parsed.data.pid !== undefined ? { pid: parsed.data.pid } : {}),
-					...(parsed.data.cwd ? { cwd: parsed.data.cwd } : {}),
-				}
-			: undefined;
+	const source = requestSource(request);
 
 	const frame = BrowserOpenRequest.parse({
 		type: "browser.open.request",
-		requestId: parsed.data.requestId,
+		requestId: request.requestId,
 		workspaceId: NIL_WORKSPACE_ID,
-		url: parsed.data.url,
+		url: request.url,
 		brokerClass,
 		...(source ? { source } : {}),
 		requestedAt: new Date().toISOString(),
 	});
 
-	const root = await projectRoot(options.homeDir, parsed.data.cwd);
+	const root = await projectRoot(options.homeDir, request.cwd);
 	const delivered = root ? options.watchers.publish(root, frame) : false;
 	// Origin only, and only because this line exists at all (BROWSER-HANDLING.md §21.3).
-	options.log.debug(
-		{ origin: redactUrl(parsed.data.url), brokerClass },
-		"browser open",
-	);
+	options.log.debug({ origin: redactUrl(request.url), brokerClass }, "browser open");
 	if (!delivered) {
 		writeReply(socket, {
 			ok: false,
@@ -191,8 +170,38 @@ async function handleLine(
 		});
 		return;
 	}
-	recent.set(parsed.data.requestId, now);
+	recent.set(request.requestId, now);
 	writeReply(socket, { ok: true });
+}
+
+function parseRequest(text: string): BrokerOpenRequest | null {
+	let body: unknown;
+	try {
+		body = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	const parsed = BrokerOpenRequest.safeParse(body);
+	return parsed.success ? parsed.data : null;
+}
+
+function forgetExpired(recent: Map<string, number>, now: number): void {
+	for (const [id, at] of recent) {
+		if (now - at > DEDUP_MS) recent.delete(id);
+	}
+}
+
+/** Who asked, as far as the shim could tell; undefined when it told nothing. */
+function requestSource(
+	request: BrokerOpenRequest,
+): { executable?: string; pid?: number; cwd?: string } | undefined {
+	const { executable, pid, cwd } = request;
+	if (!executable && pid === undefined && !cwd) return undefined;
+	return {
+		...(executable ? { executable } : {}),
+		...(pid !== undefined ? { pid } : {}),
+		...(cwd ? { cwd } : {}),
+	};
 }
 
 /** Basename `codex` (or a Node script of that name). The URL text is not consulted. */
