@@ -93,6 +93,32 @@ const PATHS = {
 		"M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4z",
 		"M16.5 7.5h.01",
 	],
+	// Lucide database: a three-tier drum, so a binary database never reads
+	// as the sql script page.
+	"file-database": ["E12 5 9 3", "M3 5v14a9 3 0 0 0 18 0V5", "M3 12a9 3 0 0 0 18 0"],
+	// Lucide binary: ones and noughts, for compiled output that will not open
+	// as text.
+	"file-binary": [
+		"R14 14 4 6 2",
+		"R6 4 4 6 2",
+		"M6 20h4",
+		"M14 10h4",
+		"M6 14h2v6",
+		"M14 4h2v6",
+	],
+	// Lucide presentation: a screen on a stand, beside the text and sheet glyphs.
+	"file-slides": [
+		"M2 3h20",
+		"M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3",
+		"M7 21l5-5 5 5",
+	],
+	// Lucide scroll-text: a running record, apart from file-text's page.
+	"file-log": [
+		"M15 12h-5",
+		"M15 8h-5",
+		"M19 17V5a2 2 0 0 0-2-2H4",
+		"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3",
+	],
 	folder: [
 		"M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z",
 	],

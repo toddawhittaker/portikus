@@ -35,6 +35,52 @@ describe("the file row icon", () => {
 		for (const [name, icon] of families) expect(fileIconName(name), name).toBe(icon);
 	});
 
+	it("marks databases, compiled output, slides and logs", () => {
+		const families: [string, string][] = [
+			["app.db", "file-database"],
+			["grades.sqlite", "file-database"],
+			["grades.sqlite3", "file-database"],
+			["sales.duckdb", "file-database"],
+			["contacts.mdb", "file-database"],
+			["Main.class", "file-binary"],
+			["main.o", "file-binary"],
+			["main.cpython-312.pyc", "file-binary"],
+			["setup.exe", "file-binary"],
+			["libgame.so", "file-binary"],
+			["game.dll", "file-binary"],
+			["module.wasm", "file-binary"],
+			["a.out", "file-binary"],
+			["talk.pptx", "file-slides"],
+			["talk.odp", "file-slides"],
+			["server.log", "file-log"],
+		];
+		for (const [name, icon] of families) expect(fileIconName(name), name).toBe(icon);
+		// A database is data, not the script that builds it.
+		expect(fileIconName("schema.sql")).toBe("file-sql");
+		// Only the whole name a.out is a program; another .out file is not.
+		expect(fileIconName("result.out")).toBe("file");
+	});
+
+	it("reuses the shell, key, config and lock icons for more names", () => {
+		const reused: [string, string][] = [
+			["build.bat", "file-shell"],
+			["setup.ps1", "file-shell"],
+			["server.crt", "file-key"],
+			["server.cer", "file-key"],
+			["id_rsa.pub", "file-key"],
+			["id_rsa", "file-key"],
+			["id_ed25519", "file-key"],
+			[".dockerignore", "file-config"],
+			[".npmrc", "file-config"],
+			[".prettierrc", "file-config"],
+			["requirements.txt", "file-lock"],
+			["Requirements.TXT", "file-lock"],
+		];
+		for (const [name, icon] of reused) expect(fileIconName(name), name).toBe(icon);
+		// Matched whole: other text files stay text.
+		expect(fileIconName("requirements-notes.txt")).toBe("file-text");
+	});
+
 	it("tags each source language", () => {
 		const languages: [string, string][] = [
 			["main.py", "file-python"],
