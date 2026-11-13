@@ -3,11 +3,15 @@
  * ("Read a.ts", "Ran pnpm test", "Edited a.ts +1 −3"), with its state only
  * while it runs or when it failed or stopped. It opens to what it did and
  * what came back, leaving out what the row already says (SPEC.md §10.8). The
- * raw input stays one click further in. An Agent card has neither raw
- * disclosure: a background launch shows a plain status and its prompt, and
- * the text Claude Code returns for the model is never shown. Every Agent
- * call offers a way into its subagent's own conversation (SPEC.md §8.3). Images from a tool are drawn from
- * `data:` URLs, which the page's img-src allows (apps/web/src/csp.ts).
+ * raw input stays one click further in, except where the opened row already
+ * shows it (an MCP call's arguments). Codex's items read in the same rows: a
+ * command by what it did, a file change as one diff per file, an MCP call as
+ * Claude's is. An Agent card has neither raw disclosure: a background launch
+ * shows a plain status and its prompt, and the text Claude Code returns for
+ * the model is never shown. Every Agent call, and every Codex subagent call
+ * that names a child, offers a way into its subagent's own conversation
+ * (SPEC.md §8.3). Images from a tool are drawn from `data:` URLs, which the
+ * page's img-src allows (apps/web/src/csp.ts).
  */
 import type { ChatToolOutputPart } from "@portikus/contracts";
 import { agentStateWords, Icon, type IconName } from "@portikus/ui";
