@@ -270,6 +270,29 @@ describe("admin contracts", () => {
 		expect(HealthReport.parse({ ...report, series: [] })).not.toHaveProperty("series");
 	});
 
+	test("a health report with no sample has a null controller", () => {
+		const report = {
+			sampledAt: null,
+			workerStale: true,
+			packageUpdate: null,
+			controller: null,
+			host: null,
+			workspacesByState: {},
+			agents: { answering: 0, running: 0 },
+			last24h: {
+				startFailures: 0,
+				stopFailures: 0,
+				forcedStops: 0,
+				provisionFailures: 0,
+				controllerOutages: 0,
+				signInFailures: 0,
+				previewRefusals: 0,
+			},
+			guard: [],
+		};
+		expect(HealthReport.parse(report)).toEqual(report);
+	});
+
 	test("a throttled and flagged workspace detail round-trips with its guard", () => {
 		const guarded = {
 			...detail,

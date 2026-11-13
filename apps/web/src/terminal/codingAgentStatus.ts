@@ -15,6 +15,14 @@ export function alertTitle(
 	return `${CODING_AGENT_NAME[agent]} ${state === "finished" ? "finished" : "needs your input"}`;
 }
 
+/** Said to a screen reader when a visible pane's question arrives while focus is elsewhere. */
+export function questionAnnouncement(
+	agent: CodingAgentTerminal["agent"],
+	terminalName: string,
+): string {
+	return `${CODING_AGENT_NAME[agent]} in ${terminalName} is asking a question`;
+}
+
 /** What a tab or a project row shows for one or more terminals. */
 export interface AgentMark {
 	state: CodingAgentState;

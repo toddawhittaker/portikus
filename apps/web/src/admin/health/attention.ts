@@ -49,7 +49,18 @@ export function healthProblems(report: HealthReport): HealthProblem[] {
 		tab: "logs",
 		search: { level: "error,warn", since: "24h" },
 	});
-	if (!report.controller.reachable) problems.push(logs("Controller not reachable"));
+	// No sample means the controller's state is unknown, not down, so the worker
+	// is the thing to look into.
+	if (report.controller === null) {
+		problems.push({
+			text: "Worker not reporting",
+			action: "Open Logs",
+			tab: "logs",
+			search: { service: "worker", since: "24h" },
+		});
+	} else if (!report.controller.reachable) {
+		problems.push(logs("Controller not reachable"));
+	}
 	if (report.agents.answering < report.agents.running) {
 		const silent = report.agents.running - report.agents.answering;
 		problems.push({
