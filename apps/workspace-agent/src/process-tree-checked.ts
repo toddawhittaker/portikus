@@ -103,6 +103,24 @@ export async function stopCheckedTree(
 		? await namedMembers(request.remaining, options)
 		: await checkedTree(pid, request.startTicks, options);
 	const signal = request.force ? "SIGKILL" : "SIGTERM";
+	const { sent, refused } = await signalMembers(tree, signal);
+	const left = await waitForExit(sent, options);
+	return {
+		pid,
+		exited: left.length === 0,
+		signalled: sent.length,
+		refused,
+		remaining: left
+			.slice(0, PROCESS_TREE_LIMIT)
+			.map((member) => ({ pid: member.pid, startTicks: member.startTicks })),
+	};
+}
+
+/** Signal every member; one that is protected now is counted as refused. */
+async function signalMembers(
+	tree: CheckedTree,
+	signal: NodeJS.Signals,
+): Promise<{ sent: ProcessIdentity[]; refused: number }> {
 	let { refused } = tree;
 	const sent: ProcessIdentity[] = [];
 	for (const member of tree.members) {
@@ -116,6 +134,14 @@ export async function stopCheckedTree(
 			// Not found or changed: it exited before the signal.
 		}
 	}
+	return { sent, refused };
+}
+
+/** Poll until every signalled member is gone or the grace runs out; returns the survivors. */
+async function waitForExit(
+	sent: ProcessIdentity[],
+	options: StopOptions,
+): Promise<ProcessIdentity[]> {
 	const deadline = Date.now() + (options.graceMs ?? STOP_GRACE_MS);
 	const pollMs = options.pollMs ?? POLL_MS;
 	let left = sent;
@@ -127,18 +153,9 @@ export async function stopCheckedTree(
 			}
 		}
 		left = still;
-		if (left.length === 0 || Date.now() >= deadline) break;
+		if (left.length === 0 || Date.now() >= deadline) return left;
 		await new Promise((resolve) => setTimeout(resolve, pollMs));
 	}
-	return {
-		pid,
-		exited: left.length === 0,
-		signalled: sent.length,
-		refused,
-		remaining: left
-			.slice(0, PROCESS_TREE_LIMIT)
-			.map((member) => ({ pid: member.pid, startTicks: member.startTicks })),
-	};
 }
 
 /** How far "Lower priority" moves a nice value, and the least favoured value. */
@@ -194,26 +211,35 @@ export async function lowerCheckedTreePriority(
 	let { refused } = tree;
 	let lowered = 0;
 	for (const member of tree.members) {
-		// Re-read just before acting, as a signal does.
-		const now = await readProcess(options.procRoot, member.pid);
-		if (!now || now.startTicks !== member.startTicks) continue;
-		let changed = false;
-		try {
-			for (const thread of await threadsOf(options.procRoot, member.pid)) {
-				const target = loweredNice(thread.nice);
-				if (target <= thread.nice) continue;
-				options.setPriority(thread.tid, target);
-				changed = true;
-			}
-		} catch (error) {
-			// os.setPriority throws ERR_SYSTEM_ERROR with the errno name in `info`.
-			const failure = error as { code?: string; info?: { code?: string } };
-			const code = failure.info?.code ?? failure.code;
-			if (code === "EACCES" || code === "EPERM") refused += 1;
-			else if (code !== "ESRCH") throw error;
-			continue;
-		}
-		if (changed) lowered += 1;
+		const outcome = await lowerMember(member, options);
+		if (outcome === "lowered") lowered += 1;
+		else if (outcome === "refused") refused += 1;
 	}
 	return { pid, lowered, refused };
+}
+
+/** Lower one member's threads, re-reading it just before acting as a signal does. */
+async function lowerMember(
+	member: ProcessIdentity,
+	options: PriorityOptions,
+): Promise<"lowered" | "refused" | "unchanged"> {
+	const now = await readProcess(options.procRoot, member.pid);
+	if (!now || now.startTicks !== member.startTicks) return "unchanged";
+	let changed = false;
+	try {
+		for (const thread of await threadsOf(options.procRoot, member.pid)) {
+			const target = loweredNice(thread.nice);
+			if (target <= thread.nice) continue;
+			options.setPriority(thread.tid, target);
+			changed = true;
+		}
+	} catch (error) {
+		// os.setPriority throws ERR_SYSTEM_ERROR with the errno name in `info`.
+		const failure = error as { code?: string; info?: { code?: string } };
+		const code = failure.info?.code ?? failure.code;
+		if (code === "EACCES" || code === "EPERM") return "refused";
+		if (code !== "ESRCH") throw error;
+		return "unchanged";
+	}
+	return changed ? "lowered" : "unchanged";
 }
