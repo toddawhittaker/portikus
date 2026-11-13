@@ -311,6 +311,58 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		entry.codingAgentsTimer = timer;
 	}
 
+	function onCodingAgentsFrame(
+		workspaceId: string,
+		entry: Entry,
+		parsed: unknown,
+	): void {
+		const states = AgentCodingAgentsChanged.safeParse(parsed);
+		if (!states.success) {
+			// Field names only: the values come from the student's container.
+			logger.debug(
+				{
+					workspaceId,
+					fields: states.error.issues.map((issue) => issue.path.join(".")),
+				},
+				"coding agents frame rejected",
+			);
+			return;
+		}
+		// The agent resends the whole list on connect; only a change is news.
+		if (JSON.stringify(states.data.terminals) === JSON.stringify(entry.codingAgents)) {
+			return;
+		}
+		entry.codingAgents = states.data.terminals;
+		scheduleCodingAgentsNotify(workspaceId, entry);
+	}
+
+	function onServicesFrame(workspaceId: string, entry: Entry, parsed: unknown): void {
+		const frame = AgentListeningServicesChanged.safeParse(parsed);
+		// Over-long or invalid frames are dropped and the last list kept;
+		// the socket stays open so a bad agent cannot force a reconnect loop.
+		if (!frame.success) return;
+		forgetChangedProbes(workspaceId, entry.services, frame.data.services);
+		entry.services = stamp(workspaceId, frame.data.services);
+		notify(workspaceId, entry.services);
+	}
+
+	function forgetChangedProbes(
+		workspaceId: string,
+		current: readonly ListeningService[],
+		incoming: readonly AgentListeningService[],
+	): void {
+		const previous = new Map(current.map((one) => [one.port, one]));
+		for (const next of incoming) {
+			const before = previous.get(next.port);
+			// A restarted server on the same port comes back unprobed with
+			// the same guessed hint, so losing "known" also clears the memo.
+			const relisted = before?.protocolKnown === true && next.protocolKnown !== true;
+			if (before?.protocolHint !== next.protocolHint || relisted) {
+				probeGuard.forgetPort(workspaceId, next.port);
+			}
+		}
+	}
+
 	function connect(workspaceId: string, entry: Entry): void {
 		if (stopped || entry.closed) return;
 		const socket = new WebSocketClient(entry.client.listeningEventsUrl(), {
@@ -332,44 +384,10 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				return; // A malformed frame from the container is ignored.
 			}
 			if (isCodingAgentsFrame(parsed)) {
-				const states = AgentCodingAgentsChanged.safeParse(parsed);
-				if (!states.success) {
-					// Field names only: the values come from the student's container.
-					logger.debug(
-						{
-							workspaceId,
-							fields: states.error.issues.map((issue) => issue.path.join(".")),
-						},
-						"coding agents frame rejected",
-					);
-					return;
-				}
-				// The agent resends the whole list on connect; only a change is news.
-				if (
-					JSON.stringify(states.data.terminals) === JSON.stringify(entry.codingAgents)
-				) {
-					return;
-				}
-				entry.codingAgents = states.data.terminals;
-				scheduleCodingAgentsNotify(workspaceId, entry);
+				onCodingAgentsFrame(workspaceId, entry, parsed);
 				return;
 			}
-			const frame = AgentListeningServicesChanged.safeParse(parsed);
-			// Over-long or invalid frames are dropped and the last list kept;
-			// the socket stays open so a bad agent cannot force a reconnect loop.
-			if (!frame.success) return;
-			const previous = new Map(entry.services.map((one) => [one.port, one]));
-			for (const next of frame.data.services) {
-				const before = previous.get(next.port);
-				// A restarted server on the same port comes back unprobed with
-				// the same guessed hint, so losing "known" also clears the memo.
-				const relisted = before?.protocolKnown === true && next.protocolKnown !== true;
-				if (before?.protocolHint !== next.protocolHint || relisted) {
-					probeGuard.forgetPort(workspaceId, next.port);
-				}
-			}
-			entry.services = stamp(workspaceId, frame.data.services);
-			notify(workspaceId, entry.services);
+			onServicesFrame(workspaceId, entry, parsed);
 		});
 
 		socket.on("error", () => {
@@ -414,6 +432,21 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		);
 	}
 
+	function newEntry(client: AgentClient, address: string): Entry {
+		return {
+			client,
+			address,
+			socket: null,
+			timer: null,
+			attempts: 0,
+			services: [],
+			codingAgents: null,
+			codingAgentsTimer: null,
+			opening: new Map(),
+			closed: false,
+		};
+	}
+
 	/** True while a poll is running, so two never overlap. */
 	let polling = false;
 
@@ -445,18 +478,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 			// A restarted workspace can come back on another address.
 			if (existing && existing.address === row.agent_address) continue;
 			if (existing) drop(row.id, { revoke: false });
-			const entry: Entry = {
-				client,
-				address: row.agent_address ?? "",
-				socket: null,
-				timer: null,
-				attempts: 0,
-				services: [],
-				codingAgents: null,
-				codingAgentsTimer: null,
-				opening: new Map(),
-				closed: false,
-			};
+			const entry = newEntry(client, row.agent_address ?? "");
 			entries.set(row.id, entry);
 			connect(row.id, entry);
 		}
