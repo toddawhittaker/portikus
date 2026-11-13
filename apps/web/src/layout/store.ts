@@ -230,6 +230,64 @@ export function createLayoutStore() {
 		}
 
 		/**
+		 * Moves the unsaved text of files under `from` to their paths under
+		 * `to`, and returns the open files the move overwrote.
+		 */
+		function moveBuffers(from: string, to: string): string[] {
+			// An open file the move lands on was overwritten on disk, so
+			// its editor's text, live or kept, goes with it.
+			const open = get().layout.tabs.flatMap((tab) => tree.filePaths(tab.root));
+			const arriving = new Set(open.map((path) => movedPath(path, from, to)));
+			const replaced = open.filter(
+				(path) => arriving.has(path) && movedPath(path, from, to) === null,
+			);
+			for (const path of replaced) {
+				liveBuffers.delete(path);
+				carried.delete(path);
+			}
+			takeMovedLiveBuffers(from, to);
+			moveCarried(from, to);
+			return replaced;
+		}
+
+		/**
+		 * The editors under `from` unmount once the layout changes, so their
+		 * text is taken now and waits for the panes at the new paths.
+		 */
+		function takeMovedLiveBuffers(from: string, to: string) {
+			for (const [path, snapshot] of [...liveBuffers]) {
+				const now = movedPath(path, from, to);
+				if (now === null) continue;
+				liveBuffers.delete(path);
+				const text = snapshot();
+				if (text !== null) carried.set(now, text);
+			}
+		}
+
+		function moveCarried(from: string, to: string) {
+			for (const [path, text] of [...carried]) {
+				const now = movedPath(path, from, to);
+				if (now === null) continue;
+				carried.delete(path);
+				carried.set(now, text);
+			}
+		}
+
+		/** Reconciles from the layout another browser saved; the result is never saved. */
+		function reconcileRemote(
+			state: LayoutState,
+			remoteBase: ProjectLayout,
+			terminalIds: string[],
+			endedIds: string[] | undefined,
+		): Partial<LayoutState> {
+			const layout = tree.reconcile(remoteBase, terminalIds, endedIds);
+			if (sameLayout(layout, state.layout)) {
+				return state.reconciled ? state : { reconciled: true };
+			}
+			return { layout, ...settleActive(state, layout), reconciled: true };
+		}
+
+		/**
 		 * The active tab and history after a change, following a tab that was
 		 * renamed rather than dropping it.
 		 */
@@ -536,32 +594,7 @@ export function createLayoutStore() {
 			setFocused: (paneId) => set({ focusedPaneId: paneId }),
 
 			retargetTabs: (from, to) => {
-				// An open file the move lands on was overwritten on disk, so
-				// its editor's text, live or kept, goes with it.
-				const open = get().layout.tabs.flatMap((tab) => tree.filePaths(tab.root));
-				const arriving = new Set(open.map((path) => movedPath(path, from, to)));
-				const replaced = open.filter(
-					(path) => arriving.has(path) && movedPath(path, from, to) === null,
-				);
-				for (const path of replaced) {
-					liveBuffers.delete(path);
-					carried.delete(path);
-				}
-				// The editors under `from` unmount once the layout changes, so
-				// their text is taken now and waits for the panes at the new paths.
-				for (const [path, snapshot] of [...liveBuffers]) {
-					const now = movedPath(path, from, to);
-					if (now === null) continue;
-					liveBuffers.delete(path);
-					const text = snapshot();
-					if (text !== null) carried.set(now, text);
-				}
-				for (const [path, text] of [...carried]) {
-					const now = movedPath(path, from, to);
-					if (now === null) continue;
-					carried.delete(path);
-					carried.set(now, text);
-				}
+				const replaced = moveBuffers(from, to);
 				set((state) => {
 					const layout = tree.retargetFiles(state.layout, from, to);
 					const files = tree.fileTabId("");
@@ -614,11 +647,7 @@ export function createLayoutStore() {
 			reconcile: (terminalIds, endedIds) =>
 				set((state) => {
 					if (state.remoteBase !== null && !state.dirty) {
-						const layout = tree.reconcile(state.remoteBase, terminalIds, endedIds);
-						if (sameLayout(layout, state.layout)) {
-							return state.reconciled ? state : { reconciled: true };
-						}
-						return { layout, ...settleActive(state, layout), reconciled: true };
+						return reconcileRemote(state, state.remoteBase, terminalIds, endedIds);
 					}
 					const layout = tree.reconcile(state.layout, terminalIds, endedIds);
 					if (layout === state.layout) {
