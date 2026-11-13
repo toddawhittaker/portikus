@@ -814,6 +814,9 @@ test.describe("a focused control is never hidden under something pinned (WCAG 2.
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 		// The list pages at 50 rows; a search brings this student to the top.
 		await page.getByTestId("admin-filter-text").fill(student.name);
+		// The search runs after a pause; the unfiltered list is taller and would
+		// move the sticky panel mid-walk when the one match replaces it.
+		await expect(page.getByTestId("admin-accounts").locator("tbody tr")).toHaveCount(1);
 		await page
 			.getByRole("button", { name: `Show details for ${student.name},` })
 			.click();
@@ -823,9 +826,9 @@ test.describe("a focused control is never hidden under something pinned (WCAG 2.
 		const head = panel.locator(".pk-detail-head");
 		// Start at the foot of the Overview, then walk back up it.
 		await overview.locator("button").last().focus();
-		const panelBox = await boxOf(panel);
 		const cover = async () => {
 			const headBox = await boxOf(head);
+			const panelBox = await boxOf(panel);
 			return { top: headBox.y + headBox.height, bottom: panelBox.y + panelBox.height };
 		};
 		expect(await tabClear(page, "Shift+Tab", 14, overview, cover)).toEqual([]);
