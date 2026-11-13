@@ -86,6 +86,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, a read-only panel for watching a subagent, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache; pilot testing then reshaped the Chat options panel into labelled fields, gave split panes an even focus ring, made the subagent panel a floating card, dropped the Agent card's raw text and lined up the Running pane's ports (ADR 0074).
 - **Epic 63, fix batch.** A quiet line in the chat for each permission decision, a browser question card for Claude Code's questions in a terminal tab (ADR 0075), every terminal drawn with WebGL so box lines have no gaps, a language tag and colour on every file-type icon in the Files pane, and two flaky tests made certain.
 - **Epic 64, admin and instructor redesign.** The winner of a graded design hill climb for the administrator and instructor pages: one page frame with a left rail, an attention summary, a side inspector with Overview, Activity and Account tabs, quiet dot-and-word states, Logs and Audit as workbenches, a Class now summary and dot per student on the course page, and live help in a workspace-style terminal frame; plus the graders' remaining notes, the code and accessibility review fixes, and the design system and mockups brought up to date (DESIGN.md sections 9 and 11, SPEC.md 20.1).
+- **Epic 65, fix batch with editor colour schemes.** Students pick an editor colour scheme in Settings: Portikus (the default), VS Code, IntelliJ, GitHub, Solarized, Catppuccin or High contrast, each in light and dark; the Health page says "Worker not reporting" when the worker has never reported; a terminal question is announced to screen readers when focus is in another pane; the Files pane gains database, binary, slides and log icons; the design README says what the console stylesheet is built from; and three flaky tests are fixed.
 
 ## Open items
 
@@ -164,7 +165,6 @@ list was made and may already be fixed.
 - Answering a permission card splits an open tool group, because a call with a decision stands alone (a visual jump).
 - The "Answered in the terminal or timed out" notice on a terminal's question card shows for 4 seconds only.
 - A long decision target in the chat is cut with an ellipsis; its full text is in a tooltip.
-- A terminal's question on a visible tab is not announced to a screen reader when focus is in another pane (#1944).
 - Codex delta metrics are unconfirmed on a real Codex turn (#1531), and Codex has no subagent hooks, so it shows no subagent rows.
 - Accepted: if a student stops Claude Code with Esc, its tab shows "working" until the next prompt, because Claude sends no hook for it.
 - A GUI and a terminal session of Claude Code can still run one session at once; Help says not to.
@@ -204,3 +204,4 @@ list was made and may already be fixed.
 
 - Under heavy machine load some unit tests and chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
 - Nothing checks that the guides and the in-app Help agree, and the documentation images show scripted data.
+- The build script for `design/mockups/portikus-console.css` is not committed, so the file cannot be rebuilt from the repository (`design/README.md`).

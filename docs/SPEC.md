@@ -1849,6 +1849,8 @@ Added by Epic 52 (ADR 0065): the editor has real code help, from language server
 
 Added by Epic 62: terminal and chat panes zoom on their own, like the editor: 50% to 300% in 10% steps, by Ctrl (Cmd on a Mac) + wheel over the pane or by the zoom buttons in its title bar, where the percentage button returns to 100%. A chat also takes the editor's zoom keys; a terminal leaves Ctrl+= and Ctrl+- to the shell. A terminal's zoom changes its font size, refits the grid and sends the new rows and columns to tmux. Each pane keeps its zoom for the browser session, through splits, moves and leaving the workspace; it is held in the tab's sessionStorage and never sent to the server (section 7.5).
 
+Added by Epic 65: a student picks an editor colour scheme in Settings (Appearance). Each scheme is a light and dark pair that follows the page appearance. Portikus Light and Dark are the default and the only schemes held to the 4.5:1 contrast of section 25.8. The reference schemes (VS Code, IntelliJ, GitHub, Solarized, Catppuccin and High contrast) are copied exactly as published, with their licence notices shipped in the build, and their contrast is the student's choice. In every scheme the scrollbar's Git and problem marks keep the Portikus colours.
+
 ### 13.2 Editing scope
 
 The editor should prioritize:
@@ -7380,6 +7382,24 @@ Acceptance:
 - only the workspace owner sees or answers a terminal's question, and no question or answer is logged or stored (ADR 0075);
 - box characters fill their cells in every terminal view at line height 1.1;
 - every file and folder icon meets 3:1 on every row background in both themes.
+
+### Epic 65 — Fix batch with editor colour schemes
+
+Built on `epic/65-fix-batch`. No migration. See sections 13.1, 25.6 and 25.8.
+
+Includes:
+
+- an editor colour scheme setting with Portikus, VS Code, IntelliJ, GitHub, Solarized, Catppuccin and High contrast, each in light and dark;
+- Health says "Worker not reporting" when the worker has never reported, instead of "Controller not reachable";
+- a terminal's question is announced to screen readers when focus is in another pane;
+- database, binary, slides and log file icons, and more file names mapped to icons;
+- the design README says what `portikus-console.css` is built from;
+- three flaky tests made certain.
+
+Acceptance:
+
+- only Portikus Light and Dark are held to 4.5:1 contrast; each reference scheme matches its published source;
+- the scrollbar's Git and problem marks keep the Portikus colours in every scheme.
 
 ### Estimated total
 

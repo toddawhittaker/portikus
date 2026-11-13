@@ -379,10 +379,6 @@ function StateBar({
 	);
 }
 
-/**
- * The four figures to read first, each a tile with its number large and,
- * for a capacity, the meter the student status bar uses.
- */
 /** The Platform card's line: whether the controller answers, and the error code when it does not. */
 function controllerDetail(controller: HealthReport["controller"]): string {
 	if (controller === null) return "Unknown";
@@ -398,6 +394,10 @@ function controllerSummary(controller: HealthReport["controller"]): string {
 	return controller.reachable ? "Controller reachable" : "Controller not reachable";
 }
 
+/**
+ * The four figures to read first, each a tile with its number large and,
+ * for a capacity, the meter the student status bar uses.
+ */
 function HealthStats({ report }: { report: HealthReport }) {
 	const { host } = report;
 	const states = stateRows(report.workspacesByState);
