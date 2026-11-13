@@ -172,7 +172,7 @@ test.describe("editor colour scheme", () => {
 
 		// The select lists all seven schemes, Portikus first.
 		await openSettings(page);
-		await page.getByLabel("Editor colour scheme").click();
+		await page.getByLabel("Editor color scheme").click();
 		await expect(page.getByRole("option")).toHaveText([
 			"Portikus",
 			"VS Code",
