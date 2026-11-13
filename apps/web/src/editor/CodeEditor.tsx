@@ -28,7 +28,9 @@ import {
 } from "./monaco.js";
 import { editorScrollTop, editorTopLine } from "./scrollSync.js";
 import { useScreenReaderMode } from "./settingsQueries.js";
-import { DEFAULT_ZOOM, fontSizeFor, stepZoom, wheelZoom } from "./zoom.js";
+import { ZoomControls } from "./ZoomControls.js";
+import { fontSizeFor, stepZoom, wheelZoom } from "./zoom.js";
+import { addZoomCommands } from "./zoomCommands.js";
 import "./editor.css";
 
 export interface CodeEditorProps {
@@ -215,18 +217,12 @@ export function CodeEditor({
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 				ariaLabel: editorAriaLabel("Editor", path),
 			});
-			// Editor-only zoom by keyboard (SPEC.md §13.1). Monaco swallows these
-			// keys, so the browser's own zoom does not also fire.
-			const mod = monaco.KeyMod.CtrlCmd;
-			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Equal, () => {
-				setZoomRef.current(stepZoom(zoomRef.current, 1));
-			});
-			editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.Minus, () => {
-				setZoomRef.current(stepZoom(zoomRef.current, -1));
-			});
-			editor.addCommand(mod | monaco.KeyCode.Digit0, () => {
-				setZoomRef.current(DEFAULT_ZOOM);
-			});
+			addZoomCommands(
+				monaco,
+				editor,
+				() => zoomRef.current,
+				(percent) => setZoomRef.current(percent),
+			);
 			editorRef.current = editor;
 			modelRef.current = model;
 			// Monaco loads after the first renders, so the model starts from the
@@ -456,32 +452,11 @@ export function CodeEditor({
 						}}
 					/>
 				) : null}
-				<button
-					type="button"
-					className="pk-zoom-button"
-					aria-label="Zoom out"
-					onClick={() => setZoom(stepZoom(zoom, -1))}
-				>
-					&minus;
-				</button>
-				<span className="pk-zoom-value" data-testid={`editor-zoom-${path}`}>
-					{zoom}%
-				</span>
-				<button
-					type="button"
-					className="pk-zoom-button"
-					aria-label="Zoom in"
-					onClick={() => setZoom(stepZoom(zoom, 1))}
-				>
-					+
-				</button>
-				<button
-					type="button"
-					className="pk-zoom-reset"
-					onClick={() => setZoom(DEFAULT_ZOOM)}
-				>
-					Reset
-				</button>
+				<ZoomControls
+					zoom={zoom}
+					onZoom={setZoom}
+					valueTestId={`editor-zoom-${path}`}
+				/>
 			</div>
 		</div>
 	);
