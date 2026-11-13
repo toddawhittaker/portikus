@@ -106,19 +106,7 @@ export function registerAuthRoutes(
 		}
 
 		const loginState = readLoginState(request);
-		if (!loginState) {
-			// A link attempt whose cookie is gone still belongs on the link page.
-			const { state } = request.query as { state?: unknown };
-			if (typeof state === "string" && (await findLinkIntent(db, state))) {
-				return reply.redirect("/link?error=expired", 302);
-			}
-			return fail(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"The login request expired. Please sign in again.",
-			);
-		}
+		if (!loginState) return loginExpired(request, reply);
 
 		reply.clearCookie(loginCookie, loginCookieOptions(auth));
 
@@ -152,9 +140,35 @@ export function registerAuthRoutes(
 			return linkCallback(request, reply, callbackUrl, loginState, intent);
 		}
 
-		let completed: Awaited<ReturnType<typeof oidc.completeLogin>>;
+		return signInCallback(oidc, request, reply, callbackUrl, loginState);
+	});
+
+	/** The callback without a readable login cookie. */
+	async function loginExpired(request: FastifyRequest, reply: FastifyReply) {
+		// A link attempt whose cookie is gone still belongs on the link page.
+		const { state } = request.query as { state?: unknown };
+		if (typeof state === "string" && (await findLinkIntent(db, state))) {
+			return reply.redirect("/link?error=expired", 302);
+		}
+		return fail(
+			reply,
+			400,
+			"VALIDATION_FAILED",
+			"The login request expired. Please sign in again.",
+		);
+	}
+
+	/** The callback of an ordinary sign-in. */
+	async function signInCallback(
+		client: NonNullable<ServerDeps["oidc"]>,
+		request: FastifyRequest,
+		reply: FastifyReply,
+		callbackUrl: URL,
+		loginState: LoginState,
+	) {
+		let completed: Awaited<ReturnType<typeof client.completeLogin>>;
 		try {
-			completed = await oidc.completeLogin(callbackUrl, loginState);
+			completed = await client.completeLogin(callbackUrl, loginState);
 		} catch (error) {
 			if (error instanceof OidcError) {
 				await audit(request, "auth.login", "unknown", "unknown", "failed");
@@ -192,7 +206,7 @@ export function registerAuthRoutes(
 		if (!signedIn.ok) return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		rememberConnector(reply, identity);
 		return reply.redirect("/", 302);
-	});
+	}
 
 	/** Remember the Dex connector this person used, for the next sign-in. */
 	function rememberConnector(
