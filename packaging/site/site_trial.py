@@ -51,6 +51,11 @@ def covers(names, host):
     return False
 
 
+def group_answers(body):
+    """The role group answers a sign-in request names."""
+    return {f"{role}_group": name for role, name in body["groups"].items()}
+
+
 class TrialJobs(RunnerBase):
     def secret_values(self):
         """Every value secrets.yaml holds, and held before the trial, so setup's log never shows one."""
@@ -250,15 +255,7 @@ class TrialJobs(RunnerBase):
             before = current["answers"]
             old = {q: before.get(q, "") for q, v in changes.items() if before.get(q, "") != v}
             new = {q: changes[q] for q in old}
-            self.snapshot(lock)
-            if key is not None:
-                self.snapshot_key(lock)
-            trial = {"id": job_id, "kind": kind, "state": "running", "old": old}
-            self.write_trial(lock, trial)
-            # Should this job die during setup, the timer still puts the old answers back.
-            if not self.arm(job_id, SETUP_TIMEOUT + TRIAL_SECONDS[kind], "setup"):
-                self.forget(lock)
-                raise JobFailed("write_failed")
+            trial = self.begin_trial(lock, job_id, kind, old, key)
             try:
                 self.set_debconf(new)
                 self.write_answers({**before, **changes}, secret, port)
@@ -267,29 +264,50 @@ class TrialJobs(RunnerBase):
                 trial["config"] = self.config_hash()
                 self.write_trial(lock, trial)
             except (OSError, JobFailed, subprocess.SubprocessError):
-                self.restore(lock)
-                try:
-                    self.set_debconf(old)
-                except JobFailed:
-                    journal("could not put the debconf answers back; portikus.yaml is back")
-                self.forget(lock)
-                self.disarm(job_id)
+                self.undo_written_answers(lock, job_id, old)
                 raise JobFailed("write_failed")
-            if not self.run_setup(job_id, [secret] if secret else []):
-                return self.revert(lock, trial, "setup_failed")
-            # Keep is pressed on the API's page, so a trial with the API down could only expire.
-            if not self.api_healthy():
-                journal(f"trial {job_id} ({kind}): the API did not answer /health after setup")
-                return self.revert(lock, trial, "api_unhealthy")
-            ends = self.clock() + TRIAL_SECONDS[kind]
-            trial.update(state="trial", endsAt=now_iso(lambda: ends))
-            self.write_trial(lock, trial)
-            if not self.arm(job_id, TRIAL_SECONDS[kind], "trial"):
-                return self.revert(lock, trial, "write_failed")
-            journal(f"trial {job_id} ({kind}) open until {trial['endsAt']}")
-            return {"state": "trial", "trialEndsAt": trial["endsAt"]}
+            return self.start_trial(lock, trial, secret)
         finally:
             os.close(lock)
+
+    def begin_trial(self, lock, job_id, kind, old, key):
+        """Snapshot the settings and record a running trial whose timer is armed."""
+        self.snapshot(lock)
+        if key is not None:
+            self.snapshot_key(lock)
+        trial = {"id": job_id, "kind": kind, "state": "running", "old": old}
+        self.write_trial(lock, trial)
+        # Should this job die during setup, the timer still puts the old answers back.
+        if not self.arm(job_id, SETUP_TIMEOUT + TRIAL_SECONDS[kind], "setup"):
+            self.forget(lock)
+            raise JobFailed("write_failed")
+        return trial
+
+    def undo_written_answers(self, lock, job_id, old):
+        self.restore(lock)
+        try:
+            self.set_debconf(old)
+        except JobFailed:
+            journal("could not put the debconf answers back; portikus.yaml is back")
+        self.forget(lock)
+        self.disarm(job_id)
+
+    def start_trial(self, lock, trial, secret):
+        """Rerun setup with the new answers and, once the API is healthy, start the trial's clock."""
+        job_id, kind = trial["id"], trial["kind"]
+        if not self.run_setup(job_id, [secret] if secret else []):
+            return self.revert(lock, trial, "setup_failed")
+        # Keep is pressed on the API's page, so a trial with the API down could only expire.
+        if not self.api_healthy():
+            journal(f"trial {job_id} ({kind}): the API did not answer /health after setup")
+            return self.revert(lock, trial, "api_unhealthy")
+        ends = self.clock() + TRIAL_SECONDS[kind]
+        trial.update(state="trial", endsAt=now_iso(lambda: ends))
+        self.write_trial(lock, trial)
+        if not self.arm(job_id, TRIAL_SECONDS[kind], "trial"):
+            return self.revert(lock, trial, "write_failed")
+        journal(f"trial {job_id} ({kind}) open until {trial['endsAt']}")
+        return {"state": "trial", "trialEndsAt": trial["endsAt"]}
 
     def do_address(self, job_id, body):
         host, port = body["host"], body["port"]
@@ -331,31 +349,7 @@ class TrialJobs(RunnerBase):
 
         def prepare(current):
             answers = current["answers"]
-            changes = {"provider": provider}
-            key = None
-            if provider == "entra":
-                source = body.get("entraRoleSource", "appRoles")
-                changes.update(entra_tenant_id=body["entraTenantId"], client_id=body["clientId"],
-                               entra_role_source=source)
-                if source == "groups":
-                    changes.update({f"{role}_group": name for role, name in body["groups"].items()})
-            elif provider == "google":
-                admin = body.get("googleAdminEmail", "")
-                changes.update(google_domains=" ".join(body["googleDomains"]), client_id=body["clientId"],
-                               google_admin_email=admin)
-                if admin:
-                    changes.update({f"{role}_group": name for role, name in body["groups"].items()})
-                    key = body.get("googleServiceAccountKey")
-                    # Without a key every Google sign-in would fail.
-                    if key is None and read_file(self.dex_key_file) is None:
-                        raise Refused("missing_secret")
-            elif provider == "oidc":
-                changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"])
-                # Left out means keep what is stored; write-settings drops a blank group.
-                if "groupsClaim" in body:
-                    changes["oidc_groups_claim"] = body["groupsClaim"]
-                if "groups" in body:
-                    changes.update({f"{role}_group": name for role, name in body["groups"].items()})
+            changes, key = self.signin_changes(body)
             if provider != "dex" and secret is None:
                 # A changed provider never receives an old secret (ADR 0059).
                 stored = "portikus_dex_upstream_client_secret" in current["secretsSet"]
@@ -365,12 +359,47 @@ class TrialJobs(RunnerBase):
 
         return self.open_trial(job_id, "signin", prepare)
 
+    def signin_changes(self, body):
+        """The answers a sign-in request changes, and the Google service-account key it brings, if any."""
+        provider = body["provider"]
+        changes = {"provider": provider}
+        key = None
+        if provider == "entra":
+            source = body.get("entraRoleSource", "appRoles")
+            changes.update(entra_tenant_id=body["entraTenantId"], client_id=body["clientId"],
+                           entra_role_source=source)
+            if source == "groups":
+                changes.update(group_answers(body))
+        elif provider == "google":
+            admin = body.get("googleAdminEmail", "")
+            changes.update(google_domains=" ".join(body["googleDomains"]), client_id=body["clientId"],
+                           google_admin_email=admin)
+            if admin:
+                changes.update(group_answers(body))
+                key = body.get("googleServiceAccountKey")
+                # Without a key every Google sign-in would fail.
+                if key is None and read_file(self.dex_key_file) is None:
+                    raise Refused("missing_secret")
+        elif provider == "oidc":
+            changes.update(oidc_issuer=body["oidcIssuer"], client_id=body["clientId"])
+            # Left out means keep what is stored; write-settings drops a blank group.
+            if "groupsClaim" in body:
+                changes["oidc_groups_claim"] = body["groupsClaim"]
+            if "groups" in body:
+                changes.update(group_answers(body))
+        return changes, key
+
+    def matching_open_trial(self, lock, trial_id):
+        """The open trial with this id, or refused when there is none."""
+        trial = self.read_trial(lock)
+        if trial is None or trial["id"] != trial_id or trial.get("state") != "trial":
+            raise Refused("no_open_trial")
+        return trial
+
     def do_keep(self, body):
         lock = self.trial_locked(wait=True)
         try:
-            trial = self.read_trial(lock)
-            if trial is None or trial["id"] != body["trialId"] or trial.get("state") != "trial":
-                raise Refused("no_open_trial")
+            trial = self.matching_open_trial(lock, body["trialId"])
             self.forget(lock)
             self.disarm(trial["id"])
             self.update_status(trial["id"], {"state": "kept", "code": None, "finishedAt": now_iso(self.clock),
@@ -383,9 +412,7 @@ class TrialJobs(RunnerBase):
     def do_rollback(self, body):
         lock = self.trial_locked(wait=True)
         try:
-            trial = self.read_trial(lock)
-            if trial is None or trial["id"] != body["trialId"] or trial.get("state") != "trial":
-                raise Refused("no_open_trial")
+            trial = self.matching_open_trial(lock, body["trialId"])
             change = self.revert(lock, trial, "rolled_back")
             return {"state": "done"} if change["state"] == "reverted" else {"state": "failed", "code": change["code"]}
         finally:
