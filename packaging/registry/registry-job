@@ -790,7 +790,7 @@ class Lock:
             pass
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *_exc):
         os.close(self.fd)
         return False
 
