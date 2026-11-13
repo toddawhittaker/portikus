@@ -1120,46 +1120,14 @@ class Runner:
         coding_agents.ensure_bin_links(store)
         work = os.path.join(store, f".staging-{job.id}")
         os.mkdir(work, 0o700)
-        said, failed, pending = {}, set(), {}
+        said, failed = {}, set()
         try:
-            for tool in coding_agents.TOOLS:
-                name = coding_agents.NAMES[tool]
-                job.status("running", f"Downloading {name}")
-                try:
-                    version, outcome = self.agent_candidate(job, work, tool)
-                except (coding_agents.AgentError, JobFailed, OSError, tarfile.TarError) as err:
-                    job.line(f"{name}: {err}")
-                    said[tool] = f"{name} was not switched. {err}"
-                    failed.add(tool)
-                    continue
-                if outcome == "current":
-                    said[tool] = f"{name} is already at {version}."
-                elif outcome == "older":
-                    current = coding_agents.read_link(store, tool, "current")
-                    said[tool] = f"{name} was left at {current}: the vendor offered {version}, which is older."
-                    job.line(f"{name}: the vendor offered {version}, older than {current}")
-                else:
-                    pending[tool] = (version, outcome)
+            pending = self.agent_candidates(job, work, said, failed)
             if pending:
                 job.status("running", "Checking the coding agents")
-                results = agents_health_check(job, {tool: v for tool, (v, _) in pending.items()}, self.sleep)
-                for tool, (version, outcome) in pending.items():
-                    name = coding_agents.NAMES[tool]
-                    if results[tool]:
-                        said[tool] = (f"{name} {version} failed its health check ({', '.join(results[tool])}) "
-                                      "and was not switched.")
-                        failed.add(tool)
-                        if outcome == "new":
-                            coding_agents.remove_version(store, tool, version)
-                        continue
-                    coding_agents.switch(store, tool, version)
-                    said[tool] = f"{name} switched to {version}."
+                self.switch_healthy_agents(job, pending, said, failed)
             job.status("running", "Removing old versions")
-            running = coding_agents.running_files(self.proc_dir)
-            for tool in coding_agents.TOOLS:
-                for version, was_in_use in coding_agents.prune(store, tool, running):
-                    note = " while a process still ran it" if was_in_use else ""
-                    job.line(f"removed {coding_agents.NAMES[tool]} {version}{note}")
+            self.prune_agents(job)
         finally:
             shutil.rmtree(work, ignore_errors=True)
             self.write_agents_state()
@@ -1167,6 +1135,51 @@ class Runner:
         if failed:
             raise JobFailed(message)
         return message
+
+    def agent_candidates(self, job, work, said, failed):
+        """Download each tool; {tool: (version, outcome)} for those that need a health check."""
+        pending = {}
+        for tool in coding_agents.TOOLS:
+            name = coding_agents.NAMES[tool]
+            job.status("running", f"Downloading {name}")
+            try:
+                version, outcome = self.agent_candidate(job, work, tool)
+            except (coding_agents.AgentError, JobFailed, OSError, tarfile.TarError) as err:
+                job.line(f"{name}: {err}")
+                said[tool] = f"{name} was not switched. {err}"
+                failed.add(tool)
+                continue
+            if outcome == "current":
+                said[tool] = f"{name} is already at {version}."
+            elif outcome == "older":
+                current = coding_agents.read_link(self.agents_dir, tool, "current")
+                said[tool] = f"{name} was left at {current}: the vendor offered {version}, which is older."
+                job.line(f"{name}: the vendor offered {version}, older than {current}")
+            else:
+                pending[tool] = (version, outcome)
+        return pending
+
+    def switch_healthy_agents(self, job, pending, said, failed):
+        """Health-check the pending versions and switch each tool whose check passed."""
+        results = agents_health_check(job, {tool: v for tool, (v, _) in pending.items()}, self.sleep)
+        for tool, (version, outcome) in pending.items():
+            name = coding_agents.NAMES[tool]
+            if results[tool]:
+                said[tool] = (f"{name} {version} failed its health check ({', '.join(results[tool])}) "
+                              "and was not switched.")
+                failed.add(tool)
+                if outcome == "new":
+                    coding_agents.remove_version(self.agents_dir, tool, version)
+                continue
+            coding_agents.switch(self.agents_dir, tool, version)
+            said[tool] = f"{name} switched to {version}."
+
+    def prune_agents(self, job):
+        running = coding_agents.running_files(self.proc_dir)
+        for tool in coding_agents.TOOLS:
+            for version, was_in_use in coding_agents.prune(self.agents_dir, tool, running):
+                note = " while a process still ran it" if was_in_use else ""
+                job.line(f"removed {coding_agents.NAMES[tool]} {version}{note}")
 
     def agents_rollback(self, job, request):
         """Swap current and previous for one tool. No health check: the previous one ran before."""
@@ -1535,23 +1548,27 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def print_manifest(args):
+    parser = argparse.ArgumentParser(prog="image-job manifest")
+    parser.add_argument("--squashfs", required=True)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--recipe-version", required=True)
+    parser.add_argument("--source", required=True, choices=("published", "local"))
+    parser.add_argument("--node", required=True, choices=NODE_CHOICES)
+    parser.add_argument("--python", required=True, choices=PYTHON_CHOICES)
+    args = parser.parse_args(args)
+    if not VERSION_RE.fullmatch(args.version):
+        parser.error("--version is not an image version")
+    manifest = manifest_from_squashfs(args.squashfs, args.version, args.recipe_version,
+                                      args.source, args.node, args.python)
+    json.dump(manifest, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main(argv):
     if argv[1:2] == ["manifest"]:
-        parser = argparse.ArgumentParser(prog="image-job manifest")
-        parser.add_argument("--squashfs", required=True)
-        parser.add_argument("--version", required=True)
-        parser.add_argument("--recipe-version", required=True)
-        parser.add_argument("--source", required=True, choices=("published", "local"))
-        parser.add_argument("--node", required=True, choices=NODE_CHOICES)
-        parser.add_argument("--python", required=True, choices=PYTHON_CHOICES)
-        args = parser.parse_args(argv[2:])
-        if not VERSION_RE.fullmatch(args.version):
-            parser.error("--version is not an image version")
-        manifest = manifest_from_squashfs(args.squashfs, args.version, args.recipe_version,
-                                          args.source, args.node, args.python)
-        json.dump(manifest, sys.stdout, indent=2)
-        sys.stdout.write("\n")
-        return 0
+        return print_manifest(argv[2:])
     if argv[1:] == ["recover"]:
         return Runner().run_recover()
     if argv[1:2] == ["first-install"] and len(argv) == 3 and PUBLISHED_RE.fullmatch(argv[2]):
