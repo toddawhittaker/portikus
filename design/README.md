@@ -70,7 +70,8 @@ screens propose, and `portikus-console.css` the app's own stylesheet for the
 administrator and course screens.
 
 Source: https://claude.ai/artifact/RqyBryupN8TcL2pRHeh1vy, version
-1794525861-cb71, created 2026-09-17T01:01:47Z and re-published 2026-11-12.
+1794538363-92ea, created 2026-09-17T01:01:47Z and re-published 2026-11-12
+(after Epic 64's review fixes, PR #1952).
 
 The administrator and course screens (`AdminWorkspaces*`, `AdminHealth*` and
 `CourseInstructor*`) are not drawn by hand. They are the markup the app
