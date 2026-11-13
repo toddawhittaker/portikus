@@ -86,48 +86,51 @@ function missingSecret(
 	current: CertificateSettingsView | null,
 ): string | null {
 	if (settings.source === "acme") {
-		const stored = current?.source === "acme" ? current : null;
-		if (
-			settings.eab &&
-			settings.eab.hmacKey === undefined &&
-			!stored?.eab?.hmacKeySet
-		) {
-			return "the EAB HMAC key";
-		}
-		if (settings.challenge.mode === "dns01") {
-			const { provider, fields } = settings.challenge.dns;
-			const storedDns =
-				stored?.challenge.mode === "dns01" && stored.challenge.provider === provider
-					? stored.challenge.secretsSet
-					: {};
-			const values = fields as Record<string, string | undefined>;
-			for (const name of DNS_PROVIDER_FIELDS[provider].secret) {
-				if (values[name] === undefined && storedDns[name] !== true) return name;
-			}
-		}
+		return missingAcmeSecret(settings, current?.source === "acme" ? current : null);
 	}
 	if (settings.source === "files") {
-		const stored = current?.source === "files" ? current : null;
-		if (settings.site.privateKey === undefined && !stored?.site.privateKeySet) {
-			return "the site private key";
-		}
-		if (
-			settings.preview &&
-			settings.preview.privateKey === undefined &&
-			!stored?.preview?.privateKeySet
-		) {
-			return "the preview private key";
-		}
+		return missingFilesSecret(settings, current?.source === "files" ? current : null);
 	}
 	return null;
 }
 
-/**
- * The Certificate section (docs/SPEC.md sections 20.1, 22.4 and 24.8).
- * The API reads what the root job writes and writes nothing but one request
- * file into CERTIFICATE_JOBS_DIR. Secrets travel only in that file and
- * never come back out. With CERTIFICATE_JOBS_DIR unset every route is 404.
- */
+function missingAcmeSecret(
+	settings: Extract<CertificateSettings, { source: "acme" }>,
+	stored: Extract<CertificateSettingsView, { source: "acme" }> | null,
+): string | null {
+	if (settings.eab && settings.eab.hmacKey === undefined && !stored?.eab?.hmacKeySet) {
+		return "the EAB HMAC key";
+	}
+	if (settings.challenge.mode !== "dns01") return null;
+	const { provider, fields } = settings.challenge.dns;
+	const storedDns =
+		stored?.challenge.mode === "dns01" && stored.challenge.provider === provider
+			? stored.challenge.secretsSet
+			: {};
+	const values = fields as Record<string, string | undefined>;
+	for (const name of DNS_PROVIDER_FIELDS[provider].secret) {
+		if (values[name] === undefined && storedDns[name] !== true) return name;
+	}
+	return null;
+}
+
+function missingFilesSecret(
+	settings: Extract<CertificateSettings, { source: "files" }>,
+	stored: Extract<CertificateSettingsView, { source: "files" }> | null,
+): string | null {
+	if (settings.site.privateKey === undefined && !stored?.site.privateKeySet) {
+		return "the site private key";
+	}
+	if (
+		settings.preview &&
+		settings.preview.privateKey === undefined &&
+		!stored?.preview?.privateKeySet
+	) {
+		return "the preview private key";
+	}
+	return null;
+}
+
 /**
  * The uploads to check and the names each must cover: a separate preview
  * certificate covers the wildcard, otherwise the site certificate covers both.
@@ -149,6 +152,12 @@ export function uploadsToCheck(
 	];
 }
 
+/**
+ * The Certificate section (docs/SPEC.md sections 20.1, 22.4 and 24.8).
+ * The API reads what the root job writes and writes nothing but one request
+ * file into CERTIFICATE_JOBS_DIR. Secrets travel only in that file and
+ * never come back out. With CERTIFICATE_JOBS_DIR unset every route is 404.
+ */
 export function registerAdminCertificateRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
