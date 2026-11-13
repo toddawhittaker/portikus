@@ -98,8 +98,8 @@
  },
  "lastChange": {
   "by": "Todd Whittaker",
-  "at": "2026-11-11T16:59:34Z",
+  "at": "2026-11-12T23:21:37Z",
   "via": "Claude Code",
-  "note": "Epic 61 look: warm palette, teal actions, violet agent, Badge, new mark; bundle and previews rebuilt from packages/ui"
+  "note": "Epic 64: admin and instructor redesign; accent-fill and danger-fill tokens; PageFrame, Inspector, AttentionStrip, StatusDots, SegmentedControl, MoreMenu, SaveBar, FilterChips and TableBox; bundle and previews rebuilt from packages/ui"
  }
 }

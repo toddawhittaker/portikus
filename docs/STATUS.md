@@ -85,6 +85,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 61, UI refresh.** A new look for the student and administrator screens in both themes: a warm palette with teal actions and a violet agent hue, a type scale, a context meter in the chat composer and clearer admin pages (DESIGN.md section 11).
 - **Epic 62, fix batch after the UI refresh.** Claude Code's own model list with a Version picker, chat titles with a pencil rename, per-pane zoom, an always-shown context meter, coloured Git letters and file-type icons, a tinted Monitor, a read-only panel for watching a subagent, and fixes for the phone drawer names, the ended chat tab and the Dex logo cache; pilot testing then reshaped the Chat options panel into labelled fields, gave split panes an even focus ring, made the subagent panel a floating card, dropped the Agent card's raw text and lined up the Running pane's ports (ADR 0074).
 - **Epic 63, fix batch.** A quiet line in the chat for each permission decision, a browser question card for Claude Code's questions in a terminal tab (ADR 0075), every terminal drawn with WebGL so box lines have no gaps, a language tag and colour on every file-type icon in the Files pane, and two flaky tests made certain.
+- **Epic 64, admin and instructor redesign.** The winner of a graded design hill climb for the administrator and instructor pages: one page frame with a left rail, an attention summary, a side inspector with Overview, Activity and Account tabs, quiet dot-and-word states, Logs and Audit as workbenches, a Class now summary and dot per student on the course page, and live help in a workspace-style terminal frame; plus the graders' remaining notes, the code and accessibility review fixes, and the design system and mockups brought up to date (DESIGN.md sections 9 and 11, SPEC.md 20.1).
 
 ## Open items
 
@@ -183,6 +184,8 @@ list was made and may already be fixed.
 - The Audit tab and the other refreshing admin tabs do not announce new rows to screen readers. The Health heat map's cell values are not readable by sighted keyboard users.
 - The shared Checkbox's unavailable look is faint in both themes.
 - A course profile change picked up when the window regains focus can remove the control that has focus.
+- Audit has no date-range or result filter; both need an API change.
+- Each course card on the instructor's course list asks for its own members and live help counts; the course list response could carry them in one request.
 
 ### Infrastructure, packaging and backups
 
