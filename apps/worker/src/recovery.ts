@@ -77,18 +77,7 @@ export async function recoverySweep(
 		const agent = agentFor(ws.agent_address, ws.agent_token);
 		const beforeReason = BEFORE_OPERATION_REASON[ws.pending_operation ?? ""];
 		const rebuilding = beforeReason !== undefined;
-		// Rebuilds need every active project tried (SPEC.md §22.3); periodic
-		// points only the ones due.
-		let reason: RecoveryReason | null = null;
-		let projects: { id: string; slug: string }[] = [];
-		if (rebuilding) {
-			reason = beforeReason;
-			projects = await activeProjects(db, ws.id, undefined, true);
-		} else if (ws.pending_operation === null) {
-			reason = "periodic";
-			const cutoff = new Date(now.getTime() - config.RECOVERY_INTERVAL_SECONDS * 1000);
-			projects = await activeProjects(db, ws.id, cutoff);
-		}
+		const { reason, projects } = await projectsDue(db, ws, beforeReason, config, now);
 		for (const [i, p] of projects.entries()) {
 			const outcome = await makePoint(
 				db,
@@ -140,6 +129,32 @@ export async function recoverySweep(
 	await Promise.all(Array.from({ length: SWEEP_CONCURRENCY }, lane));
 
 	return { created, deleted };
+}
+
+/**
+ * The projects this sweep points and why. Rebuilds need every active
+ * project tried (SPEC.md §22.3); periodic points only the ones due, and a
+ * workspace with another pending operation gets none.
+ */
+async function projectsDue(
+	db: Kysely<Database>,
+	ws: { id: string; pending_operation: string | null },
+	beforeReason: RecoveryReason | undefined,
+	config: RecoveryConfig,
+	now: Date,
+): Promise<{
+	reason: RecoveryReason | null;
+	projects: { id: string; slug: string }[];
+}> {
+	if (beforeReason !== undefined) {
+		return {
+			reason: beforeReason,
+			projects: await activeProjects(db, ws.id, undefined, true),
+		};
+	}
+	if (ws.pending_operation !== null) return { reason: null, projects: [] };
+	const cutoff = new Date(now.getTime() - config.RECOVERY_INTERVAL_SECONDS * 1000);
+	return { reason: "periodic", projects: await activeProjects(db, ws.id, cutoff) };
 }
 
 /** Active projects of a workspace, optionally only those not checked since `cutoff`. */
