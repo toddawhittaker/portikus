@@ -106,13 +106,8 @@ export async function writeAgentInstructions(
 	templatePath: string,
 	signal?: AbortSignal,
 ): Promise<boolean> {
-	let template: string;
-	try {
-		template = await readFile(templatePath, "utf8");
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
-		throw err;
-	}
+	const template = await readTemplate(templatePath);
+	if (template === null) return false;
 	const files: [dir: string, path: string, body: string][] = [
 		["/etc/claude-code", CLAUDE_SYSTEM_PATH, template],
 		["/etc/codex", CODEX_SYSTEM_PATH, codexSystemConfig(template)],
@@ -139,13 +134,8 @@ export async function writeClaudeManagedSettings(
 	templatePath: string,
 	signal?: AbortSignal,
 ): Promise<boolean> {
-	let template: string;
-	try {
-		template = await readFile(templatePath, "utf8");
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
-		throw err;
-	}
+	const template = await readTemplate(templatePath);
+	if (template === null) return false;
 	await writeSystemFile(
 		client,
 		name,
@@ -155,6 +145,16 @@ export async function writeClaudeManagedSettings(
 		signal,
 	);
 	return true;
+}
+
+/** A template's text, or null when the host has none. */
+async function readTemplate(path: string): Promise<string | null> {
+	try {
+		return await readFile(path, "utf8");
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw err;
+	}
 }
 
 async function writeSystemFile(
