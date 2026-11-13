@@ -4,140 +4,41 @@ import {
 	type ChatClientMessage,
 	type ChatCommand,
 	type ChatEffort,
+	type ChatMcpServer,
 	type ChatMessage,
+	type ChatModeInfo,
 	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	type CodingAgent,
 	chatStartMode,
 	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	shellCommandText,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import {
+	CLAUDE_MCP_CARD,
+	CLAUDE_MODES,
+	CODEX_COMMANDS,
+	CODEX_MCP_CARD,
+	CODEX_MODELS,
+	CODEX_MODES,
+	CODEX_PLAN_CARD,
+	CODEX_QUESTION_CARD,
+	DEFAULT_COMMANDS,
+	DEFAULT_MCP,
+	DEFAULT_MODELS,
+	EARLIER_TURN_AT,
+	ELICITATION_NOTICE,
+	FINAL_MARKDOWN,
+	PERMISSION_CARD,
+	QUESTION_CARD,
+	TINY_PNG,
+} from "./chat-fixtures.js";
 import { setCodingAgentTitle } from "./coding-agents.js";
 import type { FakeAgentState } from "./state.js";
-
-/** A 1 by 1 pixel PNG, small enough to sit inside a frame. */
-const TINY_PNG =
-	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
-const FINAL_MARKDOWN = [
-	"Here is the **plan**.",
-	"",
-	"```ts",
-	"export const answer = 42;",
-	"```",
-	"",
-	"See [the docs](https://example.com/docs).",
-	"",
-	"![remote pixel](https://example.com/pixel.png)",
-].join("\n");
-
-const QUESTION_CARD: Extract<ChatOpenCard, { type: "question" }> = {
-	type: "question",
-	id: "card-question",
-	questions: [
-		{
-			question: "Which checks should run?",
-			header: "Checks",
-			multiSelect: true,
-			options: [
-				{ label: "Lint", description: "Style rules" },
-				{ label: "Tests", description: "Unit tests" },
-				{ label: "Types", description: "Type checking" },
-			],
-		},
-		{
-			question: "Which layout?",
-			header: "Layout",
-			multiSelect: false,
-			options: [
-				{ label: "Tabs", description: "One tab per file", preview: "+----+----+" },
-				{ label: "Tree", description: "A folder tree", preview: "|- src\n|- test" },
-			],
-		},
-	],
-};
-
-const PERMISSION_CARD: Extract<ChatOpenCard, { type: "permission" }> = {
-	type: "permission",
-	id: "card-permission",
-	toolName: "Bash",
-	title: "Run npm test",
-	input: { command: "npm test" },
-	options: [
-		{ id: "allow", label: "Allow once" },
-		{ id: "always", label: "Always allow npm test commands for this chat" },
-		{ id: "deny", label: "Deny" },
-	],
-};
-
-/** When the fake's earlier turn began, in epoch milliseconds. */
-const EARLIER_TURN_AT = Date.UTC(2026, 0, 1, 12, 0, 0);
-
-/** The command list a fake chat starts with; a test can replace it. */
-const DEFAULT_COMMANDS: ChatCommand[] = [
-	{
-		name: "compact",
-		description: "Free up context by summarizing the chat",
-		terminalOnly: false,
-	},
-	{
-		name: "review",
-		description: "Review a pull request",
-		argumentHint: "<pull request>",
-		terminalOnly: false,
-	},
-	{ name: "config", description: "Open the settings menu", terminalOnly: true },
-];
-
-/** The models a fake chat offers, shaped like Claude Code's own list. */
-const row = (
-	value: string,
-	displayName: string,
-	description: string,
-	resolvedModel = value,
-	supportsAutoMode = true,
-): ChatModelInfo => ({
-	value,
-	resolvedModel,
-	displayName,
-	description,
-	supportsAutoMode,
-});
-
-const DEFAULT_MODELS: ChatModelInfo[] = [
-	row(
-		"default",
-		"Default (recommended)",
-		"Opus 5.5 · Best for everyday, complex tasks",
-		"claude-opus-5-5",
-	),
-	row("opus", "Opus 5.5", "For complex work and everyday tasks", "claude-opus-5-5"),
-	row("fable", "Fable 5.2", "For your toughest challenges", "claude-fable-5-2"),
-	row("sonnet", "Sonnet 5.5", "Most efficient for simpler tasks", "claude-sonnet-5-5"),
-	row("haiku", "Haiku 5.5", "Fastest for quick answers", "claude-haiku-5-5"),
-	row("claude-fable-5-1", "Fable 5.1", "Most capable for your hardest tasks"),
-	row(
-		"claude-haiku-4-5-20251001",
-		"Haiku 4.5",
-		"Fastest for quick answers",
-		undefined,
-		false,
-	),
-	row("claude-opus-5", "Opus 5", "Best for everyday, complex tasks"),
-	row("claude-opus-4-8", "Opus 4.8", "Best for everyday, complex tasks"),
-	row("claude-opus-4-7", "Opus 4.7", "Best for everyday, complex tasks"),
-	row("claude-sonnet-4-6", "Sonnet 4.6", "Efficient for routine tasks"),
-];
-
-/** The fixed word for an option id, as the host sends it. */
-function decisionForOption(optionId: string): ChatCardDecision {
-	if (optionId === "always") return "allowedAlways";
-	if (optionId === "deny") return "denied";
-	return "allowed";
-}
 
 /** What a test reads back: one answer, as the browser sent it. */
 type FakeChatAnswer = Extract<
@@ -146,6 +47,8 @@ type FakeChatAnswer = Extract<
 >;
 
 interface FakeChat {
+	/** The agent the terminal was created for; it decides the scripted turn and the lists. */
+	agent: CodingAgent;
 	seq: number;
 	started: boolean;
 	/** Finished history, replayed to each later attachment as events (SPEC.md §9.7). */
@@ -159,6 +62,8 @@ interface FakeChat {
 	commands: ChatCommand[];
 	/** The models on offer; sent on attach, before the settings. */
 	models: ChatModelInfo[];
+	modes: ChatModeInfo[];
+	mcp: ChatMcpServer[];
 	/** The last `context` event body a test set; sent on attach. */
 	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
@@ -177,7 +82,9 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 	function chatOf(id: string): FakeChat {
 		let chat = chats.get(id);
 		if (!chat) {
+			const codex = terminals.get(id)?.agent === "codex";
 			chat = {
+				agent: codex ? "codex" : "claude",
 				seq: 0,
 				started: false,
 				history: [
@@ -200,9 +107,13 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				answers: [],
 				decisions: new Map(),
 				received: [],
-				settings: { model: "sonnet", effort: "medium", mode: "default" },
-				commands: DEFAULT_COMMANDS,
-				models: DEFAULT_MODELS,
+				settings: codex
+					? { model: "gpt-5.5", effort: "medium", mode: "onRequest" }
+					: { model: "sonnet", effort: "medium", mode: "default" },
+				commands: codex ? CODEX_COMMANDS : DEFAULT_COMMANDS,
+				models: codex ? CODEX_MODELS : DEFAULT_MODELS,
+				modes: codex ? CODEX_MODES : CLAUDE_MODES,
+				mcp: DEFAULT_MCP,
 				context: null,
 				sockets: new Set(),
 			};
@@ -237,9 +148,26 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		emit(id, to, event);
 	}
 
-	function runScriptedTurn(id: string): void {
-		const chat = chatOf(id);
-		const all = chat.sockets;
+	/** A tool row that starts, prints its text, and finishes. */
+	function toolRow(
+		id: string,
+		row: { id: string; name: string; title: string; input: unknown },
+		output?: string,
+	): void {
+		const all = chatOf(id).sockets;
+		record(id, all, { type: "tool.started", ...row });
+		if (output !== undefined) {
+			record(id, all, {
+				type: "tool.output",
+				id: row.id,
+				part: { type: "text", text: output },
+			});
+		}
+		record(id, all, { type: "tool.finished", id: row.id, isError: false });
+	}
+
+	function streamReply(id: string): void {
+		const all = chatOf(id).sockets;
 		for (const text of ["Looking ", "at the ", "project."]) {
 			emit(id, all, { type: "text.delta", messageId: "m-turn", text });
 		}
@@ -249,6 +177,12 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			markdown: FINAL_MARKDOWN,
 		};
 		record(id, all, { type: "message", ...final });
+	}
+
+	function runScriptedTurn(id: string): void {
+		const chat = chatOf(id);
+		const all = chat.sockets;
+		streamReply(id);
 		record(id, all, {
 			type: "tool.started",
 			id: "tool-1",
@@ -289,6 +223,138 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		record(id, all, { type: "turn.finished", at: Date.now(), status: "done" });
 	}
 
+	/**
+	 * What a student sends to see Claude's skill and MCP rows: a `Skill` row,
+	 * an `mcp__server__tool` row with its approval card, and the notice for an
+	 * MCP form the chat cannot show.
+	 */
+	function runClaudeMcpTurn(id: string): void {
+		const chat = chatOf(id);
+		const all = chat.sockets;
+		toolRow(
+			id,
+			{ id: "skill-1", name: "Skill", title: "Skill", input: { skill: "pdf" } },
+			"Launching skill: pdf",
+		);
+		record(id, all, {
+			type: "tool.started",
+			id: CLAUDE_MCP_CARD.id,
+			name: CLAUDE_MCP_CARD.toolName,
+			title: CLAUDE_MCP_CARD.toolName,
+			input: CLAUDE_MCP_CARD.input,
+		});
+		chat.openCards.push(CLAUDE_MCP_CARD);
+		emit(id, all, { type: "permission.requested", ...withoutType(CLAUDE_MCP_CARD) });
+		record(id, all, { type: "error", message: ELICITATION_NOTICE });
+		record(id, all, { type: "turn.finished", at: Date.now(), status: "done" });
+	}
+
+	/**
+	 * Codex's first turn: one row of every shape the chat draws, then the
+	 * MCP approval, the plan card, a question with no options and one that
+	 * asks for a secret, and the notice for an MCP form it cannot show.
+	 */
+	function runCodexTurn(id: string): void {
+		const chat = chatOf(id);
+		const all = chat.sockets;
+		streamReply(id);
+		toolRow(
+			id,
+			{
+				id: "cx-1",
+				name: "commandExecution",
+				title: "cat README.md",
+				input: {
+					command: "cat README.md",
+					actions: [{ type: "read", path: "README.md" }],
+				},
+			},
+			"# README",
+		);
+		toolRow(
+			id,
+			{
+				id: "cx-2",
+				name: "commandExecution",
+				title: "rg answer src",
+				input: {
+					command: "rg answer src",
+					actions: [{ type: "search", query: "answer", path: "src" }],
+				},
+			},
+			"src/answer.ts:1:export const answer = 41;",
+		);
+		toolRow(id, {
+			id: "cx-3",
+			name: "fileChange",
+			title: "src/answer.ts",
+			input: {
+				changes: [
+					{
+						path: "src/answer.ts",
+						kind: "update",
+						diff: [
+							"--- a/src/answer.ts",
+							"+++ b/src/answer.ts",
+							"@@ -1 +1 @@",
+							"-export const answer = 41;",
+							"+export const answer = 42;",
+							"",
+						].join("\n"),
+					},
+				],
+			},
+		});
+		toolRow(id, {
+			id: "cx-4",
+			name: "webSearch",
+			title: "codex app-server",
+			input: { query: "codex app-server" },
+		});
+		toolRow(id, {
+			id: "cx-5",
+			name: "imageView",
+			title: "diagram.png",
+			input: { path: "/home/student/diagram.png" },
+		});
+		toolRow(id, {
+			id: "cx-6",
+			name: "collabAgentToolCall",
+			title: "spawnAgent",
+			input: {
+				tool: "spawnAgent",
+				receivers: ["child-thread-1"],
+				prompt: "Check the tests",
+			},
+		});
+		toolRow(id, {
+			id: "cx-7",
+			name: "plan",
+			title: "Plan",
+			input: {
+				steps: [
+					{ step: "Read the failing test", status: "completed" },
+					{ step: "Fix the answer", status: "inProgress" },
+					{ step: "Run the tests", status: "pending" },
+				],
+			},
+		});
+		// The MCP call waits on its card, which shares the call's id.
+		record(id, all, {
+			type: "tool.started",
+			id: CODEX_MCP_CARD.id,
+			name: CODEX_MCP_CARD.toolName,
+			title: CODEX_MCP_CARD.title,
+			input: CODEX_MCP_CARD.input,
+		});
+		chat.openCards.push(CODEX_MCP_CARD, CODEX_PLAN_CARD, CODEX_QUESTION_CARD);
+		emit(id, all, { type: "permission.requested", ...withoutType(CODEX_MCP_CARD) });
+		emit(id, all, { type: "permission.requested", ...withoutType(CODEX_PLAN_CARD) });
+		emit(id, all, { type: "question.requested", ...withoutType(CODEX_QUESTION_CARD) });
+		record(id, all, { type: "error", message: ELICITATION_NOTICE });
+		record(id, all, { type: "turn.finished", at: Date.now(), status: "done" });
+	}
+
 	function answer(id: string, message: FakeChatAnswer): void {
 		const chat = chatOf(id);
 		const card = chat.openCards.find((one) => one.id === message.id);
@@ -305,8 +371,8 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		chat.openCards = chat.openCards.filter((one) => one.id !== message.id);
 		chat.answers.push(message);
 		const decision =
-			message.type === "permission.answer"
-				? decisionForOption(message.optionId)
+			message.type === "permission.answer" && card.type === "permission"
+				? card.options.find((option) => option.id === message.optionId)?.decision
 				: undefined;
 		if (decision) chat.decisions.set(message.id, decision);
 		emit(id, chat.sockets, {
@@ -314,7 +380,8 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			id: message.id,
 			...(decision ? { decision } : {}),
 		});
-		if (message.type === "question.answer") {
+		// Only a question with a tool row (Claude's) has a result to show.
+		if (message.type === "question.answer" && card.id === QUESTION_CARD.id) {
 			record(id, chat.sockets, {
 				type: "tool.output",
 				id: message.id,
@@ -373,7 +440,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 					});
 					emit(id, chat.sockets, {
 						type: "settings",
-						agent: "claude",
+						agent: chat.agent,
 						...chat.settings,
 					});
 					return;
@@ -405,8 +472,13 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				chat.started = true;
 				record(id, chat.sockets, { type: "turn.started", at: Date.now() });
 				record(id, chat.sockets, { type: "message", ...user });
+				if (chat.agent === "claude" && message.text.trim() === "demo mcp") {
+					runClaudeMcpTurn(id);
+					return;
+				}
 				if (first) {
-					runScriptedTurn(id);
+					if (chat.agent === "codex") runCodexTurn(id);
+					else runScriptedTurn(id);
 					return;
 				}
 				record(id, chat.sockets, {
@@ -438,7 +510,11 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 					effort: message.effort ?? chat.settings.effort,
 					mode,
 				};
-				emit(id, chat.sockets, { type: "settings", agent: "claude", ...chat.settings });
+				emit(id, chat.sockets, {
+					type: "settings",
+					agent: chat.agent,
+					...chat.settings,
+				});
 				return;
 			}
 			case "rename":
@@ -500,9 +576,11 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			}
 			// Before the settings, which tests wait for as the end of an attach.
 			emit(id, [socket], { type: "commands", commands: chat.commands });
+			emit(id, [socket], { type: "mcp", servers: chat.mcp });
 			emit(id, [socket], { type: "models", models: chat.models });
+			emit(id, [socket], { type: "modes", modes: chat.modes });
 			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
-			emit(id, [socket], { type: "settings", agent: "claude", ...chat.settings });
+			emit(id, [socket], { type: "settings", agent: chat.agent, ...chat.settings });
 		},
 	);
 
@@ -512,6 +590,15 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		chat.commands = (request.body as { commands: ChatCommand[] }).commands;
 		emit(id, chat.sockets, { type: "commands", commands: chat.commands });
+		return reply.status(204).send();
+	});
+
+	// Replace the MCP server list and send it to every attachment, as the host does.
+	app.post("/__test/chats/:id/mcp", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.mcp = (request.body as { servers: ChatMcpServer[] }).servers;
+		emit(id, chat.sockets, { type: "mcp", servers: chat.mcp });
 		return reply.status(204).send();
 	});
 

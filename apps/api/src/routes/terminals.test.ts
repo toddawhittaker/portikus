@@ -341,6 +341,11 @@ test.skipIf(skip)("another student sees 404 on every terminal route", async () =
 	expect(agent.terminals.has(terminalId)).toBe(true);
 });
 
+async function countRows(): Promise<number> {
+	const rows = await testDb.db.selectFrom("terminals").select("id").execute();
+	return rows.length;
+}
+
 async function endedTerminal(
 	jar: CookieJar,
 	id: string,
@@ -407,6 +412,47 @@ test.skipIf(skip)(
 			expect(refused.json().code).toBe("TERMINAL_NOT_FOUND");
 		}
 		expect(agent.creates).toHaveLength(0);
+	},
+);
+
+test.skipIf(skip)(
+	"a chat cannot resume a chat of the other agent, and nothing is created",
+	async () => {
+		const claudeChat = await endedTerminal(alice, workspaceId, {
+			kind: "chat",
+			agent: "claude",
+		});
+		const codexChat = await endedTerminal(alice, workspaceId, {
+			kind: "chat",
+			agent: "codex",
+		});
+		agent.creates.length = 0;
+		const rowsBefore = await countRows();
+
+		for (const [resumeAgent, resumeChatOf] of [
+			["codex", claudeChat],
+			["claude", codexChat],
+		] as const) {
+			const refused = await create(alice, workspaceId, {
+				kind: "chat",
+				agent: resumeAgent,
+				resumeChatOf,
+			});
+			expect(refused.statusCode).toBe(400);
+			expect(refused.json().code).toBe("VALIDATION_FAILED");
+			expect(refused.json().message).toMatch(/same agent/i);
+		}
+		expect(agent.creates).toHaveLength(0);
+		expect(await countRows()).toBe(rowsBefore);
+
+		// The same agent still resumes, for Codex as for Claude.
+		const resumed = await create(alice, workspaceId, {
+			kind: "chat",
+			agent: "codex",
+			resumeChatOf: codexChat,
+		});
+		expect(resumed.statusCode).toBe(201);
+		expect(agent.creates[0]).toMatchObject({ resumeChatOf: codexChat });
 	},
 );
 
