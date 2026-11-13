@@ -1,5 +1,10 @@
 import type { EditorScheme as EditorSchemeId } from "@portikus/contracts";
+import { CATPPUCCIN } from "./catppuccin.js";
+import { GITHUB } from "./github.js";
+import { HIGH_CONTRAST } from "./high-contrast.js";
+import { INTELLIJ } from "./intellij.js";
 import { PORTIKUS } from "./portikus.js";
+import { SOLARIZED } from "./solarized.js";
 import type { EditorScheme } from "./types.js";
 import { VSCODE } from "./vscode.js";
 
@@ -8,7 +13,15 @@ import { VSCODE } from "./vscode.js";
  * beside this one, add its id to EDITOR_SCHEMES in
  * packages/contracts/src/settings.ts, and list it here.
  */
-export const EDITOR_SCHEME_LIST: readonly EditorScheme[] = [PORTIKUS, VSCODE];
+export const EDITOR_SCHEME_LIST: readonly EditorScheme[] = [
+	PORTIKUS,
+	VSCODE,
+	INTELLIJ,
+	GITHUB,
+	SOLARIZED,
+	CATPPUCCIN,
+	HIGH_CONTRAST,
+];
 
 /** The scheme with this id; the list has one for every id the contract allows. */
 export function schemeById(id: EditorSchemeId): EditorScheme {

@@ -73,3 +73,9 @@ test.each([
 		}
 	},
 );
+
+test("Portikus sets comments, doc comments included, in italic in both modes", () => {
+	for (const mode of [PORTIKUS.light, PORTIKUS.dark]) {
+		expect(mode.fontStyles).toEqual({ comment: "italic", "comment.doc": "italic" });
+	}
+});

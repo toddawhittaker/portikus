@@ -45,3 +45,9 @@ test("a colour the source does not define is left out", () => {
 		expect(mode.colors["editorCursor.foreground"]).toBeUndefined();
 	}
 });
+
+/** Neither published theme styles a token, so VS Code's comments are not italic. */
+test("the source gives no token a font style", () => {
+	expect(VSCODE.light.fontStyles).toBeUndefined();
+	expect(VSCODE.dark.fontStyles).toBeUndefined();
+});

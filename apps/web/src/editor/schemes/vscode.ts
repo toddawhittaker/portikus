@@ -1,22 +1,8 @@
 import type { EditorScheme } from "./types.js";
 
-/**
- * VS Code's Light Modern and Dark Modern, copied as published. No colour is
- * adjusted, so a student who picks this scheme gets VS Code's contrast, which
- * is weaker than Portikus's (DESIGN.md section 11).
- *
- * Source: https://github.com/microsoft/vscode/tree/580745c3ba2151ca0108e613cebf90041942c0da/extensions/theme-defaults/themes
- * (commit 580745c3ba2151ca0108e613cebf90041942c0da, 2026-11-13).
- *   light_modern.json includes light_plus.json includes light_vs.json
- *   dark_modern.json  includes dark_plus.json  includes dark_vs.json
- * Each pair is resolved with its includes, a later file overriding an earlier one.
- * The 2026-light and 2026-dark themes are left out on purpose: their syntax
- * colours are close to the GitHub scheme.
- *
- * Each Monaco token id takes the colour of the TextMate scope named beside it.
- * Where the scopes of one language differ, the one students meet most is used.
- * An editor colour the source does not define is left out, so Monaco's base
- * theme supplies it.
+/*!
+ * VS Code Light Modern and Dark Modern, copied as published in microsoft/vscode,
+ * extensions/theme-defaults/themes.
  *
  * MIT License. Copyright (c) 2015 - present Microsoft Corporation.
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -33,6 +19,25 @@ import type { EditorScheme } from "./types.js";
  * FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
  * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+/**
+ * VS Code's Light Modern and Dark Modern, copied as published. No colour is
+ * adjusted, so a student who picks this scheme gets VS Code's contrast, which
+ * is weaker than Portikus's (DESIGN.md section 11).
+ *
+ * Source: https://github.com/microsoft/vscode/tree/580745c3ba2151ca0108e613cebf90041942c0da/extensions/theme-defaults/themes
+ * (commit 580745c3ba2151ca0108e613cebf90041942c0da, 2026-11-13).
+ *   light_modern.json includes light_plus.json includes light_vs.json
+ *   dark_modern.json  includes dark_plus.json  includes dark_vs.json
+ * Each pair is resolved with its includes, a later file overriding an earlier one.
+ * The 2026-light and 2026-dark themes are left out on purpose: their syntax
+ * colours are close to the GitHub scheme.
+ *
+ * Each Monaco token id takes the colour of the TextMate scope named beside it.
+ * Where the scopes of one language differ, the one students meet most is used.
+ * An editor colour the source does not define is left out, so Monaco's base
+ * theme supplies it. Neither theme gives a token a font style, so none is set:
+ * VS Code's comments are not italic.
  */
 export const VSCODE: EditorScheme = {
 	id: "vscode",

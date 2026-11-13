@@ -266,7 +266,15 @@ export type Appearance = z.infer<typeof Appearance>;
  * The editor colour schemes, in the order Settings lists them. Each is a light
  * and dark pair defined in apps/web/src/editor/schemes (SPEC.md §13.1).
  */
-export const EDITOR_SCHEMES = ["portikus", "vscode"] as const;
+export const EDITOR_SCHEMES = [
+	"portikus",
+	"vscode",
+	"intellij",
+	"github",
+	"solarized",
+	"catppuccin",
+	"high-contrast",
+] as const;
 export const EditorScheme = z.enum(EDITOR_SCHEMES);
 export type EditorScheme = z.infer<typeof EditorScheme>;
 

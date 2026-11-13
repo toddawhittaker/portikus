@@ -37,6 +37,12 @@ export default defineConfig({
 			"monaco-editor/language/json/monaco.contribution.js",
 		],
 	},
+	build: {
+		// A minified build drops every /*! */ comment unless told otherwise. The
+		// editor colour schemes carry their licence notices in such comments
+		// (apps/web/src/editor/schemes), and the licences require them to ship.
+		rolldownOptions: { output: { comments: { legal: true } } },
+	},
 	server: {
 		host: "127.0.0.1",
 		port: webPort,
