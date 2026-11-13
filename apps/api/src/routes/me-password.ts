@@ -1,5 +1,6 @@
 import {
 	BREACHED_PASSWORD_MESSAGE,
+	type DexApi,
 	hashDexPassword,
 	hashSessionToken,
 	isBreachedPassword,
@@ -54,6 +55,80 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 		return reply;
 	}
 
+	/** The refusal past the wrong-password limit, audited when the throttle asks. */
+	async function throttled(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		userId: string,
+		audit: boolean,
+	) {
+		if (audit) {
+			await recordAudit(db, {
+				actor: `user:${userId}`,
+				target: userId,
+				action: "auth.throttled",
+				result: "denied",
+				metadata: {
+					ip: request.ip,
+					scope: "password-change",
+				},
+			});
+		}
+		return sendError(
+			reply,
+			429,
+			"RATE_LIMITED",
+			"Too many wrong passwords. Please wait a few minutes and try again.",
+		);
+	}
+
+	/**
+	 * Store the new password and sign out every other session, in one
+	 * transaction. Throws PasswordGone when Dex no longer holds the password.
+	 */
+	async function commitPasswordChange(
+		dex: DexApi,
+		request: FastifyRequest,
+		userId: string,
+		currentSession: string,
+		email: string,
+		hash: string,
+	): Promise<void> {
+		await db.transaction().execute(async (trx) => {
+			const now = new Date().toISOString();
+			await trx
+				.updateTable("users")
+				.set({ must_change_password: false, updated_at: now })
+				.where("id", "=", userId)
+				.execute();
+			await trx
+				.deleteFrom("sessions")
+				.where("user_id", "=", userId)
+				.where("id", "<>", currentSession)
+				.execute();
+			await trx
+				.updateTable("preview_sessions")
+				.set({ revoked_at: now })
+				.where("user_id", "=", userId)
+				.where("session_id", "<>", currentSession)
+				.where("revoked_at", "is", null)
+				.execute();
+			await revokeAccountEmailTokens(trx, userId);
+			await recordAudit(trx, {
+				actor: `user:${userId}`,
+				target: userId,
+				action: "user.password_changed",
+				result: "ok",
+				metadata: {
+					...requestMetadata(request),
+				},
+			});
+			// Last, so a failure rolls the rest back.
+			const updated = await dex.updatePassword(email, hash);
+			if (updated === "not_found") throw new PasswordGone();
+		});
+	}
+
 	app.post("/me/password", async (request, reply) => {
 		const user = requireUser(request);
 		const dex = deps.dex;
@@ -81,26 +156,7 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 		if (dexUserId === null) return notLocal(reply);
 
 		const decision = await throttle.attempt(user.id);
-		if (!decision.receipt) {
-			if (decision.audit) {
-				await recordAudit(db, {
-					actor: `user:${user.id}`,
-					target: user.id,
-					action: "auth.throttled",
-					result: "denied",
-					metadata: {
-						ip: request.ip,
-						scope: "password-change",
-					},
-				});
-			}
-			return sendError(
-				reply,
-				429,
-				"RATE_LIMITED",
-				"Too many wrong passwords. Please wait a few minutes and try again.",
-			);
-		}
+		if (!decision.receipt) return throttled(request, reply, user.id, decision.audit);
 
 		const actor = `user:${user.id}`;
 		const currentSession = hashSessionToken(request.sessionToken as string);
@@ -130,39 +186,14 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 				);
 			}
 			const hash = await hashDexPassword(newPassword);
-			await db.transaction().execute(async (trx) => {
-				const now = new Date().toISOString();
-				await trx
-					.updateTable("users")
-					.set({ must_change_password: false, updated_at: now })
-					.where("id", "=", user.id)
-					.execute();
-				await trx
-					.deleteFrom("sessions")
-					.where("user_id", "=", user.id)
-					.where("id", "<>", currentSession)
-					.execute();
-				await trx
-					.updateTable("preview_sessions")
-					.set({ revoked_at: now })
-					.where("user_id", "=", user.id)
-					.where("session_id", "<>", currentSession)
-					.where("revoked_at", "is", null)
-					.execute();
-				await revokeAccountEmailTokens(trx, user.id);
-				await recordAudit(trx, {
-					actor: actor,
-					target: user.id,
-					action: "user.password_changed",
-					result: "ok",
-					metadata: {
-						...requestMetadata(request),
-					},
-				});
-				// Last, so a failure rolls the rest back.
-				const updated = await dex.updatePassword(password.email, hash);
-				if (updated === "not_found") throw new PasswordGone();
-			});
+			await commitPasswordChange(
+				dex,
+				request,
+				user.id,
+				currentSession,
+				password.email,
+				hash,
+			);
 		} catch (err) {
 			if (err instanceof PasswordGone) return notLocal(reply);
 			return dexUnavailable(request, reply, err);
