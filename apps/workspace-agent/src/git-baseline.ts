@@ -47,9 +47,7 @@ export async function recordBaseline(dir: string): Promise<{
 	baselineObjectId: string | null;
 	baselineHead: string | null;
 }> {
-	const head = await runGit(["rev-parse", "--verify", "HEAD"], dir, 128);
-	const headId = head.ok ? head.stdout.toString().trim() : "";
-	const baselineHead = OBJECT_ID.test(headId) ? headId : null;
+	const baselineHead = await objectIdFrom(["rev-parse", "--verify", "HEAD"], dir);
 
 	const inside = await runGit(["rev-parse", "--is-inside-work-tree"], dir, 64);
 	if (!inside.ok || inside.stdout.toString().trim() !== "true") {
@@ -147,34 +145,32 @@ async function extraBaselinePaths(dir: string): Promise<string[]> {
 	return paths;
 }
 
+/** One extra file as it goes into the baseline's side tree. */
+interface ExtraBlob {
+	path: string;
+	oid: string;
+	mode: string;
+}
+
 /** Write one extra file or symlink as a blob; null when it cannot be read. */
-async function hashExtraFile(
-	dir: string,
-	path: string,
-): Promise<{ path: string; oid: string; mode: string } | null> {
+async function hashExtraFile(dir: string, path: string): Promise<ExtraBlob | null> {
 	const full = join(dir, path);
 	const info = await lstat(full).catch(() => null);
 	if (!info) return null;
-	let oid = "";
-	let mode = "";
 	if (info.isSymbolicLink()) {
 		// The blob is the link text. Hashing the path would follow it.
 		const target = await readlink(full).catch(() => null);
 		if (target === null) return null;
-		oid = (await hashStdin(dir, target, true)) ?? "";
-		mode = "120000";
-	} else if (info.isFile()) {
-		const hashed = await runGit(
-			["hash-object", "-w", "--no-filters", "--", path],
-			dir,
-			128,
-		);
-		oid = hashed.ok ? hashed.stdout.toString().trim() : "";
-		mode = info.mode & 0o111 ? "100755" : "100644";
-	} else {
-		return null;
+		const oid = await hashStdin(dir, target, true);
+		return oid === null ? null : { path, oid, mode: "120000" };
 	}
-	return OBJECT_ID.test(oid) ? { path, oid, mode } : null;
+	if (!info.isFile()) return null;
+	const oid = await objectIdFrom(
+		["hash-object", "-w", "--no-filters", "--", path],
+		dir,
+	);
+	if (oid === null) return null;
+	return { path, oid, mode: info.mode & 0o111 ? "100755" : "100644" };
 }
 
 /**
@@ -186,66 +182,70 @@ async function attachUntracked(dir: string, base: string): Promise<string> {
 	const paths = await extraBaselinePaths(dir);
 	if (paths.length === 0) return base;
 	const indexDir = await mkdtemp(join(tmpdir(), "portikus-baseline-"));
-	const indexPath = join(indexDir, "index");
 	try {
-		const blobs: { path: string; oid: string; mode: string }[] = [];
+		const blobs: ExtraBlob[] = [];
 		for (const path of paths) {
 			const blob = await hashExtraFile(dir, path);
 			if (blob) blobs.push(blob);
 		}
 		if (blobs.length === 0) return base;
-		const empty = await runGit(["read-tree", "--empty"], dir, 64, GIT_TIMEOUT_MS, {
-			env: { GIT_INDEX_FILE: indexPath },
-		});
-		if (!empty.ok) return base;
-		for (const blob of blobs) {
-			const added = await runGit(
-				[
-					"update-index",
-					"--add",
-					"--cacheinfo",
-					`${blob.mode},${blob.oid},${blob.path}`,
-				],
-				dir,
-				64,
-				GIT_TIMEOUT_MS,
-				{ env: { GIT_INDEX_FILE: indexPath } },
-			);
-			if (!added.ok) return base;
-		}
-		const tree = await runGit(["write-tree"], dir, 128, GIT_TIMEOUT_MS, {
-			env: { GIT_INDEX_FILE: indexPath },
-		});
-		const treeId = tree.ok ? tree.stdout.toString().trim() : "";
-		if (!OBJECT_ID.test(treeId)) return base;
-		const side = await runGit(
+		const treeId = await writeExtrasTree(dir, blobs, join(indexDir, "index"));
+		if (treeId === null) return base;
+		const sideId = await objectIdFrom(
 			["commit-tree", treeId, "-m", "baseline untracked"],
 			dir,
-			128,
-			GIT_TIMEOUT_MS,
 			{ env: BASELINE_IDENTITY },
 		);
-		const sideId = side.ok ? side.stdout.toString().trim() : "";
-		if (!OBJECT_ID.test(sideId)) return base;
-		const baseTree = await runGit(
+		if (sideId === null) return base;
+		const baseTreeId = await objectIdFrom(
 			["rev-parse", "--verify", `${base}^{tree}`],
 			dir,
-			128,
 		);
-		const baseTreeId = baseTree.ok ? baseTree.stdout.toString().trim() : "";
-		if (!OBJECT_ID.test(baseTreeId)) return base;
-		const wrapped = await runGit(
+		if (baseTreeId === null) return base;
+		const wrappedId = await objectIdFrom(
 			["commit-tree", baseTreeId, "-p", base, "-p", sideId, "-m", "baseline"],
 			dir,
-			128,
-			GIT_TIMEOUT_MS,
 			{ env: BASELINE_IDENTITY },
 		);
-		const wrappedId = wrapped.ok ? wrapped.stdout.toString().trim() : "";
-		return OBJECT_ID.test(wrappedId) ? wrappedId : base;
+		return wrappedId ?? base;
 	} finally {
 		await rm(indexDir, { recursive: true, force: true });
 	}
+}
+
+/** A tree of only these blobs, built in a private index; null when Git refuses. */
+async function writeExtrasTree(
+	dir: string,
+	blobs: readonly ExtraBlob[],
+	indexPath: string,
+): Promise<string | null> {
+	const env = { GIT_INDEX_FILE: indexPath };
+	const empty = await runGit(["read-tree", "--empty"], dir, 64, GIT_TIMEOUT_MS, {
+		env,
+	});
+	if (!empty.ok) return null;
+	for (const blob of blobs) {
+		const added = await runGit(
+			["update-index", "--add", "--cacheinfo", `${blob.mode},${blob.oid},${blob.path}`],
+			dir,
+			64,
+			GIT_TIMEOUT_MS,
+			{ env },
+		);
+		if (!added.ok) return null;
+	}
+	return objectIdFrom(["write-tree"], dir, { env });
+}
+
+/** Run a Git command that prints one object id; null unless it printed a valid one. */
+async function objectIdFrom(
+	args: string[],
+	dir: string,
+	options: { env?: Readonly<Record<string, string>>; input?: Buffer } = {},
+): Promise<string | null> {
+	const result = await runGit(args, dir, 128, GIT_TIMEOUT_MS, options);
+	const oid = result.ok ? result.stdout.toString().trim() : "";
+	return OBJECT_ID.test(oid) ? oid : null;
 }
 
 /**
@@ -256,19 +256,16 @@ async function untrackedSide(
 	dir: string,
 	objectId: string,
 ): Promise<Map<string, string>> {
-	const side = await runGit(
+	const sideId = await objectIdFrom(
 		["rev-parse", "--verify", "--quiet", `${objectId}^2`],
 		dir,
-		128,
 	);
-	const sideId = side.ok ? side.stdout.toString().trim() : "";
-	if (!OBJECT_ID.test(sideId)) return new Map();
-	const parent = await runGit(
+	if (sideId === null) return new Map();
+	const parent = await objectIdFrom(
 		["rev-parse", "--verify", "--quiet", `${sideId}^`],
 		dir,
-		128,
 	);
-	if (parent.ok && OBJECT_ID.test(parent.stdout.toString().trim())) return new Map();
+	if (parent !== null) return new Map();
 	const listed = await runGit(["ls-tree", "-r", "-z", sideId], dir, 32 * 1024 * 1024);
 	if (!listed.ok) return new Map();
 	const map = new Map<string, string>();
@@ -301,11 +298,7 @@ async function hashStdin(
 	const args = write
 		? ["hash-object", "-w", "--stdin", "--no-filters"]
 		: ["hash-object", "--stdin", "--no-filters"];
-	const hashed = await runGit(args, dir, 128, GIT_TIMEOUT_MS, {
-		input: Buffer.from(bytes),
-	});
-	const oid = hashed.ok ? hashed.stdout.toString().trim() : "";
-	return OBJECT_ID.test(oid) ? oid : null;
+	return objectIdFrom(args, dir, { input: Buffer.from(bytes) });
 }
 
 async function hashWorktree(dir: string, path: string): Promise<string | null> {
@@ -318,9 +311,7 @@ async function hashWorktree(dir: string, path: string): Promise<string | null> {
 		return hashStdin(dir, target, false);
 	}
 	if (!info.isFile()) return null;
-	const hashed = await runGit(["hash-object", "--no-filters", "--", path], dir, 128);
-	const oid = hashed.ok ? hashed.stdout.toString().trim() : "";
-	return OBJECT_ID.test(oid) ? oid : null;
+	return objectIdFrom(["hash-object", "--no-filters", "--", path], dir);
 }
 
 /** One name-status record from `git diff -z`, plus untracked paths. */
