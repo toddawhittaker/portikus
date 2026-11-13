@@ -24,7 +24,7 @@ export function AddressTab() {
 	if (address.isError) {
 		const off = address.error instanceof ApiError && address.error.status === 404;
 		return (
-			<AdminSection title={TITLE} intro={INTRO}>
+			<AdminSection title={TITLE} intro={INTRO} measure="form">
 				{off ? (
 					<Unavailable testId="address-off" />
 				) : (
@@ -37,7 +37,7 @@ export function AddressTab() {
 	}
 	if (!address.data) {
 		return (
-			<AdminSection title={TITLE} intro={INTRO}>
+			<AdminSection title={TITLE} intro={INTRO} measure="form">
 				<div className="grid gap-6" aria-busy="true" data-testid="address-loading">
 					<Skeleton variant="block" height={140} />
 					<Skeleton variant="block" height={280} />
@@ -48,7 +48,7 @@ export function AddressTab() {
 	const data = address.data;
 	const open = isOpen(data.job?.state);
 	return (
-		<AdminSection title={TITLE} intro={INTRO}>
+		<AdminSection title={TITLE} intro={INTRO} measure="form">
 			{data.apt && data.current ? (
 				<CurrentGroup current={data.current} />
 			) : (
@@ -88,7 +88,7 @@ function Unavailable({ testId }: { testId: string }) {
 function CurrentGroup({ current }: { current: NonNullable<AdminAddress["current"]> }) {
 	return (
 		<Group id="address-current-title" title="Current address" testId="address-current">
-			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dl className="pk-kv">
 				<dt className="pk-muted">Address</dt>
 				<dd className="m-0 [overflow-wrap:anywhere]" data-testid="address-current-url">
 					{addressText(current)}

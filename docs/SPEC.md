@@ -1027,7 +1027,7 @@ two pages of plain sentences, each with a table of contents. "Using your
 workspace" at `/help` holds the student part for everyone and the
 instructor part for instructors, administrators and anyone who teaches a
 course. "For administrators" at `/admin/help` holds the administrator
-part, shown inside the admin page under its tabs and guarded like every
+part, shown inside the admin page beside its rail and guarded like every
 admin route. Each page links to the other. The text holds nothing secret.
 Admin tab intros link to `/admin/help#admin-…`. The text
 lives in `apps/web/src/help/content` (one file per part), and every topic
@@ -3001,9 +3001,9 @@ student nothing but is still audited. Like Monitor, the Processes table
 keeps a fixed Stop column, so a row without Stop leaves that cell empty
 (Epic 22).
 
-The admin area has no minimum width and is checked at 560 px. The tab
-strip wraps to further rows (six at 320 px), and the page itself never
-scrolls sideways. When the scrolling content is narrower than 45rem, the
+The admin area has no minimum width and is checked at 560 px. Below
+35rem the page rail folds into one control (section 20.1, "Added by Epic
+64"), and the page itself never scrolls sideways. When the scrolling content is narrower than 45rem, the
 Users, Logs and Audit tables scroll sideways in their own box, a labelled
 focusable region that arrow keys scroll, and their header stops sticking.
 A control focused by keyboard inside one of these tables is scrolled fully
@@ -3014,24 +3014,17 @@ terminal, chat or editor pane zooms that pane, as Ctrl + wheel does, rather
 than the page.
 
 Added by Epic 33: the admin page keeps the app header to the wordmark,
-"Administration" and the account menu. Under it, a frame as wide as the
-window less a 16 px gutter on each side holds the admin tab strip at its
-top and the tab's content below. Text and forms keep their own measure,
-about 72 characters; tables use the full width. The frame has no side
-lines. The strip uses the right pane's tab look, with 36 px rows: tabs on
-the chrome with no rules between them, the current one with the selected
-tab's face and accent bar.
-Tabs are links, one per admin path, with `aria-current` on the current
-one. Each shows its icon and its whole name, with no fade, no hover text
-and no gaps between tabs. When the tabs do not fit on one row, they wrap
-to further rows in a fixed order, and keyboard order is left to right,
-top row first. In forced-colours mode the current tab, admin or
-workspace, carries a bar and is semibold, without shifting any tab.
-Only the content inside the frame scrolls, 16 px in from the lines and
-compact in density, with a stable scrollbar gutter just inside the right
-line. The header, the strip and the frame lines never move. Table
-headers stick at the top of the scrolling content, right under the
-strip. Panels kept in view beside long lists cap their height to the
+"Administration" and the account menu. Under it, a frame holds the page
+rail on the left and the page's content beside it (Epic 64 replaced the
+tab strip with the rail). Text and forms keep their own measure;
+tables use the full width.
+The rail's entries are links, one per admin path, with `aria-current` on
+the current one. Each shows its icon and its whole name. In forced-colours
+mode the current entry, and the current workspace tab, carries a bar and
+is semibold, without shifting any entry.
+Only the content inside the frame scrolls, compact in density, with a
+stable scrollbar gutter. The header and the rail never move. Table
+headers stick at the top of the scrolling content. Panels kept in view beside long lists cap their height to the
 scrolling area's height less the content padding. Where the content is
 narrower than 56rem, the Users detail panel stacks under the table
 instead of beside it. The Settings dialog's
@@ -3180,7 +3173,11 @@ Changed by Epic 25 (UI polish and help):
 - **Users table.** Five columns: selection; Account (the name with its
   tags, then email or username); Role; Workspace (label, state, and an
   "Old image" tag when out of date); and Activity ("Now" with the
-  connection count, or the time since a browser last connected). Since
+  connection count, or the time since a browser last connected, and a
+  dash when no browser ever connected; it never falls back to the last
+  sign-in). The search box matches the name, email, username, source
+  ("SSO" or "Course: <platform host>"), workspace label and workspace ID,
+  ignoring case; its placeholder names only the common three. Since
   Epic 15.2 (issue #860) the tags keep two causes apart. Stale is only
   about the account: no sign-in for 30 days, or a newer sign-in by another
   account with the same email (`apps/api/src/admin/markers.ts`). Old image
@@ -3190,15 +3187,14 @@ Changed by Epic 25 (UI polish and help):
   refetches the Users list at once instead of waiting for its next poll. A
   toolbar row is always there: "Showing N of M" when the view hides rows
   (archived workspaces are hidden by default), or "N selected" with the
-  bulk actions. Bulk Enable and Unarchive confirm in the neutral style.
+  bulk actions. Bulk Enable and Unarchive confirm in the neutral style,
+  because they restore rather than destroy.
 - **Detail panel.** Its head holds the name, the state and the lifecycle
   actions that fit the state. During a transition the opposite action
   stays enabled (Stop and Restart while starting, Start while stopping),
   so an administrator can rescue a stuck workspace, and a note says what
   it is waiting for. Only Start on an archived workspace is off, with its
-  reason. Then come Error, Workspace, Resources, Resource guard,
-  Processes, Ports and connections, Account, and Recent audit with the
-  logs link. Workspace has **Restore from backup…**, the Backups tab's
+  reason. Its sections sit in three tabs (Epic 64, below). Workspace has **Restore from backup…**, the Backups tab's
   restore dialog set to that workspace with a choice of the sets that
   hold it. Resources shows storage, use, limits and disconnect grace,
   with **Edit limits…**, whose blank fields name the site value, and
@@ -3227,8 +3223,8 @@ Changed by Epic 25 (UI polish and help):
   start from the workspace's panel.
 - **Network.** While the policy is not yet applied, the mode summary
   starts "Saved setting:".
-- **Course page.** It has an intro, and **Remove** is offered only on
-  students; the API refuses removing an instructor, whose membership
+- **Course page.** It has an intro, and **Remove from course** (in the
+  row's menu since Epic 64) is offered only on students; the API refuses removing an instructor, whose membership
   belongs to the learning system.
 
 Added by Epic 26 (section 16.6, ADR 0045): a **Docker** tab after
@@ -3303,9 +3299,7 @@ the host goes through the root site job (section 24.1):
 - **Tabs.** Two new tabs, **Sign-in** (`/admin/signin`, with a single
   sign-on group and an LMS platforms group) and **Site address**
   (`/admin/address`). They always show; off an apt install the address
-  and single sign-on parts say they are unavailable. The admin tab strip
-  fits on one row from a 1366 px window and wraps to further rows below
-  that.
+  and single sign-on parts say they are unavailable.
 - **Single sign-on.** The page sets Entra, Google, generic OIDC or "Dex
   passwords only"; LDAP shows read-only and is set with
   `dpkg-reconfigure portikus`. A change is a 30-minute trial. **Test
@@ -3348,6 +3342,82 @@ the host goes through the root site job (section 24.1):
   agent's recent warnings and errors (the last 200, warn and above),
   labelled as reported by the workspace, because the workspace's owner
   can change what it says.
+
+Added by Epic 64: the admin and course pages share one page frame.
+
+- **Rail.** The admin pages are listed in a left rail in five groups,
+  each under a visible label: People (Users), Activity (Health, Logs,
+  Audit, Agent usage), Server (Network, Backups, Image, Certificate,
+  Docker), Site (Sign-in, Address, Settings) and Shell (Root shell, only
+  where root shells are offered). The rail stays in view while the page
+  scrolls. Health carries a count of the items that need attention, with
+  the same count in words for screen readers. Below 35rem the rail folds
+  into one 44 px control that names the open page and opens the grouped
+  list; Escape closes it and returns focus to the control.
+- **Page.** Each page reads top to bottom: an eyebrow, the page title
+  (the h1), an attention summary when something needs a look, the work
+  surface, and a side inspector where a row can be opened. A page shows
+  one attention count, not the same number twice. Explanatory text is
+  capped near 65 to 70 characters a line.
+- **Status bar.** Every admin page has the student status bar at its
+  foot: the site's host name, the host's vitals and one state saying
+  whether anything needs a look, each leading to Health.
+- **Status.** A normal state is a dot and a word; a badge marks an
+  exception. An error count of zero is drawn neutral. State is never
+  shown by colour alone.
+- **Tables.** Hairline rows, overline headers, and tabular figures in
+  numeric columns only.
+- **One primary.** A page has at most one filled button. On Users, where
+  the site runs Dex passwords, **Add user…** is the primary and
+  **Invite…** and **Import from CSV…** sit in a **More** menu beside it;
+  otherwise **Invite…** is the primary with **Import from CSV…** beside
+  it. On Backups, **Back up now** is outlined while the restore key is
+  missing.
+- **Users inspector.** Choosing a person opens their inspector beside the
+  table (under it where the content is narrower than 56rem), with three
+  tabs, in this order. **Overview** holds Error, Resources, Resource
+  guard and Workspace (with **Restore from backup…** and Rebuild); a
+  workspace with a problem shows its guard part first and marks the
+  Overview tab. **Activity** holds Processes, Ports and connections, the
+  Agent log and Recent audit. **Account** holds, in order: View this user's logs, Promote, Make
+  instructor, Link a course account…, **Disable account**, then the
+  Destructive group of **Reset Docker** and **Archive workspace**, the
+  group hidden when neither applies. Each of Promote, Make instructor,
+  Disable account, Reset Docker and Archive workspace has its toggletip
+  after it. On an archived workspace, Archive and its toggletip are gone
+  and **Unarchive** is a plain button in the panel head after the
+  lifecycle buttons; it restores, so it confirms nothing. After Archive,
+  focus moves to Unarchive; after Unarchive, to the panel heading. Every tab stays mounted, so an
+  edit in progress survives a tab switch. This replaces the single
+  column order given under Epic 25 above.
+- **Logs and Audit** are workbenches: one filter bar at the top, the
+  results as rows, and an inspector for the chosen row. A Logs row leads
+  with the message in plain words, with the method and route beneath.
+  Filter chips, here and in the Course page's member filter, show
+  their chosen state by a check icon as well as colour. The service log level sits under the results beside Auto
+  refresh.
+- **Backups.** A set's row shows **Restore…** and a menu that holds
+  **Delete set…**; a set the server keeps shows Delete set as
+  unavailable with the reason. While a set is being deleted its row says
+  "Deleting…" in a polite live region and the menu item reads
+  "Deleting…". Backups leads with recovery readiness and
+  the last 14 nights.
+- **Settings** has a section index that stays in view.
+- **Tables that scroll sideways** in a narrow box are focusable, named
+  scroll regions, so the keyboard can reach columns with no control.
+- **Toggletips** explain the Users column headers and the Health parts.
+- **Disabled buttons** have no fill, a solid hairline edge and faint but
+  readable text, never a dashed edge.
+- **Course page.** The page opens with **Class now**, a sentence counting
+  the students and those failed or waiting for help, over one dot per
+  student with a legend for the dot colours; the sentence carries the
+  meaning, so the dots are hidden from screen readers. The live help
+  queue sits beside it. Members follows, with **Remove from course** in a
+  student's row menu. A live help session and a shared project open in a
+  frame drawn like the student workspace, with one back link to the
+  course. In a live help session the Request and Previews panel sits
+  beside the terminal from 56rem; narrower, it is a disclosure under the
+  terminal that starts closed.
 
 ### 20.2 User impersonation
 

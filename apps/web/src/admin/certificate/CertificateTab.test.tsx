@@ -768,13 +768,13 @@ test("the install steps are term and step pairs, one per system", async () => {
 		"Linux",
 		"Firefox",
 	]);
-	// A command wraps only between its words; a path has none, so it may break
-	// anywhere rather than push a narrow card sideways (WCAG 1.4.10).
+	// A command stays on one line, so it reads and copies as typed; a path has
+	// no spaces, so it may break anywhere rather than push a narrow card sideways
+	// (WCAG 1.4.10).
 	for (const code of steps.querySelectorAll("code")) {
-		expect(code.className).not.toContain("whitespace-nowrap");
-		expect(code.className.includes("[overflow-wrap:anywhere]")).toBe(
-			!code.textContent?.includes(" "),
-		);
+		const command = code.textContent?.includes(" ") ?? false;
+		expect(code.className.includes("whitespace-nowrap")).toBe(command);
+		expect(code.className.includes("[overflow-wrap:anywhere]")).toBe(!command);
 	}
 });
 

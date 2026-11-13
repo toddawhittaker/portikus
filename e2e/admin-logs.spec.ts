@@ -167,6 +167,8 @@ test.describe("admin logs", () => {
 		await page.getByTestId("admin-filter-text").fill(warned.name);
 		await page.getByRole("button", { name: `Show details for ${warned.name}` }).click();
 		const account = page.getByRole("region", { name: warned.name });
+		// The user's logs link sits on the inspector's Account tab.
+		await account.getByRole("tab", { name: "Account" }).click();
 		const userLogs = account.getByRole("link", { name: "View this user's logs" });
 		// pk-link is styled: underlined in the accent text colour.
 		await expect(userLogs).toHaveCSS("text-decoration-line", "underline");
@@ -185,7 +187,8 @@ test.describe("admin logs", () => {
 		await page.getByRole("button", { name: `Show details for ${warned.name}` }).click();
 		const panel = page.getByRole("region", { name: warned.name });
 		await expect(panel.getByText(/journalctl/)).toHaveCount(0);
-		// The workspace's logs link sits in the panel's Recent audit section.
+		// The workspace's logs link sits in the panel's Recent audit section, on the Activity tab.
+		await panel.getByRole("tab", { name: "Activity" }).click();
 		await panel
 			.getByRole("region", { name: "Recent audit events" })
 			.getByRole("link", { name: "Logs for this workspace" })
@@ -292,7 +295,7 @@ test.describe("admin logs", () => {
 		await expect(toggle).toHaveAttribute("aria-expanded", "false");
 	});
 
-	test("the service log level sits above the filters, which are one grouped block", async ({
+	test("the service log level sits apart from the filters, beside Auto refresh, and the filters are one grouped block", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
@@ -302,10 +305,20 @@ test.describe("admin logs", () => {
 		// parallel worker, and this test is about layout.
 		await expect(level).toBeEnabled({ timeout: 15_000 });
 		const filters = page.getByRole("group", { name: "Filters" });
+		// A setting, not a filter: outside the filter block, on the results' toolbar row.
+		await expect(
+			filters.getByRole("combobox", { name: "Services log at" }),
+		).toHaveCount(0);
 		const levelBox = await level.boundingBox();
 		const filtersBox = await filters.boundingBox();
-		if (!levelBox || !filtersBox) throw new Error("not visible");
-		expect(levelBox.y + levelBox.height).toBeLessThanOrEqual(filtersBox.y);
+		const autoBox = await page.getByTestId("logs-auto-refresh").boundingBox();
+		if (!levelBox || !filtersBox || !autoBox) throw new Error("not visible");
+		expect(levelBox.y).toBeGreaterThanOrEqual(filtersBox.y + filtersBox.height);
+		const middle = (box: { y: number; height: number }) => box.y + box.height / 2;
+		expect(Math.abs(middle(levelBox) - middle(autoBox))).toBeLessThanOrEqual(
+			autoBox.height / 2,
+		);
+		expect(levelBox.x).toBeGreaterThan(autoBox.x + autoBox.width);
 		// On the sunken surface, with Apply and Clear inside it.
 		await expect(filters).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 		await expect(filters.getByRole("button", { name: "Apply filters" })).toBeVisible();
@@ -316,9 +329,17 @@ test.describe("admin logs", () => {
 		// A name nobody has is refused in the form, and nothing is sent.
 		const person = page.getByRole("combobox", { name: "Person" });
 		await person.fill("Nobody By This Name");
-		await page.getByRole("button", { name: "Apply filters" }).click();
+		// Until the list of people arrives the form says so instead; press again once it has.
+		await expect(async () => {
+			await page.getByRole("button", { name: "Apply filters" }).click();
+			await expect(person).toHaveAccessibleDescription(
+				"Choose a person from the list.",
+				{
+					timeout: 1_000,
+				},
+			);
+		}).toPass({ timeout: 15_000 });
 		await expect(person).toHaveAttribute("aria-invalid", "true");
-		await expect(person).toHaveAccessibleDescription("Choose a person from the list.");
 		await expect(page).not.toHaveURL(/user=/);
 	});
 

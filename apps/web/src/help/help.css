@@ -123,6 +123,10 @@
 .pk-help-article ul {
 	margin: 0;
 }
+/* About 65 to 70 characters a line: Public Sans sets about 1.3 characters to each ch. */
+.pk-help-article :is(p, li, dd) {
+	max-inline-size: 52ch;
+}
 .pk-help-article ol,
 .pk-help-article ul {
 	list-style: decimal;
@@ -162,4 +166,22 @@
 .pk-help-article code,
 .pk-help-article kbd {
 	font-size: 0.875em;
+}
+
+/*
+ * Inside the admin frame the help takes the console's levels: the page title
+ * at the console size, the contents' part name as the overline the rail uses,
+ * and the body at the console's reading size.
+ */
+.pk-adminframe-scroll .pk-help > h1 {
+	font-size: 26px;
+	line-height: var(--leading-2xl);
+	letter-spacing: -0.015em;
+}
+.pk-adminframe-scroll .pk-help-toc-part > a {
+	font-size: 11px;
+	line-height: var(--leading-xs);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
 }

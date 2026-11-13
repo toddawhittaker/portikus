@@ -271,8 +271,8 @@ has a Help item that opens, in a new tab, `/admin/help` from an admin
 page and `/help` everywhere else. `/help`, "Using your workspace", shows the
 part for students to everyone and the instructor part to instructors,
 administrators and anyone who teaches a course. `/admin/help`, "For
-administrators", holds only the administrator part and sits under the admin
-tabs, with no tab marked current; only administrators reach it. Each page
+administrators", holds only the administrator part and sits beside the admin
+rail, with no page marked current; only administrators reach it. Each page
 links to the other. The split is presentation only; the text holds nothing
 secret.
 
@@ -281,9 +281,12 @@ Logs time filter keep the native `select`; everywhere else uses `Select`.
 Dialogs take the density of what opened them, so a dialog opened from the
 compact admin page is compact.
 
-**Admin tab order (Epic 25).** Users, then Health, Logs and Audit, then
-Network, Backups and Settings, with a small gap before each group and no
-group labels. The tab addresses did not change.
+**Admin page order.** The admin pages are listed in a left rail in five
+groups, each under a small overline label: People (Users), Activity (Health,
+Logs, Audit, Agent usage), Server (Network, Backups, Image, Certificate,
+Docker), Site (Sign-in, Address, Settings) and Shell (Root shell, only where
+the server offers it). The addresses are still `/admin/<page>`. On a phone
+the rail folds into one control that names the open page.
 
 ## 10. Which Monaco features are on
 
@@ -355,7 +358,8 @@ of the tab strips, so the line under them meets across the shell.
 Teal and violet are kept apart on purpose: a student can tell at a glance
 whether something is theirs to do or an agent's doing. Text and status
 colours meet 4.5:1, and control borders 3:1, on the chrome, work and
-raised surfaces in both themes (SPEC 25.8).
+raised surfaces in both themes (SPEC 25.8). Muted and faint text sit close
+to the body ink in both themes, so secondary text stays easy to read.
 
 **Type.** Public Sans for the interface, JetBrains Mono for code. The
 interface uses five sizes: 12 px for metadata, badges and the status bar;
@@ -367,24 +371,96 @@ at 14 px. Weight 600 is for titles, selected names and badges. Paths and
 folder names in the chrome use the interface face, so the chrome never
 reads as code.
 
-**Admin pages.** The page title is 20 px semibold, a card's title 16 px,
-and a group's label inside a card 12 px semibold in the muted ink, so the
-three levels read apart. Under the title, one sentence says what the page
-is for; the rest of the "About …" text and "More in Help" sit in a
-disclosure that starts closed. The tabs sit on the chrome with no rules
-between them and the frame has no side lines. Admin controls are compact
-(32 px, 13 px text) but otherwise the student set: one radius, the
-`line-strong` edge, one focus ring. Native selects drop the browser arrow
-for a caret in the muted ink, and native boxes tick in the accent.
-Disclosures use the chevron that turns when open, never the browser's
-triangle.
+**Admin pages.** Every admin page uses one frame. The left rail lists the
+pages (section 9); it stays in view while the page scrolls, and Health
+shows a count pill there when something needs attention. The page itself
+reads top to bottom: a quiet eyebrow (the portico glyph and the word
+Administration), the page title, an attention summary when something needs
+a look, the work surface (a table, chart or form), and, where a row can be
+opened, a side inspector beside it. The status bar students see runs along
+the foot of every admin page, showing the site, the host's vitals and one
+state that leads to Health. There are three type levels: the page title at
+28 px, a section title at 18 px, and an overline (11 px, spaced capitals,
+muted) that names a group, a tile or a column. The overline is the one
+size under the 12 px step of the type scale, kept for table headers, tile
+labels and the rail's group labels; nothing else uses 11 px. Under the title, one sentence
+says what the page is for; the rest of the "About …" text and "More in
+Help" sit in a disclosure that starts closed. Explanatory text is capped
+near 65 to 70 characters a line. Admin controls are 36 px tall with 14 px
+text, the student set: one radius, the `line-strong` edge,
+one focus ring; on a phone, checkboxes are 20 px and preset and segment
+targets 44 px. Native selects drop the browser arrow for a caret in the
+muted ink, and native boxes tick in the accent. Disclosures use the chevron
+that turns when open, never the browser's triangle.
+
+**The inspector.** Choosing a person on Users opens their inspector beside
+the table, with the selected row in the student selected-row look. It has
+three tabs: Overview (errors first, then storage and limits, the guard, the
+image, Restore from backup and Rebuild), Activity (processes, ports, the
+agent log and recent audit events) and Account (the account, linked course
+accounts, and the actions that disable or delete). Overview carries an
+attention mark when the workspace has a problem. Every tab stays mounted, so
+an edit survives a tab switch.
+
+**Status on admin pages.** A normal state is a small dot and a word, both in
+the state's colour ("Running" in green, "Stopped" in the stopped grey); a badge is kept for an exception, such as
+an error, a throttled workspace or a waiting invitation, so badges stand out
+because they are rare. A count of errors that is zero is drawn neutral,
+never red. A page shows one attention count, not the same number twice.
+
+**Admin tables.** Tables are reading surfaces: hairline rules between rows,
+headers in the overline style, and tabular figures for numeric columns only,
+so names and words keep their normal spacing. Actions a row rarely needs
+(Delete set… on Backups, Remove from course on the Course page) sit in a
+menu at the row's end, leaving at most one visible row action.
+
+**One primary button per page.** Each page has at most one filled button,
+for the action the page is for. On Users that is Add user…, with Invite… and
+Import from CSV… in a More menu beside it (where the site has no Portikus
+passwords, Invite… is the primary and Import sits beside it). On Backups,
+Back up now is outlined while the restore key is still missing.
+
+**Logs and Audit are workbenches.** Each has one filter bar at the top, the
+results as readable rows below it, and a side inspector for the chosen row.
+Logs rows lead with the message in plain words, with the method and route
+beneath; level chips use their own colour. Filter chips have one look everywhere,
+on Logs and on the Course page's member filter alike: a chosen chip shows
+a check icon and a plain one does not, so the state never rests on colour.
+The service log level sits under the results beside Auto refresh. Audit
+lines up its event codes in one column.
+
+**Other admin pages.** Health reads as an incident briefing: attention rows
+that link into Users, Logs and Audit, one strip of host vitals, failures
+beside a state bar, and short platform facts. Agent usage opens with a
+summary and a daily chart. Backups leads with recovery readiness and a
+strip of the last 14 nights. Settings has a section index that stays in
+view, shows each value with its default on one line and Last changed in the
+title row, puts longer explanations in disclosures, and previews the guard
+rules in plain words. Network hosts are cards. An empty state uses the
+portico picture (`StateArt`) in its quiet form.
+
+**The instructor course page.** It uses the admin frame and type levels. At
+the top, Class now sums up the students in one sentence ("24 students · 3
+waiting for help") over a row of dots, one per student, sorted so who needs
+the instructor comes first: green running, amber waiting for help, red
+failed, a hollow ring stopped. A small legend names the dot colours; the
+dots themselves are decorative because the sentence says the same. The
+live help queue sits beside Class now. Below, Members lists the people,
+with Remove from course in each student's row menu, and the course
+settings. A live help session opens in a terminal frame drawn like the
+student workspace, with one back link where the eyebrow sits, and the
+shared project page works the same way.
 
 **Buttons.** A primary button is the accent fill; a secondary one is the
 raised face with a `line-strong` edge. A destructive action that sits
-beside quieter ones in a row, such as a backup's Delete…, is the
-danger-secondary button: danger text and edge on the raised face. A
-button that cannot act has no fill, a dashed edge and faint text, so it
-never reads as an enabled secondary button.
+beside quieter ones in a row, such as a snapshot's Delete…, is the
+danger-secondary button: danger text and edge on the raised face. The
+filled primary uses its own `accent-fill` token, which in the dark theme is
+a deeper teal than `accent`, so its white label stays well over 4.5:1 while
+the brighter `accent` marks checks, dots and selection. A filled danger
+button is white on solid red (`danger-fill`) in both themes. A button that
+cannot act has no fill, a solid hairline edge and faint text that stays
+readable; it is never dashed.
 
 **Meters.** Every bar of figures uses one meter: a filled track
 (`meter-track`) with no edge and its figure beside it in text. In the
@@ -406,7 +482,8 @@ editor.
 **Badges.** Every status is one `Badge` (22 px tall, 12 px semibold, 4 px
 corners) in one of seven tones: success, warning, danger, info, neutral,
 accent, agent. Workspace states, check results and the
-needs-input tag all use it. A new status picks a tone rather than a new
+needs-input tag all use it, except that admin and course pages draw a
+normal state as a dot and a word and keep the badge for exceptions. A new status picks a tone rather than a new
 pill, and always carries a word or letter, never colour alone. Git marks are
 not badges: each is a 12 px semibold letter in the kind's colour (M amber,
 U and A green, D red, R blue, and a conflict magenta with the alert icon),
@@ -421,8 +498,8 @@ amber start border, the workspace starting card, menus, popovers and
 toasts. Dialogs have the large shadow. Errors in the chat and on the
 workspace card have a 4 px red start border.
 
-**Selection.** One selected look per kind of thing. A tab, in the work area
-or the admin strip, takes the work area's ground as its face (in the right
+**Selection.** One selected look per kind of thing. A tab in the work area
+takes the work area's ground as its face (in the right
 pane the raised face), with full-ink text and a 2 px teal bar along its
 foot; its icon turns teal, or stays violet for an agent. A row in
 the project list, agent rows included, has a soft teal fill, a 2 px teal

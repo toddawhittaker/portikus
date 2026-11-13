@@ -25,8 +25,10 @@ export type NumberKey =
 export interface NumberSetting {
 	label: string;
 	unit: string;
-	/** What it does, in one or two plain sentences (SPEC.md sections 6.4 and 19.4). */
+	/** What it does, in one short line, shown with the box (SPEC.md sections 6.4 and 19.4). */
 	description: string;
+	/** The full explanation, behind a "More about" disclosure; absent when the line says it all. */
+	more?: string;
 	/** The default, the range, and where else it is set. */
 	meta: string;
 	/** What to enter instead, shown under the field. */
@@ -38,12 +40,12 @@ export interface NumberSetting {
 	parse: (text: string) => number | null;
 }
 
-const PER_WORKSPACE = "Also set per workspace on the Users tab.";
+const PER_WORKSPACE = "Per workspace too.";
 
 /** A setting the per-workspace guard dialog shares: its label, unit and range come from there. */
 function shared(
 	key: GuardKey,
-	text: { description: string; meta: string },
+	text: { description: string; more?: string; meta: string },
 ): NumberSetting {
 	const field = GUARD_FIELDS.find((item) => item.key === key);
 	if (!field) throw new Error(`no guard field ${key}`);
@@ -78,9 +80,9 @@ export const NUMBER_SETTINGS: Record<NumberKey, NumberSetting> = {
 	shutdownGraceSeconds: {
 		label: "Disconnect grace",
 		unit: "minutes",
-		description:
-			"How long a workspace keeps running after the student's last browser tab closes or loses its connection, so a reload or a Wi-Fi drop comes back to a running workspace. 0 keeps it running until it is stopped by hand.",
-		meta: "Default 10 minutes. Also set per student on the Users tab.",
+		description: "How long a workspace keeps running after its last tab closes.",
+		more: "How long a workspace keeps running after the student's last browser tab closes or loses its connection, so a reload or a Wi-Fi drop comes back to a running workspace. 0 keeps it running until it is stopped by hand.",
+		meta: "Default 10 minutes. Per workspace too.",
 		error: "Enter a number of minutes, 0 or more.",
 		inputMode: "decimal",
 		// Shown in minutes; the API keeps seconds (SPEC.md section 6.4).
@@ -88,23 +90,23 @@ export const NUMBER_SETTINGS: Record<NumberKey, NumberSetting> = {
 		parse: parseGraceMinutes,
 	},
 	idleStopMinutes: shared("idleStopMinutes", {
-		description:
-			"With no key press, click, file save or preview visit for this long, the student is asked “Still working?” and the workspace stops five minutes later, even with a tab open. 0 turns idle stop off.",
+		description: "Stops a workspace after this long with no activity. 0 turns it off.",
+		more: "With no key press, click, file save or preview visit for this long, the student is asked “Still working?” and the workspace stops five minutes later, even with a tab open. 0 turns idle stop off.",
 		meta: `Default 60 minutes; 10 to 1,440. ${PER_WORKSPACE}`,
 	}),
 	keepRunningMaxHours: shared("keepRunningMaxHours", {
-		description:
-			"The longest a student can choose Keep running, for example while an agent works overnight. Neither timer applies until then. Lowering it shortens holds already set. 0 turns Keep running off.",
+		description: "The longest a student can choose Keep running. 0 turns it off.",
+		more: "The longest a student can choose Keep running, for example while an agent works overnight. Neither timer applies until then. Lowering it shortens holds already set. 0 turns Keep running off.",
 		meta: `Default 12 hours; up to 168. ${PER_WORKSPACE}`,
 	}),
 	guardWindowMinutes: shared("windowMinutes", {
 		description:
-			"CPU and memory use are averaged over this period before a workspace is slowed or flagged. It applies to both rules below.",
+			"CPU and memory use are averaged over this period before any rule acts.",
 		meta: `Default 30 minutes; 5 to 240. ${PER_WORKSPACE}`,
 	}),
 	cpuGuardThresholdPercent: shared("cpuThresholdPercent", {
-		description:
-			"Average CPU use, as a share of the workspace's CPUs, that counts as heavy. 100 turns slowing off.",
+		description: "Average CPU use that counts as heavy. 100 turns slowing off.",
+		more: "Average CPU use, as a share of the workspace's CPUs, that counts as heavy. A workspace above it for the whole measuring period is slowed. 100 turns slowing off.",
 		meta: `Default 80%; 1 to 100. ${PER_WORKSPACE}`,
 	}),
 	cpuThrottleSharePercent: shared("throttleSharePercent", {
@@ -116,7 +118,8 @@ export const NUMBER_SETTINGS: Record<NumberKey, NumberSetting> = {
 			label: "Quiet time",
 			unit: "minutes",
 			description:
-				"A slowed workspace gets full speed back by itself once it stays quiet this long. Stopping and starting it also does, unless it is held.",
+				"How long a slowed workspace stays quiet before it gets full speed back.",
+			more: "A slowed workspace gets full speed back by itself once it stays quiet this long. Stopping and starting it also does, unless it is held.",
 			meta: "Default 5 minutes; 1 to 60.",
 			error: "Enter a whole number from 1 to 60.",
 		},
@@ -127,7 +130,8 @@ export const NUMBER_SETTINGS: Record<NumberKey, NumberSetting> = {
 			label: "Quiet means under",
 			unit: "%",
 			description:
-				"CPU use under this share, and under half the slowed speed, counts as quiet. 0 turns the automatic return off.",
+				"CPU use under this counts as quiet. 0 turns the automatic return off.",
+			more: "CPU use under this share, and under half the slowed speed, counts as quiet. 0 turns the automatic return off.",
 			meta: "Default 10%; up to 100.",
 			error: "Enter 0 to turn the automatic return off, or a whole number up to 100.",
 		},
@@ -138,7 +142,8 @@ export const NUMBER_SETTINGS: Record<NumberKey, NumberSetting> = {
 			label: "Slowdowns before a hold",
 			unit: "slowdowns",
 			description:
-				"After this many slowdowns within the hold period, the workspace stays slowed even through a restart. It still gets full speed back when it goes quiet or you lift it. 0 turns holds off.",
+				"Slowdowns in the hold period before a workspace stays slowed. 0 turns holds off.",
+			more: "After this many slowdowns within the hold period, the workspace stays slowed even through a restart. It still gets full speed back when it goes quiet or you lift it. 0 turns holds off.",
 			meta: "Default 3; up to 10.",
 			error: "Enter 0 to turn holds off, or a whole number up to 10.",
 		},
@@ -155,8 +160,8 @@ export const NUMBER_SETTINGS: Record<NumberKey, NumberSetting> = {
 		CpuThrottleHoldHours,
 	),
 	memoryGuardThresholdPercent: shared("memoryThresholdPercent", {
-		description:
-			"Average memory use, as a share of the workspace's memory limit, that flags it on the Health and Users tabs. Nothing is slowed. 100 turns flagging off.",
+		description: "Average memory use that flags a workspace. 100 turns flagging off.",
+		more: "Average memory use, as a share of the workspace's memory limit, that flags it on the Health and Users tabs. Nothing is slowed. 100 turns flagging off.",
 		meta: `Default 90%; 1 to 100. ${PER_WORKSPACE}`,
 	}),
 };

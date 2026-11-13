@@ -297,7 +297,7 @@ test("archive is a neutral action and confirms with a success toast", async () =
 
 	const surface = await screen.findByTestId("dialog-archive-project");
 	const confirm = within(surface).getByTestId("dialog-confirm");
-	expect(confirm.className).not.toContain("bg-status-danger");
+	expect(confirm.className).not.toContain("bg-danger-fill");
 	fireEvent.click(confirm);
 
 	const toast = await screen.findByText(`${TODO.name} archived`);

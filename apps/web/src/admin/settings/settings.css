@@ -1,0 +1,29 @@
+/*
+ * The resource guard's rules in plain words: a sunken well above the boxes,
+ * neutral ink with the figures in weight 600, so it reads as an explanation
+ * and never as a warning.
+ */
+.pk-guard-preview {
+	display: grid;
+	gap: var(--space-1);
+	padding: var(--space-3) var(--space-4);
+	border-radius: var(--radius-md);
+	background: var(--surface-sunken);
+	border-inline-start: 2px solid var(--accent);
+}
+.pk-guard-preview-line {
+	margin: 0;
+	max-width: 68ch;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	color: var(--ink);
+}
+.pk-guard-preview-line.pk-muted {
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--ink-muted);
+}
+.pk-guard-preview-line strong {
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}

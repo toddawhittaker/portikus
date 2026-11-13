@@ -1,6 +1,7 @@
 import type { AdminWorkspaceDetail } from "@portikus/contracts";
 import { Toggletip } from "@portikus/ui";
 import { shortTime } from "../../text.js";
+import { TableBox } from "../TableBox.js";
 import { PANEL_HELP, SECTION_HEADING } from "./shared.js";
 
 export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
@@ -9,10 +10,8 @@ export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 			<h4 id="detail-ports" className={SECTION_HEADING}>
 				Ports and connections
 			</h4>
-			{detail.ports.length === 0 ? (
-				<p className="pk-text-compact pk-muted m-0">No listening ports.</p>
-			) : (
-				<div className="pk-table-wrap">
+			{detail.ports.length === 0 ? null : (
+				<TableBox label="Listening ports">
 					<table className="pk-table" data-testid="detail-ports">
 						<caption className="sr-only">Listening ports</caption>
 						<thead>
@@ -42,17 +41,22 @@ export function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 							))}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			)}
-			<p className="pk-text-compact m-0" data-testid="detail-sessions">
-				{detail.previewSessions.length === 0
-					? "No open preview sessions."
-					: `Open preview sessions: ${detail.previewSessions
-							.map(
-								(session) =>
-									`port ${session.port} since ${shortTime(session.openedAt)}`,
-							)
-							.join(", ")}.`}
+			<p className="pk-text-compact m-0">
+				{detail.ports.length === 0 ? (
+					<span className="pk-muted">No listening ports. </span>
+				) : null}
+				<span data-testid="detail-sessions">
+					{detail.previewSessions.length === 0
+						? "No open preview sessions."
+						: `Open preview sessions: ${detail.previewSessions
+								.map(
+									(session) =>
+										`port ${session.port} since ${shortTime(session.openedAt)}`,
+								)
+								.join(", ")}.`}
+				</span>
 			</p>
 		</section>
 	);

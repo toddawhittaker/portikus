@@ -5,8 +5,8 @@ import { ApiError } from "../../api/request.js";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
 import { isUsersList, usersBody } from "../users/testRows.js";
 import { emptyText } from "./filters.js";
-import { linesText, partialText, refreshNote } from "./LogResults.js";
-import { levelTagClass, levelText, messageOf } from "./line.js";
+import { linesText, partialText, refreshNote, shownColumns } from "./LogResults.js";
+import { levelText, levelTone, messageOf, statusClass } from "./line.js";
 import { refreshInterval, retryBusy } from "./queries.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -128,9 +128,14 @@ test("level tags name the level in words, coloured where it applies", () => {
 	expect(levelText("fatal")).toBe("Fatal");
 	expect(levelText("warn")).toBe("Warn");
 	expect(levelText("trace")).toBe("trace");
-	expect(levelTagClass("fatal")).toBe("pk-tag pk-tag--error");
-	expect(levelTagClass("warn")).toBe("pk-tag pk-tag--warning");
-	expect(levelTagClass("info")).toBe("pk-tag");
+	expect(levelTone("fatal")).toBe("danger");
+	expect(levelTone("error")).toBe("danger");
+	expect(levelTone("warn")).toBe("warning");
+	expect(levelTone("info")).toBe("neutral");
+	expect(statusClass("503")).toBe("text-status-error");
+	expect(statusClass("404")).toBe("text-status-warning");
+	expect(statusClass("200")).toBeUndefined();
+	expect(statusClass("")).toBeUndefined();
 	expect(messageOf({ msg: "request", error: "Too many terminals" })).toBe(
 		"Too many terminals",
 	);
@@ -667,4 +672,22 @@ test("a failed log-level save is an alert tied to the select", async () => {
 	expect(error.textContent).toBe("Something broke");
 	expect(select.getAttribute("aria-invalid")).toBe("true");
 	expect(select.getAttribute("aria-describedby")).toBe(error.id);
+});
+
+test("a column empty on every loaded line is left out", () => {
+	expect(shownColumns([logLine(1, { msg: "request" })])).toEqual({
+		status: false,
+		user: false,
+		workspace: false,
+	});
+	expect(
+		shownColumns([
+			logLine(1, { msg: "request" }),
+			logLine(
+				2,
+				{ code: "RATE_LIMITED", route: "/a", status: 429, workspaceId: WS },
+				"Alice",
+			),
+		]),
+	).toEqual({ status: true, user: true, workspace: true });
 });

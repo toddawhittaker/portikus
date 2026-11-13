@@ -14,6 +14,8 @@ import { useRef, useState } from "react";
 import { AdminGroup } from "../AdminSection.js";
 import type { EntryDraft } from "./EntryDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
+import "./network.css";
+import { TableBox } from "../TableBox.js";
 
 /** The administrator's own host names and address ranges, with labels. */
 export function EntriesPart({
@@ -76,8 +78,8 @@ export function EntriesPart({
 					from the refused names or the host test.
 				</p>
 			) : (
-				<div className="pk-table-wrap">
-					<table className="pk-table" data-testid="egress-entries">
+				<TableBox label="Your hosts and ranges">
+					<table className="pk-table pk-host-table" data-testid="egress-entries">
 						<caption className="sr-only">Your hosts and ranges</caption>
 						<thead>
 							<tr>
@@ -92,16 +94,17 @@ export function EntriesPart({
 							{view.entries.map((entry) => (
 								<tr key={entry.id} data-testid="egress-entry-row">
 									<td>
-										<span className="font-mono">{entry.value}</span>
+										<span className="pk-host-value font-mono">{entry.value}</span>
 										{entry.kind === "range" ? (
 											<span className="ml-2 text-[12px] text-ink-muted">range</span>
 										) : null}
 									</td>
 									<td className="text-ink-muted">{entry.label || "No label"}</td>
-									<td className="text-right whitespace-nowrap">
+									<td className="pk-host-actions text-right whitespace-nowrap">
 										<Button
 											size="sm"
 											variant="quiet"
+											className="pk-row-action"
 											aria-label={`Edit ${entry.value}`}
 											onClick={() =>
 												onEdit({
@@ -117,6 +120,7 @@ export function EntriesPart({
 										<Button
 											size="sm"
 											variant="quiet"
+											className="pk-row-action"
 											aria-label={`Remove ${entry.value}`}
 											onClick={() => {
 												removed.current = false;
@@ -130,7 +134,7 @@ export function EntriesPart({
 							))}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			)}
 			<ConfirmDialogRoot
 				open={removing !== null}

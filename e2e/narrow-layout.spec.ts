@@ -358,7 +358,8 @@ for (const viewport of SHORT) {
 				await expect(region).toBeFocused();
 				// The box shows the keyboard where it is.
 				await expect(region).toHaveCSS("outline-style", "solid");
-				const last = page.getByTestId(table).locator("thead th").last();
+				// A phone's stacked Users table hides the heads its rows fold away; the last shown one must show whole.
+				const last = page.getByTestId(table).locator("thead th:visible").last();
 				const box = await boxOf(region);
 				// Arrow keys scroll smoothly, and a live table can grow a column
 				// after a press, so keep pressing until the box rests at its end.
@@ -408,13 +409,28 @@ const ADMIN_TABS = [
 	"shell",
 ];
 
-/** Everything in the admin content fits its width, and a wide table scrolls in its own box. */
+/**
+ * Everything in the admin content fits its width, and anything wider (a wide
+ * table, the Settings index's strip on a phone) scrolls in its own box. The
+ * box itself must still fit.
+ */
 async function expectAdminContentFits(page: Page): Promise<void> {
 	const overflow = await page.evaluate(() => {
 		const main = document.querySelector("[data-testid=page-admin]") as HTMLElement;
 		const right = main.getBoundingClientRect().left + main.clientWidth + 1;
+		const inOwnScroller = (el: Element): boolean => {
+			for (
+				let node = el.parentElement;
+				node && node !== main;
+				node = node.parentElement
+			) {
+				const x = getComputedStyle(node).overflowX;
+				if (x === "auto" || x === "scroll") return true;
+			}
+			return false;
+		};
 		const spill = [...main.querySelectorAll("*")]
-			.filter((el) => !el.closest(".pk-table-wrap"))
+			.filter((el) => !el.closest(".pk-table-wrap") && !inOwnScroller(el))
 			.filter((el) => {
 				const box = el.getBoundingClientRect();
 				return box.width > 0 && box.right > right;

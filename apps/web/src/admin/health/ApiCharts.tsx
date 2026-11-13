@@ -46,6 +46,19 @@ export function ApiCharts({
 	const errors = [...present(clientErrors), ...present(serverErrors)];
 	const times = [...present(median), ...present(p95)];
 
+	// No traffic at all: one quiet line instead of three empty charts.
+	if (present(rate).length === 0 && errors.length === 0 && times.length === 0) {
+		return (
+			<p
+				className="pk-text-body pk-muted col-span-full m-0 flex min-h-12 items-center rounded-md border border-line border-dashed px-4"
+				data-testid="health-api-empty"
+			>
+				No API requests in this range, so there is no request rate, error rate or
+				response time to chart.
+			</p>
+		);
+	}
+
 	return (
 		<>
 			<LineChart

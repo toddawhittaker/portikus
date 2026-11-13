@@ -56,7 +56,7 @@ function trackFocus(event: FocusEvent): void {
 
 /**
  * A dialog portals to the body, outside any data-density container, so it
- * copies the density around whatever opened it. Used as the
+ * copies the density and control size around whatever opened it. Used as the
  * content's ref: it runs as the dialog mounts, before focus moves into it.
  */
 function followOpenerDensity(content: HTMLElement | null): void {
@@ -69,8 +69,12 @@ function followOpenerDensity(content: HTMLElement | null): void {
 			? focusOrigin(active)
 			: lastFocus;
 	const opener = origin?.menuTrigger ?? origin?.beforeMenu ?? origin?.element;
-	const density = opener?.closest("[data-density]")?.getAttribute("data-density");
+	const around = opener?.closest("[data-density]");
+	const density = around?.getAttribute("data-density");
 	if (density) content.setAttribute("data-density", density);
+	// A page that sizes its own controls passes that on with the density.
+	const controls = around?.getAttribute("data-controls");
+	if (controls) content.setAttribute("data-controls", controls);
 }
 
 /**

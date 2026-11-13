@@ -190,7 +190,7 @@
 	}
 	.pk-panebar-item[data-active] > svg {
 		background: var(--accent-soft);
-		color: var(--accent);
+		color: var(--accent-text);
 	}
 	.pk-panebar-item:focus-visible {
 		outline: var(--ring-width) solid var(--focus);

@@ -6,7 +6,9 @@ import {
 import { Select, Toggletip } from "@portikus/ui";
 import { useState } from "react";
 import { CODING_AGENT_NAME } from "../../agents/codingAgentName.js";
-import { cost, count } from "./format.js";
+import { cost, count, dayName } from "./format.js";
+import { DailyChart, UsageSummary } from "./UsageSummary.js";
+import "./usage.css";
 
 const WINDOWS: AgentUsageWindow[] = [7, 30, 90];
 
@@ -49,6 +51,9 @@ export function UsagePeriodSelect({
 const COST_HELP =
 	"An estimate at the agent's published API prices, not what a subscription pays. Only Claude Code reports it; Codex shows a dash.";
 
+const CACHE_HELP =
+	"Tokens read from and written to the prompt cache, added together. Cached tokens cost far less than new input.";
+
 function CountHeaders() {
 	return (
 		<>
@@ -62,10 +67,10 @@ function CountHeaders() {
 				Output tokens
 			</th>
 			<th scope="col" className="pk-num">
-				Cache read tokens
-			</th>
-			<th scope="col" className="pk-num">
-				Cache write tokens
+				<span className="inline-flex items-center gap-1">
+					Cache tokens
+					<Toggletip label="Cache tokens">{CACHE_HELP}</Toggletip>
+				</span>
 			</th>
 			<th scope="col" className="pk-num">
 				<span className="inline-flex items-center gap-1">
@@ -74,26 +79,52 @@ function CountHeaders() {
 				</span>
 			</th>
 			<th scope="col" className="pk-num">
-				Lines added
-			</th>
-			<th scope="col" className="pk-num">
-				Lines removed
+				Lines
 			</th>
 		</>
 	);
 }
 
-function CountCells({ row }: { row: AgentUsageCounts }) {
+/**
+ * The row's figures. `share` is the row's cost as a part of the largest
+ * cost in the table, drawn as a short bar beside it so the biggest spenders
+ * show without reading every figure.
+ */
+function CountCells({ row, share }: { row: AgentUsageCounts; share?: number }) {
 	return (
 		<>
-			<td className="pk-num">{count(row.sessions)}</td>
-			<td className="pk-num">{count(row.inputTokens)}</td>
-			<td className="pk-num">{count(row.outputTokens)}</td>
-			<td className="pk-num">{count(row.cacheReadTokens)}</td>
-			<td className="pk-num">{count(row.cacheWriteTokens)}</td>
-			<td className="pk-num">{cost(row.costUsd)}</td>
-			<td className="pk-num">{count(row.linesAdded)}</td>
-			<td className="pk-num">{count(row.linesRemoved)}</td>
+			<td className="pk-num" data-label="Sessions">
+				{count(row.sessions)}
+			</td>
+			<td className="pk-num" data-label="Input">
+				{count(row.inputTokens)}
+			</td>
+			<td className="pk-num" data-label="Output">
+				{count(row.outputTokens)}
+			</td>
+			<td className="pk-num" data-label="Cache">
+				{count(row.cacheReadTokens + row.cacheWriteTokens)}
+			</td>
+			<td className="pk-num pk-usage-cost" data-label="Estimated API cost">
+				<span className="pk-usage-cost-figure">
+					{share !== undefined && row.costUsd !== null ? (
+						<span className="pk-usage-share" aria-hidden={true}>
+							<span style={{ inlineSize: `${Math.round(share * 100)}%` }} />
+						</span>
+					) : null}
+					{cost(row.costUsd)}
+				</span>
+			</td>
+			<td className="pk-num" data-label="Lines">
+				<span className="pk-usage-lines">
+					<span className="text-status-running">
+						<span className="sr-only">added </span>+{count(row.linesAdded)}
+					</span>
+					<span className="text-status-error">
+						<span className="sr-only">removed </span>−{count(row.linesRemoved)}
+					</span>
+				</span>
+			</td>
 		</>
 	);
 }
@@ -102,23 +133,22 @@ function CountCells({ row }: { row: AgentUsageCounts }) {
  * Both tables share one fixed column plan, so each column of the daily table
  * sits under its counterpart in the per-person table. The first column takes
  * the space left over; the minimum width is the fixed columns plus 12rem for
- * it, and the wrapper scrolls sideways below that.
+ * it, and the wrapper scrolls sideways below that until the phone layout
+ * stacks each row.
  */
-const TABLE_CLASS = "pk-table table-fixed min-w-318";
+const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[63rem]";
 
 function UsageColumns() {
 	return (
 		<colgroup>
 			<col />
 			<col className="w-28" />
-			<col className="w-20" />
-			<col className="w-32" />
-			<col className="w-32" />
-			<col className="w-32" />
-			<col className="w-32" />
-			<col className="w-40" />
-			<col className="w-26" />
+			<col className="w-24" />
 			<col className="w-28" />
+			<col className="w-28" />
+			<col className="w-28" />
+			<col className="w-44" />
+			<col className="w-32" />
 		</colgroup>
 	);
 }
@@ -128,60 +158,74 @@ const LEAD_CELL_CLASS = "font-normal whitespace-normal wrap-anywhere py-1";
 
 /** The per-person and daily usage tables, shared by the admin tab and the Course page. */
 export function UsageTables({ data }: { data: AgentUsageResponse }) {
+	const topCost = Math.max(0, ...data.users.map((row) => row.costUsd ?? 0));
 	return (
 		<>
-			<div className="pk-table-wrap overflow-x-auto">
-				<table className={TABLE_CLASS} data-testid="agent-usage-users">
-					<caption className="sr-only">
-						Agent usage per person, {data.from} to {data.to}
-					</caption>
-					<UsageColumns />
-					<thead>
-						<tr>
-							<th scope="col">Person</th>
-							<th scope="col">Agent</th>
-							<CountHeaders />
-						</tr>
-					</thead>
-					<tbody>
-						{data.users.map((row) => (
-							<tr key={`${row.userId}-${row.agent}`}>
-								<th scope="row" className={LEAD_CELL_CLASS}>
-									{row.displayName}
-								</th>
-								<td>{CODING_AGENT_NAME[row.agent]}</td>
-								<CountCells row={row} />
+			<UsageSummary data={data} />
+			<DailyChart data={data} />
+			<div className="pk-usage-wrap">
+				<div className="pk-table-wrap overflow-x-auto">
+					<table className={TABLE_CLASS} data-testid="agent-usage-users">
+						<caption className="sr-only">
+							Agent usage per person, {data.from} to {data.to}
+						</caption>
+						<UsageColumns />
+						<thead>
+							<tr>
+								<th scope="col">Person</th>
+								<th scope="col">Agent</th>
+								<CountHeaders />
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{data.users.map((row) => (
+								<tr key={`${row.userId}-${row.agent}`}>
+									<th scope="row" className={LEAD_CELL_CLASS}>
+										{row.displayName}
+									</th>
+									<td className="pk-usage-agent" data-agent={row.agent}>
+										{CODING_AGENT_NAME[row.agent]}
+									</td>
+									<CountCells
+										row={row}
+										share={topCost > 0 ? (row.costUsd ?? 0) / topCost : undefined}
+									/>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			</div>
 			<h3 className="pk-text-heading m-0">Daily totals</h3>
-			<div className="pk-table-wrap overflow-x-auto">
-				<table className={TABLE_CLASS} data-testid="agent-usage-daily">
-					<caption className="sr-only">
-						Agent usage per day for everyone, {data.from} to {data.to}
-					</caption>
-					<UsageColumns />
-					<thead>
-						<tr>
-							<th scope="col">Day</th>
-							<th scope="col">Agent</th>
-							<CountHeaders />
-						</tr>
-					</thead>
-					<tbody>
-						{data.daily.map((row) => (
-							<tr key={`${row.day}-${row.agent}`}>
-								<th scope="row" className={LEAD_CELL_CLASS}>
-									{row.day}
-								</th>
-								<td>{CODING_AGENT_NAME[row.agent]}</td>
-								<CountCells row={row} />
+			<div className="pk-usage-wrap">
+				<div className="pk-table-wrap overflow-x-auto">
+					<table className={TABLE_CLASS} data-testid="agent-usage-daily">
+						<caption className="sr-only">
+							Agent usage per day for everyone, {data.from} to {data.to}
+						</caption>
+						<UsageColumns />
+						<thead>
+							<tr>
+								<th scope="col">Day</th>
+								<th scope="col">Agent</th>
+								<CountHeaders />
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{data.daily.map((row) => (
+								<tr key={`${row.day}-${row.agent}`}>
+									<th scope="row" className={LEAD_CELL_CLASS}>
+										<time dateTime={row.day}>{dayName(row.day)}</time>
+									</th>
+									<td className="pk-usage-agent" data-agent={row.agent}>
+										{CODING_AGENT_NAME[row.agent]}
+									</td>
+									<CountCells row={row} />
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			</div>
 		</>
 	);

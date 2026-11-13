@@ -44,13 +44,21 @@ const FIELD_ERROR: Record<Field, string> = {
 	username: "Enter a sign-in name of at most 254 characters, or leave it empty.",
 };
 
-/** "Invite…" above the table, and its dialog. */
-export function InviteUser() {
+/**
+ * The Invite dialog. The Users view owns the button or menu item that opens it,
+ * and mounts it afresh for each opening, so every invitation starts blank.
+ */
+export function InviteUser({
+	open,
+	onOpenChange,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
 	const toast = useToast();
 	const create = useCreateInvitation();
 	const accountEmail = useAccountEmail();
 	const [sendEmail, setSendEmail] = useState(false);
-	const [open, setOpen] = useState(false);
 	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
 	const [username, setUsername] = useState("");
@@ -60,16 +68,7 @@ export function InviteUser() {
 
 	function change(next: boolean) {
 		if (create.isPending) return;
-		if (next) {
-			create.reset();
-			setName("");
-			setEmail("");
-			setUsername("");
-			setRole("student");
-			setSendEmail(false);
-			setErrors({});
-		}
-		setOpen(next);
+		onOpenChange(next);
 	}
 
 	async function submit() {
@@ -118,114 +117,109 @@ export function InviteUser() {
 					: `${body.data.name} invited`,
 			});
 		}
-		setOpen(false);
+		onOpenChange(false);
 	}
 
 	return (
-		<>
-			<Button size="sm" data-testid="invite-user" onClick={() => change(true)}>
-				Invite…
-			</Button>
-			<DialogRoot open={open} onOpenChange={change}>
-				<Dialog
-					testId="invite-dialog"
-					title="Invite someone"
-					description="Nobody can sign up on their own. Their first sign-in with a matching email creates the account with this role."
-					footer={
-						<>
-							<Button onClick={() => change(false)}>Cancel</Button>
-							<Button
-								variant="primary"
-								data-testid="invite-submit"
-								loading={create.isPending}
-								onClick={() => void submit()}
-							>
-								Invite
-							</Button>
-						</>
-					}
-				>
-					<form
-						className="flex flex-col gap-3"
-						onSubmit={(event) => {
-							event.preventDefault();
-							void submit();
-						}}
-					>
-						<TextField
-							id="invite-name"
-							label="Name"
-							autoComplete="off"
-							data-testid="invite-name"
-							aria-required="true"
-							error={errors.name}
-							value={name}
-							onChange={(event) => setName(event.target.value)}
-						/>
-						<TextField
-							id="invite-email"
-							label="Email"
-							type="email"
-							autoComplete="off"
-							data-testid="invite-email"
-							aria-required="true"
-							error={errors.email}
-							value={email}
-							onChange={(event) => setEmail(event.target.value)}
-						/>
-						<TextField
-							id="invite-username"
-							label="Sign-in name (optional)"
-							autoComplete="off"
-							mono
-							data-testid="invite-username"
-							hint="For Microsoft Entra or LDAP: the user principal name or username they sign in with. Leave empty to match the email."
-							error={errors.username}
-							value={username}
-							onChange={(event) => setUsername(event.target.value)}
-						/>
-						<div className={FIELD_CLASS}>
-							<label className={LABEL_CLASS} htmlFor="invite-role">
-								Role
-							</label>
-							<select
-								id="invite-role"
-								className={`${CONTROL_CLASS} w-44 cursor-pointer`}
-								data-testid="invite-role"
-								value={role}
-								onChange={(event) => setRole(event.target.value as Role)}
-							>
-								{(["student", "instructor", "administrator"] as const).map((value) => (
-									<option key={value} value={value}>
-										{ROLE_LABEL[value]}
-									</option>
-								))}
-							</select>
-						</div>
-						{accountEmail ? (
-							<Checkbox
-								label="Email the invitation"
-								description="They get a message saying to sign in to Portikus with this email."
-								checked={sendEmail}
-								onChange={(event) => setSendEmail(event.target.checked)}
-							/>
-						) : null}
-						{/* Enter in a field submits. */}
-						<button type="submit" hidden />
-					</form>
-					{create.error ? (
-						<p
-							key={attempt}
-							className="m-0 mt-3 text-status-error"
-							role="alert"
-							data-testid="invite-error"
+		<DialogRoot open={open} onOpenChange={change}>
+			<Dialog
+				testId="invite-dialog"
+				title="Invite someone"
+				description="Nobody can sign up on their own. Their first sign-in with a matching email creates the account with this role."
+				footer={
+					<>
+						<Button onClick={() => change(false)}>Cancel</Button>
+						<Button
+							variant="primary"
+							data-testid="invite-submit"
+							loading={create.isPending}
+							onClick={() => void submit()}
 						>
-							{errorText(create.error)}
-						</p>
+							Invite
+						</Button>
+					</>
+				}
+			>
+				<form
+					className="flex flex-col gap-3"
+					onSubmit={(event) => {
+						event.preventDefault();
+						void submit();
+					}}
+				>
+					<TextField
+						id="invite-name"
+						label="Name"
+						autoComplete="off"
+						data-testid="invite-name"
+						aria-required="true"
+						error={errors.name}
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+					/>
+					<TextField
+						id="invite-email"
+						label="Email"
+						type="email"
+						autoComplete="off"
+						data-testid="invite-email"
+						aria-required="true"
+						error={errors.email}
+						value={email}
+						onChange={(event) => setEmail(event.target.value)}
+					/>
+					<TextField
+						id="invite-username"
+						label="Sign-in name (optional)"
+						autoComplete="off"
+						mono
+						data-testid="invite-username"
+						hint="For Microsoft Entra or LDAP: the user principal name or username they sign in with. Leave empty to match the email."
+						error={errors.username}
+						value={username}
+						onChange={(event) => setUsername(event.target.value)}
+					/>
+					<div className={FIELD_CLASS}>
+						<label className={LABEL_CLASS} htmlFor="invite-role">
+							Role
+						</label>
+						<select
+							id="invite-role"
+							className={`${CONTROL_CLASS} w-44 cursor-pointer`}
+							data-testid="invite-role"
+							value={role}
+							onChange={(event) => setRole(event.target.value as Role)}
+						>
+							{(["student", "instructor", "administrator"] as const).map((value) => (
+								<option key={value} value={value}>
+									{ROLE_LABEL[value]}
+								</option>
+							))}
+						</select>
+					</div>
+					{accountEmail ? (
+						<Checkbox
+							label="Email the invitation"
+							description="They get a message saying to sign in to Portikus with this email."
+							checked={sendEmail}
+							onChange={(event) => setSendEmail(event.target.checked)}
+						/>
 					) : null}
-				</Dialog>
-			</DialogRoot>
-		</>
+					{/* Enter in a field submits. */}
+					<button type="submit" hidden />
+				</form>
+				{create.error ? (
+					<p
+						key={attempt}
+						className="m-0 mt-3 text-status-error"
+						role="alert"
+						data-testid="invite-error"
+					>
+						{errorText(create.error)}
+					</p>
+				) : null}
+			</Dialog>
+		</DialogRoot>
 	);
 }
 
@@ -333,6 +327,8 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
 				{accountEmail ? (
 					<Button
 						size="sm"
+						variant="quiet"
+						className="pk-row-action"
 						aria-label={`Resend the invitation email to ${name}`}
 						data-testid="invitation-resend"
 						loading={resend.isPending}
@@ -343,6 +339,8 @@ function InvitationRow({ invitation }: { invitation: Invitation }) {
 				) : null}
 				<Button
 					size="sm"
+					variant="quiet"
+					className="pk-row-action"
 					aria-label={`Revoke the invitation for ${name}`}
 					data-testid="invitation-revoke"
 					onClick={() => change(true)}

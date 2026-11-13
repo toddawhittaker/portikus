@@ -1,0 +1,209 @@
+/* Failures and workspace states side by side, each half the width; one column when narrow. */
+.pk-health-pair {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+	gap: var(--space-4);
+	align-items: start;
+}
+/* The failure categories as a two-column ledger when any failed. */
+.pk-health-counts:where(:not(.sr-only)) > tbody {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+	column-gap: var(--space-6);
+}
+.pk-health-counts:where(:not(.sr-only)) > tbody > tr {
+	display: flex;
+	justify-content: space-between;
+	border-block-end: 1px solid var(--line);
+}
+.pk-health-counts :is(th, td) {
+	border: 0;
+}
+
+/* Workspaces by state: one bar, a segment per state with any, then the legend. */
+.pk-state-bar {
+	display: flex;
+	gap: 2px;
+	block-size: 8px;
+	border-radius: 4px;
+	overflow: hidden;
+	background: var(--meter-track);
+}
+.pk-state-bar > span {
+	flex-basis: 0;
+	min-inline-size: 4px;
+	background: var(--status-stopped);
+}
+.pk-state-bar > [data-state="running"] {
+	background: var(--status-running);
+}
+.pk-state-bar
+	> :is([data-state="starting"], [data-state="provisioning"], [data-state="stopping"]) {
+	background: var(--status-starting);
+}
+.pk-state-bar > [data-state="error"] {
+	background: var(--status-error);
+}
+.pk-state-bar > [data-state="stopped"] {
+	background: var(--line-strong);
+}
+.pk-state-legend > tbody {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+	gap: var(--space-1) var(--space-6);
+}
+.pk-state-legend :is(th, td) {
+	padding: 0;
+	font-weight: 400;
+	text-align: start;
+}
+.pk-state-zero {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	color: var(--ink-muted);
+}
+.pk-state-zero::before {
+	content: "";
+	inline-size: 8px;
+	block-size: 8px;
+	border-radius: var(--radius-full);
+	border: 1px solid var(--line-strong);
+}
+.pk-state-legend > tbody > tr {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	min-height: 32px;
+	border-block-end: 1px solid var(--line);
+	font-size: var(--text-md);
+}
+
+/* The attention list's rows as a table: who, what and since when, then where to look. */
+.pk-attention-table {
+	inline-size: 100%;
+	border-collapse: collapse;
+}
+.pk-attention-table td {
+	padding: var(--space-3) var(--space-4);
+	vertical-align: middle;
+}
+.pk-attention-table tr + tr td {
+	border-block-start: 1px solid var(--line);
+}
+/* As narrow as a name allows, but a long name wraps rather than push the actions out of the card. */
+.pk-attention-table .pk-attention-who {
+	inline-size: 1%;
+	min-inline-size: 10rem;
+	overflow-wrap: anywhere;
+}
+@container admin-scroll (width < 40rem) {
+	.pk-attention-table .pk-attention-who {
+		inline-size: auto;
+	}
+}
+.pk-attention-list .pk-attention-who {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--text-md);
+	font-weight: 600;
+}
+td.pk-attention-who {
+	display: table-cell;
+}
+td.pk-attention-who > svg {
+	display: inline-block;
+	margin-inline-end: var(--space-2);
+	vertical-align: -3px;
+}
+.pk-attention-table .pk-attention-text {
+	display: table-cell;
+}
+.pk-attention-table .pk-attention-text > * + * {
+	display: block;
+	margin-block-start: 2px;
+}
+.pk-attention-table td.pk-attention-actions {
+	display: table-cell;
+	inline-size: 1%;
+	white-space: nowrap;
+	text-align: end;
+}
+.pk-attention-table td.pk-attention-actions > * + * {
+	margin-inline-start: var(--space-2);
+}
+.pk-attention-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.pk-attention-table + .pk-attention-list > :first-child {
+	border-block-start: 1px solid var(--line);
+}
+.pk-attention-list > .pk-attention-row {
+	justify-content: space-between;
+}
+@container admin-scroll (width < 40rem) {
+	/* Stacked, each row as wide as the card and a long name wrapping, so nothing spills sideways. */
+	.pk-attention-table,
+	.pk-attention-table tbody {
+		display: block;
+	}
+	.pk-attention-table tr {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+	}
+	.pk-attention-table tr + tr {
+		border-block-start: 1px solid var(--line);
+	}
+	.pk-attention-table td,
+	.pk-attention-table tr + tr td {
+		display: block;
+		padding: 0;
+		border: 0;
+		inline-size: auto;
+		text-align: start;
+	}
+	.pk-attention .pk-attention-table td.pk-attention-actions {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-2);
+		inline-size: auto;
+		white-space: normal;
+	}
+	.pk-attention .pk-attention-table td.pk-attention-actions > * {
+		min-height: var(--size-control-lg);
+		margin: 0;
+		border-color: var(--line-strong);
+	}
+}
+
+/* The Trends range: the segmented control at the admin control height. */
+.pk-range button {
+	min-height: var(--size-control-sm);
+	padding-inline: var(--space-3);
+	font-size: var(--text-sm);
+	font-variant-numeric: tabular-nums;
+	background: var(--surface-raised);
+}
+.pk-range button[aria-pressed="true"] {
+	font-weight: 600;
+	box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* A phone: the range spans the card under its heading, four equal thumbs. */
+@media (width < 35rem) {
+	.pk-segmented.pk-range {
+		inline-size: 100%;
+	}
+	/* Over the console's phone padding for segments, which would push the fourth off the card. */
+	.pk-adminframe-scroll .pk-range.pk-segmented button {
+		flex: 1 1 0;
+		min-width: 0;
+		min-height: var(--size-control-lg);
+		padding-inline: var(--space-1);
+	}
+}

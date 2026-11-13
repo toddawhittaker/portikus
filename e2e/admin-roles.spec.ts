@@ -67,7 +67,12 @@ async function signedInStudent(browser: Browser, name: string) {
 async function openDetail(page: Page, search: string, name: string) {
 	await page.getByTestId("admin-filter-text").fill(search);
 	await page.getByRole("button", { name: `Show details for ${name}` }).click();
-	return page.getByRole("region", { name });
+	const panel = page.getByRole("region", { name });
+	// The account's actions sit on the inspector's Account tab.
+	const account = panel.getByRole("tab", { name: "Account" });
+	await account.click();
+	await expect(account).toHaveAttribute("aria-selected", "true");
+	return panel;
 }
 
 async function hasAdminLink(page: Page, path: string): Promise<number> {

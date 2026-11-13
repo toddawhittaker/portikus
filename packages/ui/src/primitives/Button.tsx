@@ -4,10 +4,10 @@ import { Icon, type IconName } from "./Icon.js";
 
 const VARIANT_CLASS = {
 	primary:
-		"border-transparent bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-active",
+		"border-transparent bg-accent-fill text-on-accent-fill hover:bg-accent-fill-hover active:bg-accent-fill-active",
 	secondary: "bg-surface-raised text-ink border-line-strong hover:bg-surface-hover",
 	quiet: "border-transparent bg-transparent text-ink hover:bg-surface-hover",
-	danger: "border-transparent bg-status-danger text-on-danger hover:bg-danger-hover",
+	danger: "border-transparent bg-danger-fill text-on-danger hover:bg-danger-hover",
 	/** A row's own destructive action, such as Delete…, beside quieter ones. */
 	"danger-secondary":
 		"bg-surface-raised text-status-danger border-status-danger hover:bg-status-danger-soft",
@@ -18,6 +18,17 @@ const SIZE_CLASS = {
 	md: "h-[var(--pk-control)] px-[var(--pk-pad)] text-[length:var(--pk-font)]",
 	lg: "h-[var(--size-control-lg)] px-5 text-[15px]",
 } as const;
+
+const BASE_CLASS =
+	"pk-btn pk-focus-ring inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-sm border font-medium leading-none transition-colors duration-[var(--duration-fast)]";
+
+/** A Button's look, for a link that leads somewhere but should read as an action. */
+export function buttonClass(
+	variant: keyof typeof VARIANT_CLASS = "secondary",
+	size: keyof typeof SIZE_CLASS = "md",
+): string {
+	return cx(BASE_CLASS, "no-underline", VARIANT_CLASS[variant], SIZE_CLASS[size]);
+}
 
 export interface ButtonProps extends React.ComponentPropsWithRef<"button"> {
 	variant?: keyof typeof VARIANT_CLASS;
@@ -43,12 +54,7 @@ export function Button({
 		<button
 			type="button"
 			{...rest}
-			className={cx(
-				"pk-btn pk-focus-ring inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-sm border font-semibold leading-none transition-colors duration-[var(--duration-fast)]",
-				VARIANT_CLASS[variant],
-				SIZE_CLASS[size],
-				className,
-			)}
+			className={cx(BASE_CLASS, VARIANT_CLASS[variant], SIZE_CLASS[size], className)}
 			aria-busy={loading ? true : undefined}
 			aria-disabled={loading ? true : rest["aria-disabled"]}
 			onClick={(event) => {

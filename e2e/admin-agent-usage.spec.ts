@@ -63,7 +63,7 @@ test("the Agent usage tab lists each person and agent, with a period choice", as
 	await expect(claude).toContainText("$4.50");
 	await expect(claude).toContainText("1,200");
 	const codex = people.getByRole("row", { name: new RegExp(`${name} Codex`) });
-	await expect(codex.getByRole("cell").nth(6)).toHaveText("—");
+	await expect(codex.getByRole("cell").nth(5)).toHaveText("—");
 	await expect(page.getByTestId("agent-usage-daily")).toBeVisible();
 	await expectUsageColumnsAligned(page);
 

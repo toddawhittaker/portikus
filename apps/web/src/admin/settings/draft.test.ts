@@ -78,6 +78,7 @@ describe("footerState", () => {
 	test("says what is unsaved, what to fix, and when it saved", () => {
 		expect(footerState(base).text).toBe("No unsaved changes.");
 		expect(footerState({ ...base, justSaved: true }).text).toBe("Saved.");
+		expect(footerState({ ...base, justSaved: true }).saved).toBe(true);
 		expect(footerState({ ...base, count: 3 })).toEqual({
 			text: "3 unsaved changes",
 			strong: true,

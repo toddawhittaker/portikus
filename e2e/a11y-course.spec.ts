@@ -43,7 +43,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const table = course.getByTestId("course-members");
 			await expect(table).toBeVisible();
 			// The admin page's table and compact frame (SPEC.md section 20.1).
-			await expect(table).toHaveClass("pk-table pk-table--page");
+			await expect(table).toContainClass("pk-table pk-table--page");
 			await expect(course.getByTestId("page-course")).toHaveAttribute(
 				"data-density",
 				"compact",
@@ -128,7 +128,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			});
 			await route.fulfill({ response, json: body });
 		});
-		// They share a project, so their actions cell holds a link and Remove.
+		// They share a project, so their actions cell holds a link and the menu holding Remove.
 		await context.route(/\/courses\/[^/]+\/shares$/, async (route) => {
 			const now = Date.now();
 			await route.fulfill({
@@ -163,7 +163,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 			for (const name of ["Name", "Role", "Last launch", "Workspace"]) {
 				await expect(table.getByRole("columnheader", { name })).toBeVisible();
 			}
-			await expect(samRow.getByRole("button", { name: /Remove/ })).toBeVisible();
+			await expect(
+				samRow.getByRole("button", { name: `Actions for ${LONG_NAME}` }),
+			).toBeVisible();
 			await expectNoViolations(course);
 
 			// Narrower, Role and Last launch fold under the name rather than scroll.
@@ -179,23 +181,25 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(samName).toContainText("Student");
 			await expect(samName).toContainText("Last launch");
 			await expect(samName.locator("time")).toBeVisible();
-			await expect(samRow.getByRole("button", { name: /Remove/ })).toBeVisible();
+			await expect(
+				samRow.getByRole("button", { name: `Actions for ${LONG_NAME}` }),
+			).toBeVisible();
 			await expectNoViolations(course);
 
 			// At 320 px (400% zoom of a 1280 px window) nothing scrolls sideways either.
 			await course.setViewportSize({ width: 320, height: 900 });
 			expect(await sidewaysOverflow(course)).toEqual({ table: 0, main: 0, page: 0 });
-			// The wide usage table scrolls inside its own box, not the page.
+			// The usage rows stack into labelled figures, so even their box never scrolls sideways.
 			const usageWrap = course.getByTestId("agent-usage-users").locator("..");
 			expect(await usageWrap.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
-				true,
+				false,
 			);
 			await expect(samName.locator("time")).toBeVisible();
 			// Taller rows push it down the scrolling <main>, never off to the side.
-			const remove = samRow.getByRole("button", { name: /Remove/ });
+			const remove = samRow.getByRole("button", { name: `Actions for ${LONG_NAME}` });
 			await remove.scrollIntoViewIfNeeded();
 			await expect(remove).toBeInViewport({ ratio: 1 });
-			// The shared project link and Remove wrap in the actions cell, neither clipped.
+			// The shared project link and the actions menu wrap in the cell, neither clipped.
 			const shared = samRow.getByRole("link", { name: /Shared project/ });
 			await shared.scrollIntoViewIfNeeded();
 			await expect(shared).toBeInViewport({ ratio: 1 });

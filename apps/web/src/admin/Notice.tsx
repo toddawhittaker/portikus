@@ -26,10 +26,11 @@ export function Notice({
 				? "bg-status-error-soft"
 				: "bg-status-starting-soft";
 	return (
+		// A filled box takes the width its place gives it, so it opts out of the running-text measure.
 		<p
 			id={id}
 			data-testid={testId}
-			className={`m-0 flex items-start gap-2 rounded-sm px-3 py-2 text-[13px] text-ink ${fill}`}
+			className={`m-0 flex max-w-none items-start gap-2 rounded-sm px-3 py-2 text-[13px] text-ink ${fill}`}
 		>
 			<span className={`mt-0.5 flex-none ${ICON_CLASS[tone]}`}>
 				{tone === "pending" ? (

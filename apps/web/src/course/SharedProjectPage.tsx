@@ -1,7 +1,7 @@
-import { Checkbox, EmptyState } from "@portikus/ui";
+import { Checkbox, EmptyState, Icon } from "@portikus/ui";
 import { Link, useParams } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { decorations } from "../files/gitStatus.js";
+import { changeRows, decorations } from "../files/gitStatus.js";
 import { usePageTitle } from "../pageTitle.js";
 import { CourseFrame } from "./CourseFrame.js";
 import {
@@ -18,6 +18,7 @@ import { SharedChecks } from "./shared/SharedChecks.js";
 import { SharedFileView } from "./shared/SharedFileView.js";
 import { SharedTree } from "./shared/SharedTree.js";
 import { dateTimeText } from "./time.js";
+import "./course.css";
 
 /** What the right side shows: a file, or one file's changes. */
 type Shown = { kind: "file" | "diff"; path: string } | null;
@@ -121,14 +122,21 @@ function SharedProject() {
 
 	return (
 		<>
+			{/* One way back, in the eyebrow's place over the title. */}
 			<Link
 				to="/course/$courseId"
 				params={{ courseId }}
-				className="pk-focus-ring rounded-sm text-[13px] text-accent-text"
+				className="pk-eyebrow pk-back-link pk-focus-ring w-fit"
 			>
+				<Icon name="arrow-left" size="sm" />
 				Back to the course
 			</Link>
-			<h1 className="pk-text-title mt-2" id="shared-title" ref={heading} tabIndex={-1}>
+			<h1
+				className="pk-text-display pk-admin-title mt-1"
+				id="shared-title"
+				ref={heading}
+				tabIndex={-1}
+			>
 				{listed?.projectName ?? "Shared project"}
 			</h1>
 			{/* Always mounted, so a change of state is announced. */}
@@ -193,7 +201,18 @@ function SharedBody({
 }) {
 	const git = useSharedGitStatus(share);
 	const checks = useSharedChecks(share);
-	const { expanded, showHidden, setShowHidden, shown, setShown } = view;
+	const { expanded, showHidden, setShowHidden, setShown } = view;
+	// Until the instructor picks something, the first changed file is on show: it is
+	// what they came to read. A deleted file has only its change to show.
+	const firstChange = git.data?.repo ? changeRows(git.data)[0] : undefined;
+	const shown: Shown =
+		view.shown ??
+		(firstChange
+			? {
+					kind: firstChange.decoration.kind === "deleted" ? "diff" : "file",
+					path: firstChange.path,
+				}
+			: null);
 
 	return (
 		<div className="mt-6 grid gap-6 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
@@ -253,10 +272,12 @@ function SharedBody({
 							: shown.path}
 				</h2>
 				{shown === null ? (
-					<p className="pk-file-note">
-						Choose a file to read it, or a change to see what differs from the last
-						commit.
-					</p>
+					<div className="grid flex-1 place-items-center overflow-auto">
+						<EmptyState icon="file" title="Pick a file or a change">
+							Choose a file to read it, or a change to see what differs from the last
+							commit.
+						</EmptyState>
+					</div>
 				) : shown.kind === "file" ? (
 					<SharedFileView key={shown.path} share={share} path={shown.path} />
 				) : (

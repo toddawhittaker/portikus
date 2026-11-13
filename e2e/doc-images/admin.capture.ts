@@ -3,12 +3,36 @@
  * invented students is seeded once; the host's side of backups, the
  * certificate and sign-in is played by the same fakes the browser tests use.
  */
-import { writeFile } from "node:fs/promises";
-import { expect, type Page, test } from "@playwright/test";
-import { backupSet, hostReport, hostStatus, resetBackups } from "../backup-channel";
+import {
+	type Browser,
+	type BrowserContext,
+	expect,
+	type Page,
+	test,
+} from "@playwright/test";
 import { putStatus, resetCertificateStore } from "../certificate-jobs";
-import { addSession, loginAs, query } from "../helpers";
-import { putInstallAnswers, resetSiteStore, SITE_VIEW_FILE } from "../site-jobs";
+import {
+	addSession,
+	createProject,
+	loginAs,
+	query,
+	type TestProject,
+	WEB_ORIGIN,
+} from "../helpers";
+import { resetSiteStore } from "../site-jobs";
+import {
+	backupDay,
+	backupStamp,
+	CURRENT_FINGERPRINT,
+	OLD_FINGERPRINT,
+	seedAgentUsage,
+	seedBackups,
+	seedDocker,
+	seedHealth,
+	seedImage,
+	seedNetwork,
+	seedSite,
+} from "./admin-seed";
 import {
 	controllerChecked,
 	course,
@@ -70,6 +94,13 @@ test.beforeAll(async () => {
 		instructor.userId,
 		people.map((one) => one.userId),
 	);
+	// A second course, so the instructor's course list has more than one to choose.
+	await course(
+		"CS 2400: Databases",
+		instructor.userId,
+		people.slice(5).map((one) => one.userId),
+		"traditional",
+	);
 	const diego = people[1] as Person;
 	await query(
 		"update workspaces set cpu_throttle = $2, limits_config = $3::jsonb where id = $1",
@@ -86,6 +117,12 @@ test.beforeAll(async () => {
 			JSON.stringify({ memoryMiB: 6144 }),
 		],
 	);
+	// Every admin shot shares one health state, so the rail badge and the
+	// status bar count the same attention items on every page.
+	await seedHealth();
+	// The class runs the image the health sample names as current, so no row
+	// carries an Old image tag it would not have on a fresh install.
+	await query("update workspaces set image_version = $1", ["a41c9e02d7b85f13ce90"]);
 });
 
 for (const colorScheme of SCHEMES) {
@@ -93,7 +130,7 @@ for (const colorScheme of SCHEMES) {
 		await asAdmin(page, "/admin", colorScheme);
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 		await page
-			.getByRole("button", { name: /^About Image/ })
+			.getByRole("button", { name: /^About Account tags/ })
 			.first()
 			.click();
 		await expect(
@@ -126,51 +163,9 @@ for (const colorScheme of SCHEMES) {
 	});
 }
 
-const GIB = 1024 ** 3;
-
 for (const colorScheme of SCHEMES) {
 	test(`health (${colorScheme})`, async ({ page }) => {
-		await query("delete from health_samples");
-		for (let minutes = 24 * 60; minutes >= 0; minutes -= 30) {
-			const hour = (24 * 60 - minutes) / 60;
-			const busy = Math.max(0, Math.sin((hour / 24) * Math.PI * 2 - 1.2));
-			await query(
-				`insert into health_samples (observed_at, sample)
-			 values (now() - make_interval(mins => $1), $2)`,
-				[
-					minutes,
-					JSON.stringify({
-						controller: { reachable: true, errorCode: null },
-						host: {
-							observedAt: new Date().toISOString(),
-							loadAverage: [0.6 + busy * 2, 0.5 + busy * 1.8, 0.4 + busy],
-							cpuCount: 8,
-							memory: {
-								usedBytes: Math.round((9 + busy * 12) * GIB),
-								totalBytes: 32 * GIB,
-							},
-							pool: {
-								name: "portikus",
-								usedBytes: Math.round((182 + hour * 0.6) * GIB),
-								totalBytes: 500 * GIB,
-								metadataPercent: 9,
-							},
-							profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
-							image: { fingerprint: "a41c9e02d7b85f13ce90", serial: "2026.11.1" },
-							instances: [],
-							rates: {
-								cpuPercent: Math.round(8 + busy * 46),
-								netRxBytesPerSecond: Math.round((0.3 + busy * 3) * 1024 * 1024),
-								netTxBytesPerSecond: Math.round((0.1 + busy) * 1024 * 1024),
-								diskReadBytesPerSecond: Math.round((0.2 + busy) * 1024 * 1024),
-								diskWriteBytesPerSecond: Math.round((0.1 + busy * 0.6) * 1024 * 1024),
-							},
-						},
-						runningWorkspaces: Math.round(1 + busy * 5),
-					}),
-				],
-			);
-		}
+		await seedHealth();
 		await asAdmin(page, "/admin/health", colorScheme);
 		await expect(page.getByTestId("health-trends")).toBeVisible({ timeout: 15_000 });
 		await page.waitForTimeout(1500);
@@ -257,174 +252,462 @@ for (const colorScheme of SCHEMES) {
 	});
 }
 
-test("network", async ({ page }) => {
-	await query(
-		`update settings set egress_mode = 'allow-list',
-		 egress_presets = '{npm,python,apt,github,claude}', egress_ports = '{22,80,443}',
-		 egress_version = egress_version + 1 where id = 1`,
-	);
-	await query(
-		"insert into egress_entries (kind, value, label) values ('host', 'api.open-meteo.com', 'Weather API for CS 1210')",
-	);
-	await query(
-		`update settings set egress_applied_version = egress_version,
-		 egress_applied_at = now(), egress_apply_error = null where id = 1`,
-	);
-	await asAdmin(page, "/admin/network");
-	await expect(page.getByTestId("egress-tab")).toBeVisible({ timeout: 15_000 });
-	await page.waitForTimeout(1000);
-	await shoot(page, "admin-network.png");
-});
+for (const colorScheme of SCHEMES) {
+	test(`network (${colorScheme})`, async ({ page }) => {
+		await seedNetwork();
+		await asAdmin(page, "/admin/network", colorScheme);
+		await expect(page.getByTestId("egress-tab")).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("admin-network", colorScheme));
+	});
+}
+
+async function openBackups(page: Page, colorScheme: Scheme) {
+	await seedBackups();
+	await asAdmin(page, "/admin/backups", colorScheme);
+	await expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible({
+		timeout: 15_000,
+	});
+	await page.waitForTimeout(1500);
+}
 
 for (const colorScheme of SCHEMES) {
 	test(`backups (${colorScheme})`, async ({ page }) => {
-		await resetBackups();
-		const rows = await query<{ incus_instance_name: string }>(
-			"select incus_instance_name from workspaces where label not like 'ws-old-%'",
-		);
-		const instances = rows.map((row) => row.incus_instance_name);
-		const day = (back: number) => {
-			const at = new Date(Date.now() - back * 86_400_000);
-			at.setUTCHours(7, 30, 0, 0);
-			return at;
-		};
-		const stamp = (at: Date) =>
-			at.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
-		const last = day(0);
-		hostReport(
-			hostStatus({
-				vm: "portikus",
-				lastRun: {
-					startedAt: last.toISOString(),
-					endedAt: new Date(last.getTime() + 11 * 60_000).toISOString(),
-					result: "success",
-				},
-				nextRunAt: day(-1).toISOString(),
-				sets: [0, 1, 2, 3, 4, 5, 6].map((back) =>
-					backupSet(stamp(day(back)), instances, {
-						sizeBytes: Math.round((38 - back * 0.7) * GIB),
-					}),
-				),
-			}),
-		);
-		await asAdmin(page, "/admin/backups", colorScheme);
-		await expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible({
-			timeout: 15_000,
-		});
-		await page.waitForTimeout(1500);
+		await openBackups(page, colorScheme);
 		await shoot(page, imageName("admin-backups", colorScheme));
 	});
 }
 
-test("certificate", async ({ page }) => {
-	await resetCertificateStore();
-	await putStatus({
-		settings: {
-			source: "acme",
-			directory: "https://acme-v02.api.letsencrypt.org/directory",
-			email: "it-admin@example.edu",
-			eab: null,
-			challenge: {
-				mode: "dns01",
-				provider: "cloudflare",
-				fields: {},
-				secretsSet: { api_token: true },
+for (const colorScheme of SCHEMES) {
+	test(`certificate (${colorScheme})`, async ({ page }) => {
+		await resetCertificateStore();
+		await putStatus({
+			settings: {
+				source: "acme",
+				directory: "https://acme-v02.api.letsencrypt.org/directory",
+				email: "it-admin@example.edu",
+				eab: null,
+				challenge: {
+					mode: "dns01",
+					provider: "cloudflare",
+					fields: {},
+					secretsSet: { api_token: true },
+				},
 			},
-		},
-		issuer: "CN=R11,O=Let's Encrypt,C=US",
-		notAfter: new Date(Date.now() + 62 * 86_400_000).toISOString(),
-		renewal: { ok: true, message: null },
+			issuer: "CN=R11,O=Let's Encrypt,C=US",
+			notAfter: new Date(Date.now() + 62 * 86_400_000).toISOString(),
+			renewal: { ok: true, message: null },
+		});
+		await asAdmin(page, "/admin/certificate", colorScheme);
+		await page.waitForTimeout(2000);
+		await shoot(page, imageName("admin-certificate", colorScheme));
 	});
-	await asAdmin(page, "/admin/certificate");
-	await page.waitForTimeout(2000);
-	await shoot(page, "admin-certificate.png");
-});
+}
 
-test("sign-in", async ({ page }) => {
-	await resetSiteStore();
-	await putInstallAnswers(
-		"portikus_admin_email: it-admin@example.edu\nportikus_dex_upstream: google\n" +
-			"portikus_public_host: portikus.example.edu\nportikus_storage: file\n" +
-			"portikus_storage_size: 500\nportikus_tls: acme\n",
-	);
-	await writeFile(
-		SITE_VIEW_FILE,
-		JSON.stringify({
-			version: 1,
-			apt: true,
-			host: "portikus.example.edu",
-			port: 443,
-			previewSuffix: "preview.portikus.example.edu",
-			previewSuffixSetByHand: false,
-			provider: "google",
-			entraTenantId: null,
-			googleDomains: ["example.edu"],
-			oidcIssuer: null,
-			clientId: "123456789012-demo.apps.googleusercontent.com",
-			clientSecretSet: true,
-			groupsClaim: null,
-			groups: {
-				student: "portikus-students@example.edu",
-				instructor: "portikus-instructors@example.edu",
-				admin: "portikus-admins@example.edu",
-			},
-			certificateSource: "acme",
-		}),
-	);
-	await asAdmin(page, "/admin/signin");
-	await expect(page.getByTestId("admin-signin-sso")).toBeVisible({ timeout: 15_000 });
-	await page.waitForTimeout(1000);
-	await shoot(page, "admin-sign-in.png");
-	await resetSiteStore();
-});
+for (const colorScheme of SCHEMES) {
+	test(`sign-in (${colorScheme})`, async ({ page }) => {
+		await seedSite();
+		await asAdmin(page, "/admin/signin", colorScheme);
+		await expect(page.getByTestId("admin-signin-sso")).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("admin-sign-in", colorScheme));
+		await resetSiteStore();
+	});
+}
 
-test("instructor course and live help", async ({ page, browser }) => {
+for (const colorScheme of SCHEMES) {
+	test(`agent usage (${colorScheme})`, async ({ page }) => {
+		await seedAgentUsage(people);
+		await asAdmin(page, "/admin/agents", colorScheme);
+		await expect(page.getByTestId("agent-usage-users")).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-agents", colorScheme));
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`workspace image (${colorScheme})`, async ({ page }) => {
+		await seedImage();
+		// The tab counts workspaces by the fingerprint they started from; two
+		// stopped workspaces still run the previous image.
+		await query("update workspaces set image_version = $1 where state = 'running'", [
+			CURRENT_FINGERPRINT,
+		]);
+		await query("update workspaces set image_version = $1 where state = 'stopped'", [
+			OLD_FINGERPRINT,
+		]);
+		await asAdmin(page, "/admin/image", colorScheme);
+		await expect(page.getByTestId("image-default")).toHaveText("2026.11.1", {
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-image", colorScheme));
+		await query("update workspaces set image_version = '2026.11.1'");
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`docker (${colorScheme})`, async ({ page }) => {
+		await seedDocker(people);
+		await asAdmin(page, "/admin/docker", colorScheme);
+		await expect(page.getByTestId("docker-cache")).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-docker", colorScheme));
+	});
+}
+
+const NEW_HOST = "code.example.edu";
+
+for (const colorScheme of SCHEMES) {
+	test(`site address (${colorScheme})`, async ({ page }) => {
+		await seedSite();
+		// The pre-flight resolves real DNS names; the plan's checks are served as passed.
+		await page.route("**/admin/address/preflight", (route) =>
+			route.fulfill({
+				json: {
+					ok: true,
+					checks: [
+						{ name: "dns-site", result: "passed", message: `${NEW_HOST} resolves.` },
+						{
+							name: "dns-preview",
+							result: "passed",
+							message: `Preview names such as portikus-check-1.preview.${NEW_HOST} resolve.`,
+						},
+						{
+							name: "reach-site",
+							result: "passed",
+							message: `${NEW_HOST} points at this server.`,
+						},
+						{
+							name: "reach-preview",
+							result: "passed",
+							message: `*.preview.${NEW_HOST} points at this server.`,
+						},
+					],
+				},
+			}),
+		);
+		await asAdmin(page, "/admin/address", colorScheme);
+		await expect(
+			page.getByRole("heading", { level: 2, name: "Site address", exact: true }),
+		).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId("address-host").fill(NEW_HOST);
+		await page.getByTestId("address-port").fill("443");
+		await page.getByTestId("address-check").click();
+		await expect(page.getByTestId("address-preflight-summary")).toHaveText(
+			"All DNS checks passed.",
+		);
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("admin-address", colorScheme));
+		await resetSiteStore();
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`root shell (${colorScheme})`, async ({ page }) => {
+		await asAdmin(page, "/admin/shell", colorScheme);
+		await page.getByRole("button", { name: "Open a root shell" }).click({
+			timeout: 15_000,
+		});
+		const leaf = page.locator(
+			'.pk-termgroup:not([hidden]) [data-testid^="terminal-leaf-"]',
+		);
+		const id = (
+			await leaf.first().getAttribute("data-testid", { timeout: 15_000 })
+		)?.replace("terminal-leaf-", "");
+		const pane = page.getByTestId(`terminal-pane-${id}`);
+		await expect(pane).toHaveAttribute("data-connected", "true", { timeout: 15_000 });
+		await pane.locator(".xterm-screen").click();
+		// The fake helper echoes each line, as a shell shows what was typed.
+		for (const line of ["systemctl status portikus-api", "df -h /var/lib/incus"]) {
+			await page.keyboard.insertText(line);
+			await page.keyboard.press("Enter");
+		}
+		// The capture draws terminals with WebGL, so there is no row text to wait on.
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("admin-shell", colorScheme));
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`administrator help (${colorScheme})`, async ({ page }) => {
+		await asAdmin(page, "/admin/help", colorScheme);
+		await expect(page.locator("#admin-users")).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("admin-help", colorScheme));
+	});
+}
+
+/** A phone-sized page, as student.capture.ts takes its phone shot. */
+async function phonePage(browser: Browser): Promise<Page> {
+	const context = await browser.newContext({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+		deviceScaleFactor: 1,
+	});
+	return context.newPage();
+}
+
+// Network keeps what its desktop shot above seeded.
+const PHONE: [string, string, (page: Page) => Promise<void>][] = [
+	[
+		"users",
+		"/admin",
+		(page) =>
+			expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 }),
+	],
+	[
+		"health",
+		"/admin/health",
+		(page) =>
+			expect(page.getByTestId("health-trends")).toBeVisible({ timeout: 15_000 }),
+	],
+	[
+		"backups",
+		"/admin/backups",
+		(page) =>
+			expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible({
+				timeout: 15_000,
+			}),
+	],
+	[
+		"settings",
+		"/admin/settings",
+		(page) =>
+			expect(page.getByRole("heading", { name: "Settings", level: 2 })).toBeVisible({
+				timeout: 15_000,
+			}),
+	],
+	[
+		"network",
+		"/admin/network",
+		(page) => expect(page.getByTestId("egress-tab")).toBeVisible({ timeout: 15_000 }),
+	],
+];
+
+for (const colorScheme of SCHEMES) {
+	for (const [tab, path, ready] of PHONE) {
+		test(`${tab} on a phone (${colorScheme})`, async ({ browser }) => {
+			const page = await phonePage(browser);
+			// Fresh samples and reports, so the page does not warn they have gone stale.
+			if (tab === "backups") await seedBackups();
+			if (tab === "health") await seedHealth();
+			await asAdmin(page, path, colorScheme);
+			await ready(page);
+			await page.waitForTimeout(1500);
+			await shoot(page, imageName(`admin-${tab}-phone`, colorScheme));
+			await page.context().close();
+		});
+	}
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`limits dialog (${colorScheme})`, async ({ page }) => {
+		await asAdmin(page, "/admin", colorScheme);
+		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId("admin-filter-text").fill("Diego Santos");
+		await page.getByRole("button", { name: "Show details for Diego Santos" }).click();
+		const panel = page.getByRole("region", { name: "Diego Santos" });
+		await page
+			.getByRole("button", { name: "Edit limits for Diego Santos's workspace" })
+			.click();
+		await expect(
+			page.getByRole("dialog", { name: "Limits for Diego Santos's workspace" }),
+		).toBeVisible();
+		await expect(panel).toBeVisible();
+		await page.waitForTimeout(800);
+		await shoot(page, imageName("admin-flow-limits", colorScheme));
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`settings with an unsaved change (${colorScheme})`, async ({ page }) => {
+		await asAdmin(page, "/admin/settings", colorScheme);
+		const field = page.getByTestId("settings-idleStopMinutes");
+		await expect(field).toBeVisible({ timeout: 15_000 });
+		const before = await field.inputValue();
+		await field.fill(before === "45" ? "60" : "45");
+		await expect(page.getByRole("button", { name: "Discard changes" })).toBeVisible();
+		await page
+			.getByRole("button", { name: "Save stop times" })
+			.scrollIntoViewIfNeeded();
+		await page.waitForTimeout(800);
+		await shoot(page, imageName("admin-flow-settings-unsaved", colorScheme));
+	});
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`backup delete confirmation (${colorScheme})`, async ({ page }) => {
+		await openBackups(page, colorScheme);
+		await page
+			.getByTestId(`backup-set-${backupStamp(backupDay(3))}`)
+			.getByTestId("backup-set-menu")
+			.click();
+		await page.getByTestId("backup-set-delete").click();
+		await expect(page.getByTestId("backup-delete-dialog")).toBeVisible();
+		await page.waitForTimeout(800);
+		await shoot(page, imageName("admin-flow-backup-delete", colorScheme));
+	});
+}
+
+const studentContexts: BrowserContext[] = [];
+let help: { project: TestProject; shell: string } | null = null;
+
+/** A student asks Dr. Okafor for live help in a project, from their own browser. */
+async function askForHelp(
+	context: BrowserContext,
+	workspaceId: string,
+	projectId: string,
+) {
+	const started = await context.request.post(
+		`${WEB_ORIGIN}/workspaces/${workspaceId}/projects/${projectId}/live-help`,
+		{
+			headers: { origin: WEB_ORIGIN },
+			data: { helperUserId: instructor.userId, courseId },
+		},
+	);
+	expect(started.status()).toBe(200);
+}
+
+/**
+ * Maya is stuck on a traceback, runs her checks, shares Weather Now and asks
+ * for help; Priya and Hana ask too, so the queue has several students. Done
+ * once: the student browsers stay open for every instructor shot.
+ */
+async function classAsksForHelp(
+	browser: Browser,
+): Promise<{ project: TestProject; shell: string }> {
+	if (help) return help;
 	const maya = people[0] as Person;
-	// Maya asks for help from her own browser.
-	const student = await browser.newContext();
-	const studentPage = await student.newPage();
-	await addSession(student, maya.userId);
-	const again = maya;
-	const project = await weatherProject(again.workspaceId);
-	await openProject(studentPage, again.workspaceId, project.id);
-	const shell = await launch(studentPage, again.workspaceId, project.id, "terminal");
+	const context = await browser.newContext();
+	studentContexts.push(context);
+	await addSession(context, maya.userId);
+	const studentPage = await context.newPage();
+	const project = await weatherProject(maya.workspaceId);
+	await openProject(studentPage, maya.workspaceId, project.id);
+	const shell = await launch(studentPage, maya.workspaceId, project.id, "terminal");
 	await expect(studentPage.getByTestId(`terminal-pane-${shell}`)).toHaveAttribute(
 		"data-connected",
 		"true",
 		{ timeout: 15_000 },
 	);
-	await flaskRunning(again.workspaceId);
-	const started = await studentPage.request.post(
-		`/workspaces/${again.workspaceId}/projects/${project.id}/live-help`,
-		{
-			headers: { origin: new URL(studentPage.url()).origin },
-			data: { helperUserId: instructor.userId, courseId },
-		},
-	);
-	expect(started.status()).toBe(200);
+	await flaskRunning(maya.workspaceId);
+	const base = `${WEB_ORIGIN}/workspaces/${maya.workspaceId}/projects/${project.id}`;
+	for (const check of ["tests", "lint"]) {
+		const ran = await context.request.post(`${base}/checks/${check}/runs`, {
+			headers: { origin: WEB_ORIGIN },
+		});
+		expect(ran.status()).toBe(201);
+	}
+	const shared = await context.request.post(`${base}/share`, {
+		headers: { origin: WEB_ORIGIN },
+	});
+	expect(shared.ok()).toBe(true);
+	await askForHelp(context, maya.workspaceId, project.id);
 
-	// The instructor's own browser.
-	await addSession(page.context(), instructor.userId);
-	await page.goto(`/course/${courseId}`);
-	await expect(page.getByTestId("course-live-help")).toBeVisible({ timeout: 15_000 });
-	await page.waitForTimeout(1000);
-	await shoot(page, "instructor-course.png");
+	for (const [index, name] of [
+		[4, "Portfolio Site"],
+		[7, "Quiz Game"],
+	] as const) {
+		const one = people[index] as Person;
+		const theirs = await browser.newContext();
+		studentContexts.push(theirs);
+		await addSession(theirs, one.userId);
+		const own = await createProject(one.workspaceId, { name });
+		await askForHelp(theirs, one.workspaceId, own.id);
+	}
+	help = { project, shell };
+	return help;
+}
 
-	await page.getByTestId("course-live-help").click();
-	await page
-		.getByRole("link", { name: "Open live help with Maya Chen on Weather Now" })
-		.click();
-	const terminal = page.getByTestId("helper-terminal");
-	await expect(terminal).toHaveAttribute("data-connected", "true", { timeout: 15_000 });
-	await printTo(shell, [
-		"student@ws-maya:~/projects/weather-now$ flask --app app run",
-		"Traceback (most recent call last):",
-		'  File "/home/student/projects/weather-now/app.py", line 4, in <module>',
-		"    import requests",
-		"ModuleNotFoundError: No module named 'requests'",
-		"student@ws-maya:~/projects/weather-now$",
-	]);
-	await page.waitForTimeout(1000);
-	await shoot(page, "instructor-live-help.png");
-	await student.close();
+test.afterAll(async () => {
+	for (const context of studentContexts) await context.close();
 });
+
+/** Dr. Okafor's own browser, in the given scheme and size. */
+async function asInstructor(page: Page, path: string, colorScheme: Scheme) {
+	await page.emulateMedia({ colorScheme });
+	await addSession(page.context(), instructor.userId);
+	await controllerChecked();
+	await page.goto(path);
+}
+
+for (const colorScheme of SCHEMES) {
+	test(`instructor course list (${colorScheme})`, async ({ page, browser }) => {
+		await classAsksForHelp(browser);
+		await asInstructor(page, "/course", colorScheme);
+		await expect(page.getByTestId("course-list")).toContainText("CS 2400: Databases", {
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("instructor-courses", colorScheme));
+	});
+
+	test(`instructor course (${colorScheme})`, async ({ page, browser }) => {
+		await classAsksForHelp(browser);
+		await asInstructor(page, `/course/${courseId}`, colorScheme);
+		await expect(page.getByTestId("course-live-help")).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("instructor-course", colorScheme));
+	});
+
+	test(`instructor shared project (${colorScheme})`, async ({ page, browser }) => {
+		const { project } = await classAsksForHelp(browser);
+		await asInstructor(page, `/course/${courseId}/shares/${project.id}`, colorScheme);
+		await expect(
+			page.getByRole("heading", { level: 1, name: project.name }),
+		).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("instructor-share", colorScheme));
+	});
+
+	test(`instructor live help queue (${colorScheme})`, async ({ page, browser }) => {
+		await classAsksForHelp(browser);
+		await asInstructor(page, `/course/${courseId}/live`, colorScheme);
+		await expect(page.getByTestId("live-sessions")).toBeVisible({ timeout: 15_000 });
+		await page.waitForTimeout(1000);
+		await shoot(page, imageName("instructor-live", colorScheme));
+	});
+
+	test(`instructor live help session (${colorScheme})`, async ({ page, browser }) => {
+		const { shell } = await classAsksForHelp(browser);
+		await asInstructor(page, `/course/${courseId}/live`, colorScheme);
+		await page
+			.getByRole("link", { name: "Open live help with Maya Chen on Weather Now" })
+			.click({ timeout: 15_000 });
+		await expect(page.getByTestId("helper-terminal")).toHaveAttribute(
+			"data-connected",
+			"true",
+			{ timeout: 15_000 },
+		);
+		// Cleared first, so the dark shot does not show the light shot's lines too.
+		await printTo(shell, [
+			"\u001b[H\u001b[2Jstudent@ws-maya:~/projects/weather-now$ flask --app app run",
+			"Traceback (most recent call last):",
+			'  File "/home/student/projects/weather-now/app.py", line 4, in <module>',
+			"    import requests",
+			"ModuleNotFoundError: No module named 'requests'",
+			"student@ws-maya:~/projects/weather-now$",
+		]);
+		await page.waitForTimeout(1500);
+		await shoot(page, imageName("instructor-live-help", colorScheme));
+	});
+
+	for (const [name, path, ready] of [
+		["course", "", "course-live-help"],
+		["live", "/live", "live-sessions"],
+	] as const) {
+		test(`instructor ${name} on a phone (${colorScheme})`, async ({ browser }) => {
+			await classAsksForHelp(browser);
+			const page = await phonePage(browser);
+			await asInstructor(page, `/course/${courseId}${path}`, colorScheme);
+			await expect(page.getByTestId(ready)).toBeVisible({ timeout: 15_000 });
+			await page.waitForTimeout(1500);
+			await shoot(page, imageName(`instructor-${name}-phone`, colorScheme));
+			await page.context().close();
+		});
+	}
+}

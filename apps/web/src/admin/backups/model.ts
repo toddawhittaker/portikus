@@ -22,16 +22,7 @@ export function longTime(iso: string): string {
 
 /** A set's time in UTC, as its name, its restore folder and the student's notice give it. */
 export function setTime(stamp: string): string {
-	const text = new Date(stampIso(stamp)).toLocaleString(undefined, {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-		hourCycle: "h23",
-		timeZone: "UTC",
-	});
-	return `${text} UTC`;
+	return utcText(new Date(stampIso(stamp)));
 }
 
 export function isWaiting(request: BackupRequestView): boolean {
@@ -117,4 +108,107 @@ export function runningText(
 	if (running === "nightly") return "The nightly backup";
 	const request = requests.find((r) => r.id === running);
 	return request ? requestText(request, workspaces) : "A requested job";
+}
+
+/**
+ * A time on the Backups page, in UTC like the set names and restore folders,
+ * so every time on the page is in the one zone it states.
+ */
+export function backupTime(iso: string): string {
+	return utcText(new Date(iso));
+}
+
+function utcText(date: Date): string {
+	const text = date.toLocaleString(undefined, {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+		timeZone: "UTC",
+	});
+	return `${text} UTC`;
+}
+
+export type NightKind = "complete" | "incomplete" | "failed" | "none" | "scheduled";
+
+export interface Night {
+	/** The UTC day, `2026-11-12`. */
+	day: string;
+	kind: NightKind;
+}
+
+const DAY_MS = 86_400_000;
+
+/** When each backup the page asked for failed: the failures the host's one "last failure" does not cover. */
+export function failedBackupTimes(
+	requests: readonly Pick<
+		BackupRequestView,
+		"kind" | "state" | "finishedAt" | "requestedAt"
+	>[],
+): string[] {
+	return requests
+		.filter((request) => request.kind === "backup" && request.state === "failed")
+		.map((request) => request.finishedAt ?? request.requestedAt);
+}
+
+/**
+ * The last `count` nights, oldest first, ending on the night of the next
+ * scheduled run when there is one: what each night left behind, from the
+ * sets the host lists, its last failure and any other failure the page
+ * knows of (`failedAt`, such as a failed Back up now).
+ */
+export function nights(
+	host: {
+		sets: readonly { stamp: string; complete: boolean }[];
+		nextRunAt: string | null;
+		lastFailure: { at: string } | null;
+	},
+	now: number,
+	count = 14,
+	failedAt: readonly string[] = [],
+): Night[] {
+	const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+	const next = host.nextRunAt ? Date.parse(host.nextRunAt) : null;
+	// The strip ends on tonight's run when it is due within a day, else on today.
+	const end = next !== null && next - now < DAY_MS && next >= now ? next : now;
+	const byDay = new Map<string, boolean>();
+	for (const set of host.sets) {
+		const day = stampIso(set.stamp).slice(0, 10);
+		byDay.set(day, (byDay.get(day) ?? false) || set.complete);
+	}
+	const failedDays = new Set(
+		[...(host.lastFailure ? [host.lastFailure.at] : []), ...failedAt].map((at) =>
+			dayOf(Date.parse(at)),
+		),
+	);
+	const scheduledDay = next !== null ? dayOf(next) : null;
+	const out: Night[] = [];
+	for (let i = count - 1; i >= 0; i--) {
+		const day = dayOf(end - i * DAY_MS);
+		const set = byDay.get(day);
+		const kind: NightKind =
+			set === true
+				? "complete"
+				: set === false
+					? "incomplete"
+					: failedDays.has(day)
+						? "failed"
+						: day === scheduledDay
+							? "scheduled"
+							: "none";
+		out.push({ day, kind });
+	}
+	return out;
+}
+
+/** "Thu, Nov 12" for a UTC day. */
+export function nightLabel(day: string): string {
+	return new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, {
+		weekday: "short",
+		month: "short",
+		day: "numeric",
+		timeZone: "UTC",
+	});
 }

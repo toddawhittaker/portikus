@@ -16,7 +16,9 @@ import {
 	graceValueText,
 } from "./GraceDialog.js";
 import { quotaError } from "./QuotaDialog.js";
+import { ADMIN_REFRESH_MS } from "./queries.js";
 import { isUsersList, usersBody } from "./users/testRows.js";
+import { overviewOrder } from "./WorkspaceDetail.js";
 import {
 	instructorChangeNote,
 	roleChangeNote,
@@ -353,15 +355,16 @@ test("the panel's sections come in their set order", async () => {
 	expect(headings).toEqual([
 		"H3 Alice Example",
 		"H4 Error",
-		"H4 Workspace",
 		"H4 Resources",
 		"H4 Resource guard",
+		"H4 Restore and rebuild",
 		"H4 Processes",
 		"H4 Ports and connections",
 		"H4 Agent log, reported by the workspace",
+		"H4 Recent audit events",
 		"H4 Account",
 		"H5 Linked course accounts",
-		"H4 Recent audit events",
+		"H4 Destructive",
 	]);
 });
 
@@ -376,7 +379,7 @@ test("an account without a workspace shows its workspace note, grace and account
 	const headings = within(panel)
 		.getAllByRole("heading", { level: 4 })
 		.map((heading) => heading.textContent);
-	expect(headings).toEqual(["Workspace", "Resources", "Account"]);
+	expect(headings).toEqual(["Resources", "Workspace", "Account"]);
 	expect(within(panel).queryByTestId("detail-quota-edit")).toBeNull();
 	expect(within(panel).getByTestId("detail-grace-edit")).toBeDefined();
 });
@@ -519,18 +522,24 @@ test("the panel reads the site limits once and does not poll the health report",
 	}
 });
 
-test("each section's actions sit in one row after its content (S5)", async () => {
+test("each editable value has its own Edit beside it, named for what it edits", async () => {
 	stubDetail(detail());
 	const panel = await openAlice();
 	const resources = within(panel).getByRole("region", { name: "Resources" });
+	// Each value's help button sits with its term; the Edits are the rest.
 	const actions = within(resources)
 		.getAllByRole("button")
 		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
-		.map((button) => button.textContent);
-	expect(actions).toEqual(["Edit quotas…", "Edit limits…", "Edit disconnect grace…"]);
-	const row = within(resources).getByTestId("detail-quota-edit").parentElement;
-	expect(row?.className).toContain("pk-actions");
-	expect(row?.nextElementSibling).toBeNull();
+		.map((button) => [button.textContent, button.getAttribute("aria-label")]);
+	expect(actions).toEqual([
+		["Edit", "Edit quotas for Alice Example's workspace"],
+		["Edit", "Edit limits for Alice Example's workspace"],
+		["Edit", "Edit disconnect grace for Alice Example"],
+	]);
+	// The Edit sits in the value's own cell, after the value it changes.
+	const cell = within(resources).getByTestId("detail-quota-edit").parentElement;
+	expect(cell?.tagName).toBe("DD");
+	expect(cell?.firstElementChild?.getAttribute("data-testid")).toBe("detail-quota");
 	for (const heading of within(panel).getAllByRole("heading", { level: 4 })) {
 		expect(heading.className).toContain("pk-group-label");
 		expect(heading.className).not.toContain("pk-text-label");
@@ -616,7 +625,11 @@ test("without the capability, Rebuild and Reset Docker are off and say why", asy
 	const note = within(panel).getByTestId("capability-note");
 	expect(note.textContent).toBe(NOT_AVAILABLE_TEXT);
 	expect(rebuild.getAttribute("aria-describedby")).toBe(note.id);
-	expect(reset.getAttribute("aria-describedby")).toBe(note.id);
+	// Reset Docker is on the Account tab, so its own note is drawn there beside it.
+	const resetNote = within(panel).getByTestId("capability-note-reset");
+	expect(resetNote.textContent).toBe("Reset Docker is not available in this release.");
+	expect(reset.getAttribute("aria-describedby")).toBe(resetNote.id);
+	expect(resetNote.closest("[role=tabpanel]")).toBe(reset.closest("[role=tabpanel]"));
 });
 
 test("a pending operation turns Rebuild and Reset Docker off and says so", async () => {
@@ -979,9 +992,9 @@ test("opening a panel focuses its heading and marks the row (Gate E)", async () 
 	expect(rowButton.getAttribute("aria-expanded")).toBe("true");
 	expect(rowButton.getAttribute("aria-controls")).toBe(panel.id);
 	expect(rowButton.className).toContain("pk-focus-inset");
-	// The selected row carries the ink bar, not only a background colour.
+	// The selected row carries the accent bar, not only a background colour.
 	expect(screen.getByTestId(`account-cell-${USER.id}`).style.boxShadow).toBe(
-		"var(--row-current-bar)",
+		"inset 2px 0 0 var(--accent)",
 	);
 	const carol = screen.getByRole("button", { name: /^Show details for Carol Admin, / });
 	expect(carol.getAttribute("aria-expanded")).toBe("false");
@@ -1808,21 +1821,22 @@ test("the panel's toggletips are named after what they explain and open on click
 	const names = within(panel)
 		.getAllByRole("button", { name: /^About / })
 		.map((button) => button.getAttribute("aria-label"));
+	// Every explanation the panel has ever offered stays a tip (SPEC.md section 20.1).
 	expect(names).toEqual([
-		"About Rebuild workspace",
-		"About Reset Docker",
-		"About Archive workspace",
 		"About Storage",
 		"About Limits",
 		"About Disconnect grace",
 		"About CPU throttle",
 		"About High memory",
 		"About Last input",
+		"About Rebuild workspace",
 		"About Preview column",
 		"About Agent log",
 		"About Promote",
 		"About Make instructor",
 		"About Disable account",
+		"About Reset Docker",
+		"About Archive workspace",
 	]);
 	fireEvent.click(within(panel).getByRole("button", { name: "About Last input" }));
 	const tip = openToggletip();
@@ -1853,10 +1867,75 @@ test("Restore from backup opens the restore dialog preset to this workspace", as
 	const open = within(panel).getByRole("button", {
 		name: "Restore from backup: Alice Example's workspace",
 	});
-	expect(open.textContent).toBe("Restore from backup…");
+	expect(open.textContent).toBe("Restore from backup");
 	fireEvent.click(open);
 	const dialog = await screen.findByRole("dialog", { name: "Restore from backup" });
 	expect(
 		await within(dialog).findByText("Backups are not connected on this site."),
 	).toBeDefined();
+});
+
+test("a flag that comes or goes moves the guard without mounting it again", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		stubDetail(detail());
+		const panel = await openAlice();
+		const overview = within(panel).getByRole("tabpanel", { name: "Overview" });
+		const order = () =>
+			within(overview)
+				.getAllByRole("heading", { level: 4 })
+				.map((heading) => heading.textContent);
+		const guard = within(overview).getByRole("region", { name: "Resource guard" });
+		expect(order().slice(0, 2)).toEqual(["Resources", "Resource guard"]);
+
+		// The next poll brings a throttle: the guard leads, and it is the same element.
+		stubDetail(detail({ cpuThrottle: THROTTLE }));
+		await vi.advanceTimersByTimeAsync(ADMIN_REFRESH_MS + 100);
+		await waitFor(() =>
+			expect(order().slice(0, 2)).toEqual(["Resource guard", "Resources"]),
+		);
+		expect(within(overview).getByRole("region", { name: "Resource guard" })).toBe(
+			guard,
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("the guard leads the Overview only when a flag is up", () => {
+	expect(overviewOrder(true)).toEqual(["guard", "resources"]);
+	expect(overviewOrder(false)).toEqual(["resources", "guard"]);
+});
+
+test("an archived workspace offers Unarchive in the head, outside the Destructive group", async () => {
+	stubDetail(
+		detail({
+			workspace: { ...WORKSPACE, archivedAt: "2026-09-20T10:00:00.000Z" },
+			capabilities: { rebuild: true, resetDocker: true },
+		}),
+		{ users: [{ ...ALICE_ROW, markers: NONE }, ADMIN_ROW] },
+	);
+	const panel = await openAlice();
+	const unarchive = within(panel).getByRole("button", {
+		name: "Unarchive workspace for Alice Example",
+	});
+	expect(unarchive.closest("[role=tabpanel]")).toBeNull();
+	const destructive = within(panel).getByTestId("detail-destructive");
+	expect(
+		within(destructive)
+			.getAllByRole("button")
+			.map((button) => button.getAttribute("aria-label")),
+	).toEqual(["Reset Docker for Alice Example", "About Reset Docker"]);
+});
+
+test("with the workspace archived and no Reset Docker, the Destructive group is gone", async () => {
+	stubDetail(
+		detail({
+			workspace: { ...WORKSPACE, archivedAt: "2026-09-20T10:00:00.000Z" },
+			capabilities: { rebuild: true, resetDocker: false },
+		}),
+		{ users: [{ ...ALICE_ROW, markers: NONE }, ADMIN_ROW] },
+	);
+	const panel = await openAlice();
+	expect(within(panel).queryByTestId("detail-destructive")).toBeNull();
 });

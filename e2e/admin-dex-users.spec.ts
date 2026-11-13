@@ -63,7 +63,12 @@ async function addUser(
 async function openDetail(page: Page, name: string) {
 	await page.getByTestId("admin-filter-text").fill(name);
 	await page.getByRole("button", { name: `Show details for ${name}` }).click();
-	return page.getByRole("region", { name });
+	const panel = page.getByRole("region", { name });
+	// The account's actions sit on the inspector's Account tab.
+	const account = panel.getByRole("tab", { name: "Account" });
+	await account.click();
+	await expect(account).toHaveAttribute("aria-selected", "true");
+	return panel;
 }
 
 test("Add user shows the password once and pre-creates the account", async ({

@@ -6,5 +6,6 @@ A modal window for short, focused tasks: creating a project, cloning a repositor
 
 - Default width 480px; padding `space-6`; corners `radius-lg`; elevation `shadow-lg`; ground `surface-raised`; backdrop `scrim`.
 - Focus moves to the first field on open and returns to the trigger on close. Escape and the close button always work, except while a request is pending.
+- It portals to the body, outside any density container, so it copies `data-density` and `data-controls` from the area around whatever opened it: a dialog opened from an administrator page is compact with that page's 36px controls.
 - Never open a dialog on page load and never stack dialogs. Sign-in is a full-page redirect, not a dialog.
 - Errors from the server appear inline under the relevant field, not as a toast behind the dialog.

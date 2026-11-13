@@ -1,0 +1,161 @@
+<!-- @dsCard group="Data" height=260 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>TableBox</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+/* Canvas-only: draws the keyboard focus ring on a static card. */
+.pk-table-wrap.is-focus-demo{outline:var(--ring-width) solid var(--focus);outline-offset:var(--ring-offset-inset)}
+</style>
+<style>
+/* Copied from apps/web: these classes are not part of packages/ui, so bundle.css does not carry them. */
+/* apps/web/src/admin/admin-frame.css */
+@container admin-scroll (width < 45rem) {
+	.pk-table-wrap {
+		overflow: auto;
+	}
+}
+.pk-table-wrap:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+/* apps/web/src/console.css */
+@media (width < 35rem) {
+	:is(.pk-adminframe-scroll, .pk-course-main) .pk-table label:has(> input[type="checkbox"]) {
+		min-inline-size: var(--size-control-lg);
+		align-items: center;
+		justify-content: center;
+	}
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table thead th {
+	height: 36px;
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-size: 11px;
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table thead th :is(button, a) {
+	letter-spacing: inherit;
+	text-transform: inherit;
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table :is(td, th).pk-num {
+	font-variant-numeric: tabular-nums;
+	text-align: end;
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table tbody tr[aria-selected="true"] > :is(td, th) {
+	background: var(--accent-soft);
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table tbody tr[aria-selected="true"] > :first-child {
+	box-shadow: inset 2px 0 0 var(--accent);
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table .pk-iconbtn {
+	color: var(--ink);
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table .pk-iconbtn > .pk-icon {
+	width: 18px;
+	height: 18px;
+}
+.pk-table tbody tr.pk-row-selected > td {
+	background: var(--accent-soft);
+}
+/* apps/web/src/app.css */
+.pk-mono-small {
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+}
+.pk-muted {
+	color: var(--ink-muted);
+}
+.pk-tag {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	height: var(--size-badge);
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--status-stopped-soft);
+	border: 0;
+	color: var(--status-stopped);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	white-space: nowrap;
+	flex: none;
+}
+.pk-tag[data-quiet] {
+	gap: var(--space-1);
+	padding: 0;
+	background: none;
+	color: var(--status-running);
+}
+.pk-tag--warning {
+	background: var(--status-warning-soft);
+	border-color: transparent;
+	color: var(--status-warning);
+}
+.pk-dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--radius-full);
+	background: currentColor;
+}
+.pk-tone-running {
+	color: var(--status-running);
+}
+.pk-tone-warning {
+	color: var(--status-warning);
+}
+.pk-tone-error {
+	color: var(--status-error);
+}
+.pk-tone-starting {
+	color: var(--status-starting);
+}
+.pk-tone-stopped {
+	color: var(--status-stopped);
+}
+</style>
+</head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
+var people=[
+ ['Amara Nwosu','anwosu@example.edu','Student','ws-anwosu','running',null],
+ ['Diego Santos','dsantos@example.edu','Student','ws-dsantos','running','Throttled'],
+ ['Jonah Kim','jkim@example.edu','Student','ws-jkim','stopped',null],
+ ['Dr. Ivy Okafor','okafor@example.edu','Instructor','ws-okafor','error',null]];
+function usersTable(chosen){
+ return h('div',{className:'pk-table-wrap'},h('table',{className:'pk-table','aria-label':'Accounts'},
+  h('thead',null,h('tr',null,h('th',{scope:'col','aria-sort':'ascending'},'Account'),h('th',{scope:'col'},'Role'),h('th',{scope:'col'},'Workspace'),h('th',{scope:'col'},h('span',{className:'sr-only'},'Actions')))),
+  h('tbody',null,people.map(function(p){return h('tr',{key:p[0],'aria-selected':p[0]===chosen?'true':undefined},
+   h('td',null,h('div',{style:{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}},h('span',{style:{fontWeight:600}},p[0]),p[5]?h('span',{className:'pk-tag pk-tag--warning'},p[5]):null),h('div',{className:'pk-muted',style:{fontSize:'12px',lineHeight:'16px'}},p[1])),
+   h('td',null,p[2]),
+   h('td',null,h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:'2px'}},h('span',{className:'pk-mono-small'},p[3]),h(P.StateBadge,{state:p[4],plain:p[4]!=='error',statusRole:false}))),
+   h('td',null,h(P.IconButton,{icon:'more',label:'Actions for '+p[0],size:'sm'})));}))));
+}
+
+function Box(props){
+ var ref=React.useRef(null), st=React.useState(false), scrolls=st[0], set=st[1];
+ React.useEffect(function(){var b=ref.current;var check=function(){set(b.scrollWidth>b.clientWidth+1);};var o=new ResizeObserver(check);o.observe(b);check();return function(){o.disconnect();};},[]);
+ var region=scrolls?{role:'region','aria-label':props.label,tabIndex:0}:{};
+ return h('div',Object.assign({ref:ref,className:'pk-table-wrap'+(props.demoFocus&&scrolls?' is-focus-demo':''),style:{overflow:'auto'}},region),props.children);
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'pk-course-main','data-density':'compact','data-controls':'console',style:{padding:'16px 20px',display:'grid',gap:'8px',maxWidth:'460px'}},
+ h('p',{className:'demo-cap',style:{margin:0}},'Narrower than its table: the box scrolls sideways and becomes a named region in the tab order (focused here)'),
+ h(Box,{label:'Accounts',demoFocus:true},h('table',{className:'pk-table','aria-label':'Accounts',style:{minWidth:'640px'}},
+  h('thead',null,h('tr',null,h('th',{scope:'col'},'Account'),h('th',{scope:'col'},'Role'),h('th',{scope:'col'},'Workspace'),h('th',{scope:'col',className:'pk-num'},'Storage'))),
+  h('tbody',null,people.map(function(p){return h('tr',{key:p[0]},h('td',null,p[0]),h('td',null,p[2]),h('td',null,h(P.StateBadge,{state:p[4],plain:p[4]!=='error',statusRole:false})),h('td',{className:'pk-num'},'6.2 GB'));}))))));
+</script>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!-- @dsCard group="Forms" height=200 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>FilterChips</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+</style>
+<style>
+/* Copied from apps/web: these classes are not part of packages/ui, so bundle.css does not carry them. */
+/* apps/web/src/admin/logs/logs.css */
+.pk-logbar-chip-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1\.5);
+}
+.pk-chipcheck {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	min-height: 30px;
+	padding-inline: var(--space-2);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	font-weight: 500;
+	cursor: pointer;
+	user-select: none;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.pk-chipcheck:hover {
+	color: var(--ink);
+	background: var(--surface-hover);
+}
+.pk-chipcheck:has(:checked) {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+.pk-chipcheck:has(:focus-visible) {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-chipcheck-box {
+	position: absolute;
+	inset: 0;
+	inline-size: 100%;
+	block-size: 100%;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+.pk-chipcheck-tick {
+	display: none;
+	flex: none;
+	color: var(--accent-text);
+}
+.pk-chipcheck:has(:checked) .pk-chipcheck-tick {
+	display: block;
+}
+.pk-chipcheck-dot {
+	flex: none;
+	inline-size: 8px;
+	block-size: 8px;
+	border-radius: var(--radius-full);
+	background: var(--ink-muted);
+}
+.pk-chipcheck[data-kind="error"] .pk-chipcheck-dot {
+	background: var(--status-error);
+}
+.pk-chipcheck[data-kind="warn"] .pk-chipcheck-dot {
+	background: var(--status-warning);
+}
+.pk-chipcheck[data-kind="info"] .pk-chipcheck-dot {
+	background: var(--status-starting);
+}
+@media (forced-colors: active) {
+	.pk-chipcheck:has(:checked) {
+		border-color: Highlight;
+	}
+}
+@container admin-scroll (width < 35rem) {
+	.pk-chipcheck {
+		min-height: var(--size-control-lg);
+	}
+}
+/* apps/web/src/course/course.css */
+.pk-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1\.5);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+.pk-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	block-size: var(--size-control-md);
+	padding-inline: var(--space-3);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font: inherit;
+	font-size: var(--text-md);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.pk-chip:hover {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+.pk-chip[aria-pressed="true"] {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-weight: 600;
+}
+.pk-chip-count {
+	min-inline-size: 1.25rem;
+	padding-inline: var(--space-1);
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	text-align: center;
+}
+.pk-chip[aria-pressed="true"] .pk-chip-count {
+	background: transparent;
+	color: inherit;
+}
+@media (width < 35rem) {
+	.pk-chip {
+		block-size: var(--size-control-lg);
+		padding-inline: var(--space-3);
+	}
+}
+@media (width < 35rem) {
+	.pk-chips {
+		flex-wrap: nowrap;
+		gap: var(--space-2);
+		overflow-x: auto;
+		scrollbar-width: none;
+		padding-block: 2px;
+		inline-size: 100%;
+	}
+	.pk-chip {
+		flex: none;
+	}
+}
+/* apps/web/src/console.css */
+.pk-overline {
+	margin: 0;
+	font-size: 11px;
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
+}
+</style>
+</head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
+function Chip(props){
+ var st=React.useState(props.on), on=st[0], set=st[1];
+ return h('label',{className:'pk-chipcheck','data-kind':props.kind},
+  h('input',{type:'checkbox',className:'pk-chipcheck-box',checked:on,onChange:function(e){set(e.target.checked);}}),
+  h(P.Icon,{name:'check',size:'sm',className:'pk-chipcheck-tick'}),
+  props.kind==='service'?null:h('span',{className:'pk-chipcheck-dot','aria-hidden':true}),h('span',null,props.label));
+}
+function Members(){
+ var st=React.useState('all'), f=st[0], set=st[1];
+ return h('fieldset',{className:'pk-chips'},h('legend',{className:'sr-only'},'Show members'),
+  [['all','All',10],['attention','Needs attention',3],['running','Running',5],['stopped','Stopped',4]].map(function(o){
+   return h('button',{key:o[0],type:'button',className:'pk-chip pk-focus-ring','aria-pressed':f===o[0],onClick:function(){set(o[0]);}},f===o[0]?h(P.Icon,{name:'check',size:'sm'}):null,o[1],h('span',{className:'pk-chip-count pk-num'},o[2]));}));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:'16px 20px',display:'grid',gap:'16px'}},
+ h('fieldset',{style:{border:0,margin:0,padding:0}},h('legend',{className:'pk-overline',style:{marginBottom:'6px'}},'Levels: several can be on'),
+  h('div',{className:'pk-logbar-chip-list'},h(Chip,{kind:'error',label:'Error',on:true}),h(Chip,{kind:'warn',label:'Warn',on:true}),h(Chip,{kind:'info',label:'Info',on:false}),h(Chip,{kind:'debug',label:'Debug',on:false}),h(Chip,{kind:'service',label:'API',on:true}))),
+ h('div',null,h('p',{className:'demo-cap'},'Members: one of a set, a pressed button with a count'),h(Members))));
+</script>
+</body>
+</html>

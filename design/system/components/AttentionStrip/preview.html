@@ -1,0 +1,299 @@
+<!-- @dsCard group="Feedback" height=330 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>AttentionStrip</title>
+<style>html,body{margin:0}body{font-family:var(--font-sans);background:var(--surface);color:var(--ink);font-size:14px;line-height:20px}
+.demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.demo-col{display:grid;gap:12px}
+.demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+</style>
+<style>
+/* Copied from apps/web: these classes are not part of packages/ui, so bundle.css does not carry them. */
+/* apps/web/src/console.css */
+@media (width < 35rem) {
+	:is(.pk-adminframe-scroll, .pk-course-main) :is(.pk-table-sort, .pk-intro-body > .pk-link, .pk-entity-link, .pk-back-link) {
+		display: inline-flex;
+		align-items: center;
+		min-block-size: var(--size-control-lg);
+	}
+}
+.pk-overline {
+	margin: 0;
+	font-size: 11px;
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
+}
+.pk-eyebrow > .pk-portico {
+	flex: none;
+	color: var(--accent-text);
+}
+:where(.pk-portico) {
+	stroke: currentColor;
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.pk-portico-tick {
+	stroke: var(--status-running);
+	stroke-width: 1.75;
+}
+.pk-quiet {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-height: 56px;
+	padding: var(--space-3) var(--space-4);
+	border: 1px dashed var(--line);
+	border-radius: var(--radius-md);
+}
+.pk-quiet-mark {
+	display: grid;
+	place-items: center;
+	flex: none;
+	inline-size: 36px;
+	block-size: 36px;
+	border-radius: var(--radius-md);
+	background: var(--surface-sunken);
+	color: var(--ink-muted);
+}
+.pk-quiet[data-variant="clear"] .pk-quiet-mark {
+	color: var(--accent-text);
+}
+.pk-quiet-text {
+	flex: 1;
+	min-width: 0;
+	display: grid;
+	gap: 2px;
+}
+.pk-quiet-title {
+	margin: 0;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 600;
+	color: var(--ink);
+}
+.pk-quiet-detail {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--ink-muted);
+}
+.pk-attention {
+	display: grid;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	background: var(--surface-raised);
+	border: 1px solid var(--line);
+	border-inline-start: 3px solid var(--status-warning);
+	border-radius: var(--radius-md);
+}
+.pk-attention[data-tone="error"] {
+	border-inline-start-color: var(--status-error);
+}
+.pk-attention-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-4);
+	padding: var(--space-3) var(--space-4);
+}
+.pk-attention-row + .pk-attention-row {
+	border-block-start: 1px solid var(--line);
+}
+.pk-attention-icon {
+	flex: none;
+	color: var(--status-warning);
+}
+.pk-attention-text {
+	flex: 1 1 18rem;
+	min-width: 0;
+	display: grid;
+	gap: 2px;
+}
+.pk-attention-title {
+	margin: 0;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 600;
+}
+.pk-attention-detail {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+	color: var(--ink-muted);
+}
+.pk-attention-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+.pk-entity-link {
+	color: var(--ink);
+	font-weight: 600;
+	text-decoration: none;
+	border-radius: 2px;
+}
+.pk-entity-link:hover, .pk-entity-link:focus-visible {
+	text-decoration: underline;
+	text-decoration-color: var(--accent);
+	text-underline-offset: 3px;
+}
+.pk-entity-link:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+/* apps/web/src/admin/health/health.css */
+.pk-attention-table {
+	inline-size: 100%;
+	border-collapse: collapse;
+}
+.pk-attention-table td {
+	padding: var(--space-3) var(--space-4);
+	vertical-align: middle;
+}
+.pk-attention-table tr + tr td {
+	border-block-start: 1px solid var(--line);
+}
+.pk-attention-table .pk-attention-who {
+	inline-size: 1%;
+	min-inline-size: 10rem;
+	overflow-wrap: anywhere;
+}
+@container admin-scroll (width < 40rem) {
+	.pk-attention-table .pk-attention-who {
+		inline-size: auto;
+	}
+}
+.pk-attention-list .pk-attention-who {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--text-md);
+	font-weight: 600;
+}
+td.pk-attention-who {
+	display: table-cell;
+}
+td.pk-attention-who > svg {
+	display: inline-block;
+	margin-inline-end: var(--space-2);
+	vertical-align: -3px;
+}
+.pk-attention-table .pk-attention-text {
+	display: table-cell;
+}
+.pk-attention-table .pk-attention-text > * + * {
+	display: block;
+	margin-block-start: 2px;
+}
+.pk-attention-table td.pk-attention-actions {
+	display: table-cell;
+	inline-size: 1%;
+	white-space: nowrap;
+	text-align: end;
+}
+.pk-attention-table td.pk-attention-actions > * + * {
+	margin-inline-start: var(--space-2);
+}
+.pk-attention-table + .pk-attention-list > :first-child {
+	border-block-start: 1px solid var(--line);
+}
+@container admin-scroll (width < 40rem) {
+	.pk-attention-table, .pk-attention-table tbody {
+		display: block;
+	}
+	.pk-attention-table tr {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+	}
+	.pk-attention-table tr + tr {
+		border-block-start: 1px solid var(--line);
+	}
+	.pk-attention-table td, .pk-attention-table tr + tr td {
+		display: block;
+		padding: 0;
+		border: 0;
+		inline-size: auto;
+		text-align: start;
+	}
+	.pk-attention .pk-attention-table td.pk-attention-actions {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-2);
+		inline-size: auto;
+		white-space: normal;
+	}
+	.pk-attention .pk-attention-table td.pk-attention-actions > * {
+		min-height: var(--size-control-lg);
+		margin: 0;
+		border-color: var(--line-strong);
+	}
+}
+/* apps/web/src/app.css */
+.pk-tag {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	height: var(--size-badge);
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--status-stopped-soft);
+	border: 0;
+	color: var(--status-stopped);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	white-space: nowrap;
+	flex: none;
+}
+.pk-tag[data-quiet] {
+	gap: var(--space-1);
+	padding: 0;
+	background: none;
+	color: var(--status-running);
+}
+.pk-tag--warning {
+	background: var(--status-warning-soft);
+	border-color: transparent;
+	color: var(--status-warning);
+}
+.pk-tag--error {
+	background: var(--status-error-soft);
+	border-color: transparent;
+	color: var(--status-error);
+}
+</style>
+</head>
+<body>
+<div id="root" class="pk-root"></div>
+<script>
+var P = window.Portikus, h = React.createElement, F = React.Fragment;
+function noop() {}
+function eyebrow(where){return h('p',{className:'pk-eyebrow','aria-hidden':true},portico(),h('span',null,where));}
+function portico(){return h('svg',{className:'pk-portico',width:16,height:16,viewBox:'0 0 24 24',fill:'none','aria-hidden':true},
+ h('path',{d:'M3 9 12 3.5 21 9z'}),h('path',{d:'M6.5 11.5v6.5M10 11.5v6.5M14 11.5v6.5M17.5 11.5v6.5'}),h('path',{d:'M3.5 20.5h17'}));}
+
+function clearMark(){return h('svg',{className:'pk-portico',width:24,height:24,viewBox:'0 0 24 24',fill:'none','aria-hidden':true},
+ h('path',{d:'M3 9 12 3.5 21 9z'}),h('path',{d:'M6.5 11.5v6.5M10 11.5v6.5M14 11.5v6.5M17.5 11.5v6.5'}),h('path',{d:'M3.5 20.5h17'}),h('path',{className:'pk-portico-tick',d:'m9.6 7.1 1.6 1.4 3.2-3'}));}
+function row(who,tag,tone,detail){return h('tr',null,
+ h('td',{className:'pk-attention-who'},h(P.Icon,{name:'alert'}),h('a',{className:'pk-entity-link',href:'#'},who)),
+ h('td',{className:'pk-attention-text'},h('span',null,h('span',{className:'pk-tag pk-tag--'+tone},tag)),h('span',{className:'pk-attention-detail'},detail)),
+ h('td',{className:'pk-attention-actions'},h(P.Button,{variant:'quiet',size:'sm'},'Logs'),h(P.Button,{variant:'quiet',size:'sm'},'Audit'),h(P.Button,{size:'sm'},'Inspect')));}
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'pk-course-main','data-density':'compact','data-controls':'console',style:{padding:'16px 20px',display:'grid',gap:'16px'}},
+ h('section',{style:{display:'grid',gap:'8px'},'aria-labelledby':'as-t'},
+  h('div',{style:{display:'flex',gap:'8px',alignItems:'baseline'}},h('h3',{className:'pk-overline',id:'as-t'},'Needs attention'),h('span',{className:'pk-overline pk-num','aria-hidden':true},'2')),
+  h('div',{className:'pk-attention'},h('table',{className:'pk-attention-table'},h('caption',{className:'sr-only'},'Throttled and flagged workspaces'),h('tbody',null,
+   row('Diego Santos','Throttled','warning','CPU 96% over 30 minutes, since 5:10 PM'),
+   row('Priya Raman','Flagged','warning','Memory 93% of its limit for 12 minutes'))))),
+ h('div',null,h('p',{className:'demo-cap'},'Nothing to look at: a quiet one-row state'),
+  h('div',{className:'pk-quiet','data-variant':'clear'},h('span',{className:'pk-quiet-mark'},clearMark()),h('div',{className:'pk-quiet-text'},h('p',{className:'pk-quiet-title'},'Nothing needs attention'),h('p',{className:'pk-quiet-detail'},'No workspace is throttled, flagged or failing.'))))));
+</script>
+</body>
+</html>

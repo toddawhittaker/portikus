@@ -76,9 +76,10 @@ test("the Network tab sits after Health and before Settings", async ({ page }) =
 	await reset();
 	await open(page);
 	const nav = page.getByRole("navigation", { name: "Administration" });
+	// The Health tab may carry the count of items needing attention after its name.
 	await expect(nav.getByRole("link")).toHaveText([
 		"Users",
-		"Health",
+		/^Health(\d+, \d+ items? needs? attention)?$/,
 		"Logs",
 		"Audit",
 		"Agent usage",

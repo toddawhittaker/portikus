@@ -1,8 +1,14 @@
-import type { ActiveCourseMember, CourseMembersResponse } from "@portikus/contracts";
+import type {
+	ActiveCourseMember,
+	CourseMember,
+	CourseMembersResponse,
+} from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
-import { nextRemovable } from "./CoursePage.js";
+import { courseMonogram } from "./CourseList.js";
+import { memberKey, nextRemovable } from "./CoursePage.js";
+import { LIVE_POLL_MS } from "./live/queries.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -108,9 +114,8 @@ test("a course page offers the profile choice between the roster status and the 
 	const headings = screen
 		.getAllByRole("heading", { level: 2 })
 		.map((heading) => heading.textContent);
-	expect(headings.indexOf("Student interface")).toBeLessThan(
-		headings.indexOf("Members"),
-	);
+	// The members come first; the course's settings follow them.
+	expect(headings.indexOf("Members")).toBeLessThan(headings.indexOf("Course settings"));
 });
 
 test("with several courses, each is a link to its members", async () => {
@@ -195,7 +200,12 @@ test("the members table shows name, role, last launch and workspace state", asyn
 		within(body)
 			.getAllByRole("button")
 			.map((b) => b.textContent),
-	).toEqual(["Remove Sam Student from course"]);
+	).toEqual([""]);
+	expect(
+		within(body)
+			.getAllByRole("button")
+			.map((b) => b.getAttribute("aria-label")),
+	).toEqual(["Actions for Sam Student"]);
 	expect(within(table).queryByRole("status")).toBeNull();
 	expect(document.title).toBe(`${CS101.title}, Portikus`);
 });
@@ -250,13 +260,13 @@ test("the members table uses the admin page's table and frame", async () => {
 	renderApp(`/course/${CS101.id}`);
 
 	const table = await screen.findByTestId("course-members");
-	expect(table.className).toBe("pk-table pk-table--page");
+	expect(table.className).toBe("pk-table pk-table--page pk-members-table");
 	// The wrap may not scroll, so the header sticks to the scrolling <main>.
 	expect(table.parentElement?.className).toContain("pk-table-wrap");
 	expect(table.parentElement?.className).toContain("overflow-clip");
 	const main = screen.getByTestId("page-course");
 	expect(main.getAttribute("data-density")).toBe("compact");
-	expect(main.firstElementChild?.className).toContain("max-w-[1440px]");
+	expect(main.firstElementChild?.className).toContain("max-w-[80rem]");
 	// The launch time is machine-readable as well as shown in the local format.
 	expect(table.querySelector("time")?.getAttribute("datetime")).toBe(
 		"2026-09-22T09:00:00.000Z",
@@ -292,6 +302,18 @@ test("signed out, the Course page goes to sign-in", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/"));
 });
 
+/** Opens a member's row menu and chooses Remove from course, as a pointer does. */
+async function chooseRemove(name: string): Promise<void> {
+	fireEvent.pointerDown(
+		await screen.findByRole("button", { name: `Actions for ${name}` }),
+		{
+			button: 0,
+			ctrlKey: false,
+		},
+	);
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from course" }));
+}
+
 function samMember(): ActiveCourseMember {
 	return {
 		status: "active",
@@ -321,9 +343,7 @@ test("removing asks first, naming the person and the course, then the row goes",
 	});
 	renderApp(`/course/${CS101.id}`);
 
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
-	);
+	await chooseRemove("Sam Student");
 	const dialog = await screen.findByTestId("dialog-remove-member");
 	expect(dialog.textContent).toContain(`Remove Sam Student from ${CS101.title}?`);
 	expect(dialog.textContent).toContain(
@@ -335,9 +355,7 @@ test("removing asks first, naming the person and the course, then the row goes",
 	await waitFor(() => expect(screen.queryByTestId("dialog-remove-member")).toBeNull());
 	expect(calls).toEqual([]);
 
-	fireEvent.click(
-		screen.getByRole("button", { name: "Remove Sam Student from course" }),
-	);
+	await chooseRemove("Sam Student");
 	const again = await screen.findByTestId("dialog-remove-member");
 	fireEvent.click(within(again).getByRole("button", { name: "Remove from course" }));
 
@@ -361,9 +379,7 @@ test("a failed removal keeps the row and says so in the dialog", async () => {
 	});
 	renderApp(`/course/${CS101.id}`);
 
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
-	);
+	await chooseRemove("Sam Student");
 	const dialog = await screen.findByTestId("dialog-remove-member");
 	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
 
@@ -393,14 +409,14 @@ test("after a removal, focus moves to the next row's Remove button", async () =>
 	});
 	renderApp(`/course/${CS101.id}`);
 
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
-	);
+	await chooseRemove("Sam Student");
 	const dialog = await screen.findByTestId("dialog-remove-member");
 	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
 
 	await waitFor(() =>
-		expect(document.activeElement?.textContent).toBe("Remove Pat Student from course"),
+		expect(document.activeElement?.getAttribute("aria-label")).toBe(
+			"Actions for Pat Student",
+		),
 	);
 });
 
@@ -426,9 +442,7 @@ test("when only the caller is left, focus moves to the page heading", async () =
 	});
 	renderApp(`/course/${CS101.id}`);
 
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Remove Sam Student from course" }),
-	);
+	await chooseRemove("Sam Student");
 	const dialog = await screen.findByTestId("dialog-remove-member");
 	fireEvent.click(within(dialog).getByRole("button", { name: "Remove from course" }));
 
@@ -469,4 +483,138 @@ test("the page explains itself, and Last launch and Remove have help", async () 
 	).toBeDefined();
 	// The intro explains Remove, so its column has no toggletip of its own.
 	expect(within(table).queryByRole("button", { name: "About Remove" })).toBeNull();
+});
+
+test("the name search and the state chips narrow the members table, with counts", async () => {
+	const PAT_ID = "88888888-8888-4888-8888-888888888888";
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, {
+				course: CS101,
+				roster: NO_ROSTER,
+				members: [
+					{ ...samMember(), workspaceState: "running" },
+					{
+						...samMember(),
+						userId: PAT_ID,
+						displayName: "Pat Student",
+						workspaceState: "stopped",
+					},
+				],
+			}),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const table = await screen.findByTestId("course-members");
+	const chips = screen.getByTestId("course-members-filter");
+	expect(
+		within(chips).getByRole("button", { name: /^All/ }).getAttribute("aria-pressed"),
+	).toBe("true");
+	fireEvent.click(within(chips).getByRole("button", { name: /^Stopped/ }));
+	expect(
+		within(table)
+			.getAllByRole("rowheader")
+			.map((cell) => cell.firstChild?.textContent),
+	).toEqual(["Pat Student"]);
+	fireEvent.click(within(chips).getByRole("button", { name: /^All/ }));
+	fireEvent.change(screen.getByTestId("course-members-search"), {
+		target: { value: "sam" },
+	});
+	expect(
+		within(table)
+			.getAllByRole("rowheader")
+			.map((cell) => cell.firstChild?.textContent),
+	).toEqual(["Sam Student"]);
+	fireEvent.change(screen.getByTestId("course-members-search"), {
+		target: { value: "zed" },
+	});
+	expect(
+		(await screen.findByTestId("course-members-none-match")).textContent,
+	).toContain("No members match");
+});
+
+test("a course's tile shows its number, or the title's initials when it has none", () => {
+	expect(courseMonogram("CS 1210: Programming for the Web")).toBe("1210");
+	expect(courseMonogram("Databases 2400")).toBe("2400");
+	expect(courseMonogram("Web design studio")).toBe("WD");
+	expect(courseMonogram("")).toBe("?");
+});
+
+/** Serve `routes`, counting each URL asked for. */
+function serveCounting(routes: Record<string, () => Response>) {
+	const asked = new Map<string, number>();
+	stubFetch((url) => {
+		asked.set(url, (asked.get(url) ?? 0) + 1);
+		if (url === "/auth/me") return json(200, USER);
+		const handler = routes[url];
+		if (handler) return handler();
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	return (url: string) => asked.get(url) ?? 0;
+}
+
+test("the course list reads each course's live help once, without polling", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		const asked = serveCounting({
+			"/courses": () => json(200, [CS101, CS240]),
+			[`/courses/${CS101.id}/members`]: () => json(200, roster()),
+			[`/courses/${CS240.id}/members`]: () =>
+				json(200, { course: CS240, roster: NO_ROSTER, members: [] }),
+			[`/courses/${CS101.id}/live-help`]: () => json(200, { sessions: [] }),
+			[`/courses/${CS240.id}/live-help`]: () => json(200, { sessions: [] }),
+		});
+		renderApp("/course");
+		await screen.findByTestId("course-list");
+		await waitFor(() => expect(asked(`/courses/${CS240.id}/live-help`)).toBe(1));
+		await vi.advanceTimersByTimeAsync(4 * LIVE_POLL_MS);
+		expect(asked(`/courses/${CS101.id}/live-help`)).toBe(1);
+		expect(asked(`/courses/${CS240.id}/live-help`)).toBe(1);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("live help that cannot load says so, and a course it cannot find is not asked again", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		const asked = serveCounting({
+			[`/courses/${CS101.id}/members`]: () => json(200, roster()),
+		});
+		renderApp(`/course/${CS101.id}`);
+		expect((await screen.findByTestId("course-live-error")).textContent).toContain(
+			"could not load live help",
+		);
+		await vi.advanceTimersByTimeAsync(4 * LIVE_POLL_MS);
+		expect(asked(`/courses/${CS101.id}/live-help`)).toBe(1);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a course that could not load shows no class summary or live help", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(500, { code: "INTERNAL", message: "boom" }),
+	});
+	renderApp(`/course/${CS101.id}`);
+	await screen.findByTestId("course-error");
+	expect(screen.queryByRole("heading", { name: "Live help" })).toBeNull();
+	expect(screen.queryByTestId("course-counts")).toBeNull();
+});
+
+test("a roster-only row is keyed by its place in the whole member list", () => {
+	const notStarted = (name: string): CourseMember => ({
+		status: "not_started",
+		userId: null,
+		displayName: name,
+		role: "student",
+		lastLaunchAt: null,
+		workspaceState: null,
+	});
+	const all = [samMember(), notStarted("Nia New"), notStarted("Oz New")];
+	const oz = all[2] as CourseMember;
+	// Its place in the whole list, which a search or filter does not change.
+	expect(memberKey(oz, all)).toBe("roster-2");
+	expect(memberKey(samMember(), all)).toBe(SAM_ID);
 });

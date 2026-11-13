@@ -61,6 +61,23 @@ test("activity is Now with the connection count while connected, otherwise the t
 	expect(activityText(summary(), now)).toBe("—");
 });
 
+test("Activity counts connections only, never the last sign-in (SPEC.md section 20.1)", async () => {
+	// Bob has signed in but no browser has connected to his workspace.
+	const rows = ROWS.map((row, index) =>
+		index === 1 ? { ...row, lastLoginAt: "2026-09-22T10:00:00.000Z" } : row,
+	);
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, ADMIN_ME);
+		if (isUsersList(url)) return usersBody(url, rows, false);
+		if (url === "/admin/settings") {
+			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	await openTable();
+	expect(screen.getByTestId(`account-activity-${uuid(2)}`).textContent).toBe("—");
+});
+
 test("a bulk action applies only where it changes something", () => {
 	const off = account("Off", null, { disabledAt: "2026-09-01T00:00:00.000Z" });
 	expect(bulkApplies("disable", alice, "me")).toBe(true);
@@ -130,7 +147,8 @@ test("only an out-of-date image shows the Old image tag, in the Workspace cell",
 	await openTable();
 	const older = screen.getByTestId(`account-image-${uuid(2)}`);
 	expect(older.textContent).toBe("Old image");
-	expect(older.className).toBe("pk-tag pk-tag--warning");
+	// Neutral: an older image is a fact to act on, not a warning.
+	expect(older.className).toBe("pk-tag");
 	expect(older.title).toBe("2026.09.8 · older");
 	// Under the state badge, in the same cell as the workspace label.
 	expect(older.closest("td")?.textContent).toContain("bob");
@@ -237,7 +255,7 @@ test("bulk Enable is confirmed without the danger styling; Disable keeps it", as
 	const enable = await screen.findByRole("alertdialog", { name: "Enable 1 account?" });
 	expect(
 		within(enable).getByRole("button", { name: "Enable" }).className,
-	).not.toContain("bg-status-danger");
+	).not.toContain("bg-danger-fill");
 	fireEvent.click(within(enable).getByRole("button", { name: "Cancel" }));
 	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Gina Granted" }));
@@ -247,7 +265,7 @@ test("bulk Enable is confirmed without the danger styling; Disable keeps it", as
 		name: "Disable 1 account?",
 	});
 	expect(within(disable).getByRole("button", { name: "Disable" }).className).toContain(
-		"bg-status-danger",
+		"bg-danger-fill",
 	);
 });
 
@@ -548,27 +566,29 @@ test("Also reset Docker starts unticked on every opening and a tick is sent", as
 	]);
 });
 
-test("the Account cell's second line carries the full contact as a title", async () => {
+test("the Account cell's second line wraps the full contact and carries it as a title", async () => {
 	stubUsers();
 	await openTable();
 	const contact = screen.getByTestId(`account-contact-${ROWS[0]?.id}`);
 	expect(contact.getAttribute("title")).toBe(contact.textContent);
-	expect(contact.className).toContain("truncate");
+	expect(contact.className).toContain("[overflow-wrap:anywhere]");
 });
 
-test("each column with a rule behind it, the Image filter and Show archived have one help button", async () => {
+test("the filters and column headers keep their help buttons (SPEC.md section 20.1)", async () => {
 	stubUsers();
 	await openTable();
-	for (const label of [
-		"Account tags",
-		"Role",
-		"Old image",
-		"Activity",
-		"Image filter",
-		"Show archived",
-	]) {
-		expect(screen.getAllByRole("button", { name: `About ${label}` })).toHaveLength(1);
-	}
+	expect(
+		screen
+			.getAllByRole("button", { name: /^About / })
+			.map((b) => b.getAttribute("aria-label")),
+	).toEqual([
+		"About Image filter",
+		"About Show archived",
+		"About Account tags",
+		"About Role",
+		"About Old image",
+		"About Activity",
+	]);
 	// Help sits beside the header text, so the header still reads as its name.
 	const table = screen.getByTestId("admin-accounts");
 	expect(within(table).getAllByRole("columnheader")[1]?.textContent).toBe("Account");

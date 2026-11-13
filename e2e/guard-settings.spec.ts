@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
 	expectNoViolations,
 	lockSharedState,
@@ -28,6 +28,19 @@ async function liftSettings(): Promise<LiftRow> {
 	return row;
 }
 
+/** The quiet time and the hold sit under "Advanced rules", closed until asked for. */
+async function openAdvanced(page: Page): Promise<void> {
+	// The loading skeleton draws its own closed copy, which the loaded form replaces.
+	const form = page.getByRole("region", { name: "Resource guard" }).locator("form");
+	await expect(form).toBeVisible({ timeout: 15_000 });
+	const advanced = form.getByTestId("guard-advanced");
+	await expect(advanced).toBeVisible({ timeout: 15_000 });
+	if ((await advanced.getAttribute("open")) === null) {
+		await advanced.locator(":scope > summary").click();
+	}
+	await expect(advanced).toHaveAttribute("open", "");
+}
+
 let saved: LiftRow;
 let release: (() => Promise<void>) | undefined;
 
@@ -51,6 +64,7 @@ test("an administrator saves the quiet time and percent, and they show after a r
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
+	await openAdvanced(page);
 	const guard = page.getByRole("region", { name: "Resource guard" });
 	const minutes = guard.getByRole("textbox", { name: "Quiet time" });
 	const percent = guard.getByRole("textbox", { name: "Quiet means under" });
@@ -74,6 +88,7 @@ test("an administrator saves the quiet time and percent, and they show after a r
 	});
 
 	await page.reload();
+	await openAdvanced(page);
 	await expect(minutes).toHaveValue("12", { timeout: 15_000 });
 	await expect(percent).toHaveValue("0");
 });
@@ -83,6 +98,7 @@ test("out-of-range values are refused with an error tied to each field", async (
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
+	await openAdvanced(page);
 	const guard = page.getByRole("region", { name: "Resource guard" });
 	const minutes = guard.getByRole("textbox", { name: "Quiet time" });
 	const percent = guard.getByRole("textbox", { name: "Quiet means under" });
@@ -111,6 +127,7 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin/settings");
+	await openAdvanced(page);
 	const after = page.getByRole("textbox", { name: "Slowdowns before a hold" });
 	const hours = page.getByRole("textbox", { name: "Hold period" });
 	await expect(after).toHaveValue("3", { timeout: 15_000 });
@@ -133,6 +150,7 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 		);
 		expect(row).toEqual({ after: 4, hours: 48 });
 		await page.reload();
+		await openAdvanced(page);
 		await expect(
 			page.getByRole("textbox", { name: "Slowdowns before a hold" }),
 		).toHaveValue("4", {

@@ -154,6 +154,8 @@ test("an administrator stops another user's workspace, and it is audited", async
 
 	// The panel shows the stop as motion, then lists the audit row.
 	await expect(panel.getByTestId("detail-state")).toContainText("Stopping");
+	// The audit rows sit on the inspector's Activity tab.
+	await panel.getByRole("tab", { name: "Activity" }).click();
 	await expect(panel.getByText("workspace.stop_requested")).toBeVisible({
 		timeout: 10_000,
 	});
@@ -180,6 +182,7 @@ test("disabling an account signs the student out, and enabling lets them back", 
 
 	await openAdmin(page);
 	const panel = await openDetail(page, name);
+	await panel.getByRole("tab", { name: "Account" }).click();
 	await panel.getByRole("button", { name: `Disable account for ${name}` }).click();
 	await page.getByTestId("disable-dialog").getByTestId("dialog-confirm").click();
 	await expect(toast(page, `${name} disabled`)).toBeVisible();
@@ -222,6 +225,8 @@ test("archive hides the row, refuses a start, and unarchive brings it back", asy
 	// Opening the panel moves focus to its heading (Gate E).
 	await expect(panel.getByRole("heading", { name: student.name })).toBeFocused();
 
+	// Archive sits apart with Reset Docker on the Account tab.
+	await panel.getByRole("tab", { name: "Account" }).click();
 	const archive = panel.getByRole("button", {
 		name: `Archive workspace for ${student.name}`,
 	});
@@ -272,8 +277,11 @@ test("archive hides the row, refuses a start, and unarchive brings it back", asy
 	});
 	await unarchive.click();
 	await expect(toast(page, "Workspace unarchived")).toBeVisible();
-	// The button swaps to Archive in place; focus stays on it (Gate E).
-	await expect(archive).toBeFocused();
+	// Unarchive leaves the panel head, so focus moves to the panel's heading
+	// rather than being lost (Gate E).
+	await expect(
+		panel.getByRole("heading", { name: student.name, exact: true }),
+	).toBeFocused();
 	await page.getByText("Show archived").click();
 	await expect(row).toBeVisible();
 	await expect(row.getByText("Archived", { exact: true })).toHaveCount(0);
@@ -335,9 +343,11 @@ async function pendingOperation(workspaceId: string): Promise<string | null> {
 }
 
 // The worker does not run here, so a requested operation stays pending.
-for (const { name, button, dialogId, confirmLabel, done, operation, action } of [
+// Rebuild sits on the inspector's Overview tab, Reset Docker on its Account tab.
+for (const { name, tab, button, dialogId, confirmLabel, done, operation, action } of [
 	{
 		name: "Rebuild",
+		tab: /^Overview/,
 		button: (student: string) => `Rebuild workspace for ${student}`,
 		dialogId: "rebuild-dialog",
 		confirmLabel: "Rebuild",
@@ -347,6 +357,7 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 	},
 	{
 		name: "Reset Docker",
+		tab: "Account",
 		button: (student: string) => `Reset Docker for ${student}`,
 		dialogId: "reset-docker-dialog",
 		confirmLabel: "Reset Docker",
@@ -365,6 +376,7 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 		const panel = await openDetail(page, student.name);
 		await expect(panel.getByTestId("capability-note")).toHaveCount(0);
 
+		await panel.getByRole("tab", { name: tab }).click();
 		await panel.getByRole("button", { name: button(student.name) }).click();
 		const dialog = page.getByTestId(dialogId);
 		const confirm = dialog.getByTestId("dialog-confirm");
@@ -377,15 +389,18 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 		await expect(toast(page, done)).toBeVisible();
 
 		await expect.poll(() => pendingOperation(student.workspaceId)).toBe(operation);
+		await panel.getByRole("tab", { name: /^Overview/ }).click();
 		await expect(panel.getByTestId("pending-operation")).toBeVisible();
 		await expect(
 			panel.getByRole("button", { name: `Rebuild workspace for ${student.name}` }),
 		).toBeDisabled();
+		await panel.getByRole("tab", { name: "Account" }).click();
 		await expect(
 			panel.getByRole("button", {
 				name: `Reset Docker for ${student.name}`,
 			}),
 		).toBeDisabled();
+		await panel.getByRole("tab", { name: "Activity" }).click();
 		await expect(panel.getByText(action)).toBeVisible();
 	});
 }
@@ -444,9 +459,10 @@ test("a workspace on an old image says Old image, not Stale, and loses it when i
 });
 
 // The panel and the row say what is running, then how it ended.
-for (const { name, button, dialogId, running, endAction, ok, message, role } of [
+for (const { name, tab, button, dialogId, running, endAction, ok, message, role } of [
 	{
 		name: "a rebuild that succeeds",
+		tab: /^Overview/,
 		button: (student: string) => `Rebuild workspace for ${student}`,
 		dialogId: "rebuild-dialog",
 		running: "Rebuilding…",
@@ -457,6 +473,7 @@ for (const { name, button, dialogId, running, endAction, ok, message, role } of 
 	},
 	{
 		name: "a Docker reset that fails",
+		tab: "Account",
 		button: (student: string) => `Reset Docker for ${student}`,
 		dialogId: "reset-docker-dialog",
 		running: "Resetting Docker…",
@@ -477,6 +494,7 @@ for (const { name, button, dialogId, running, endAction, ok, message, role } of 
 		const state = panel.getByTestId("detail-state");
 		const row = page.getByTestId(`account-row-${student.userId}`);
 
+		await panel.getByRole("tab", { name: tab }).click();
 		await panel.getByRole("button", { name: button(student.name) }).click();
 		const dialog = page.getByTestId(dialogId);
 		await dialog.getByRole("textbox").fill(label);
@@ -487,12 +505,15 @@ for (const { name, button, dialogId, running, endAction, ok, message, role } of 
 		await expect(state).toHaveAttribute("role", "status");
 		await expect(state.locator(".pk-spin")).toHaveCount(1);
 		await expect(row.getByText(running)).toBeVisible({ timeout: 3000 });
+		await panel.getByRole("tab", { name: /^Overview/ }).click();
 		await expect(
 			panel.getByRole("button", { name: `Rebuild workspace for ${student.name}` }),
 		).toBeDisabled();
+		await panel.getByRole("tab", { name: "Account" }).click();
 		await expect(
 			panel.getByRole("button", { name: `Reset Docker for ${student.name}` }),
 		).toBeDisabled();
+		await panel.getByRole("tab", { name: /^Overview/ }).click();
 
 		await finishOperation(student.workspaceId, endAction, ok);
 		const end = toast(page, message.replace("{name}", student.name));
@@ -553,7 +574,9 @@ test.describe("the Users table layout", () => {
 			"Actions",
 		]);
 
-		// The checkbox sits on the middle of the select controls.
+		// The checkbox sits on the middle of the select controls. Beside the left rail
+		// the filters share one row only from about 1300 px; at 1280 it wraps to its own line.
+		await page.setViewportSize({ width: 1440, height: 600 });
 		const middle = async (box: { y: number; height: number } | null) =>
 			box ? box.y + box.height / 2 : Number.NaN;
 		const control = await middle(
@@ -564,6 +587,7 @@ test.describe("the Users table layout", () => {
 			await page.locator("label.pk-check", { hasText: "Show archived" }).boundingBox(),
 		);
 		expect(Math.abs(archived - control)).toBeLessThanOrEqual(1);
+		await page.setViewportSize({ width: 1280, height: 600 });
 
 		// The header stays in view after <main> scrolls.
 		const header = table.getByRole("columnheader", { name: /^Account/ });
@@ -721,9 +745,19 @@ test.describe("the Users table layout", () => {
 			const spilling = [...t.querySelectorAll("th, td")]
 				.filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
 				.map((cell) => cell.textContent);
-			const tags = [...t.querySelectorAll(".pk-tag")].filter(
-				(tag) => tag.getBoundingClientRect().height > 20,
-			);
+			// A tag has a fixed height now, so a break shows as a text node drawn on two lines.
+			const tags = [...t.querySelectorAll(".pk-tag")].filter((tag) => {
+				const walker = document.createTreeWalker(tag, NodeFilter.SHOW_TEXT);
+				for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+					const range = document.createRange();
+					range.selectNodeContents(node);
+					const tops = new Set(
+						[...range.getClientRects()].map((r) => Math.round(r.top)),
+					);
+					if (tops.size > 1) return true;
+				}
+				return false;
+			});
 			return {
 				outside: outside.length,
 				spilling,

@@ -27,7 +27,9 @@ for (const scheme of ["light", "dark"] as const) {
 		});
 		await expectNoViolations(page, "[data-testid=admin-accounts]");
 
-		await page.getByRole("button", { name: "Invite…" }).click();
+		// Invite and Import sit in the More menu beside "Add user…".
+		await page.getByRole("button", { name: "More", exact: true }).click();
+		await page.getByRole("menuitem", { name: "Invite…" }).click();
 		const dialog = page.getByRole("dialog", { name: "Invite someone" });
 		await expect(dialog).toBeVisible();
 		await expectNoViolations(page, "[data-testid=invite-dialog]");

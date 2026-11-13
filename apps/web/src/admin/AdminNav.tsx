@@ -1,6 +1,9 @@
 import { Icon, type IconName } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
-import { ADMIN_TAB_LABEL, ADMIN_TABS, type AdminTab } from "./tabs.js";
+import { useEffect, useId, useState } from "react";
+import { attentionOf } from "./health/attention.js";
+import { useHealthGlance } from "./health/queries.js";
+import { ADMIN_TAB_GROUPS, ADMIN_TAB_LABEL, type AdminTab } from "./tabs.js";
 
 const TAB_ICON: Record<AdminTab, IconName> = {
 	users: "users",
@@ -20,9 +23,10 @@ const TAB_ICON: Record<AdminTab, IconName> = {
 };
 
 /**
- * The tabs, in a strip at the top of the admin frame, drawn like the
- * workspace's tab strip. They are links, so each tab has an address. The
- * Root shell tab shows only on a server that offers root shells (ADR 0051).
+ * The tabs, as a grouped rail beside the admin content. They are links, so
+ * each tab has an address. On a phone the rail folds into one control naming
+ * the open tab, which opens the tabs as a grouped list. The Root shell tab shows only on a server that
+ * offers root shells (ADR 0051).
  */
 export function AdminNav({
 	tab,
@@ -31,22 +35,82 @@ export function AdminNav({
 	tab: AdminTab | null;
 	rootShell: boolean;
 }) {
-	const tabs = ADMIN_TABS.filter((item) => item !== "shell" || rootShell);
+	const listId = useId();
+	const [open, setOpen] = useState(false);
+	// A chosen tab closes the phone menu.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: closes on a tab change only
+	useEffect(() => setOpen(false), [tab]);
+	const shown = (item: AdminTab) => item !== "shell" || rootShell;
+	const current = tab ?? null;
+	const report = useHealthGlance().data;
+	const healthMarks = report ? attentionOf(report).count : 0;
 	return (
-		<nav aria-label="Administration" className="pk-adminnav">
-			{tabs.map((item) => (
-				<Link
-					key={item}
-					to="/admin/$tab"
-					params={{ tab: item }}
-					data-testid={`admin-tab-${item}`}
-					aria-current={item === tab ? "page" : undefined}
-					className="pk-tab"
-				>
-					<Icon name={TAB_ICON[item]} size="sm" />
-					<span data-label={ADMIN_TAB_LABEL[item]}>{ADMIN_TAB_LABEL[item]}</span>
-				</Link>
-			))}
+		<nav
+			aria-label="Administration"
+			className="pk-adminnav"
+			data-open={open ? "" : undefined}
+			onKeyDown={(event) => {
+				if (event.key === "Escape" && open) {
+					setOpen(false);
+					document.getElementById(`${listId}-toggle`)?.focus();
+				}
+			}}
+		>
+			<button
+				type="button"
+				id={`${listId}-toggle`}
+				className="pk-adminnav-toggle pk-focus-inset"
+				aria-expanded={open}
+				aria-controls={listId}
+				onClick={() => setOpen((was) => !was)}
+			>
+				{current ? <Icon name={TAB_ICON[current]} /> : <Icon name="help" />}
+				<span className="pk-adminnav-toggle-label">
+					<span className="sr-only">Section: </span>
+					{current ? ADMIN_TAB_LABEL[current] : "Help"}
+				</span>
+				<Icon name="chevron-down" className="pk-adminnav-chevron" />
+			</button>
+			<div className="pk-adminnav-list" id={listId}>
+				{ADMIN_TAB_GROUPS.filter((group) => group.tabs.some(shown)).map((group) => (
+					// Named by its visible label, so a screen reader hears "People" before Users.
+					// biome-ignore lint/a11y/useSemanticElements: a group of links, not form controls, so a fieldset does not fit
+					<div
+						className="pk-adminnav-group"
+						key={group.label}
+						role="group"
+						aria-labelledby={`${listId}-${group.label}`}
+					>
+						<p className="pk-adminnav-group-label" id={`${listId}-${group.label}`}>
+							{group.label}
+						</p>
+						<div className="pk-adminnav-tabs">
+							{group.tabs.filter(shown).map((item) => (
+								<Link
+									key={item}
+									to="/admin/$tab"
+									params={{ tab: item }}
+									data-testid={`admin-tab-${item}`}
+									aria-current={item === tab ? "page" : undefined}
+									className="pk-adminnav-link"
+								>
+									<Icon name={TAB_ICON[item]} />
+									<span>{ADMIN_TAB_LABEL[item]}</span>
+									{item === "health" && healthMarks > 0 ? (
+										<span className="pk-adminnav-mark" data-testid="admin-health-mark">
+											<span aria-hidden={true}>{healthMarks}</span>
+											<span className="sr-only">
+												, {healthMarks}{" "}
+												{healthMarks === 1 ? "item needs" : "items need"} attention
+											</span>
+										</span>
+									) : null}
+								</Link>
+							))}
+						</div>
+					</div>
+				))}
+			</div>
 		</nav>
 	);
 }

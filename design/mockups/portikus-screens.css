@@ -21,10 +21,8 @@ a.pk-namemark { color: var(--ink); text-decoration: none; }
 /* Menus and dialogs render into the body, so it takes the app's base type and ink (apps/web/src/app.css). */
 body:has(.pk-root) { font-family: var(--font-sans); font-size: 14px; line-height: 20px; color: var(--ink); }
 
-/* Artboard root, and the sort button in a table head (the design system bundle no longer defines these). */
+/* Artboard root (the design system bundle does not define it). */
 .pk-root { font-family: var(--font-sans); font-size: var(--pk-font); line-height: var(--pk-leading); color: var(--ink); background: var(--surface); -webkit-font-smoothing: antialiased; }
-.pk-table-sort { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
-.pk-table-sort:focus-visible { outline: var(--ring-width) solid var(--focus); outline-offset: var(--ring-offset-inset); }
 
 /* Canvas-only helper: draws the focus-visible ring on a static comp. Not for export. */
 .is-focus-demo { outline: var(--ring-width) solid var(--focus) !important; outline-offset: var(--ring-offset) !important; }
@@ -50,7 +48,6 @@ body:has(.pk-root) { font-family: var(--font-sans); font-size: 14px; line-height
 .pk-account:focus-visible, .pk-wsbutton:focus-visible { outline: var(--ring-width) solid var(--focus); outline-offset: var(--ring-offset); }
 .pk-account-role { color: var(--ink-muted); }
 .pk-initials { display: grid; place-items: center; width: 26px; height: 26px; border-radius: var(--radius-full); background: var(--accent-soft); color: var(--accent-text); font-size: var(--text-xs); font-weight: 600; }
-.pk-role-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--space-1\.5); border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink-muted); font-size: 12px; font-weight: 500; }
 
 /* WorkspaceStatusButton: opens the workspace status panel (Epic 10) */
 .pk-wsbutton { display: inline-flex; align-items: center; gap: var(--space-2); height: var(--pk-control); padding: 0 var(--space-1) 0 var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--ink); font: inherit; font-size: var(--text-md); cursor: pointer; }
@@ -186,27 +183,6 @@ body:has(.pk-root) { font-family: var(--font-sans); font-size: 14px; line-height
 .pk-techdetail-row dd { margin: 0; overflow-wrap: anywhere; }
 .pk-divider { height: 1px; background: var(--line); border: 0; margin: 0; }
 
-/* AdminNav */
-.pk-adminnav { display: flex; align-items: stretch; gap: var(--space-1); align-self: stretch; margin-left: var(--space-2); }
-.pk-adminnav a { position: relative; display: flex; align-items: center; padding: 0 var(--space-2); color: var(--ink-muted); text-decoration: none; font-size: 13px; font-weight: 500; }
-.pk-adminnav a:hover { color: var(--ink); }
-.pk-adminnav a[aria-current="page"] { color: var(--ink); }
-.pk-adminnav a[aria-current="page"]::after { content: ""; position: absolute; left: var(--space-2); right: var(--space-2); bottom: -1px; height: 2px; background: var(--accent); }
-.pk-adminnav a:focus-visible { outline: var(--ring-width) solid var(--focus); outline-offset: var(--ring-offset-inset); }
-
-/* Admin table cells and detail panel */
-.pk-cell-stack { display: flex; flex-direction: column; }
-.pk-cell-primary { font-size: 13px; line-height: 16px; color: var(--ink); display: inline-flex; align-items: center; gap: var(--space-1\.5); }
-.pk-cell-secondary { font-size: 12px; line-height: 16px; color: var(--ink-muted); }
-.pk-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 var(--space-1\.5); border-radius: var(--radius-sm); background: var(--surface-sunken); border: 1px solid var(--line); color: var(--ink-muted); font-size: 12px; font-weight: 500; }
-.pk-tag--warning { background: var(--status-warning-soft); border-color: transparent; color: var(--status-warning); }
-.pk-detail { flex: none; width: 380px; display: flex; flex-direction: column; overflow: auto; }
-.pk-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
-.pk-detail-section { display: grid; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
-.pk-dl { display: grid; grid-template-columns: max-content 1fr; column-gap: var(--space-4); row-gap: var(--space-1); margin: 0; font-size: 13px; line-height: 18px; }
-.pk-dl dt { color: var(--ink-muted); }
-.pk-dl dd { margin: 0; }
-.pk-audit { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
-.pk-audit li { display: grid; grid-template-columns: 76px 1fr; gap: var(--space-3); font-size: 13px; line-height: 18px; }
-.pk-audit time { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
-.pk-audit-event { font-family: var(--font-mono); font-variant-ligatures: none; font-size: 12px; }
+/* The administrator and course screens (AdminWorkspaces*, AdminHealth*, CourseInstructor*) are drawn from the app's own markup
+   and load portikus-console.css, the apps/web stylesheet, instead of this file; the earlier proposals for them
+   (AdminNav as a header strip, WorkspaceDetailPanel, the admin table cells) were built and are gone from here. */

@@ -63,10 +63,13 @@ export interface SeriesStyle {
 	dash?: string;
 }
 
-/** Solid accent, then dashed, dotted and dash-dot, so no series relies on colour. */
+/**
+ * Solid accent, then dashed, dotted and dash-dot steps: the second in the
+ * accent too, later ones in muted ink, so no series relies on colour.
+ */
 export const LINE_STYLES: readonly SeriesStyle[] = [
 	{ className: "stroke-accent" },
-	{ className: "stroke-ink-muted", dash: "6 4" },
+	{ className: "stroke-accent", dash: "6 4" },
 	{ className: "stroke-ink-muted", dash: "1 4" },
 	{ className: "stroke-ink-muted", dash: "10 3 1 3" },
 ];

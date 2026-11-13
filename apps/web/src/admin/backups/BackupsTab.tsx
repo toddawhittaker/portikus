@@ -18,7 +18,7 @@ import {
 } from "./BackupDialogs.js";
 import { BackupKeyPart } from "./BackupKeyPart.js";
 import { CleanUpGroup } from "./CleanUp.js";
-import { longTime, waitingRequest } from "./model.js";
+import { backupTime, waitingRequest } from "./model.js";
 import { FocusCatchGroup } from "./parts.js";
 import {
 	useAdminBackups,
@@ -195,12 +195,15 @@ function BackupsView({
 		});
 	}
 
+	// A key not yet kept off the server is the page's one call to act, so it comes first.
+	const keyFirst = keyStatus?.installed === true && !keyStatus.downloaded;
 	return (
 		<AdminSection title="Backups" intro={INTRO}>
+			{keyFirst && keyStatus ? <KeyGroup status={keyStatus} /> : null}
 			{data.hostStale && data.hostReportedAt ? (
 				<Notice tone="warning" testId="backups-host-stale">
 					<strong>
-						The host has not reported since {longTime(data.hostReportedAt)}.
+						The host has not reported since {backupTime(data.hostReportedAt)}.
 					</strong>{" "}
 					The page shows what it last said. Requests wait until it reports again.
 				</Notice>
@@ -211,7 +214,8 @@ function BackupsView({
 				title="Status and sets"
 				actions={
 					<Button
-						variant="primary"
+						// One filled action a page: the key download outranks a manual run until it is done.
+						variant={keyFirst ? "secondary" : "primary"}
 						data-testid="backup-run"
 						loading={run.isPending}
 						aria-disabled={runOffReason ? true : undefined}
@@ -250,7 +254,7 @@ function BackupsView({
 				/>
 			</FocusCatchGroup>
 
-			{keyStatus ? <KeyGroup status={keyStatus} /> : null}
+			{keyStatus && !keyFirst ? <KeyGroup status={keyStatus} /> : null}
 
 			<ActivityGroups
 				requests={requests}

@@ -1,0 +1,52 @@
+/*
+ * Your hosts and ranges on a narrow card: each entry becomes its own card,
+ * the value wrapping in full, its label under it, then Edit and Remove as
+ * 44 px buttons, so nothing is clipped or scrolled out of view.
+ */
+@container (width < 36rem) {
+	.pk-table-wrap:has(> .pk-host-table) {
+		overflow: visible;
+		border: 0;
+		background: none;
+	}
+	.pk-host-table thead {
+		position: absolute;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+	.pk-host-table,
+	.pk-host-table tbody {
+		display: grid;
+		gap: var(--space-2);
+	}
+	.pk-host-table tbody tr {
+		display: grid;
+		gap: var(--space-2);
+		padding: var(--space-4);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised);
+	}
+	.pk-host-table tbody tr > td {
+		block-size: auto;
+		padding: 0;
+		border: 0;
+		background: none;
+		text-align: start;
+		white-space: normal;
+	}
+	.pk-host-value {
+		overflow-wrap: anywhere;
+	}
+	.pk-host-table td.pk-host-actions {
+		display: flex;
+		gap: var(--space-2);
+		padding-block-start: var(--space-1);
+	}
+	.pk-host-actions .pk-btn {
+		flex: 1;
+		min-block-size: var(--size-control-lg);
+	}
+}

@@ -69,8 +69,6 @@ export function NetworkTab() {
 
 	return (
 		<AdminSection title="Network" intro={INTRO}>
-			{/* Before the egress grid: its sticky side column must end the page. */}
-			<ProxyHostsGroup />
 			<div className="@container grid gap-4" data-testid="egress-tab">
 				<ModeCard view={view} />
 				<div className="grid gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -79,6 +77,12 @@ export function NetworkTab() {
 						{view.mode === "open" ? <BlockedSitesCard view={view} /> : null}
 						<AllowListGroup view={view} onEdit={edit} />
 						{view.mode === "allow-list" ? <BlockedSitesCard view={view} /> : null}
+						{/*
+						 * The server's own hosts come after the workspace rules, a separate and
+						 * rarer setting, and inside this column so the grid runs to the end of
+						 * the page and the side column stays in view the whole way down.
+						 */}
+						<ProxyHostsGroup />
 					</div>
 					{/*
 					 * Kept in view beside the long lists, so a test is always one field away.

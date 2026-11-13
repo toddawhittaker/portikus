@@ -12,6 +12,7 @@ import {
 } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { AdminGroup } from "../AdminSection.js";
+import { TableBox } from "../TableBox.js";
 import { BlockedSiteDialog, type BlockedSiteDraft } from "./BlockedSiteDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
@@ -81,7 +82,7 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 				</p>
 			) : null}
 			{sites.length === 0 ? null : (
-				<div className="pk-table-wrap">
+				<TableBox label="Blocked sites">
 					<table className="pk-table" data-testid="egress-block-list">
 						<caption className="sr-only">Blocked sites</caption>
 						<thead>
@@ -106,6 +107,7 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 										<Button
 											size="sm"
 											variant="quiet"
+											className="pk-row-action"
 											aria-label={`Edit ${site.value}`}
 											onClick={() =>
 												setDraft({ id: site.id, value: site.value, label: site.label })
@@ -116,6 +118,7 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 										<Button
 											size="sm"
 											variant="quiet"
+											className="pk-row-action"
 											aria-label={`Remove ${site.value}`}
 											onClick={() => {
 												removed.current = false;
@@ -129,7 +132,7 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 							))}
 						</tbody>
 					</table>
-				</div>
+				</TableBox>
 			)}
 			{draft ? (
 				<BlockedSiteDialog

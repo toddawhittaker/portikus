@@ -1,6 +1,8 @@
 import type { BackupRequestView } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
+	failedBackupTimes,
+	nights,
 	requestText,
 	runningText,
 	stampIso,
@@ -56,4 +58,84 @@ test("running now names the nightly run or the request", () => {
 	);
 	expect(waitingRequest([pending], "backup")).toBe(pending);
 	expect(waitingRequest([pending], "delete_set")).toBeUndefined();
+});
+
+test("the night strip ends on tonight's run and marks each night by what it left", () => {
+	const now = Date.parse("2026-11-12T15:00:00Z");
+	const strip = nights(
+		{
+			sets: [
+				{ stamp: "20261112T073000Z", complete: true },
+				{ stamp: "20261111T073000Z", complete: false },
+			],
+			nextRunAt: "2026-11-13T07:30:00Z",
+			lastFailure: { at: "2026-11-10T07:40:00Z" },
+		},
+		now,
+	);
+	expect(strip).toHaveLength(14);
+	expect(strip.at(-1)).toEqual({ day: "2026-11-13", kind: "scheduled" });
+	expect(strip.at(-2)).toEqual({ day: "2026-11-12", kind: "complete" });
+	expect(strip.at(-3)).toEqual({ day: "2026-11-11", kind: "incomplete" });
+	expect(strip.at(-4)).toEqual({ day: "2026-11-10", kind: "failed" });
+	expect(strip[0]).toEqual({ day: "2026-10-31", kind: "none" });
+});
+
+test("every failed night shows, the host's last failure and each failed backup request alike", () => {
+	const now = Date.parse("2026-11-12T15:00:00Z");
+	const strip = nights(
+		{
+			sets: [{ stamp: "20261112T073000Z", complete: true }],
+			nextRunAt: "2026-11-13T07:30:00Z",
+			lastFailure: { at: "2026-11-10T07:40:00Z" },
+		},
+		now,
+		14,
+		["2026-11-08T09:15:00Z", "2026-11-06T20:00:00Z"],
+	);
+	const failed = strip.filter((night) => night.kind === "failed").map((n) => n.day);
+	expect(failed).toEqual(["2026-11-06", "2026-11-08", "2026-11-10"]);
+});
+
+test("the strip ends on the next run only when it is due within a day", () => {
+	const now = Date.parse("2026-11-12T15:00:00Z");
+	const host = { sets: [], lastFailure: null };
+	expect(nights({ ...host, nextRunAt: "2026-11-13T07:30:00Z" }, now).at(-1)?.day).toBe(
+		"2026-11-13",
+	);
+	// Two days away: the strip ends on today.
+	expect(nights({ ...host, nextRunAt: "2026-11-14T07:30:00Z" }, now).at(-1)?.day).toBe(
+		"2026-11-12",
+	);
+});
+
+test("the failed backup requests are the failed nights a request left", () => {
+	expect(
+		failedBackupTimes([
+			{
+				kind: "backup",
+				state: "failed",
+				finishedAt: "2026-11-08T09:15:00Z",
+				requestedAt: "2026-11-08T09:00:00Z",
+			},
+			{
+				kind: "backup",
+				state: "done",
+				finishedAt: "2026-11-09T09:15:00Z",
+				requestedAt: "2026-11-09T09:00:00Z",
+			},
+			{
+				kind: "delete_set",
+				state: "failed",
+				finishedAt: "2026-11-07T09:15:00Z",
+				requestedAt: "2026-11-07T09:00:00Z",
+			},
+			{
+				kind: "backup",
+				state: "failed",
+				finishedAt: null,
+				requestedAt: "2026-11-05T09:00:00Z",
+			},
+		]),
+	).toEqual(["2026-11-08T09:15:00Z", "2026-11-05T09:00:00Z"]);
 });

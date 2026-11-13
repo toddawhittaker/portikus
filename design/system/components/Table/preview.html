@@ -6,7 +6,64 @@
 .demo{padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 .demo-col{display:grid;gap:12px}
 .demo-cap{font-size:12px;line-height:16px;color:var(--ink-muted);margin:0 0 6px}
-</style></head>
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+</style>
+<style>
+/* Copied from apps/web: these classes are not part of packages/ui, so bundle.css does not carry them. */
+/* apps/web/src/console.css */
+@media (width < 35rem) {
+	:is(.pk-adminframe-scroll, .pk-course-main) .pk-table label:has(> input[type="checkbox"]) {
+		min-inline-size: var(--size-control-lg);
+		align-items: center;
+		justify-content: center;
+	}
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table thead th {
+	height: 36px;
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-size: 11px;
+	line-height: var(--leading-xs);
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table thead th :is(button, a) {
+	letter-spacing: inherit;
+	text-transform: inherit;
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table :is(td, th).pk-num {
+	font-variant-numeric: tabular-nums;
+	text-align: end;
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table tbody tr[aria-selected="true"] > :is(td, th) {
+	background: var(--accent-soft);
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table tbody tr[aria-selected="true"] > :first-child {
+	box-shadow: inset 2px 0 0 var(--accent);
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table .pk-iconbtn {
+	color: var(--ink);
+}
+:is(.pk-adminframe-scroll, .pk-course-main) .pk-table .pk-iconbtn > .pk-icon {
+	width: 18px;
+	height: 18px;
+}
+.pk-table tbody tr.pk-row-selected > td {
+	background: var(--accent-soft);
+}
+/* apps/web/src/app.css */
+.pk-mono-small {
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+}
+.pk-muted {
+	color: var(--ink-muted);
+}
+</style>
+</head>
 <body>
 <div id="root" class="pk-root"></div>
 <script>
@@ -17,18 +74,17 @@ var rows=[
  {id:'w2',user:'Jordan Ellis',email:'jellis4@example.edu',state:'error',desired:'running',active:'1 hr ago',storage:'19.8 / 20 GB',image:'2026.11.1'},
  {id:'w3',user:'Priya Natarajan',email:'pnatara@example.edu',state:'stopped',desired:'running',active:'just now',storage:'3.4 / 20 GB',image:'2026.10.6'},
  {id:'w4',user:'Sam Okafor',email:'sokafor@example.edu',state:'stopped',desired:'stopped',active:'3 days ago',storage:'11.0 / 20 GB',image:'2026.10.6'}];
-var mono={fontFamily:'var(--font-mono)'};
-ReactDOM.createRoot(document.getElementById('root')).render(h('div',{'data-density':'compact',style:{padding:'16px 20px'}},
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'pk-course-main','data-density':'compact','data-controls':'console',style:{padding:'16px 20px'}},
  h('div',{className:'pk-table-wrap'}, h('table',{className:'pk-table','aria-label':'Workspaces'},
   h('thead',null,h('tr',null,
    h('th',{scope:'col','aria-sort':'ascending'},'Student'),h('th',{scope:'col'},'State'),h('th',{scope:'col'},'Last activity'),
-   h('th',{scope:'col',className:'pk-num'},'Docker storage'),h('th',{scope:'col'},'Image'),h('th',{scope:'col'},h('span',{className:'pk-visually-hidden'},'Actions')))),
+   h('th',{scope:'col',className:'pk-num'},'Docker storage'),h('th',{scope:'col'},'Image'),h('th',{scope:'col'},h('span',{className:'sr-only'},'Actions')))),
   h('tbody',null, rows.map(function(r){return h('tr',{key:r.id,'aria-selected':r.id==='w2'?'true':undefined},
-   h('th',{scope:'row'},h('div',{style:{fontWeight:500}},r.user),h('div',{style:{color:'var(--ink-muted)',fontSize:'12px',lineHeight:'16px',fontWeight:400}},r.email)),
-   h('td',null,h(P.StateBadge,{state:r.state,desiredState:r.desired,statusRole:false})),
-   h('td',{style:{color:'var(--ink-muted)'}},r.active),
-   h('td',{className:'pk-num',style:mono},r.storage),
-   h('td',{style:Object.assign({color:'var(--ink-muted)'},mono)},r.image),
+   h('th',{scope:'row'},h('div',{style:{fontWeight:600}},r.user),h('div',{className:'pk-muted',style:{fontSize:'12px',lineHeight:'16px',fontWeight:400}},r.email)),
+   h('td',null,h(P.StateBadge,{state:r.state,desiredState:r.desired,plain:r.state!=='error',statusRole:false})),
+   h('td',{className:'pk-muted'},r.active),
+   h('td',{className:'pk-num'},r.storage),
+   h('td',{className:'pk-mono-small pk-muted'},r.image),
    h('td',null,h(P.IconButton,{icon:'more',label:'Actions for '+r.user,size:'sm'})));}))))
 ));
 </script>

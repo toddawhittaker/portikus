@@ -109,8 +109,13 @@ test("at 16 GiB the table follows the ticked boxes before anything is saved", as
 			["Traditional, no coding agent", "402 MiB", "about 32"],
 			["Agentic, with a coding agent", "552 MiB", "about 23"],
 		]);
-	await expect(page.getByTestId("code-help-estimate")).toContainText(
-		"Worst case, with every ticked language open at once. Memory only. This server has 16 GiB",
+	const estimate = page.getByTestId("code-help-estimate");
+	await expect(estimate).toContainText(
+		"Worst case, with every ticked language open at once.",
+	);
+	// What the figures cover and the server's memory sit behind "More about this estimate".
+	await expect(estimate.locator("details")).toContainText(
+		"Memory only. This server has 16 GiB",
 	);
 
 	await tools.getByRole("checkbox", { name: "Python" }).click();

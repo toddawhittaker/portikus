@@ -20,8 +20,6 @@ import {
 } from "../queries.js";
 import { NOT_AVAILABLE_TEXT, PANEL_HELP, SECTION_HEADING, WithTip } from "./shared.js";
 
-type DialogName = "rebuild" | "reset" | "archive";
-
 /** The explanation shown under a Rebuild or Reset Docker button that is off. */
 export function capabilityNote(capabilities: AdminCapabilities): string | null {
 	if (!capabilities.rebuild && !capabilities.resetDocker) return NOT_AVAILABLE_TEXT;
@@ -31,7 +29,7 @@ export function capabilityNote(capabilities: AdminCapabilities): string | null {
 	return null;
 }
 
-/** Image, Rebuild, Reset Docker and Archive (SPEC.md section 20.1). */
+/** Image, Restore from backup and Rebuild (SPEC.md section 20.1). */
 export function WorkspaceSection({
 	detail,
 	ownerName,
@@ -42,10 +40,10 @@ export function WorkspaceSection({
 	return (
 		<section aria-labelledby="detail-workspace" className="pk-detail-section">
 			<h4 id="detail-workspace" className={SECTION_HEADING}>
-				Workspace
+				{detail ? "Restore and rebuild" : "Workspace"}
 			</h4>
 			{detail ? (
-				<WorkspaceActions detail={detail} ownerName={ownerName} />
+				<RecoveryActions detail={detail} ownerName={ownerName} />
 			) : (
 				<p className="pk-text-compact pk-muted m-0">This account has no workspace.</p>
 			)}
@@ -53,7 +51,34 @@ export function WorkspaceSection({
 	);
 }
 
-function WorkspaceActions({
+function fail(toast: ReturnType<typeof useToast>, title: string) {
+	return (error: unknown) =>
+		toast.show({ tone: "danger", title, children: errorText(error) });
+}
+
+/**
+ * Why an operation's button is off: the release lacks it, or another
+ * operation is running. Each section draws its own notes beside its buttons,
+ * since the two sections sit on different tabs; `part` keeps their ids apart.
+ */
+function useOffReason(detail: AdminWorkspaceDetail, part: "recovery" | "destructive") {
+	const { workspace } = detail;
+	const operationPending = workspace.pendingOperation !== null;
+	const suffix = part === "recovery" ? "" : "-destructive";
+	const noteId = `capability-note-${workspace.id}${suffix}`;
+	const pendingId = `pending-operation-${workspace.id}${suffix}`;
+	return {
+		operationPending,
+		noteId,
+		pendingId,
+		offReason: (available: boolean) =>
+			[available ? null : noteId, operationPending ? pendingId : null]
+				.filter(Boolean)
+				.join(" ") || undefined,
+	};
+}
+
+function RecoveryActions({
 	detail,
 	ownerName,
 }: {
@@ -63,42 +88,16 @@ function WorkspaceActions({
 	const { workspace, capabilities } = detail;
 	const toast = useToast();
 	const rebuild = useRebuild();
-	const resetDocker = useResetDocker();
-	const archive = useSetArchived();
-	const [dialog, setDialog] = useState<DialogName | null>(null);
+	const [rebuilding, setRebuilding] = useState(false);
 	const [preserveDocker, setPreserveDocker] = useState(true);
 	const [restoring, setRestoring] = useState<string | null>(null);
-	const archived = workspace.archivedAt !== null;
-	// A second request would only answer 409 OPERATION_PENDING (ADR 0021).
-	const operationPending = workspace.pendingOperation !== null;
 	useRefreshUsersWhenDone(workspace.pendingOperation);
 	const note = capabilityNote(capabilities);
-	const noteId = `capability-note-${workspace.id}`;
-
-	function fail(title: string) {
-		return (error: unknown) =>
-			toast.show({ tone: "danger", title, children: errorText(error) });
-	}
-
-	const close = () => setDialog(null);
+	const { operationPending, noteId, pendingId, offReason } = useOffReason(
+		detail,
+		"recovery",
+	);
 	const rebuildOff = !capabilities.rebuild || operationPending;
-	const resetOff = !capabilities.resetDocker || operationPending;
-	const pendingId = `pending-operation-${workspace.id}`;
-	const offReason = (available: boolean) =>
-		[available ? null : noteId, operationPending ? pendingId : null]
-			.filter(Boolean)
-			.join(" ") || undefined;
-
-	function unarchive() {
-		if (archive.isPending) return;
-		archive.mutate(
-			{ workspaceId: workspace.id, archived: false },
-			{
-				onSuccess: () => toast.show({ tone: "success", title: "Workspace unarchived" }),
-				onError: fail("Could not unarchive the workspace"),
-			},
-		);
-	}
 
 	return (
 		<>
@@ -114,7 +113,7 @@ function WorkspaceActions({
 					aria-haspopup="dialog"
 					onClick={() => setRestoring(workspace.id)}
 				>
-					Restore from backup…
+					Restore from backup
 				</Button>
 				<WithTip label="Rebuild workspace" tip={PANEL_HELP.rebuild}>
 					<Button
@@ -123,38 +122,10 @@ function WorkspaceActions({
 						aria-label={`Rebuild workspace for ${ownerName}`}
 						aria-describedby={offReason(capabilities.rebuild)}
 						aria-disabled={rebuildOff ? true : undefined}
-						onClick={() => (rebuildOff ? undefined : setDialog("rebuild"))}
+						aria-haspopup="dialog"
+						onClick={() => (rebuildOff ? undefined : setRebuilding(true))}
 					>
-						Rebuild workspace…
-					</Button>
-				</WithTip>
-				<WithTip label="Reset Docker" tip={PANEL_HELP.resetDocker}>
-					<Button
-						size="sm"
-						data-testid="detail-reset-docker"
-						aria-label={`Reset Docker for ${ownerName}`}
-						aria-describedby={offReason(capabilities.resetDocker)}
-						aria-disabled={resetOff ? true : undefined}
-						onClick={() => (resetOff ? undefined : setDialog("reset"))}
-					>
-						Reset Docker…
-					</Button>
-				</WithTip>
-				<WithTip label="Archive workspace" tip={archived ? null : PANEL_HELP.archive}>
-					<Button
-						size="sm"
-						data-testid="detail-archive"
-						aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
-						loading={archived && archive.isPending}
-						aria-disabled={archive.isPending ? true : undefined}
-						onClick={() => {
-							// A second dialog mid-request would only race the first.
-							if (archive.isPending) return;
-							if (archived) unarchive();
-							else setDialog("archive");
-						}}
-					>
-						{archived ? "Unarchive" : "Archive workspace…"}
+						Rebuild workspace
 					</Button>
 				</WithTip>
 			</div>
@@ -181,6 +152,124 @@ function WorkspaceActions({
 					{note}
 				</p>
 			) : null}
+			<ConfirmByLabelDialog
+				open={rebuilding}
+				onOpenChange={(open) => (open ? undefined : setRebuilding(false))}
+				testId="rebuild-dialog"
+				title={`Rebuild ${ownerName}'s workspace?`}
+				description="The workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay."
+				confirmLabel="Rebuild"
+				label={workspace.label}
+				pending={rebuild.isPending}
+				onConfirm={() =>
+					rebuild.mutate(
+						{ workspaceId: workspace.id, resetDocker: !preserveDocker },
+						{
+							onSuccess: () => {
+								toast.show({ tone: "success", title: "Rebuild requested" });
+								setRebuilding(false);
+							},
+							onError: fail(toast, "Could not rebuild the workspace"),
+						},
+					)
+				}
+			>
+				<Checkbox
+					label="Keep Docker images and volumes"
+					checked={preserveDocker}
+					onChange={(event) => setPreserveDocker(event.target.checked)}
+				/>
+			</ConfirmByLabelDialog>
+		</>
+	);
+}
+
+/**
+ * Reset Docker and Archive, last in the panel and set apart, so a destructive
+ * step is never next to a routine one (SPEC.md section 20.1). Unarchive is
+ * not destructive; it is in the panel's head (HeadState).
+ */
+export function DestructiveSection({
+	detail,
+	ownerName,
+}: {
+	detail: AdminWorkspaceDetail;
+	ownerName: string;
+}) {
+	const { workspace, capabilities } = detail;
+	const toast = useToast();
+	const resetDocker = useResetDocker();
+	const archive = useSetArchived();
+	const [dialog, setDialog] = useState<"reset" | "archive" | null>(null);
+	const archived = workspace.archivedAt !== null;
+	const { operationPending, noteId, pendingId, offReason } = useOffReason(
+		detail,
+		"destructive",
+	);
+	const resetOff = !capabilities.resetDocker || operationPending;
+	const close = () => setDialog(null);
+	// Unarchive is not destructive, so it sits in the panel's head; with the
+	// workspace archived and Reset Docker not in this release, nothing is left here.
+	if (archived && !capabilities.resetDocker) return null;
+
+	return (
+		<section
+			aria-labelledby="detail-destructive"
+			className="pk-detail-section"
+			data-testid="detail-destructive"
+		>
+			<h4 id="detail-destructive" className={`${SECTION_HEADING} text-status-danger`}>
+				Destructive
+			</h4>
+			<div className="pk-actions">
+				<WithTip label="Reset Docker" tip={PANEL_HELP.resetDocker}>
+					<Button
+						size="sm"
+						variant="danger-secondary"
+						data-testid="detail-reset-docker"
+						aria-label={`Reset Docker for ${ownerName}`}
+						aria-describedby={offReason(capabilities.resetDocker)}
+						aria-disabled={resetOff ? true : undefined}
+						aria-haspopup="dialog"
+						onClick={() => (resetOff ? undefined : setDialog("reset"))}
+					>
+						Reset Docker
+					</Button>
+				</WithTip>
+				{archived ? null : (
+					<WithTip label="Archive workspace" tip={PANEL_HELP.archive}>
+						<Button
+							size="sm"
+							variant="danger-secondary"
+							data-testid="detail-archive"
+							aria-label={`Archive workspace for ${ownerName}`}
+							aria-haspopup="dialog"
+							aria-disabled={archive.isPending ? true : undefined}
+							onClick={() => {
+								// A second dialog mid-request would only race the first.
+								if (!archive.isPending) setDialog("archive");
+							}}
+						>
+							Archive workspace
+						</Button>
+					</WithTip>
+				)}
+			</div>
+			{operationPending && workspace.pendingOperation ? (
+				<p id={pendingId} className="pk-text-compact pk-muted m-0">
+					{PENDING_LABEL[workspace.pendingOperation]} Reset Docker is off until it
+					finishes.
+				</p>
+			) : null}
+			{capabilities.resetDocker ? null : (
+				<p
+					id={noteId}
+					className="pk-text-compact pk-muted m-0"
+					data-testid="capability-note-reset"
+				>
+					Reset Docker is not available in this release.
+				</p>
+			)}
 
 			<ConfirmDialogRoot
 				open={dialog === "archive"}
@@ -201,41 +290,12 @@ function WorkspaceActions({
 									toast.show({ tone: "success", title: "Workspace archived" });
 									close();
 								},
-								onError: fail("Could not archive the workspace"),
+								onError: fail(toast, "Could not archive the workspace"),
 							},
 						)
 					}
 				/>
 			</ConfirmDialogRoot>
-
-			<ConfirmByLabelDialog
-				open={dialog === "rebuild"}
-				onOpenChange={(open) => (open ? undefined : close())}
-				testId="rebuild-dialog"
-				title={`Rebuild ${ownerName}'s workspace?`}
-				description="The workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay."
-				confirmLabel="Rebuild"
-				label={workspace.label}
-				pending={rebuild.isPending}
-				onConfirm={() =>
-					rebuild.mutate(
-						{ workspaceId: workspace.id, resetDocker: !preserveDocker },
-						{
-							onSuccess: () => {
-								toast.show({ tone: "success", title: "Rebuild requested" });
-								close();
-							},
-							onError: fail("Could not rebuild the workspace"),
-						},
-					)
-				}
-			>
-				<Checkbox
-					label="Keep Docker images and volumes"
-					checked={preserveDocker}
-					onChange={(event) => setPreserveDocker(event.target.checked)}
-				/>
-			</ConfirmByLabelDialog>
 
 			<ConfirmByLabelDialog
 				open={dialog === "reset"}
@@ -254,11 +314,11 @@ function WorkspaceActions({
 								toast.show({ tone: "success", title: "Docker reset requested" });
 								close();
 							},
-							onError: fail("Could not reset Docker"),
+							onError: fail(toast, "Could not reset Docker"),
 						},
 					)
 				}
 			/>
-		</>
+		</section>
 	);
 }
