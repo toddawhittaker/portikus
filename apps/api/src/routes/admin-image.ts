@@ -27,7 +27,7 @@ import {
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { diffManifests } from "../image/manifest-diff.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import {
@@ -259,21 +259,19 @@ export function registerAdminImageRoutes(
 
 	app.get("/admin/image/diff", adminOnly, async (request, reply) => {
 		if (off(reply) || !imagesDir) return;
-		const query = ImageDiffQuery.safeParse(request.query);
-		if (!query.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"from and to must be image versions",
-			);
-		}
+		const query = parseOr400(
+			ImageDiffQuery,
+			request.query,
+			reply,
+			"from and to must be image versions",
+		);
+		if (!query) return reply;
 		const from = await readJson(
-			join(imagesDir, query.data.from, "manifest.json"),
+			join(imagesDir, query.from, "manifest.json"),
 			ImageManifest,
 		);
 		const to = await readJson(
-			join(imagesDir, query.data.to, "manifest.json"),
+			join(imagesDir, query.to, "manifest.json"),
 			ImageManifest,
 		);
 		if (!from || !to) {
@@ -368,16 +366,13 @@ export function registerAdminImageRoutes(
 	app.post("/admin/image/jobs", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir || !imagesDir) return;
 		const admin = requireUser(request);
-		const body = ImageJobRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"unknown kind, choice or version",
-			);
-		}
-		const wanted = body.data;
+		const wanted = parseOr400(
+			ImageJobRequest,
+			request.body ?? {},
+			reply,
+			"unknown kind, choice or version",
+		);
+		if (!wanted) return reply;
 		if (writing) {
 			return sendError(
 				reply,

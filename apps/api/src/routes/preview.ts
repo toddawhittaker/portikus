@@ -12,7 +12,7 @@ import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { fromLoopback } from "../loopback.js";
 import { previewPagePolicy } from "../page-policy.js";
 import {
@@ -199,15 +199,13 @@ export function registerPreviewRoutes(
 
 	app.get("/workspaces/:id/listening", async (request, reply) => {
 		const user = requireUser(request);
-		const params = IdParams.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-		}
-		const workspace = await previewWorkspace(params.data.id, user.id);
+		const params = parseOr400(IdParams, request.params, reply, "invalid workspace id");
+		if (!params) return reply;
+		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
-		return reply.send({ services: servicesOf(params.data.id) });
+		return reply.send({ services: servicesOf(params.id) });
 	});
 
 	/**
@@ -277,24 +275,25 @@ export function registerPreviewRoutes(
 
 	app.post("/workspaces/:id/preview-grants", async (request, reply) => {
 		const user = requireUser(request);
-		const params = IdParams.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-		}
-		const body = PreviewGrantRequest.safeParse(request.body);
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid grant request");
-		}
+		const params = parseOr400(IdParams, request.params, reply, "invalid workspace id");
+		if (!params) return reply;
+		const body = parseOr400(
+			PreviewGrantRequest,
+			request.body,
+			reply,
+			"invalid grant request",
+		);
+		if (!body) return reply;
 
-		const workspace = await previewWorkspace(params.data.id, user.id);
+		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		const payload = await issuePreviewGrant(deps, request, reply, {
 			userId: user.id,
-			workspace: { id: params.data.id, label: workspace.label, state: workspace.state },
-			port: body.data.port,
-			presentation: body.data.presentation,
+			workspace: { id: params.id, label: workspace.label, state: workspace.state },
+			port: body.port,
+			presentation: body.presentation,
 			stoppedMessage: "Start the workspace before opening a preview",
 		});
 		return payload ? sendPreviewGrant(reply, payload) : reply;
@@ -378,21 +377,19 @@ export function registerPreviewRoutes(
 	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.post("/workspaces/:id/preview/reset", async (request, reply) => {
 		const user = requireUser(request);
-		const params = IdParams.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-		}
-		const workspace = await previewWorkspace(params.data.id, user.id);
+		const params = parseOr400(IdParams, request.params, reply, "invalid workspace id");
+		if (!params) return reply;
+		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
-		await revokeWorkspacePreviewSessions(db, params.data.id);
+		await revokeWorkspacePreviewSessions(db, params.id);
 		// A reset in this process takes effect at once, not two seconds late.
 		lookups.clear();
-		await bridge.closeForWorkspace(params.data.id);
-		for (const service of servicesOf(params.data.id)) {
+		await bridge.closeForWorkspace(params.id);
+		for (const service of servicesOf(params.id)) {
 			if (service.previewReachability !== "forwarded") continue;
-			await registry.closeForward(params.data.id, service.port).catch(() => undefined);
+			await registry.closeForward(params.id, service.port).catch(() => undefined);
 		}
 		return reply.status(204).send();
 	});

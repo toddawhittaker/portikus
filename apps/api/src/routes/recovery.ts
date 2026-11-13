@@ -276,15 +276,13 @@ export function registerRecoveryRoutes(
 			const { scope, project } = found;
 			// Checked here as well as in the agent, so a traversal attempt
 			// never leaves the control plane (SPEC.md §24.6).
-			const path = ProjectPath.safeParse((request.query as { path?: unknown })?.path);
-			if (!path.success) {
-				return sendError(
-					reply,
-					400,
-					"VALIDATION_FAILED",
-					"that path is not inside the project",
-				);
-			}
+			const path = parseOr400(
+				ProjectPath,
+				(request.query as { path?: unknown })?.path,
+				reply,
+				"that path is not inside the project",
+			);
+			if (path === null) return reply;
 			const point = await ownedPoint(params.rpid, project.id, scope.workspaceId, reply);
 			if (!point) return;
 			const agent = requireAgent(scope, reply);
@@ -312,7 +310,7 @@ export function registerRecoveryRoutes(
 					pointId: point.id,
 					query: {
 						projectId: project.id,
-						path: path.data,
+						path,
 						sha256: point.sha256,
 					},
 					signal: AbortSignal.any([

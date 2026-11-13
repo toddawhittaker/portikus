@@ -23,7 +23,7 @@ import {
 	readJson,
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import {
 	headersDeadline,
@@ -318,16 +318,19 @@ export function registerFileRoutes(
 			if (!scope) return;
 			// A write by the owner is activity; reads are not (ADR 0032).
 			await recordActivity(db, scope.workspaceId);
-			const body = MkdirRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
-			}
+			const body = parseOr400(
+				MkdirRequest,
+				request.body ?? {},
+				reply,
+				"that path is not valid",
+			);
+			if (!body) return reply;
 
 			let response: Response;
 			try {
 				response = await scope.agent.fetchRaw("POST", agentUrl(scope.slug, "mkdir"), {
 					headers: { "content-type": "application/json" },
-					body: Buffer.from(JSON.stringify(body.data)),
+					body: Buffer.from(JSON.stringify(body)),
 					signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
 				});
 			} catch (error) {
@@ -344,16 +347,19 @@ export function registerFileRoutes(
 			if (!scope) return;
 			// A write by the owner is activity; reads are not (ADR 0032).
 			await recordActivity(db, scope.workspaceId);
-			const body = MoveRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
-			}
+			const body = parseOr400(
+				MoveRequest,
+				request.body ?? {},
+				reply,
+				"that path is not valid",
+			);
+			if (!body) return reply;
 
 			let response: Response;
 			try {
 				response = await scope.agent.fetchRaw("POST", agentUrl(scope.slug, "move"), {
 					headers: { "content-type": "application/json" },
-					body: Buffer.from(JSON.stringify(body.data)),
+					body: Buffer.from(JSON.stringify(body)),
 					signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
 				});
 			} catch (error) {
@@ -371,10 +377,13 @@ export function registerFileRoutes(
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
 			await recordActivity(db, scope.workspaceId);
-			const body = ExtractRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
-			}
+			const body = parseOr400(
+				ExtractRequest,
+				request.body ?? {},
+				reply,
+				"that path is not valid",
+			);
+			if (!body) return reply;
 			if (!claimLongOperation(scope.workspaceId, reply)) return;
 			try {
 				let response: Response;
@@ -384,7 +393,7 @@ export function registerFileRoutes(
 						agentUrl(scope.slug, "extract"),
 						{
 							headers: { "content-type": "application/json" },
-							body: Buffer.from(JSON.stringify(body.data)),
+							body: Buffer.from(JSON.stringify(body)),
 							signal: AbortSignal.timeout(AGENT_EXTRACT_TIMEOUT_MS),
 						},
 					);

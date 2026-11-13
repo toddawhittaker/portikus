@@ -16,7 +16,7 @@ import type { FastifyInstance } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { check, createCounter } from "../rate-limit.js";
 
 /** How many notifications one user may record per minute before 429. */
@@ -63,17 +63,20 @@ export function registerNotificationRoutes(
 
 	app.get("/me/notifications", async (request, reply) => {
 		const user = requireUser(request);
-		const query = ListNotificationsQuery.safeParse(request.query ?? {});
-		if (!query.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "Invalid page request");
-		}
+		const query = parseOr400(
+			ListNotificationsQuery,
+			request.query ?? {},
+			reply,
+			"Invalid page request",
+		);
+		if (!query) return reply;
 		const rows = await db
 			.selectFrom("notifications")
 			.selectAll()
 			.where("user_id", "=", user.id)
 			.orderBy("created_at", "desc")
 			.orderBy("id", "desc")
-			.limit(query.data.limit)
+			.limit(query.limit)
 			.execute();
 		const out: NotificationList = {
 			notifications: rows.map(toNotification),

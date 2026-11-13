@@ -15,7 +15,7 @@ import { hostSeries, newestCpuCount } from "../health-series/host.js";
 import { platformSeries } from "../health-series/platform.js";
 import { seriesWindow } from "../health-series/range.js";
 import { usageSeries } from "../health-series/usage.js";
-import { sendError } from "../http.js";
+import { parseOr400 } from "../http.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
 
 /** The worker samples every minute; older than this means it stopped. */
@@ -191,16 +191,14 @@ export function registerAdminHealthRoutes(
 		"/admin/health/series",
 		{ preHandler: requireRole("administrator") },
 		async (request, reply) => {
-			const parsed = HealthSeriesQuery.safeParse(request.query);
-			if (!parsed.success) {
-				return sendError(
-					reply,
-					400,
-					"VALIDATION_FAILED",
-					"invalid health series query",
-				);
-			}
-			const window = seriesWindow(parsed.data.range, new Date());
+			const parsed = parseOr400(
+				HealthSeriesQuery,
+				request.query,
+				reply,
+				"invalid health series query",
+			);
+			if (!parsed) return reply;
+			const window = seriesWindow(parsed.range, new Date());
 			const [cpuCount, host, platform, events, usage, api] = await Promise.all([
 				newestCpuCount(db),
 				hostSeries(db, window),

@@ -25,7 +25,7 @@ import {
 } from "../account-email/tokens.js";
 import { DexCallFailed, viaDex } from "../admin/dex-accounts.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { addressKey } from "../rate-limit.js";
 import { endSessions } from "../sessions/end-sessions.js";
 import { requestMetadata } from "../sessions/start-session.js";
@@ -172,10 +172,13 @@ export function registerPasswordResetRoutes(
 	app.post("/auth/password-reset", async (request, reply) => {
 		const dex = deps.dex;
 		if (!dex) return sendError(reply, 404, "NOT_FOUND", "Not found.");
-		const body = PasswordResetRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "Enter your email address.");
-		}
+		const body = parseOr400(
+			PasswordResetRequest,
+			request.body ?? {},
+			reply,
+			"Enter your email address.",
+		);
+		if (!body) return reply;
 		const decision = await perAddress.attempt(addressKey(request.ip));
 		if (!decision.allowed) {
 			if (decision.audit) await auditThrottled(request, "password-reset-request");
@@ -188,7 +191,7 @@ export function registerPasswordResetRoutes(
 		}
 		const metadata = requestMetadata(request);
 		// Answer first, so the time taken says nothing about whether the account exists.
-		detach(() => sendReset(dex, body.data.login, metadata));
+		detach(() => sendReset(dex, body.login, metadata));
 		return reply.status(202).send({});
 	});
 

@@ -14,7 +14,7 @@ import { sql } from "kysely";
 import { AGENT_TIMEOUT_MS, readAgentError } from "../agent-client.js";
 import { taughtCourseId } from "../courses/membership.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import {
 	GIT_DIFF_BUDGET_MS,
 	GIT_STATUS_BUDGET_MS,
@@ -203,16 +203,14 @@ export function registerCourseShareRoutes(
 			async (request, reply) => {
 				const scope = await sharedProject(db, config, request, reply);
 				if (!scope) return;
-				const path = ProjectPath.safeParse((request.query as { path?: unknown }).path);
-				if (!path.success) {
-					return sendError(
-						reply,
-						400,
-						"VALIDATION_FAILED",
-						"that path is not inside the project",
-					);
-				}
-				if (isSecretPath(path.data)) {
+				const path = parseOr400(
+					ProjectPath,
+					(request.query as { path?: unknown }).path,
+					reply,
+					"that path is not inside the project",
+				);
+				if (path === null) return reply;
+				if (isSecretPath(path)) {
 					return sendError(reply, 404, "FILE_NOT_FOUND", HIDDEN_MESSAGE);
 				}
 				await scope.recordView();
@@ -220,7 +218,7 @@ export function registerCourseShareRoutes(
 					reply,
 					request.log,
 					scope.agent,
-					agentUrl(scope.slug, "git/diff", { path: path.data, ...NO_LINKS }),
+					agentUrl(scope.slug, "git/diff", { path, ...NO_LINKS }),
 					SharedGitDiffResponse,
 					AbortSignal.timeout(GIT_DIFF_BUDGET_MS),
 				);

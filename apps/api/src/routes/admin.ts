@@ -306,12 +306,15 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	});
 
 	app.get("/admin/users", adminOnly, async (request, reply) => {
-		const query = AdminUsersQuery.safeParse(request.query);
-		if (!query.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid users query");
-		}
+		const query = parseOr400(
+			AdminUsersQuery,
+			request.query,
+			reply,
+			"invalid users query",
+		);
+		if (!query) return reply;
 		// Markers are computed over every account; only then does a page cut the list.
-		const page = queryAdminUsers(await listAdminUsers(deps), query.data);
+		const page = queryAdminUsers(await listAdminUsers(deps), query);
 		const body: AdminUserList = { ...page, dexUsers: deps.dex !== undefined };
 		return body;
 	});

@@ -38,7 +38,7 @@ import {
 } from "../certificate/preflight.js";
 import { checkUpload } from "../certificate/upload-check.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import {
 	currentJob,
 	listDir,
@@ -271,11 +271,14 @@ export function registerAdminCertificateRoutes(
 
 	app.post("/admin/certificate/preflight", adminOnly, async (request, reply) => {
 		if (off(reply)) return;
-		const body = CertificatePreflightRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "mode must be dns01 or http01");
-		}
-		const result = await runPreflight({ config, net, nonces, mode: body.data.mode });
+		const body = parseOr400(
+			CertificatePreflightRequest,
+			request.body ?? {},
+			reply,
+			"mode must be dns01 or http01",
+		);
+		if (!body) return reply;
+		const result = await runPreflight({ config, net, nonces, mode: body.mode });
 		return reply.header("cache-control", "no-store").send(result);
 	});
 

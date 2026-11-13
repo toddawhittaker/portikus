@@ -8,7 +8,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400 } from "../http.js";
 
 const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
@@ -31,11 +31,8 @@ export function registerAdminAuditRoutes(
 		"/admin/audit",
 		{ preHandler: requireRole("administrator") },
 		async (request, reply) => {
-			const parsed = AuditQuery.safeParse(request.query);
-			if (!parsed.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "invalid audit query");
-			}
-			const query = parsed.data;
+			const query = parseOr400(AuditQuery, request.query, reply, "invalid audit query");
+			if (!query) return reply;
 
 			let select = db
 				.selectFrom("audit_events as a")
