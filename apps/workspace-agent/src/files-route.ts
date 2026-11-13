@@ -301,40 +301,55 @@ export async function filesRoutes(
 				throw new AgentFailure("PATH_INVALID", "invalid path");
 			}
 			const asked = parsed.data.path;
-			const check = parsed.data.check === "1";
-			if (Array.isArray(asked) && asked.length > 1) {
-				const paths = await resolveSelection(homeDir, slug, asked);
-				if (check) {
-					await checkDownloadSize(outermostPaths(paths));
-					return reply.code(204).send();
-				}
-				archive = await archiveSelection(paths, signal);
-			} else {
-				const path = (Array.isArray(asked) ? asked[0] : asked) ?? "";
-				if (check) {
-					// Only the size check, so the browser can explain a refusal
-					// before it starts a download.
-					const target = await resolveInProject(homeDir, slug, path, {
-						mustExist: true,
-					});
-					await checkDownloadSize([target.path]);
-					return reply.code(204).send();
-				}
-				if (path === "") {
-					archive = await archiveProject(slug, homeDir, signal);
-				} else {
-					const target = await resolveInProject(homeDir, slug, path, {
-						mustExist: true,
-					});
-					archive = await archiveDir(target.path, signal);
-				}
+			const paths = Array.isArray(asked) ? asked : [asked ?? ""];
+			if (parsed.data.check === "1") {
+				await checkArchiveSize(homeDir, slug, paths);
+				return reply.code(204).send();
 			}
+			archive = await buildArchive(homeDir, slug, paths, signal);
 		} catch (error) {
 			return sendError(request, reply, error, "INTERNAL");
 		}
 		request.log.debug({ slug, operation: "archive" }, "project operation");
 		return reply.type("application/zip").send(archive);
 	});
+}
+
+/**
+ * Refuse a download over the cap before it starts, so the browser can
+ * explain a refusal first.
+ */
+async function checkArchiveSize(
+	homeDir: string,
+	slug: string,
+	asked: readonly string[],
+): Promise<void> {
+	if (asked.length > 1) {
+		const paths = await resolveSelection(homeDir, slug, asked);
+		await checkDownloadSize(outermostPaths(paths));
+		return;
+	}
+	const target = await resolveInProject(homeDir, slug, asked[0] ?? "", {
+		mustExist: true,
+	});
+	await checkDownloadSize([target.path]);
+}
+
+/** The zip of a selection, one folder, or the whole project. */
+async function buildArchive(
+	homeDir: string,
+	slug: string,
+	asked: readonly string[],
+	signal: AbortSignal,
+): Promise<Readable> {
+	if (asked.length > 1) {
+		const paths = await resolveSelection(homeDir, slug, asked);
+		return archiveSelection(paths, signal);
+	}
+	const path = asked[0] ?? "";
+	if (path === "") return archiveProject(slug, homeDir, signal);
+	const target = await resolveInProject(homeDir, slug, path, { mustExist: true });
+	return archiveDir(target.path, signal);
 }
 
 /**
