@@ -67,6 +67,52 @@ function pathOf(request: FastifyRequest): string {
 /** Longest path written to a line; the rest is anyone's text. */
 const MAX_PATH_LENGTH = 200;
 
+/** The fields of one request line. */
+function requestLine(
+	request: FastifyRequest,
+	reply: FastifyReply,
+	path: string,
+): Record<string, unknown> {
+	const details = captured.get(request);
+	const user = (request as { user?: { id?: string } }).user;
+	const params = request.params as { id?: unknown } | undefined;
+
+	const line: Record<string, unknown> = {
+		method: request.method,
+		route: request.routeOptions.url ?? null,
+		path:
+			path.length <= MAX_PATH_LENGTH ? path : `${path.slice(0, MAX_PATH_LENGTH)}\u2026`,
+		status: reply.statusCode,
+		durationMs: Math.round(reply.elapsedTime),
+		reqId: request.id,
+	};
+	if (user && typeof user.id === "string") line.userId = user.id;
+	// Only a workspace route's `:id` is a workspace id; /admin/users/:id is not.
+	if (params && typeof params.id === "string" && path.startsWith("/workspaces/")) {
+		line.workspaceId = params.id;
+	}
+	if (details?.code) line.code = details.code;
+	if (details?.message) line.error = truncate(details.message);
+	return line;
+}
+
+/** The level a request line is written at. */
+function requestLevel(
+	request: FastifyRequest,
+	status: number,
+	path: string,
+	debugPaths: string[],
+): "error" | "warn" | "info" | "debug" {
+	// Anyone can request an unknown path, so it must not flood the warn lines.
+	const unmatched = status === 404 && request.routeOptions.url === undefined;
+	if (status >= 500) return "error";
+	if (unmatched) return "debug";
+	// A refusal is the API working as meant; only rate limiting hints at trouble.
+	if (status === 429) return "warn";
+	if (debugPaths.includes(path)) return "debug";
+	return "info";
+}
+
 /**
  * Turns off Fastify's own "incoming request" and "request completed" pair, so
  * `registerRequestLogging` is the only source of request lines. Pass it as the
@@ -102,38 +148,8 @@ export function registerRequestLogging<Log extends FastifyBaseLogger>(
 
 	app.addHook("onResponse", async (request, reply) => {
 		const path = pathOf(request);
-		const status = reply.statusCode;
-		const details = captured.get(request);
-		const user = (request as { user?: { id?: string } }).user;
-		const params = request.params as { id?: unknown } | undefined;
-
-		const line: Record<string, unknown> = {
-			method: request.method,
-			route: request.routeOptions.url ?? null,
-			path:
-				path.length <= MAX_PATH_LENGTH
-					? path
-					: `${path.slice(0, MAX_PATH_LENGTH)}\u2026`,
-			status,
-			durationMs: Math.round(reply.elapsedTime),
-			reqId: request.id,
-		};
-		if (user && typeof user.id === "string") line.userId = user.id;
-		// Only a workspace route's `:id` is a workspace id; /admin/users/:id is not.
-		if (params && typeof params.id === "string" && path.startsWith("/workspaces/")) {
-			line.workspaceId = params.id;
-		}
-		if (details?.code) line.code = details.code;
-		if (details?.message) line.error = truncate(details.message);
-
-		const log = request.log;
-		// Anyone can request an unknown path, so it must not flood the warn lines.
-		const unmatched = status === 404 && request.routeOptions.url === undefined;
-		if (status >= 500) log.error(line, "request");
-		else if (unmatched) log.debug(line, "request");
-		// A refusal is the API working as meant; only rate limiting hints at trouble.
-		else if (status === 429) log.warn(line, "request");
-		else if (opts.debugPaths.includes(path)) log.debug(line, "request");
-		else log.info(line, "request");
+		const line = requestLine(request, reply, path);
+		const level = requestLevel(request, reply.statusCode, path, opts.debugPaths);
+		request.log[level](line, "request");
 	});
 }
