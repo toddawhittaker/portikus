@@ -57,6 +57,25 @@ function probeAddress(address: string): string {
 	return address;
 }
 
+/** What one scan read, shared by every port's row. */
+interface ScanFacts {
+	owners: Map<string, SocketOwner | null>;
+	containers: DockerContainer[];
+	forwarded: ReadonlySet<number>;
+	observedAt: string;
+}
+
+/** Listeners grouped by port, in the order the ports were first seen. */
+function groupByPort(rows: ProcListener[]): Map<number, ProcListener[]> {
+	const byPort = new Map<number, ProcListener[]>();
+	for (const row of rows) {
+		const existing = byPort.get(row.port);
+		if (existing) existing.push(row);
+		else byPort.set(row.port, [row]);
+	}
+	return byPort;
+}
+
 /** The socket a TLS probe of one port dials. */
 interface ProbeTarget {
 	inode: string;
@@ -490,57 +509,12 @@ export class ListeningMonitor {
 		const forwarded = this.forwardedPorts();
 		const observedAt = new Date().toISOString();
 
-		const byPort = new Map<number, ProcListener[]>();
-		for (const row of rows) {
-			const existing = byPort.get(row.port);
-			if (existing) existing.push(row);
-			else byPort.set(row.port, [row]);
-		}
-
 		const services: AgentListeningService[] = [];
 		/** The inode and address to probe for each student port. */
 		const probeTargets = new Map<number, ProbeTarget>();
-		for (const [port, listeners] of byPort) {
-			const addresses = [...new Set(listeners.map((entry) => entry.address))].sort();
-			const found = listeners
-				.map((entry) => owners.get(entry.inode))
-				.filter((entry) => entry !== undefined && entry !== null);
-			// The agent's own forward is never the service: if another process
-			// holds this port too, that one is the owner.
-			const owner = found.find((entry) => entry.pid !== this.selfPid) ?? found[0];
-			const container = containers.find((entry) => entry.ports.includes(port));
-			const system = isSystemListener({
-				...(owner ? { ownerPid: owner.pid } : {}),
-				uids: listeners.map((entry) => entry.uid),
-				hasContainer: container !== undefined,
-				selfPid: this.selfPid,
-				isForwarded: forwarded.has(port),
-			});
-			// Only the student's own listener carries its command line; a system
-			// or Docker row never does (SPEC.md §24.11, ADR 0037).
-			const commandLine = system || container ? undefined : owner?.commandLine;
-			const first = listeners[0];
-			if (!system && port >= FIRST_PROBED_PORT && first) {
-				probeTargets.set(port, { inode: first.inode, address: first.address });
-			}
-			services.push({
-				port,
-				addresses,
-				...this.protocolOf(port, probeTargets.get(port)),
-				...(owner
-					? {
-							process: {
-								pid: owner.pid,
-								command: owner.command,
-								...(commandLine !== undefined ? { commandLine } : {}),
-							},
-						}
-					: {}),
-				...(container ? { container: { id: container.id, name: container.name } } : {}),
-				previewReachability: this.reachability(addresses, forwarded.has(port)),
-				system,
-				observedAt,
-			});
+		const scanned: ScanFacts = { owners, containers, forwarded, observedAt };
+		for (const [port, listeners] of groupByPort(rows)) {
+			services.push(this.serviceFor(port, listeners, scanned, probeTargets));
 		}
 		// A closed listener's answer goes with it.
 		const live = new Set([...probeTargets.values()].map((target) => target.inode));
@@ -550,6 +524,56 @@ export class ListeningMonitor {
 		this.probeTargets = probeTargets;
 		services.sort((left, right) => left.port - right.port);
 		return services;
+	}
+
+	/** One port's row; a student port it should probe is added to `probeTargets`. */
+	private serviceFor(
+		port: number,
+		listeners: ProcListener[],
+		scanned: ScanFacts,
+		probeTargets: Map<number, ProbeTarget>,
+	): AgentListeningService {
+		const { owners, containers, forwarded, observedAt } = scanned;
+		const addresses = [...new Set(listeners.map((entry) => entry.address))].sort();
+		const found = listeners
+			.map((entry) => owners.get(entry.inode))
+			.filter((entry) => entry !== undefined && entry !== null);
+		// The agent's own forward is never the service: if another process
+		// holds this port too, that one is the owner.
+		const owner = found.find((entry) => entry.pid !== this.selfPid) ?? found[0];
+		const container = containers.find((entry) => entry.ports.includes(port));
+		const system = isSystemListener({
+			...(owner ? { ownerPid: owner.pid } : {}),
+			uids: listeners.map((entry) => entry.uid),
+			hasContainer: container !== undefined,
+			selfPid: this.selfPid,
+			isForwarded: forwarded.has(port),
+		});
+		// Only the student's own listener carries its command line; a system
+		// or Docker row never does (SPEC.md §24.11, ADR 0037).
+		const commandLine = system || container ? undefined : owner?.commandLine;
+		const first = listeners[0];
+		if (!system && port >= FIRST_PROBED_PORT && first) {
+			probeTargets.set(port, { inode: first.inode, address: first.address });
+		}
+		return {
+			port,
+			addresses,
+			...this.protocolOf(port, probeTargets.get(port)),
+			...(owner
+				? {
+						process: {
+							pid: owner.pid,
+							command: owner.command,
+							...(commandLine !== undefined ? { commandLine } : {}),
+						},
+					}
+				: {}),
+			...(container ? { container: { id: container.id, name: container.name } } : {}),
+			previewReachability: this.reachability(addresses, forwarded.has(port)),
+			system,
+			observedAt,
+		};
 	}
 
 	/**
