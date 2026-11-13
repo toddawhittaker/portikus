@@ -183,4 +183,128 @@ test.describe("editor colour scheme", () => {
 			"High contrast",
 		]);
 	});
+	/** Opens the pane's actions menu, then its Color scheme submenu, by pointer. */
+	async function openSchemeMenu(page: Page) {
+		await page.getByTestId(`file-frame-actions-${PATH}`).click();
+		await page.getByTestId("editor-scheme-menu").click();
+		await expect(page.getByRole("menu", { name: "Color scheme" })).toBeVisible();
+	}
+
+	test("the editor pane's menu offers the schemes as a submenu, and a choice recolours the editor and shows in Settings", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Scheme menu", PATH, CONTENT);
+		await expect(
+			page.getByTestId(`editor-${PATH}`).locator(".view-lines"),
+		).toContainText("def total", { timeout: 60_000 });
+		await page.evaluate(() => {
+			(window as unknown as { kept: boolean }).kept = true;
+		});
+		await chooseAppearance(page, "Dark");
+		await expect.poll(() => editorColours(page)).toEqual(PORTIKUS.dark);
+
+		await openSchemeMenu(page);
+		const submenu = page.getByRole("menu", { name: "Color scheme" });
+		// All seven, in Settings' order, with the one in use ticked.
+		await expect(submenu.getByRole("menuitemradio")).toHaveText([
+			"Portikus",
+			"VS Code",
+			"IntelliJ",
+			"GitHub",
+			"Solarized",
+			"Catppuccin",
+			"High contrast",
+		]);
+		await expect(
+			submenu.getByRole("menuitemradio", { name: "Portikus" }),
+		).toHaveAttribute("aria-checked", "true");
+
+		const saved = page.waitForResponse(
+			(response) =>
+				response.url().endsWith("/me/settings") &&
+				response.request().method() === "PUT",
+		);
+		// Moved in small steps, as a hand does, so the menu does not read the
+		// jump from the Color scheme item as the pointer leaving it.
+		const target = await submenu
+			.getByRole("menuitemradio", { name: "VS Code" })
+			.boundingBox();
+		if (!target) throw new Error("the VS Code item has no box");
+		await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
+			steps: 15,
+		});
+		await page.mouse.down();
+		await page.mouse.up();
+		expect((await saved).ok()).toBe(true);
+		await expect.poll(() => editorColours(page)).toEqual(VSCODE.dark);
+		expect(
+			await page.evaluate(() => (window as unknown as { kept?: boolean }).kept),
+		).toBe(true);
+
+		// The tick moved with the choice.
+		await openSchemeMenu(page);
+		await expect(
+			page
+				.getByRole("menu", { name: "Color scheme" })
+				.getByRole("menuitemradio", { name: "VS Code" }),
+		).toHaveAttribute("aria-checked", "true");
+		await page.keyboard.press("Escape");
+		await page.keyboard.press("Escape");
+
+		// Settings shows the same choice.
+		await openSettings(page);
+		await expect(page.getByLabel("Editor color scheme")).toContainText("VS Code");
+		await closeSettings(page);
+
+		// And a choice made in Settings is the one ticked in the menu.
+		await chooseScheme(page, "Solarized");
+		await openSchemeMenu(page);
+		await expect(
+			page
+				.getByRole("menu", { name: "Color scheme" })
+				.getByRole("menuitemradio", { name: "Solarized" }),
+		).toHaveAttribute("aria-checked", "true");
+	});
+
+	test("the keyboard alone opens the submenu, picks a scheme and steps back with Escape", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Scheme keys", PATH, CONTENT);
+		await expect(
+			page.getByTestId(`editor-${PATH}`).locator(".view-lines"),
+		).toContainText("def total", { timeout: 60_000 });
+		await chooseAppearance(page, "Dark");
+		await expect.poll(() => editorColours(page)).toEqual(PORTIKUS.dark);
+
+		await page.getByTestId(`file-frame-actions-${PATH}`).focus();
+		await page.keyboard.press("Enter");
+		const trigger = page.getByTestId("editor-scheme-menu");
+		// The pane is alone, so the move items are unavailable and the arrow
+		// keys skip them; the submenu is the first stop.
+		await expect(trigger).toBeFocused();
+
+		await page.keyboard.press("ArrowRight");
+		const submenu = page.getByRole("menu", { name: "Color scheme" });
+		await expect(submenu).toBeVisible();
+		// Escape steps back to the parent menu, still open, on the submenu item.
+		await page.keyboard.press("Escape");
+		await expect(submenu).toHaveCount(0);
+		await expect(trigger).toBeFocused();
+		await expect(page.getByRole("menu", { name: /^Actions for / })).toBeVisible();
+
+		await page.keyboard.press("ArrowRight");
+		await expect(submenu).toBeVisible();
+		// The submenu opens on its first item, Portikus; one step down is VS Code.
+		await page.keyboard.press("ArrowDown");
+		await expect(submenu.getByRole("menuitemradio", { name: "VS Code" })).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect.poll(() => editorColours(page)).toEqual(VSCODE.dark);
+		// The menu closes after a choice and the keyboard comes back to the pane.
+		await expect(page.getByRole("menu")).toHaveCount(0);
+		await expect(page.getByTestId(`file-frame-actions-${PATH}`)).toBeFocused();
+	});
 });
