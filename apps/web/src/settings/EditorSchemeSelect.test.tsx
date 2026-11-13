@@ -7,12 +7,10 @@ afterEach(cleanup);
 test("the select shows the chosen scheme by its label", () => {
 	render(
 		<EditorSchemeSelect
-			label="Editor colour scheme"
+			label="Editor color scheme"
 			value="vscode"
 			onChange={() => {}}
 		/>,
 	);
-	expect(screen.getByLabelText("Editor colour scheme").textContent).toContain(
-		"VS Code",
-	);
+	expect(screen.getByLabelText("Editor color scheme").textContent).toContain("VS Code");
 });

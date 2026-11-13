@@ -388,13 +388,13 @@ test("the stored editor colour scheme is shown in Appearance and found by search
 	const appearance = screen.getByRole("region", { name: "Appearance" });
 	await waitFor(() =>
 		expect(
-			within(appearance).getByLabelText("Editor colour scheme").textContent,
+			within(appearance).getByLabelText("Editor color scheme").textContent,
 		).toContain("VS Code"),
 	);
 	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "syntax" } });
 	expect(
 		within(screen.getByRole("navigation")).getByRole("button", {
-			name: "Editor colour scheme",
+			name: "Editor color scheme",
 		}),
 	).toBeTruthy();
 });

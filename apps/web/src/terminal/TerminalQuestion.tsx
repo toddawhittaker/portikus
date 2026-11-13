@@ -31,7 +31,8 @@ const GONE_MS = 4000;
  * What a new question does about the keyboard: the card takes it from this
  * pane's terminal or from nowhere; a visible pane whose student is typing
  * elsewhere gets a spoken announcement instead; a hidden tab gets neither,
- * because its toast already tells the student (SPEC.md §25.8).
+ * because its toast already tells the student; a window that does not have
+ * focus is the same, since the persistent toast speaks for it (SPEC.md §25.8).
  */
 function questionFocus(
 	visible: boolean,
@@ -40,7 +41,8 @@ function questionFocus(
 ): "take" | "announce" | "none" {
 	if (!visible) return "none";
 	if (active === null || active === document.body) return "take";
-	return pane?.contains(active) ? "take" : "announce";
+	if (pane?.contains(active)) return "take";
+	return document.hasFocus() ? "announce" : "none";
 }
 
 export interface TerminalQuestionProps {
@@ -82,13 +84,14 @@ export function TerminalQuestion({
 		if (decided.current === shownId) return;
 		decided.current = shownId;
 		const pane = region.current?.closest(".pk-term") ?? null;
-		if (
+		// Every new question starts from an empty region, so the last one's words never linger.
+		setAnnouncement(
 			agentKind &&
-			agentName &&
-			questionFocus(visible, document.activeElement, pane) === "announce"
-		) {
-			setAnnouncement(questionAnnouncement(agentKind, agentName));
-		}
+				agentName &&
+				questionFocus(visible, document.activeElement, pane) === "announce"
+				? questionAnnouncement(agentKind, agentName)
+				: "",
+		);
 	}, [shownId, visible, agentKind, agentName]);
 
 	useEffect(() => {
@@ -140,7 +143,11 @@ export function TerminalQuestion({
 				data-testid={`terminal-question-live-${terminalId}`}
 			>
 				{announcement ? (
-					<span className="pk-visually-hidden">{announcement}</span>
+					// Keyed by question, so a swap from one question to the next is a new
+					// node a screen reader speaks even when the words are the same.
+					<span key={shownId} className="pk-visually-hidden">
+						{announcement}
+					</span>
 				) : null}
 				{gone ? (
 					<p

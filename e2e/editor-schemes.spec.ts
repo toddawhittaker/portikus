@@ -65,7 +65,7 @@ test.describe("editor colour scheme", () => {
 				response.url().endsWith("/me/settings") &&
 				response.request().method() === "PUT",
 		);
-		await page.getByLabel("Editor colour scheme").click();
+		await page.getByLabel("Editor color scheme").click();
 		await page.getByRole("option", { name: label }).click();
 		expect((await saved).ok()).toBe(true);
 		await closeSettings(page);
@@ -110,6 +110,6 @@ test.describe("editor colour scheme", () => {
 		).toContainText("def total", { timeout: 60_000 });
 		await expect.poll(() => editorColours(page)).toEqual(VSCODE.light);
 		await openSettings(page);
-		await expect(page.getByLabel("Editor colour scheme")).toContainText("VS Code");
+		await expect(page.getByLabel("Editor color scheme")).toContainText("VS Code");
 	});
 });
