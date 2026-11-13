@@ -6,6 +6,7 @@
  * tested without a browser.
  */
 import type { GitDiff, GitEntry, GitStatus } from "@portikus/contracts";
+import { plural } from "../text.js";
 import { parentOf } from "./paths.js";
 
 /**
@@ -232,40 +233,29 @@ export function gitBar(status: GitStatus | undefined): GitBar | null {
 	if (!status.repo) {
 		return { text: "not a git repository", conflicts: 0, repo: false };
 	}
-	const parts: string[] = [];
-	if (status.detached) {
-		parts.push(
-			status.oid ? `detached HEAD at ${status.oid.slice(0, 7)}` : "detached HEAD",
-		);
-	} else {
-		parts.push(status.branch ?? "no branch");
-	}
 	const count = status.entries.length;
-	parts.push(
-		status.truncated
-			? `more than ${count} changes`
-			: count === 1
-				? "1 change"
-				: `${count} changes`,
-	);
-	if (status.conflicts > 0) {
-		parts.push(status.conflicts === 1 ? "1 conflict" : `${status.conflicts} conflicts`);
-	}
-	if (status.upstream === null) {
-		if (!status.detached) parts.push("no upstream");
-	} else {
-		if (status.ahead > 0) {
-			parts.push(
-				status.ahead === 1 ? "1 commit ahead" : `${status.ahead} commits ahead`,
-			);
-		}
-		if (status.behind > 0) {
-			parts.push(
-				status.behind === 1 ? "1 commit behind" : `${status.behind} commits behind`,
-			);
-		}
-	}
+	const parts = [
+		headPart(status),
+		status.truncated ? `more than ${count} changes` : plural(count, "change"),
+	];
+	if (status.conflicts > 0) parts.push(plural(status.conflicts, "conflict"));
+	parts.push(...upstreamParts(status));
 	return { text: parts.join(" • "), conflicts: status.conflicts, repo: true };
+}
+
+/** The branch, or the commit a detached HEAD is at. */
+function headPart(status: GitStatus): string {
+	if (!status.detached) return status.branch ?? "no branch";
+	return status.oid ? `detached HEAD at ${status.oid.slice(0, 7)}` : "detached HEAD";
+}
+
+/** How far the branch is from its upstream, or that it has none. */
+function upstreamParts(status: GitStatus): string[] {
+	if (status.upstream === null) return status.detached ? [] : ["no upstream"];
+	const parts: string[] = [];
+	if (status.ahead > 0) parts.push(`${plural(status.ahead, "commit")} ahead`);
+	if (status.behind > 0) parts.push(`${plural(status.behind, "commit")} behind`);
+	return parts;
 }
 
 /**
