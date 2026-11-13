@@ -1,5 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
+import { createQueryClient } from "../api/queryClient.js";
 import { FileHeader, FilePane } from "./FilePane.js";
 
 afterEach(() => {
@@ -134,4 +136,48 @@ test("a file at the project root shows no folder", () => {
 test("the folder is drawn without direction controls", () => {
 	renderPane("‮evil/app.ts");
 	expect(screen.getByTestId("file-header-dir-‮evil/app.ts").textContent).toBe("evil");
+});
+
+/** The color scheme submenu belongs to the code editor's header alone. */
+test("the actions menu offers the color scheme only when the pane shows the editor", () => {
+	const open = () =>
+		fireEvent.pointerDown(screen.getByTestId("file-frame-actions-src/app.ts"), {
+			button: 0,
+			ctrlKey: false,
+		});
+	const props = (editorScheme: boolean) => (
+		<FilePane
+			path="src/app.ts"
+			alone={false}
+			focused={false}
+			dropEdge={null}
+			moveTargets={[]}
+			onFocus={() => {}}
+			onMoveToNewTab={() => {}}
+			onMoveInto={() => {}}
+			onResetSizes={() => {}}
+			onClose={() => {}}
+		>
+			<FileHeader path="src/app.ts" editorScheme={editorScheme} />
+		</FilePane>
+	);
+	const { unmount } = render(props(false));
+	open();
+	expect(screen.getByTestId("file-frame-move-into")).toBeTruthy();
+	expect(screen.queryByTestId("editor-scheme-menu")).toBeNull();
+	unmount();
+	cleanup();
+	document.body.replaceChildren();
+
+	const client = createQueryClient();
+	render(<QueryClientProvider client={client}>{props(true)}</QueryClientProvider>);
+	open();
+	const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
+	// Right after Move into, as Move into follows Move to new tab.
+	expect(items.slice(0, 4)).toEqual([
+		"Move to new tab",
+		"Move into",
+		"Color scheme",
+		"Reset pane sizes",
+	]);
 });

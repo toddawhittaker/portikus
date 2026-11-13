@@ -173,6 +173,62 @@ test.describe("Needs attention", () => {
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 	});
 
+	test("a worker that has never reported is one Worker not reporting item, not an unreachable controller", async ({
+		page,
+	}) => {
+		await answerHealth(page, {
+			...healthyReport(),
+			sampledAt: null as unknown as string,
+			workerStale: true,
+			controller: null as unknown as { reachable: boolean; errorCode: null },
+			host: null as unknown as typeof HOST,
+		});
+		await loginAs(page, "carol");
+
+		const attention = await openAttention(page);
+		await expect(attention.getByRole("listitem")).toHaveCount(1);
+		const item = attention
+			.getByRole("listitem")
+			.filter({ hasText: "Worker not reporting" });
+		await expect(item).toBeVisible();
+		await expect(page.getByText("Controller not reachable")).toHaveCount(0);
+		await expect(page.getByTestId("health-controller")).toHaveText("Unknown");
+
+		// The rail badge and the status bar count the same one item.
+		await expect(page.getByTestId("admin-health-mark")).toContainText("1");
+		await expect(page.getByTestId("admin-attention-pill")).toContainText(
+			"1 to look at",
+		);
+
+		await item.getByRole("link", { name: "Open Logs" }).click();
+		await expect(page).toHaveURL(/\/admin\/logs\?.*service=worker/);
+		await expect(page.getByRole("heading", { name: "Logs", level: 2 })).toBeVisible();
+	});
+
+	test("a sample that says the controller is down still names the controller", async ({
+		page,
+	}) => {
+		await answerHealth(page, {
+			...healthyReport(),
+			controller: { reachable: false, errorCode: "CONTROLLER_UNAVAILABLE" },
+		});
+		await loginAs(page, "carol");
+
+		const attention = await openAttention(page);
+		await expect(attention.getByRole("listitem")).toHaveCount(1);
+		await expect(
+			attention.getByRole("listitem").filter({ hasText: "Controller not reachable" }),
+		).toBeVisible();
+		await expect(page.getByText("Worker not reporting")).toHaveCount(0);
+		await expect(page.getByTestId("health-controller")).toContainText(
+			"Not reachable (CONTROLLER_UNAVAILABLE)",
+		);
+		await expect(page.getByTestId("admin-health-mark")).toContainText("1");
+		await expect(page.getByTestId("admin-attention-pill")).toContainText(
+			"1 to look at",
+		);
+	});
+
 	test("with nothing to act on it says all is healthy and offers no links", async ({
 		page,
 	}) => {

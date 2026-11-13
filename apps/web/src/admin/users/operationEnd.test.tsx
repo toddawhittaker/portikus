@@ -1,5 +1,5 @@
 import type { AdminUser, AuditEvent, PendingOperation } from "@portikus/contracts";
-import { ToastProvider } from "@portikus/ui";
+import { ToastProvider, type ToastRecord } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -150,11 +150,11 @@ function stubAudit(audit: () => AuditEvent[]) {
 	return asked;
 }
 
-function renderWatcher(users: AdminUser[]) {
+function renderWatcher(users: AdminUser[], onShow?: (toast: ToastRecord) => void) {
 	const client = createQueryClient();
 	const view = (next: AdminUser[]) => (
 		<QueryClientProvider client={client}>
-			<ToastProvider>
+			<ToastProvider onShow={onShow}>
 				<Watcher users={next} />
 			</ToastProvider>
 		</QueryClientProvider>
@@ -263,7 +263,10 @@ test("a retry drops a workspace whose next operation started and ended between r
 	const first = auditEvent(8, "workspace.rebuild_requested");
 	let audit = [first];
 	const asked = stubAudit(() => audit);
-	const update = renderWatcher(rows("rebuild"));
+	// Counts the toasts shown, not the ones still on screen: a toast closes by
+	// itself after its duration, and the clock below runs far past that.
+	const shown: string[] = [];
+	const update = renderWatcher(rows("rebuild"), (toast) => shown.push(toast.title));
 	update(rows(null));
 	await waitFor(() => expect(asked).toHaveLength(1));
 
@@ -275,14 +278,10 @@ test("a retry drops a workspace whose next operation started and ended between r
 		first,
 	];
 	update(rows(null));
-	expect(
-		await screen.findByText("Rebuild of Alice Example's workspace finished"),
-	).toBeTruthy();
+	await waitFor(() => expect(shown).toHaveLength(1), { timeout: 10_000 });
 	await vi.advanceTimersByTimeAsync(OUTCOME_RETRY_MS * 7);
 	// Only the second loop read the result; the first did not claim it too.
-	expect(
-		screen.getAllByText("Rebuild of Alice Example's workspace finished"),
-	).toHaveLength(1);
+	expect(shown).toEqual(["Rebuild of Alice Example's workspace finished"]);
 	expect(asked).toHaveLength(2);
 });
 

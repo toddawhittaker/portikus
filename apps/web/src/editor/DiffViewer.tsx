@@ -15,6 +15,10 @@ import {
 	watchTheme,
 } from "./monaco.js";
 import { useScreenReaderMode } from "./settingsQueries.js";
+import { useFileZoom } from "./useFileZoom.js";
+import { ZoomControls } from "./ZoomControls.js";
+import { fontSizeFor } from "./zoom.js";
+import { addZoomCommands } from "./zoomCommands.js";
 import "./editor.css";
 
 export interface DiffViewerProps {
@@ -56,6 +60,9 @@ export function DiffViewer({
 	modifiedLabel = "your changes",
 }: DiffViewerProps) {
 	const host = useRef<HTMLDivElement | null>(null);
+	// The same zoom as the file's editor, so the diff opens at it and a change
+	// here carries back (SPEC.md §13.1).
+	const { zoom, setZoom, current, set } = useFileZoom(path, host);
 	const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
 	const modelsRef = useRef<{
 		original: Monaco.editor.ITextModel;
@@ -109,9 +116,13 @@ export function DiffViewer({
 				enableSplitViewResizing: false,
 				useInlineViewWhenSpaceIsLimited: false,
 				renderOverviewRuler: false,
+				fontSize: fontSizeFor(current()),
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 			});
 			nameSides(editor, path, modifiedLabelRef.current);
+			for (const side of [editor.getOriginalEditor(), editor.getModifiedEditor()]) {
+				addZoomCommands(monaco, side, current, set);
+			}
 			editor.setModel(models);
 			if (editableRef.current) {
 				models.modified.onDidChangeContent(() => {
@@ -132,7 +143,7 @@ export function DiffViewer({
 			modelsRef.current = null;
 			applied.current = null;
 		};
-	}, [path]);
+	}, [path, current, set]);
 
 	// A refreshed diff keeps the place the student had scrolled to, so a live
 	// update does not lose their review context (SPEC.md §12.6).
@@ -151,6 +162,10 @@ export function DiffViewer({
 		if (view) editor.restoreViewState(view);
 	}, [original, modified, version]);
 
+	useEffect(() => {
+		editorRef.current?.updateOptions({ fontSize: fontSizeFor(zoom) });
+	}, [zoom]);
+
 	// Screen-reader support follows the student's setting, live.
 	useEffect(() => {
 		const editor = editorRef.current;
@@ -167,11 +182,12 @@ export function DiffViewer({
 	}, []);
 
 	return (
-		<div
-			className="pk-editor"
-			data-testid={testId ?? `diff-editor-${path}`}
-			ref={host}
-		/>
+		<div className="pk-editor" data-testid={testId ?? `diff-editor-${path}`}>
+			<div className="pk-editor-host" ref={host} />
+			<div className="pk-editor-bar">
+				<ZoomControls zoom={zoom} onZoom={setZoom} valueTestId={`diff-zoom-${path}`} />
+			</div>
+		</div>
 	);
 }
 

@@ -143,8 +143,12 @@
 .pk-icon[data-icon="file-shell"] {
 	--pk-file-tint: var(--status-running);
 }
+.pk-icon[data-icon="file-log"] {
+	--pk-file-tint: var(--accent);
+}
 .pk-icon[data-icon="file-archive"],
 .pk-icon[data-icon="file-notebook"],
+.pk-icon[data-icon="file-slides"],
 .pk-icon[data-icon="file-java"],
 .pk-icon[data-icon="file-rust"],
 .pk-icon[data-icon="file-swift"] {
@@ -157,10 +161,12 @@
 	--pk-file-tint: var(--agent);
 }
 .pk-icon[data-icon="file-php"],
-.pk-icon[data-icon="file-cpp"] {
+.pk-icon[data-icon="file-cpp"],
+.pk-icon[data-icon="file-database"] {
 	--pk-file-tint: var(--pk-indigo);
 }
-.pk-icon[data-icon="file-python"] {
+.pk-icon[data-icon="file-python"],
+.pk-icon[data-icon="file-binary"] {
 	--pk-file-tint: var(--pk-cyan);
 }
 .pk-tree-twisty {

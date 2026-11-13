@@ -223,7 +223,12 @@ test("a stale worker shows a banner with the sample's age", async () => {
 test("with no sample at all the banner says so", async () => {
 	await renderView(
 		<HealthView
-			report={report({ workerStale: true, sampledAt: null, host: null })}
+			report={report({
+				workerStale: true,
+				sampledAt: null,
+				host: null,
+				controller: null,
+			})}
 			now={NOW}
 		/>,
 	);
@@ -232,6 +237,12 @@ test("with no sample at all the banner says so", async () => {
 		"Worker not reporting. No health sample has been taken yet.",
 	);
 	expect(screen.getByText("No host figures in the newest sample.")).toBeDefined();
+	// No sample leaves the controller unknown, never "not reachable".
+	expect(screen.getByTestId("health-controller").textContent).toBe("Unknown");
+	expect(screen.getByTestId("health-verdict").textContent).toContain(
+		"Worker not reporting",
+	);
+	expect(screen.queryByText("Controller not reachable")).toBeNull();
 });
 
 test("an unreachable controller shows its error code", async () => {

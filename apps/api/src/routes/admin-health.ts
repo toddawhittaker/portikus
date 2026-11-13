@@ -138,10 +138,7 @@ export function registerAdminHealthRoutes(
 				workerStale:
 					sampledAt === null ||
 					Date.now() - sampledAt.getTime() > WORKER_STALE_AFTER_MS,
-				controller: sampled?.controller ?? {
-					reachable: false,
-					errorCode: null,
-				},
+				controller: sampled?.controller ?? null,
 				host: host
 					? {
 							loadAverage: host.loadAverage,

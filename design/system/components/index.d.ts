@@ -137,6 +137,10 @@ declare const PATHS: {
     "file-font": string[];
     "file-lock": string[];
     "file-key": string[];
+    "file-database": string[];
+    "file-binary": string[];
+    "file-slides": string[];
+    "file-log": string[];
     folder: string[];
     "folder-open": string[];
     preview: string[];

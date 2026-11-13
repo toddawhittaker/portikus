@@ -282,9 +282,7 @@ export function HealthView({
 					<dl className="pk-kv pk-kv--pairs">
 						<dt>Controller</dt>
 						<dd data-testid="health-controller">
-							{report.controller.reachable
-								? "Reachable"
-								: `Not reachable${report.controller.errorCode ? ` (${report.controller.errorCode})` : ""}`}
+							{controllerDetail(report.controller)}
 						</dd>
 						<dt>Last sample</dt>
 						<dd>{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}</dd>
@@ -381,6 +379,21 @@ function StateBar({
 	);
 }
 
+/** The Platform card's line: whether the controller answers, and the error code when it does not. */
+function controllerDetail(controller: HealthReport["controller"]): string {
+	if (controller === null) return "Unknown";
+	if (controller.reachable) return "Reachable";
+	return controller.errorCode
+		? `Not reachable (${controller.errorCode})`
+		: "Not reachable";
+}
+
+/** The stat tile's footer when every agent answers. */
+function controllerSummary(controller: HealthReport["controller"]): string {
+	if (controller === null) return "Controller state unknown";
+	return controller.reachable ? "Controller reachable" : "Controller not reachable";
+}
+
 /**
  * The four figures to read first, each a tile with its number large and,
  * for a capacity, the meter the student status bar uses.
@@ -410,9 +423,7 @@ function HealthStats({ report }: { report: HealthReport }) {
 				<dd className="pk-stat-foot">
 					{silent > 0
 						? `${silent} not answering`
-						: report.controller.reachable
-							? "Controller reachable"
-							: "Controller not reachable"}
+						: controllerSummary(report.controller)}
 				</dd>
 			</div>
 			{host ? (

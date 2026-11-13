@@ -12,6 +12,7 @@ import { applyInvalidations } from "../files/useProjectEvents.js";
 import { pointTime } from "../recovery/labels.js";
 import { renderWithQuery } from "../test-utils.js";
 import { DiffLeaf } from "./DiffLeaf.js";
+import { FilePane } from "./FilePane.js";
 
 /** The smallest Monaco the diff viewer can drive. */
 class FakeModel {
@@ -53,6 +54,8 @@ vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
 	jsonDefaults: { setDiagnosticsOptions: () => {} },
 }));
 vi.mock("monaco-editor/editor/editor.api.js", () => ({
+	KeyMod: { CtrlCmd: 1, Shift: 2 },
+	KeyCode: { Equal: 4, Minus: 8, Digit0: 16 },
 	Uri: { parse: (value: string) => ({ toString: () => value, value }) },
 	languages: { getLanguages: () => [{ id: "typescript", extensions: [".ts"] }] },
 	editor: {
@@ -72,9 +75,13 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 				},
 				// The Markdown split scrolls the working-copy side by line;
 				// nothing scrolls in jsdom, so this only has to answer.
-				getOriginalEditor: () => ({ updateOptions: nameSide("original") }),
+				getOriginalEditor: () => ({
+					updateOptions: nameSide("original"),
+					addCommand: () => {},
+				}),
 				getModifiedEditor: () => ({
 					updateOptions: nameSide("modified"),
+					addCommand: () => {},
 					onDidScrollChange: () => {},
 					getVisibleRanges: () => [],
 					getTopForLineNumber: () => 0,
@@ -862,4 +869,51 @@ test("a first read refused while another runs is an alert", async () => {
 	expect(alert.textContent).toBe(
 		"Another recovery point is being read. Try again when it finishes.",
 	);
+});
+
+/** The diff inside a file pane, so the header draws the pane's actions menu. */
+function renderInPane() {
+	return renderWithQuery(
+		<FilePane
+			path={PATH}
+			alone={false}
+			focused={false}
+			dropEdge={null}
+			moveTargets={[]}
+			onFocus={() => {}}
+			onMoveToNewTab={() => {}}
+			onMoveInto={() => {}}
+			onResetSizes={() => {}}
+			onClose={() => {}}
+		>
+			<DiffLeaf path={PATH} workspaceId={WORKSPACE} projectId={PROJECT} />
+		</FilePane>,
+	);
+}
+
+function openActions() {
+	fireEvent.pointerDown(screen.getByTestId(`file-frame-actions-${PATH}`), {
+		button: 0,
+		ctrlKey: false,
+	});
+}
+
+test("the pane menu offers the color scheme once a text diff is on screen, not while loading", async () => {
+	renderInPane();
+	openActions();
+	expect(screen.queryByTestId("editor-scheme-menu")).toBeNull();
+	cleanup();
+
+	renderInPane();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	openActions();
+	expect(screen.getByTestId("editor-scheme-menu")).not.toBeNull();
+});
+
+test("the pane menu offers no color scheme for a binary or too-large diff", async () => {
+	answer = { status: 200, body: diff({ before: null, after: null, binary: true }) };
+	renderInPane();
+	await screen.findByText("Binary file changed");
+	openActions();
+	expect(screen.queryByTestId("editor-scheme-menu")).toBeNull();
 });
