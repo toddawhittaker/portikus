@@ -36,8 +36,8 @@ version), and the feature-sized issues.
    (`editorOverviewRuler.*`). A colour a reference scheme does not define
    falls back to Monaco's base theme for that mode, not to Portikus.
 4. #1961 is split: T5a builds the setting, the Settings control, the scheme
-   format and switching, with Portikus as the only scheme; T5b adds the six
-   reference pairs in that format.
+   format and switching, with Portikus and the VS Code pair as the first two
+   schemes; T5b adds the other five reference pairs in that format.
 
 ## Tasks
 
