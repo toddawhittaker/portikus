@@ -45,6 +45,17 @@ export async function fetchProtectedProcesses(
 	}
 }
 
+/** The processes with the agent's protected ones flagged as well as the controller's. */
+function flagProtected(
+	processes: InstanceProcess[],
+	agentSet: ProtectedSet,
+): InstanceProcess[] {
+	return processes.map((p) => ({
+		...p,
+		protected: p.protected || agentSet.has(`${p.pid}:${p.startTicks}`),
+	}));
+}
+
 /** Snapshots older than this are deleted, with their process names. */
 export const PROCESS_SNAPSHOT_MAX_AGE_MS = 60 * 60 * 1000;
 
@@ -100,12 +111,7 @@ export async function serveProcessSnapshots(
 					row.agent_address && row.agent_token
 						? await readProtected(row.agent_address, row.agent_token)
 						: null;
-				if (agentSet) {
-					processes = processes.map((p) => ({
-						...p,
-						protected: p.protected || agentSet.has(`${p.pid}:${p.startTicks}`),
-					}));
-				}
+				if (agentSet) processes = flagProtected(processes, agentSet);
 			} catch (e) {
 				error = e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
 				logger.warn(
