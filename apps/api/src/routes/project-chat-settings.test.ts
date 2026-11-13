@@ -156,8 +156,8 @@ test.skipIf(skip)(
 			.set({
 				chat_settings: JSON.stringify({
 					model: "Retired Model",
-					effort: "huge",
-					mode: "low",
+					effort: "Huge!",
+					mode: "low mode",
 				}),
 			})
 			.where("id", "=", one)
