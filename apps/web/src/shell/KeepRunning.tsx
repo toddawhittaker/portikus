@@ -1,7 +1,7 @@
 import { keepRunningRefusal, Workspace } from "@portikus/contracts";
 import { Button, Select, TextField } from "@portikus/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { request } from "../api/request.js";
 import { DialogError } from "../common/DialogError.js";
 import { meSettingsQuery } from "../editor/settingsQueries.js";
@@ -171,6 +171,14 @@ function HoldSummary({ until, timeZone }: { until: string | null; timeZone?: str
 	);
 }
 
+/** The hours picked while still offered, else the preferred hold, else the longest one offered. */
+function pickedHours(choices: number[], picked: number | null): number {
+	if (picked !== null && choices.includes(picked)) return picked;
+	return choices.includes(PREFERRED_HOURS)
+		? PREFERRED_HOURS
+		: (choices[choices.length - 1] ?? 1);
+}
+
 /**
  * "Keep running" in the workspace dialog: hold the workspace up for a
  * while, so leaving and idle time do not stop it, then end the hold early.
@@ -205,10 +213,7 @@ export function KeepRunningSection({
 			{said}
 		</span>
 	);
-	const fallback = choices.includes(PREFERRED_HOURS)
-		? PREFERRED_HOURS
-		: (choices[choices.length - 1] ?? 1);
-	const hours = picked !== null && choices.includes(picked) ? picked : fallback;
+	const hours = pickedHours(choices, picked);
 	const endFor = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
 
 	const endNow = () => (clock ? endAtClockTime(clock, timeZone) : endFor(hours));
@@ -224,6 +229,56 @@ export function KeepRunningSection({
 					`Kept running until ${formatHoldEnd(saved.keepRunningUntil ?? next, timeZone)}.`,
 				),
 		});
+	}
+
+	function submit(event: FormEvent) {
+		event.preventDefault();
+		// Measured from the click, not from when the dialog opened.
+		const next = endNow();
+		if (
+			!keep.isPending &&
+			next !== null &&
+			allowed(next, workspace.keepRunningMaxHours)
+		)
+			hold(next);
+	}
+
+	/** The length of the hold, as hours or as a clock time. */
+	function holdFields() {
+		return (
+			// Top-aligned, so the labels share a line and the inputs share a line,
+			// with the timezone hint hanging below the time box.
+			<div className="flex flex-wrap items-start gap-2">
+				<Select
+					id="keep-running-hours"
+					label="Keep running for"
+					options={choices.map((h) => ({
+						value: String(h),
+						label: hoursText(h),
+					}))}
+					value={String(hours)}
+					onValueChange={(value) => {
+						setPicked(Number(value));
+						setClock("");
+					}}
+				/>
+				<TextField
+					id="keep-running-at"
+					type="time"
+					label="Or until"
+					// The box is as wide as a time, not as wide as the hint under it.
+					className="[&>input]:w-auto [&>input]:justify-self-start"
+					value={clock}
+					onChange={(event) => setClock(event.target.value)}
+					hint={timeZone ? `In your timezone, ${timeZone}` : undefined}
+					error={
+						tooFar
+							? `That is more than ${hoursText(workspace.keepRunningMaxHours)} away.`
+							: undefined
+					}
+				/>
+			</div>
+		);
 	}
 
 	function release() {
@@ -255,54 +310,8 @@ export function KeepRunningSection({
 						until={active ? workspace.keepRunningUntil : null}
 						timeZone={timeZone}
 					/>
-					<form
-						className="flex flex-col items-start gap-2"
-						onSubmit={(event) => {
-							event.preventDefault();
-							// Measured from the click, not from when the dialog opened.
-							const next = endNow();
-							if (
-								!keep.isPending &&
-								next !== null &&
-								allowed(next, workspace.keepRunningMaxHours)
-							)
-								hold(next);
-						}}
-					>
-						{choices.length > 0 ? (
-							// Top-aligned, so the labels share a line and the inputs share a line,
-							// with the timezone hint hanging below the time box.
-							<div className="flex flex-wrap items-start gap-2">
-								<Select
-									id="keep-running-hours"
-									label="Keep running for"
-									options={choices.map((h) => ({
-										value: String(h),
-										label: hoursText(h),
-									}))}
-									value={String(hours)}
-									onValueChange={(value) => {
-										setPicked(Number(value));
-										setClock("");
-									}}
-								/>
-								<TextField
-									id="keep-running-at"
-									type="time"
-									label="Or until"
-									// The box is as wide as a time, not as wide as the hint under it.
-									className="[&>input]:w-auto [&>input]:justify-self-start"
-									value={clock}
-									onChange={(event) => setClock(event.target.value)}
-									hint={timeZone ? `In your timezone, ${timeZone}` : undefined}
-									error={
-										tooFar
-											? `That is more than ${hoursText(workspace.keepRunningMaxHours)} away.`
-											: undefined
-									}
-								/>
-							</div>
-						) : null}
+					<form className="flex flex-col items-start gap-2" onSubmit={submit}>
+						{choices.length > 0 ? holdFields() : null}
 						<div className="flex flex-wrap items-start gap-2">
 							{choices.length > 0 ? (
 								<Button
