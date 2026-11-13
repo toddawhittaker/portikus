@@ -609,7 +609,6 @@ describe("models", () => {
 			effort: "medium",
 			mode: "auto",
 			readAloud: false,
-			agent: "claude",
 		});
 		expect(
 			StoredChatSettings.parse({ model: "default", effort: "high", mode: "default" }),
@@ -965,10 +964,10 @@ describe("stored settings with an agent and Codex's own picks", () => {
 	const claude = { model: "sonnet", effort: "high", mode: "default" };
 	const codex = { model: "gpt-5.5", effort: "ultra", mode: "fullAccess" };
 
-	test("a row from before them still parses, as Claude's and with no Codex object", () => {
+	test("a row from before them still parses, with no agent (Claude) and no Codex object", () => {
 		expect(ChatLastSettings.safeParse(claude).success).toBe(true);
 		const stored = StoredChatSettings.parse(claude);
-		expect(stored.agent).toBe("claude");
+		expect(stored.agent).toBeUndefined();
 		expect(stored.codex).toBeUndefined();
 	});
 
@@ -999,7 +998,7 @@ describe("stored settings with an agent and Codex's own picks", () => {
 			agent: "gemini",
 			codex: { ...codex, effort: "No Good" },
 		});
-		expect(bad.agent).toBe("claude");
+		expect(bad.agent).toBeUndefined();
 		expect(bad.codex).toBeUndefined();
 	});
 

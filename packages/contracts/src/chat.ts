@@ -140,7 +140,7 @@ export const StoredChatSettings = z
 		effort: ChatEffort.catch(CHAT_START_SETTINGS.effort),
 		mode: ChatPermissionMode.catch(CHAT_START_SETTINGS.mode),
 		readAloud: z.boolean().catch(false),
-		agent: CodingAgent.catch("claude"),
+		agent: CodingAgent.optional().catch(undefined),
 		codex: ChatAgentSettings.optional().catch(undefined),
 	})
 	.transform((value) => ({
