@@ -3,9 +3,12 @@ import { expect, test, vi } from "vitest";
 import {
 	accessibilitySupport,
 	baseEditorOptions,
+	currentThemeName,
 	editorAriaLabel,
 	fenceLanguage,
+	onThemeChange,
 } from "./monaco.js";
+import { setEditorScheme } from "./schemes/active.js";
 
 vi.mock("./features.js", () => ({ loadEditorFeatures: async () => {} }));
 
@@ -66,4 +69,36 @@ test("a fence finds its language by id, alias or extension, in any case", () => 
 test("a fence naming no known language is left plain", () => {
 	expect(fenceLanguage(languages, "mermaid")).toBeNull();
 	expect(fenceLanguage(languages, "")).toBeNull();
+});
+
+/** The theme is the chosen scheme in the page's light or dark half. */
+test("the theme name follows the scheme and the page's appearance", () => {
+	const root = document.documentElement;
+	try {
+		root.setAttribute("data-theme", "dark");
+		setEditorScheme("portikus");
+		expect(currentThemeName()).toBe("portikus-portikus-dark");
+		setEditorScheme("vscode");
+		expect(currentThemeName()).toBe("portikus-vscode-dark");
+		root.setAttribute("data-theme", "light");
+		expect(currentThemeName()).toBe("portikus-vscode-light");
+	} finally {
+		root.removeAttribute("data-theme");
+		setEditorScheme("portikus");
+	}
+});
+
+test("changing the scheme calls the theme watchers, and stopping them silences them", () => {
+	let calls = 0;
+	const stop = onThemeChange(() => {
+		calls += 1;
+	});
+	setEditorScheme("vscode");
+	expect(calls).toBe(1);
+	// The same scheme again changes nothing.
+	setEditorScheme("vscode");
+	expect(calls).toBe(1);
+	stop();
+	setEditorScheme("portikus");
+	expect(calls).toBe(1);
 });

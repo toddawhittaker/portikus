@@ -1,7 +1,7 @@
 /**
  * Monaco setup (SPEC.md §13.1, STACK.md §3). Environment glue only: the one
- * worker the editor needs, and the two themes built from the colour tokens in
- * packages/ui/src/theme.css.
+ * worker the editor needs, and the themes for the student's colour scheme
+ * (schemes/), defined when first used.
  *
  * Only highlighting is loaded, not the TypeScript, CSS or HTML language
  * services: their diagnostics do not know the project's configuration and
@@ -10,6 +10,7 @@
  * workers out of the bundle. Code help comes instead from language servers
  * in the workspace, which do know it (SPEC.md §13.6, src/lsp).
  */
+import type { EditorScheme } from "@portikus/contracts";
 import type * as Monaco from "monaco-editor";
 // Vite's `?worker` import: it bundles the worker and gives back a constructor.
 // A bare `new URL(..., import.meta.url)` does not resolve a package specifier
@@ -19,17 +20,21 @@ import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import { currentPlatform, type Platform, tabFocusKey } from "../platform.js";
 import { loadEditorFeatures } from "./features.js";
 import { detectLanguage } from "./language.js";
-import { onThemeChange, pageIsDark } from "./pageTheme.js";
-import {
-	DARK_BRACKETS,
-	DARK_TOKENS,
-	EDITOR_BACKGROUNDS,
-	LIGHT_BRACKETS,
-	LIGHT_TOKENS,
-} from "./tokenColours.js";
+import { onThemeChange as onPageThemeChange, pageIsDark } from "./pageTheme.js";
+import { activeEditorScheme, onEditorSchemeChange } from "./schemes/active.js";
+import { schemeById } from "./schemes/index.js";
+import { type PageMode, themeData, themeName } from "./schemes/theme.js";
 import { BASE_FONT_SIZE } from "./zoom.js";
 
-export { onThemeChange };
+/** Call back when the page's light or dark choice, or the student's scheme, may have changed. */
+export function onThemeChange(callback: () => void): () => void {
+	const stopPage = onPageThemeChange(callback);
+	const stopScheme = onEditorSchemeChange(callback);
+	return () => {
+		stopPage();
+		stopScheme();
+	};
+}
 
 const environment: Monaco.Environment = {
 	// JSON is the one language service kept, because JSON files are named in
@@ -171,99 +176,17 @@ export function editorAriaLabel(
 	return `${kind}, ${path}. ${tabFocusKey(platform)} makes Tab leave the editor.`;
 }
 
-const LIGHT_THEME = "portikus-light";
-const DARK_THEME = "portikus-dark";
+let monacoApi: typeof Monaco | null = null;
+const defined = new Set<string>();
 
-function tokenRules(colours: Record<string, string>): Monaco.editor.ITokenThemeRule[] {
-	// Comments are set in italic as well, so they read as asides without relying on colour.
-	return Object.entries(colours).map(([token, foreground]) =>
-		token.startsWith("comment")
-			? { token, foreground, fontStyle: "italic" }
-			: { token, foreground },
-	);
-}
-
-function withHash(colours: Record<string, string>): Record<string, string> {
-	return Object.fromEntries(
-		Object.entries(colours).map(([id, hex]) => [id, `#${hex}`]),
-	);
-}
-
-function defineThemes(monaco: typeof Monaco): void {
-	monaco.editor.defineTheme(LIGHT_THEME, {
-		base: "vs",
-		inherit: true,
-		rules: tokenRules(LIGHT_TOKENS),
-		colors: {
-			"editor.background": `#${EDITOR_BACKGROUNDS.light.ground}`,
-			"editor.foreground": "#221f1a",
-			"editor.lineHighlightBackground": `#${EDITOR_BACKGROUNDS.light.line}`,
-			"editor.selectionBackground": "#cce9e2",
-			"editorCursor.foreground": "#1d6e67",
-			"editorLineNumber.foreground": "#675f53",
-			"editorLineNumber.activeForeground": "#221f1a",
-			"editorIndentGuide.background1": "#e2dacb",
-			"editorWidget.background": "#ffffff",
-			// Links in code help's hover, such as View Problem, in the accent.
-			"textLink.foreground": "#17625b",
-			"textLink.activeForeground": "#10443f",
-			"editorWidget.border": "#e2dacb",
-			// The split view's code side needs a scrollbar a student can see
-			// against a pale background.
-			"scrollbarSlider.background": "#c1b9a8cc",
-			"scrollbarSlider.hoverBackground": "#a89f8ce6",
-			"scrollbarSlider.activeBackground": "#8d8472",
-			"scrollbar.shadow": "#00000000",
-			// The scrollbar's ticks: the Git and status colours of theme.css.
-			"editorOverviewRuler.background": "#00000000",
-			"editorOverviewRuler.border": "#00000000",
-			"editorOverviewRuler.modifiedForeground": "#8a5a00",
-			"editorOverviewRuler.addedForeground": "#2b7336",
-			"editorOverviewRuler.deletedForeground": "#b0372b",
-			"editorOverviewRuler.warningForeground": "#8a5a00",
-			"editorOverviewRuler.errorForeground": "#b0372b",
-			"editorOverviewRuler.findMatchForeground": "#1d6e67",
-			"editorOverviewRuler.selectionHighlightForeground": "#1d6e6780",
-			"editorOverviewRuler.wordHighlightForeground": "#1d6e6780",
-			"editorOverviewRuler.bracketMatchForeground": "#00000000",
-			...withHash(LIGHT_BRACKETS),
-		},
-	});
-	monaco.editor.defineTheme(DARK_THEME, {
-		base: "vs-dark",
-		inherit: true,
-		rules: tokenRules(DARK_TOKENS),
-		colors: {
-			"editor.background": `#${EDITOR_BACKGROUNDS.dark.ground}`,
-			"editor.foreground": "#f0ebe1",
-			"editor.lineHighlightBackground": `#${EDITOR_BACKGROUNDS.dark.line}`,
-			"editor.selectionBackground": "#183f3a",
-			"editorCursor.foreground": "#5fcfbf",
-			"editorLineNumber.foreground": "#aaa396",
-			"editorLineNumber.activeForeground": "#f0ebe1",
-			"editorIndentGuide.background1": "#2f2d29",
-			"editorWidget.background": "#2a2825",
-			"textLink.foreground": "#7fd9cc",
-			"textLink.activeForeground": "#a6e8de",
-			"editorWidget.border": "#36332e",
-			"scrollbarSlider.background": "#4b473fcc",
-			"scrollbarSlider.hoverBackground": "#615c52e6",
-			"scrollbarSlider.activeBackground": "#7a7466",
-			"scrollbar.shadow": "#00000000",
-			"editorOverviewRuler.background": "#00000000",
-			"editorOverviewRuler.border": "#00000000",
-			"editorOverviewRuler.modifiedForeground": "#f2c35a",
-			"editorOverviewRuler.addedForeground": "#7fd18a",
-			"editorOverviewRuler.deletedForeground": "#f59a8e",
-			"editorOverviewRuler.warningForeground": "#f2c35a",
-			"editorOverviewRuler.errorForeground": "#f59a8e",
-			"editorOverviewRuler.findMatchForeground": "#5fcfbf",
-			"editorOverviewRuler.selectionHighlightForeground": "#5fcfbf80",
-			"editorOverviewRuler.wordHighlightForeground": "#5fcfbf80",
-			"editorOverviewRuler.bracketMatchForeground": "#00000000",
-			...withHash(DARK_BRACKETS),
-		},
-	});
+/** Define both halves of a scheme the first time it is used, not every scheme at load. */
+function ensureThemes(monaco: typeof Monaco, scheme: EditorScheme): void {
+	for (const mode of ["light", "dark"] as const) {
+		const name = themeName(scheme, mode);
+		if (defined.has(name)) continue;
+		monaco.editor.defineTheme(name, themeData(schemeById(scheme), mode));
+		defined.add(name);
+	}
 }
 
 let loading: Promise<typeof Monaco> | null = null;
@@ -288,22 +211,31 @@ export function getMonaco(): Promise<typeof Monaco> {
 			schemas: [],
 			enableSchemaRequest: false,
 		});
-		defineThemes(monaco);
+		monacoApi = monaco;
+		ensureThemes(monaco, activeEditorScheme());
 		return monaco;
 	})();
 	return loading;
 }
 
-/** The theme name matching what the page is showing right now (shell/theme.ts). */
+/**
+ * The theme name matching the student's scheme and what the page is showing
+ * right now (shell/theme.ts). Once Monaco has loaded this also defines the
+ * scheme's themes, so a caller that got Monaco first can use the name at once.
+ */
 export function currentThemeName(): string {
-	return pageIsDark() ? DARK_THEME : LIGHT_THEME;
+	const scheme = activeEditorScheme();
+	if (monacoApi) ensureThemes(monacoApi, scheme);
+	const mode: PageMode = pageIsDark() ? "dark" : "light";
+	return themeName(scheme, mode);
 }
 
 let watching = false;
 
 /**
- * Follow the page's light or dark choice. Monaco's theme is global, so one
- * watcher serves every editor rather than one subscription per editor.
+ * Follow the page's light or dark choice and the student's scheme. Monaco's
+ * theme is global, so one watcher serves every editor, diff views included,
+ * rather than one subscription per editor.
  */
 export function watchTheme(): void {
 	if (watching) return;

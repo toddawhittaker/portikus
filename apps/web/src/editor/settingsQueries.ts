@@ -20,6 +20,7 @@ import {
 	rememberThemePreference,
 	themeCarriedOver,
 } from "../shell/theme.js";
+import { setEditorScheme } from "./schemes/active.js";
 
 export const editorSettingsKey = ["me", "settings"] as const;
 
@@ -48,6 +49,7 @@ export const meSettingsQuery = queryOptions({
 			}
 		}
 		rememberThemePreference(settings.appearance);
+		setEditorScheme(settings.editorScheme);
 		return settings;
 	},
 });
@@ -68,6 +70,7 @@ export function useUpdateEditorSettings() {
 		mutationFn: saveEditorSettings,
 		onSuccess: (settings) => {
 			rememberThemePreference(settings.appearance);
+			setEditorScheme(settings.editorScheme);
 			client.setQueryData(editorSettingsKey, settings);
 		},
 	});

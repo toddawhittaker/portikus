@@ -361,6 +361,11 @@ colours meet 4.5:1, and control borders 3:1, on the chrome, work and
 raised surfaces in both themes (SPEC 25.8). Muted and faint text sit close
 to the body ink in both themes, so secondary text stays easy to read.
 
+The violet rule covers the app's own interface, not an editor colour
+scheme a student picks. Reference schemes (VS Code, and the others added
+later) keep the hues they were published with, purple keywords included;
+only the default Portikus scheme avoids violet and is held to 4.5:1.
+
 **Type.** Public Sans for the interface, JetBrains Mono for code. The
 interface uses five sizes: 12 px for metadata, badges and the status bar;
 14 px for the body (rows, tabs, labels, buttons, menus); 16 px for pane
