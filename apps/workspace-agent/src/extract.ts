@@ -108,13 +108,7 @@ export async function readZipEntries(handle: FileHandle): Promise<ZipEntry[]> {
 		const tailBytes = Math.min(size, EOCD_BYTES + MAX_COMMENT_BYTES);
 		const tail = Buffer.alloc(tailBytes);
 		await handle.read(tail, 0, tailBytes, size - tailBytes);
-		let eocd = -1;
-		for (let at = tailBytes - EOCD_BYTES; at >= 0; at--) {
-			if (tail.readUInt32LE(at) === EOCD_SIGNATURE) {
-				eocd = at;
-				break;
-			}
-		}
+		const eocd = findEndOfCentralDirectory(tail);
 		if (eocd < 0) throw invalid("not a zip file");
 		const count = tail.readUInt16LE(eocd + 10);
 		const centralSize = tail.readUInt32LE(eocd + 12);
@@ -138,33 +132,9 @@ export async function readZipEntries(handle: FileHandle): Promise<ZipEntry[]> {
 		const entries: ZipEntry[] = [];
 		let at = 0;
 		for (let index = 0; index < count; index++) {
-			if (at + 46 > central.length || central.readUInt32LE(at) !== CENTRAL_SIGNATURE) {
-				throw invalid("the zip is damaged");
-			}
-			const flags = central.readUInt16LE(at + 8);
-			const entrySize = central.readUInt32LE(at + 24);
-			const nameLength = central.readUInt16LE(at + 28);
-			const extraLength = central.readUInt16LE(at + 30);
-			const commentLength = central.readUInt16LE(at + 32);
-			const external = central.readUInt32LE(at + 38);
-			const end = at + 46 + nameLength;
-			if (end + extraLength > central.length) throw invalid("the zip is damaged");
-			const extra = central.subarray(end, end + extraLength);
-			if (unicodePathDiffers(extra, central.subarray(at + 46, end))) {
-				throw invalid("the zip holds a second, different name for an entry");
-			}
-			// Only ASCII bytes matter to the checks, so latin1 reads them all.
-			const name = central.toString("latin1", at + 46, end).replaceAll("\\", "/");
-			if (entrySize === 0xffffffff) throw invalid("zip64 archives are not supported");
-			entries.push({
-				name,
-				size: entrySize,
-				isDir: name.endsWith("/"),
-				// unzip makes links for several made-by hosts, so the host is ignored.
-				isSymlink: ((external >>> 16) & S_IFMT) === S_IFLNK,
-				encrypted: (flags & 1) === 1,
-			});
-			at = end + extraLength + commentLength;
+			const read = readCentralEntry(central, at);
+			entries.push(read.entry);
+			at = read.next;
 		}
 		// unzip keeps reading central entries past the stored count, so any
 		// bytes left over could hide entries from every check here.
@@ -176,6 +146,50 @@ export async function readZipEntries(handle: FileHandle): Promise<ZipEntry[]> {
 		if (error instanceof AgentFailure) throw error;
 		throw invalid("the zip could not be read");
 	}
+}
+
+/** Where the end-of-central-directory record starts in `tail`, or -1. */
+function findEndOfCentralDirectory(tail: Buffer): number {
+	for (let at = tail.length - EOCD_BYTES; at >= 0; at--) {
+		if (tail.readUInt32LE(at) === EOCD_SIGNATURE) return at;
+	}
+	return -1;
+}
+
+/** The central-directory entry at `at`, and where the next one starts. */
+function readCentralEntry(
+	central: Buffer,
+	at: number,
+): { entry: ZipEntry; next: number } {
+	if (at + 46 > central.length || central.readUInt32LE(at) !== CENTRAL_SIGNATURE) {
+		throw invalid("the zip is damaged");
+	}
+	const flags = central.readUInt16LE(at + 8);
+	const entrySize = central.readUInt32LE(at + 24);
+	const nameLength = central.readUInt16LE(at + 28);
+	const extraLength = central.readUInt16LE(at + 30);
+	const commentLength = central.readUInt16LE(at + 32);
+	const external = central.readUInt32LE(at + 38);
+	const end = at + 46 + nameLength;
+	if (end + extraLength > central.length) throw invalid("the zip is damaged");
+	const extra = central.subarray(end, end + extraLength);
+	if (unicodePathDiffers(extra, central.subarray(at + 46, end))) {
+		throw invalid("the zip holds a second, different name for an entry");
+	}
+	// Only ASCII bytes matter to the checks, so latin1 reads them all.
+	const name = central.toString("latin1", at + 46, end).replaceAll("\\", "/");
+	if (entrySize === 0xffffffff) throw invalid("zip64 archives are not supported");
+	return {
+		entry: {
+			name,
+			size: entrySize,
+			isDir: name.endsWith("/"),
+			// unzip makes links for several made-by hosts, so the host is ignored.
+			isSymlink: ((external >>> 16) & S_IFMT) === S_IFLNK,
+			encrypted: (flags & 1) === 1,
+		},
+		next: end + extraLength + commentLength,
+	};
 }
 
 /** A name that stays inside the folder it is extracted into. */
