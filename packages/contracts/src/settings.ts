@@ -263,6 +263,14 @@ export const Appearance = z.enum(APPEARANCES);
 export type Appearance = z.infer<typeof Appearance>;
 
 /**
+ * The editor colour schemes, in the order Settings lists them. Each is a light
+ * and dark pair defined in apps/web/src/editor/schemes (SPEC.md §13.1).
+ */
+export const EDITOR_SCHEMES = ["portikus", "vscode"] as const;
+export const EditorScheme = z.enum(EDITOR_SCHEMES);
+export type EditorScheme = z.infer<typeof EditorScheme>;
+
+/**
  * One user's editor and terminal preferences. Every field has a default, so a
  * user who has never changed anything still gets a complete object.
  */
@@ -284,6 +292,8 @@ export const EditorSettings = z.object({
 	screenReaderMode: z.boolean(),
 	/** Desktop notifications for agent alerts; "ask" until the student answers. */
 	agentNotifications: z.enum(["ask", "on", "off"]),
+	/** The editor's syntax and background colours; light or dark still follows the page. */
+	editorScheme: EditorScheme,
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
@@ -296,6 +306,7 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	appearance: "system",
 	screenReaderMode: false,
 	agentNotifications: "ask",
+	editorScheme: "portikus",
 };
 
 /**

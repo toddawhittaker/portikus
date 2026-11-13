@@ -40,6 +40,7 @@ test("matching ignores case and can hit several controls in one section", () => 
 	const hits = settingsHits(SETTINGS_SECTIONS, "color");
 	expect(hits.map((hit) => hit.controlId)).toEqual([
 		"colour-scheme",
+		"editor-colour-scheme",
 		"terminal-colours",
 	]);
 });

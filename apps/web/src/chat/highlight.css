@@ -1,5 +1,5 @@
 /*
- * Syntax colours (ADR 0072), the editor's palette (editor/tokenColours.ts):
+ * Syntax colours (ADR 0072), the editor's palette (editor/schemes/portikus.ts):
  * terracotta keywords and tags, sage strings, teal numbers, amber types,
  * function names and attributes, faint italic comments; no violet, which
  * means a coding agent. Each meets 4.5:1 on the sunken code background and
