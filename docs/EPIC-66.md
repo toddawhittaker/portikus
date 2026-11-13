@@ -166,6 +166,33 @@ SDK 0.3.319 on the development host unless they say otherwise.
     `developerInstructions` on a thread, which could displace the
     platform's instructions.
 
+## Codex tool shapes
+
+The Codex driver (T3), the fake host (T4) and the web (T6) agree on these
+`tool.started` names and inputs. They are web-only display shapes, easy to
+change later. Claude's tool names and inputs are unchanged; a Claude MCP
+tool stays `mcp__<server>__<tool>`, and a Claude skill stays `Skill`
+with `{skill}`. The web draws both MCP forms with one row and one card.
+
+| Codex item | `name` | `input` |
+|---|---|---|
+| command | `commandExecution` | `{command, actions}`; each action is `{type: "read", path}`, `{type: "listFiles", path}`, `{type: "search", query, path}` or `{type: "unknown"}` (from Codex's `commandActions`; path or query may be null) |
+| file change | `fileChange` | `{changes: [{path, kind: "add" \| "delete" \| "update", movePath?, diff}]}`, `diff` a unified diff |
+| MCP tool | `mcpToolCall` | `{server, tool, arguments}` |
+| dynamic tool | `dynamicToolCall` | `{tool, arguments}` |
+| web search | `webSearch` | `{query}` |
+| image view | `imageView` | `{path}` |
+| subagent tool | `collabAgentToolCall` | `{tool, receivers, prompt?}`; `tool` is one of spawnAgent, sendInput, resumeAgent, wait, closeAgent, sendMessage, followupTask, interruptAgent, listAgents; `receivers` the child thread ids |
+| plan steps | `plan` | `{steps: [{step, status: "pending" \| "inProgress" \| "completed"}]}` (from `turn/plan/updated`) |
+| anything else | the Codex item type | `{}` |
+
+A Codex permission card uses the same `toolName` and `input` as the row
+for the item it asks about (`commandExecution`, `fileChange`,
+`mcpToolCall`). Each button carries its `decision`. The plan card is a
+permission card with `plan` set. A subagent's own events reach the
+subagent panel keyed by the child thread id, which is also the left-pane
+row id (`agent_id` from the SubagentStart hook).
+
 ## Honest gaps
 
 Things Codex cannot match; Help says so.
