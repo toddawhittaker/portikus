@@ -376,6 +376,16 @@ function checkAcme(
 	else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 		errors[FIELD_ID.email] = "Enter an email address, such as it@example.edu.";
 	}
+	checkEab(errors, form, settings);
+	if (form.mode === "dns01") checkDnsProvider(errors, form, settings);
+}
+
+/** The external account binding: a key ID and HMAC key that go together. */
+function checkEab(
+	errors: Record<string, string>,
+	form: CertificateForm,
+	settings: CertificateSettingsView | null,
+) {
 	const keyId = form.eabKeyId.trim();
 	if (keyId !== "" && !EAB_KEY_ID.test(keyId)) {
 		errors[FIELD_ID.eabKeyId] = "Use only letters, digits, - and _.";
@@ -390,7 +400,6 @@ function checkAcme(
 	if (keyId !== "" && hmac === "" && !hmacStored(settings)) {
 		errors[FIELD_ID.eabHmacKey] = "Enter the HMAC key.";
 	}
-	if (form.mode === "dns01") checkDnsProvider(errors, form, settings);
 }
 
 function checkDnsProvider(
