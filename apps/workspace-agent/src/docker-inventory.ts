@@ -68,14 +68,21 @@ function parseImageList(stdout: string): ImageRow[] {
 			image = { id: row.ID, repoTags: [] };
 			byId.set(row.ID, image);
 		}
-		const repo = typeof row.Repository === "string" ? row.Repository : "<none>";
-		const tag = typeof row.Tag === "string" ? row.Tag : "<none>";
-		if (repo === "<none>" || tag === "<none>") continue;
-		const name = `${repo}:${tag}`;
-		if (name.length > SEED_IMAGE_MAX_LENGTH) continue;
-		if (image.repoTags.length < INVENTORY_TAGS_MAX) image.repoTags.push(name);
+		const name = repoTag(row.Repository, row.Tag);
+		if (name !== null && image.repoTags.length < INVENTORY_TAGS_MAX) {
+			image.repoTags.push(name);
+		}
 	}
 	return [...byId.values()];
+}
+
+/** `repo:tag`, or null for an untagged row or a name too long to seed from. */
+function repoTag(repository: unknown, tag: unknown): string | null {
+	const repo = typeof repository === "string" ? repository : "<none>";
+	const label = typeof tag === "string" ? tag : "<none>";
+	if (repo === "<none>" || label === "<none>") return null;
+	const name = `${repo}:${label}`;
+	return name.length > SEED_IMAGE_MAX_LENGTH ? null : name;
 }
 
 /** Parse `docker ps -a --no-trunc --format json` into the image reference each container names. */
