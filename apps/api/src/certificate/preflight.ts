@@ -97,6 +97,18 @@ function probe(url: string, address: string): Promise<string | null> {
 
 export const systemNet: PreflightNet = { resolve: resolveAll, probe };
 
+/** True when every address answers `url` with the nonce; false for no addresses. */
+async function answersWithNonce(
+	net: PreflightNet,
+	url: string,
+	addresses: string[],
+	nonce: string,
+): Promise<boolean> {
+	if (addresses.length === 0) return false;
+	const bodies = await Promise.all(addresses.map((a) => net.probe(url, a)));
+	return bodies.every((body) => body === nonce);
+}
+
 export async function runPreflight(options: {
 	config: ApiConfig;
 	net: PreflightNet;
@@ -111,11 +123,8 @@ export async function runPreflight(options: {
 	const sample = `portikus-check-${nonce.slice(0, 8)}.${config.PREVIEW_SUFFIX}`;
 	const port = site.port ? `:${site.port}` : "";
 
-	async function reaches(url: string, addresses: string[]): Promise<boolean> {
-		if (addresses.length === 0) return false;
-		const bodies = await Promise.all(addresses.map((a) => net.probe(url, a)));
-		return bodies.every((body) => body === nonce);
-	}
+	const reaches = (url: string, addresses: string[]) =>
+		answersWithNonce(net, url, addresses, nonce);
 
 	const [siteAddresses, previewAddresses] = await Promise.all([
 		net.resolve(site.hostname),
@@ -216,11 +225,7 @@ export async function runAddressPreflight(options: {
 	const sample = `portikus-check-${nonce.slice(0, 8)}.${previewSuffix}`;
 	const url = `${config.PUBLIC_URL.replace(/\/$/, "")}${PREFLIGHT_PATH}${nonce}`;
 
-	async function reaches(addresses: string[]): Promise<boolean> {
-		if (addresses.length === 0) return false;
-		const bodies = await Promise.all(addresses.map((a) => net.probe(url, a)));
-		return bodies.every((body) => body === nonce);
-	}
+	const reaches = (addresses: string[]) => answersWithNonce(net, url, addresses, nonce);
 
 	const {
 		siteAddresses,
