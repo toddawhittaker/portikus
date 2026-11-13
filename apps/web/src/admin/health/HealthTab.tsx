@@ -282,9 +282,11 @@ export function HealthView({
 					<dl className="pk-kv pk-kv--pairs">
 						<dt>Controller</dt>
 						<dd data-testid="health-controller">
-							{report.controller.reachable
-								? "Reachable"
-								: `Not reachable${report.controller.errorCode ? ` (${report.controller.errorCode})` : ""}`}
+							{report.controller === null
+								? "Unknown"
+								: report.controller.reachable
+									? "Reachable"
+									: `Not reachable${report.controller.errorCode ? ` (${report.controller.errorCode})` : ""}`}
 						</dd>
 						<dt>Last sample</dt>
 						<dd>{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}</dd>
@@ -410,9 +412,11 @@ function HealthStats({ report }: { report: HealthReport }) {
 				<dd className="pk-stat-foot">
 					{silent > 0
 						? `${silent} not answering`
-						: report.controller.reachable
-							? "Controller reachable"
-							: "Controller not reachable"}
+						: report.controller === null
+							? "Controller state unknown"
+							: report.controller.reachable
+								? "Controller reachable"
+								: "Controller not reachable"}
 				</dd>
 			</div>
 			{host ? (
