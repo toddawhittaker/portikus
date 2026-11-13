@@ -2921,7 +2921,7 @@ describe("the Docker seed", () => {
 		expect(state.files.get("/etc/claude-code/CLAUDE.md")?.content).toBe(
 			"Platform rules\n",
 		);
-		expect(state.files.get("/etc/codex/config.toml")?.content).toContain(
+		expect(state.files.get("/etc/codex/managed_config.toml")?.content).toContain(
 			'developer_instructions = "Platform rules\\n"',
 		);
 
@@ -3075,6 +3075,7 @@ describe("the Docker seed", () => {
 			"/etc/docker/daemon.json",
 			"/etc/claude-code/CLAUDE.md",
 			"/etc/codex/config.toml",
+			"/etc/codex/managed_config.toml",
 		]) {
 			state.files.set(p, { type: "fifo", content: "" });
 		}

@@ -227,7 +227,7 @@ function delta(text: string) {
 
 /** The stand-in SDK a host holds, so a test can slow or count one call. */
 function sdkOf(chat: ChatHost): ChatSdk {
-	return (chat as unknown as { sdk: ChatSdk }).sdk;
+	return (chat as unknown as { agent: { sdk: ChatSdk } }).agent.sdk;
 }
 
 function ofType<T extends ChatServerEvent["type"]>(client: Client, type: T) {

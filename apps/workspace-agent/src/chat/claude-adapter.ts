@@ -11,7 +11,6 @@ import {
 	ChatImageMediaType,
 	type ChatOpenCard,
 	ChatQuestion,
-	type ChatServerEvent,
 	type ChatToolOutputPart,
 	decodedBase64Bytes,
 	MAX_CHAT_COMMANDS,
@@ -20,6 +19,7 @@ import {
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
 import { z } from "zod";
+import type { ChatEventBody } from "./agent.js";
 import { alwaysAllowLabel, splitSuggestions } from "./permission-rules.js";
 
 /**
@@ -28,12 +28,7 @@ import { alwaysAllowLabel, splitSuggestions } from "./permission-rules.js";
  * here touches a socket, so it is tested from recorded SDK frames.
  */
 
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
-	? Omit<T, K>
-	: never;
-
-/** An event before the host stamps its session id and sequence number. */
-export type ChatEventBody = DistributiveOmit<ChatServerEvent, "sessionId" | "seq">;
+export type { ChatEventBody };
 
 type Block = Record<string, unknown>;
 

@@ -26,8 +26,22 @@ export const CLAUDE_MANAGED_SETTINGS_PATH = "/etc/claude-code/managed-settings.j
 /** Claude Code's system-wide memory file, read in every session. */
 export const CLAUDE_SYSTEM_PATH = "/etc/claude-code/CLAUDE.md";
 
-/** Codex's system config layer; a pilot test showed it applies developer_instructions. */
+/**
+ * Codex's system config layer. A student's own `~/.codex/config.toml` wins
+ * over it, so it holds only what a student may change: the image ships it
+ * with the update switch.
+ */
 export const CODEX_SYSTEM_PATH = "/etc/codex/config.toml";
+
+/**
+ * Codex's managed config layer, which wins over a student's own config. A
+ * student's own `developer_instructions` replaces the platform's when the
+ * platform writes it to the system layer, but not from here, and the hooks,
+ * the daemon switch and the metrics settings cannot be turned off from
+ * `~/.codex` either (checked on Codex 0.167.1, under `codex app-server` and
+ * `codex exec`).
+ */
+export const CODEX_MANAGED_PATH = "/etc/codex/managed_config.toml";
 
 /** The line the image already ships in the Codex system config. */
 const CODEX_UPDATE_LINE = "check_for_update_on_startup = false";
@@ -56,33 +70,59 @@ const CODEX_FEATURES_TABLE = "[features]\ndaemon_auto_start = false\n";
 export const AGENT_SCRIPTS_DIR = "/opt/portikus/workspace-agent/scripts";
 
 /**
- * Codex's hooks report the terminal's agent state to the workspace agent
- * (SPEC.md §10.8). The script throws its input away unread and always
- * exits 0 within a second, so the timeout is only a backstop.
+ * Codex's hooks report the terminal's agent state and its subagents to the
+ * workspace agent (SPEC.md §10.8). Each script reads only what it keeps and
+ * always exits 0 within a second, so the timeout is only a backstop. A
+ * `matcher` limits a hook to one tool: a question in the Codex terminal
+ * (`request_user_input`) marks the tab as needing input, and the PostToolUse
+ * that follows the answer marks it working again.
  */
-const CODEX_HOOKS: [event: string, state: string][] = [
-	["UserPromptSubmit", "working"],
-	["PostToolUse", "working"],
-	["PermissionRequest", "needs-input"],
-	["Stop", "finished"],
-	["Interrupt", "finished"],
-	["SessionEnd", "clear"],
+const CODEX_HOOKS: { event: string; matcher?: string; script: string }[] = [
+	{ event: "UserPromptSubmit", script: "portikus-agent-state codex working" },
+	{ event: "UserPromptSubmit", script: "portikus-agent-subagent user_prompt_submit" },
+	{
+		event: "PreToolUse",
+		matcher: "request_user_input",
+		script: "portikus-agent-state codex needs-input",
+	},
+	{ event: "PostToolUse", script: "portikus-agent-state codex working" },
+	{ event: "PermissionRequest", script: "portikus-agent-state codex needs-input" },
+	{ event: "SubagentStart", script: "portikus-agent-subagent subagent_start" },
+	{ event: "SubagentStop", script: "portikus-agent-subagent subagent_stop" },
+	{ event: "Stop", script: "portikus-agent-state codex finished" },
+	{ event: "Interrupt", script: "portikus-agent-state codex finished" },
+	{ event: "SessionEnd", script: "portikus-agent-state codex clear" },
 ];
 
 const CODEX_HOOK_TABLES = CODEX_HOOKS.map(
-	([event, state]) =>
+	({ event, matcher, script }) =>
 		`[[hooks.${event}]]\n` +
+		(matcher === undefined ? "" : `matcher = ${JSON.stringify(matcher)}\n`) +
 		`[[hooks.${event}.hooks]]\n` +
 		'type = "command"\n' +
-		`command = "${AGENT_SCRIPTS_DIR}/portikus-agent-state codex ${state}"\n` +
+		`command = "${AGENT_SCRIPTS_DIR}/${script}"\n` +
 		"timeout = 5\n",
 ).join("\n");
 
-/** The Codex system config holding the template. A JSON string is a valid TOML basic string. */
-export function codexSystemConfig(template: string): string {
+/**
+ * The Codex system config: the update switch the image ships, nothing else.
+ * It is rewritten at every start so the instructions and hooks an older
+ * start put here do not run a second time beside the managed file's.
+ */
+export function codexSystemConfig(): string {
 	return (
 		"# Written by Portikus at every workspace start; edits do not last.\n" +
-		`${CODEX_UPDATE_LINE}\n` +
+		`${CODEX_UPDATE_LINE}\n`
+	);
+}
+
+/**
+ * The Codex managed config holding the template and the hooks. A JSON string
+ * is a valid TOML basic string.
+ */
+export function codexManagedConfig(template: string): string {
+	return (
+		"# Written by Portikus at every workspace start; edits do not last.\n" +
 		`developer_instructions = ${JSON.stringify(template)}\n` +
 		// A TOML table ends the top-level keys, so the tables come last.
 		`\n${CODEX_FEATURES_TABLE}` +
@@ -97,9 +137,9 @@ const ROOT_DIR = { uid: 0, gid: 0, mode: "0755", type: "directory" } as const;
 const ROOT_FILE = { uid: 0, gid: 0, mode: "0644" } as const;
 
 /**
- * Write both system files from the template, undoing any edit or deletion.
+ * Write the system files from the template, undoing any edit or deletion.
  * Does nothing when the host has no template. Each file is tried on its own,
- * so one that cannot be written does not skip the other; the failures are
+ * so one that cannot be written does not skip the others; the failures are
  * thrown together afterwards.
  */
 export async function writeAgentInstructions(
@@ -112,7 +152,10 @@ export async function writeAgentInstructions(
 	if (template === null) return false;
 	const files: [dir: string, path: string, body: string][] = [
 		["/etc/claude-code", CLAUDE_SYSTEM_PATH, template],
-		["/etc/codex", CODEX_SYSTEM_PATH, codexSystemConfig(template)],
+		// The managed file goes first, so the platform's instructions are never
+		// absent; the system file after it clears what an older start left there.
+		["/etc/codex", CODEX_MANAGED_PATH, codexManagedConfig(template)],
+		["/etc/codex", CODEX_SYSTEM_PATH, codexSystemConfig()],
 	];
 	const failures: string[] = [];
 	for (const [dir, path, body] of files) {
