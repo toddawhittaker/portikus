@@ -1,43 +1,31 @@
-import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import type { ChatOpenCard, ChatSessionRule } from "@portikus/contracts";
-import {
-	type ChatEventBody,
-	cardForTool,
-	PERMISSION_OPTION,
-	type PermissionAnswerExtras,
-	permissionResult,
-	type ToolAsk,
-} from "./claude-adapter.js";
-import { DecisionMemory, decisionForOption } from "./decisions.js";
-import { splitSuggestions } from "./permission-rules.js";
+import type { ChatOpenCard } from "@portikus/contracts";
+import type { CardAnswer, CardOutcome, CardSettle, ChatEventBody } from "./agent.js";
+import { DecisionMemory } from "./decisions.js";
 
-export interface OpenCard {
+interface OpenCard {
 	card: ChatOpenCard;
-	input: Record<string, unknown>;
-	ask: ToolAsk;
-	settle: (result: PermissionResult) => void;
+	settle: CardSettle;
+	/** Detaches the abort listener once the card is answered. */
+	release: () => void;
 }
 
 /**
  * The permission and question cards a chat is waiting on (SPEC.md §10.8).
- * Each waits, with no time limit, for the first answer from any attachment.
+ * Each waits, with no time limit, for the first answer from any
+ * attachment. The driver that opened a card settles it with its agent.
  */
 export class OpenCards {
 	private readonly cards = new Map<string, OpenCard>();
-
-	constructor(
-		private readonly broadcast: (event: ChatEventBody) => void,
-		private readonly grantRules: (rules: ChatSessionRule[]) => Promise<void>,
-	) {}
-
 	private readonly decisions = new DecisionMemory();
+
+	constructor(private readonly broadcast: (event: ChatEventBody) => void) {}
 
 	/** The answers to replay after a history: one per decision whose tool call it shows. */
 	replayDecisions(history: readonly ChatEventBody[]): ChatEventBody[] {
 		return this.decisions.replayFor(history);
 	}
 
-	/** Forget every answer, as when the chat moves to a new session. */
+	/** Forget every answer, as when the chat moves to a new conversation. */
 	clearDecisions(): void {
 		this.decisions.clear();
 	}
@@ -47,81 +35,49 @@ export class OpenCards {
 		return [...this.cards.values()].map((open) => open.card);
 	}
 
-	/** Raise a card and wait for its answer. An aborted call clears the card. */
-	ask(
-		toolName: string,
-		input: Record<string, unknown>,
-		ask: ToolAsk & { signal: AbortSignal },
-	): Promise<PermissionResult> {
-		const card = cardForTool(toolName, input, ask);
-		return new Promise<PermissionResult>((resolve) => {
-			const settle = (result: PermissionResult) => {
-				ask.signal.removeEventListener("abort", onAbort);
-				resolve(result);
-			};
-			const onAbort = () => {
-				if (!this.cards.delete(card.id)) return;
-				this.broadcast({ type: "card.resolved", id: card.id });
-				resolve({ behavior: "deny", message: "Cancelled." });
-			};
-			ask.signal.addEventListener("abort", onAbort);
-			this.cards.set(card.id, { card, input, ask, settle });
-			this.broadcast(
-				card.type === "question"
-					? { type: "question.requested", id: card.id, questions: card.questions }
-					: { ...card, type: "permission.requested" },
-			);
-		});
-	}
-
-	/** First answer wins; a late or unknown answer is ignored. */
-	answer(id: string, result: (open: OpenCard) => PermissionResult | null): void {
-		const open = this.cards.get(id);
-		if (!open) return;
-		const decided = result(open);
-		if (!decided) return;
-		this.cards.delete(id);
-		open.settle(decided);
-		this.broadcast({ type: "card.resolved", id });
+	/** Show a card. An abort clears it and settles it as closed. */
+	open(card: ChatOpenCard, settle: CardSettle, signal?: AbortSignal): void {
+		const onAbort = () => {
+			if (!this.cards.delete(card.id)) return;
+			this.broadcast({ type: "card.resolved", id: card.id });
+			void settle({ type: "closed" });
+		};
+		signal?.addEventListener("abort", onAbort);
+		const release = () => signal?.removeEventListener("abort", onAbort);
+		this.cards.set(card.id, { card, settle, release });
+		this.broadcast(
+			card.type === "question"
+				? { type: "question.requested", id: card.id, questions: card.questions }
+				: { ...card, type: "permission.requested" },
+		);
 	}
 
 	/**
-	 * Like `answer`, but Always allow first grants the session rules, so the
-	 * card is claimed before the wait and a second answer cannot also win.
+	 * First answer wins; a late answer, one for an unknown card, or one that
+	 * does not fit the card is ignored. The card is claimed before the
+	 * driver settles it, so a second answer cannot also win while it waits.
 	 */
-	async answerPermission(
+	async answer(
 		id: string,
-		optionId: string,
-		extras: PermissionAnswerExtras,
+		answer: Exclude<CardAnswer, { type: "closed" }>,
 	): Promise<void> {
 		const open = this.cards.get(id);
-		if (open?.card.type !== "permission") return;
-		if (!open.card.options.some((option) => option.id === optionId)) return;
+		if (!open || open.card.type !== answer.type) return;
+		if (
+			answer.type === "permission" &&
+			open.card.type === "permission" &&
+			!open.card.options.some((option) => option.id === answer.optionId)
+		) {
+			return;
+		}
 		this.cards.delete(id);
-		let decision = decisionForOption(optionId);
-		try {
-			if (optionId === PERMISSION_OPTION.allowAlways && open.ask.suggestions) {
-				await this.grantRules(splitSuggestions(open.ask.suggestions).sessionRules);
-			}
-		} catch {
-			// The student chose to allow, so the tool still runs this once.
-			decision = "allowed";
-			throw new Error(
-				"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
-			);
-		} finally {
-			open.settle(permissionResult(optionId, open.input, open.ask, extras));
-			this.decisions.record(id, decision);
-			this.broadcast({ type: "card.resolved", id, decision });
-		}
-	}
-
-	/** Refuse every open card, as when the session ends. */
-	denyAll(message: string): void {
-		for (const [id, open] of this.cards) {
-			open.settle({ behavior: "deny", message });
-			this.cards.delete(id);
-			this.broadcast({ type: "card.resolved", id });
-		}
+		open.release();
+		const settled = open.settle(answer);
+		// A settle that need not wait resolves the card before the agent moves on.
+		const outcome: CardOutcome = settled instanceof Promise ? await settled : settled;
+		const { decision, error } = outcome;
+		if (decision) this.decisions.record(id, decision);
+		this.broadcast({ type: "card.resolved", id, ...(decision ? { decision } : {}) });
+		if (error) throw new Error(error);
 	}
 }

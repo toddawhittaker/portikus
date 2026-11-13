@@ -172,18 +172,31 @@ describe("the subagent hook post", () => {
 	const ok = (change?: object) =>
 		CodingAgentSubagentPost.safeParse(post(change)).success;
 
-	test("takes each of the six events", () => {
+	test("takes each of the seven events", () => {
 		for (const event of [
 			"pre_tool_use",
 			"post_tool_use",
 			"post_tool_use_failure",
+			"subagent_start",
 			"subagent_stop",
 			"user_prompt_submit",
 			"stop",
 		]) {
-			expect(ok({ event })).toBe(true);
+			expect(ok({ event, agent_id: "agent-1" })).toBe(true);
 		}
 		expect(ok({ event: "notification" })).toBe(false);
+	});
+
+	test("a subagent start names its agent by an id that fits a row's id", () => {
+		const start = (change: object = {}) =>
+			ok({ event: "subagent_start", tool_use_id: undefined, ...change });
+		expect(start({ agent_id: "019a1b2c-3d4e-7f50-8a6b-7c8d9e0f1a2b" })).toBe(true);
+		expect(start({ agent_id: "a".repeat(64) })).toBe(true);
+		// A row's id is shown and linked, so the id may not hold anything else.
+		expect(start({})).toBe(false);
+		expect(start({ agent_id: "a".repeat(65) })).toBe(false);
+		expect(start({ agent_id: "has space" })).toBe(false);
+		expect(start({ agent_id: "a/b" })).toBe(false);
 	});
 
 	test("the optional fields may be left out or sent", () => {
@@ -207,6 +220,19 @@ describe("the subagent hook post", () => {
 		expect(ok({ at: 1.5 })).toBe(false);
 		expect(ok({ subagent_type: "" })).toBe(false);
 		expect(ok({ prompt: "secret" })).toBe(false);
+	});
+
+	test("refuses what a Codex subagent hook carries beyond the type and id", () => {
+		const start = { event: "subagent_start", agent_id: "agent-1" };
+		for (const extra of [
+			{ last_assistant_message: "secret" },
+			{ transcript_path: "/home/student/.codex/sessions/x.jsonl" },
+			{ agent_transcript_path: "/home/student/.codex/sessions/y.jsonl" },
+			{ agent_type: "explorer" },
+		]) {
+			expect(ok({ ...start, ...extra })).toBe(false);
+		}
+		expect(ok({ ...start, subagent_type: "explorer" })).toBe(true);
 	});
 
 	test("trims the type and cuts it to 64 characters rather than refusing it", () => {
