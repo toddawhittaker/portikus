@@ -144,6 +144,48 @@ function audit(
 	});
 }
 
+/** Takes the import lock for this transaction, then reads when the site was imported, if ever. */
+async function lockImport(trx: Kysely<Database>): Promise<string | null> {
+	await sql`select pg_advisory_xact_lock(hashtext(${IMPORTED}))`.execute(trx);
+	return importedAt(trx);
+}
+
+/** Grants every instructor and administrator in the file; students need no grant. */
+async function grantStaff(
+	trx: Kysely<Database>,
+	users: ImportedUser[],
+): Promise<{ granted: string[]; precreated: string[] }> {
+	const granted: string[] = [];
+	const precreated: string[] = [];
+	for (const user of users) {
+		if (user.role === "student") continue;
+		const result = await grant(trx, { ...user, role: user.role });
+		if (result === "granted") granted.push(user.username);
+		if (result === "precreated") precreated.push(user.username);
+	}
+	return { granted, precreated };
+}
+
+/** Creates each user's Dex password, adding it to `created` so a failure can delete it again. */
+async function createPasswords(
+	dex: DexApi,
+	users: ImportedUser[],
+	created: ImportedUser[],
+): Promise<void> {
+	for (const user of users) {
+		const result = await dex.createPassword({
+			email: user.email,
+			username: user.username,
+			userId: user.userId,
+			hash: user.passwordHash,
+		});
+		if (result === "already_exists") {
+			throw new Error(`Dex already has a password for ${user.username}`);
+		}
+		created.push(user);
+	}
+}
+
 /**
  * Import every user into an empty Dex, and their grants into Portikus, all
  * or nothing, and at most once per site: the run that succeeds writes an
@@ -163,8 +205,7 @@ export async function importUsersFile(
 	if (existing.length > 0) {
 		// Mark the site imported too, so a Dex emptied later never gets the file.
 		return await db.transaction().execute(async (trx) => {
-			await sql`select pg_advisory_xact_lock(hashtext(${IMPORTED}))`.execute(trx);
-			const done = await importedAt(trx);
+			const done = await lockImport(trx);
 			if (done !== null) return { status: "already_imported", at: done } as const;
 			await recordAudit(trx, {
 				actor: ACTOR,
@@ -181,29 +222,10 @@ export async function importUsersFile(
 	try {
 		return await db.transaction().execute(async (trx) => {
 			// One import at a time; the second waits here, then sees the marker.
-			await sql`select pg_advisory_xact_lock(hashtext(${IMPORTED}))`.execute(trx);
-			const done = await importedAt(trx);
+			const done = await lockImport(trx);
 			if (done !== null) return { status: "already_imported", at: done } as const;
-			const granted: string[] = [];
-			const precreated: string[] = [];
-			for (const user of users) {
-				if (user.role === "student") continue;
-				const result = await grant(trx, { ...user, role: user.role });
-				if (result === "granted") granted.push(user.username);
-				if (result === "precreated") precreated.push(user.username);
-			}
-			for (const user of users) {
-				const result = await dex.createPassword({
-					email: user.email,
-					username: user.username,
-					userId: user.userId,
-					hash: user.passwordHash,
-				});
-				if (result === "already_exists") {
-					throw new Error(`Dex already has a password for ${user.username}`);
-				}
-				created.push(user);
-			}
+			const { granted, precreated } = await grantStaff(trx, users);
+			await createPasswords(dex, users, created);
 			await recordAudit(trx, {
 				actor: ACTOR,
 				target: "dex",
