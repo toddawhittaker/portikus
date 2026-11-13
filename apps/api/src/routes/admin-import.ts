@@ -4,6 +4,8 @@ import {
 	AccountImportRequest,
 	type AccountImportResult,
 	type AccountImportResultRow,
+	type CreateDexUserRequest,
+	type CreateInvitationRequest,
 } from "@portikus/contracts";
 import { isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -154,26 +156,41 @@ export function registerAdminImportRoutes(
 				reason: preview.reason,
 			};
 		}
-		if (valid.kind === "invite") {
-			try {
-				const created = await createInvitation(db, actorId, valid.body, metadata);
-				const emailed = await emailInvitation(created, actorId, sendEmail);
-				return { ...base, outcome: "invited", reason: null, ...emailed };
-			} catch (err) {
-				if (!isUniqueViolation(err)) throw err;
-				return {
-					...base,
-					outcome: "skipped",
-					reason: "An invitation for this email is already waiting.",
-				};
-			}
+		const context = { actorId, metadata, log, sendEmail };
+		if (valid.kind === "invite") return applyInvite(base, valid.body, context);
+		return applyPassword(base, valid.body, context);
+	}
+
+	async function applyInvite(
+		base: ImportRowBase,
+		body: CreateInvitationRequest,
+		{ actorId, metadata, sendEmail }: ApplyContext,
+	): Promise<AccountImportResultRow> {
+		try {
+			const created = await createInvitation(db, actorId, body, metadata);
+			const emailed = await emailInvitation(created, actorId, sendEmail);
+			return { ...base, outcome: "invited", reason: null, ...emailed };
+		} catch (err) {
+			if (!isUniqueViolation(err)) throw err;
+			return {
+				...base,
+				outcome: "skipped",
+				reason: "An invitation for this email is already waiting.",
+			};
 		}
+	}
+
+	async function applyPassword(
+		base: ImportRowBase,
+		body: CreateDexUserRequest,
+		{ actorId, metadata, log, sendEmail }: ApplyContext,
+	): Promise<AccountImportResultRow> {
 		const dex = deps.dex;
 		if (!dex) throw new Error("a password row passed without Dex");
 		try {
 			const created = await createDexAccount(
 				{ db, dex, log },
-				{ ...valid.body, actorId, metadata },
+				{ ...body, actorId, metadata },
 			);
 			if (created === "exists") {
 				return {
@@ -182,7 +199,7 @@ export function registerAdminImportRoutes(
 					reason: "Dex already has a password for this email.",
 				};
 			}
-			const handOver = await emailLink(created, actorId, valid.body.email, sendEmail);
+			const handOver = await emailLink(created, actorId, body.email, sendEmail);
 			return { ...base, outcome: "created", reason: null, ...handOver };
 		} catch (err) {
 			if (err instanceof DexCallFailed) {
@@ -199,4 +216,18 @@ export function registerAdminImportRoutes(
 			throw err;
 		}
 	}
+}
+
+/** The fields every result row repeats from its preview row. */
+type ImportRowBase = Pick<
+	AccountImportResultRow,
+	"line" | "name" | "email" | "username" | "kind"
+>;
+
+/** What applying one valid row needs besides the row itself. */
+interface ApplyContext {
+	actorId: string;
+	metadata: Record<string, unknown>;
+	log: FastifyInstance["log"];
+	sendEmail: boolean;
 }
