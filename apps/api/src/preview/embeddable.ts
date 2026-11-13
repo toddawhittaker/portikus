@@ -30,7 +30,11 @@
  * self-signed; the target is still only the registry's (ADR 0041).
  */
 
-import { request as httpRequest, type IncomingMessage } from "node:http";
+import {
+	request as httpRequest,
+	type IncomingHttpHeaders,
+	type IncomingMessage,
+} from "node:http";
 import { request as httpsRequest } from "node:https";
 
 /** How long the application has to answer before it counts as unreachable. */
@@ -177,6 +181,15 @@ interface ProbeAnswer {
 	body: string;
 }
 
+function toHeaders(raw: IncomingHttpHeaders): Headers {
+	const headers = new Headers();
+	for (const [name, value] of Object.entries(raw)) {
+		if (typeof value === "string") headers.append(name, value);
+		else if (Array.isArray(value)) for (const one of value) headers.append(name, one);
+	}
+	return headers;
+}
+
 /**
  * Ask the application once.
  *
@@ -219,12 +232,7 @@ function ask(
 			headers: { host: hostHeader },
 		};
 		const onResponse = (response: IncomingMessage) => {
-			const headers = new Headers();
-			for (const [name, value] of Object.entries(response.headers)) {
-				if (typeof value === "string") headers.append(name, value);
-				else if (Array.isArray(value))
-					for (const one of value) headers.append(name, one);
-			}
+			const headers = toHeaders(response.headers);
 			const status = response.statusCode ?? 0;
 			let body = "";
 			if (!wantBody(status)) {
