@@ -201,6 +201,17 @@ const GATES: Gate[] = [
 	},
 ];
 
+/** A WebSocket upgrade must come from our origin, and so must a state-changing request that is not exempt. */
+function originAllowed(request: FastifyRequest, publicOrigin: string): boolean {
+	const isUpgrade =
+		headerValue(request.headers, "upgrade")?.toLowerCase() === "websocket";
+	if (isUpgrade) return checkWsOrigin(request.headers, publicOrigin);
+	if (STATE_CHANGING.has(request.method) && !isCsrfExempt(request)) {
+		return checkCsrf(request.headers, publicOrigin);
+	}
+	return true;
+}
+
 function firstGate(user: GatedUser): Gate | undefined {
 	return GATES.find((gate) => gate.holds(user));
 }
@@ -283,23 +294,11 @@ export const authPlugin = fp<AuthPluginOptions>(
 		}
 
 		app.addHook("onRequest", async (request, reply) => {
-			const isUpgrade =
-				headerValue(request.headers, "upgrade")?.toLowerCase() === "websocket";
-
-			if (isUpgrade) {
-				if (!checkWsOrigin(request.headers, publicOrigin)) {
-					await reply
-						.code(403)
-						.send({ code: "FORBIDDEN", message: "origin not allowed" });
-					return;
-				}
-			} else if (STATE_CHANGING.has(request.method) && !isCsrfExempt(request)) {
-				if (!checkCsrf(request.headers, publicOrigin)) {
-					await reply
-						.code(403)
-						.send({ code: "FORBIDDEN", message: "origin not allowed" });
-					return;
-				}
+			if (!originAllowed(request, publicOrigin)) {
+				await reply
+					.code(403)
+					.send({ code: "FORBIDDEN", message: "origin not allowed" });
+				return;
 			}
 
 			const token = request.cookies[sessionCookie];
