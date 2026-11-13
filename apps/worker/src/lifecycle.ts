@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
 	type ControllerErrorCode,
+	type CreateInstanceResponse,
 	DEFAULT_TIMEZONE,
 	isSystemTimezone,
 	type PendingOperation,
@@ -208,6 +209,13 @@ function isTransient(err: ControllerClientError): boolean {
 	return err.code === "INCUS_UNAVAILABLE";
 }
 
+type ProvisioningWorkspace = {
+	id: string;
+	incus_instance_name: string;
+	error_code: string | null;
+	quota_config: { homeGiB: number; dockerGiB: number; recoveryGiB?: number } | null;
+};
+
 /**
  * Create the Incus instance for a provisioning workspace and move it to
  * stopped, or to error if the create fails (SPEC.md §6.3). The controller
@@ -221,12 +229,7 @@ export async function createWorkspace(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	config: ReconcileConfig,
-	ws: {
-		id: string;
-		incus_instance_name: string;
-		error_code: string | null;
-		quota_config: { homeGiB: number; dockerGiB: number; recoveryGiB?: number } | null;
-	},
+	ws: ProvisioningWorkspace,
 	retryDelaysMs: readonly number[],
 ): Promise<string | null> {
 	// A re-create keeps the sizes the row already has; the controller keeps a
@@ -240,36 +243,7 @@ export async function createWorkspace(
 	for (let attempt = 0; ; attempt++) {
 		try {
 			const result = await controller.create(request);
-			const updated = await casUpdate(
-				db,
-				ws.id,
-				"provisioning",
-				{
-					state: "stopped",
-					image_version: result.imageFingerprint,
-					quota_config: JSON.stringify({
-						...result.quota,
-						recoveryGiB: request.recoveryGiB,
-					}),
-					quota_applied: JSON.stringify(result.quota),
-					error_code: null,
-					error_message: null,
-				},
-				new Date(),
-			);
-			if (!updated) return null;
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.provisioned",
-				result: "ok",
-				metadata: {
-					imageFingerprint: result.imageFingerprint,
-					created: result.created,
-					attempts: attempt + 1,
-				},
-			});
-			return result.created ? "created" : "adopted existing instance";
+			return await markProvisioned(db, ws.id, result, request.recoveryGiB, attempt + 1);
 		} catch (e) {
 			const err = toControllerError(e);
 			const delay = retryDelaysMs[attempt];
@@ -277,54 +251,111 @@ export async function createWorkspace(
 				await new Promise((resolve) => setTimeout(resolve, delay));
 				continue;
 			}
-			if (err.code === "POOL_FULL") {
-				// Audit only the first refusal, so a long wait is one row, not one per sweep.
-				if (ws.error_code === "POOL_FULL") return null;
-				const refused = await casUpdate(
-					db,
-					ws.id,
-					"provisioning",
-					{ error_code: err.code, error_message: userMessage(err.code) },
-					new Date(),
-				);
-				if (!refused) return null;
-				await recordAudit(db, {
-					actor: "worker",
-					target: ws.id,
-					action: "workspace.provision_refused",
-					result: "refused",
-					metadata: {
-						errorCode: err.code,
-					},
-				});
-				return "create refused: storage pool full";
-			}
-			const updated = await casUpdate(
-				db,
-				ws.id,
-				"provisioning",
-				{
-					state: "error",
-					error_code: err.code,
-					error_message: userMessage(err.code),
-				},
-				new Date(),
-			);
-			if (!updated) return null;
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.provision_failed",
-				result: "failed",
-				metadata: {
-					errorCode: err.code,
-					message: err.message,
-					attempts: attempt + 1,
-				},
-			});
-			return "create failed";
+			if (err.code === "POOL_FULL") return await refuseForFullPool(db, ws, err);
+			return await markProvisionFailed(db, ws.id, err, attempt + 1);
 		}
 	}
+}
+
+/** Move a created or adopted instance's row to stopped and audit it. */
+async function markProvisioned(
+	db: Kysely<Database>,
+	id: string,
+	result: CreateInstanceResponse,
+	recoveryGiB: number,
+	attempts: number,
+): Promise<string | null> {
+	const updated = await casUpdate(
+		db,
+		id,
+		"provisioning",
+		{
+			state: "stopped",
+			image_version: result.imageFingerprint,
+			quota_config: JSON.stringify({
+				...result.quota,
+				recoveryGiB,
+			}),
+			quota_applied: JSON.stringify(result.quota),
+			error_code: null,
+			error_message: null,
+		},
+		new Date(),
+	);
+	if (!updated) return null;
+	await recordAudit(db, {
+		actor: "worker",
+		target: id,
+		action: "workspace.provisioned",
+		result: "ok",
+		metadata: {
+			imageFingerprint: result.imageFingerprint,
+			created: result.created,
+			attempts,
+		},
+	});
+	return result.created ? "created" : "adopted existing instance";
+}
+
+/** Record a full storage pool on a row that stays in provisioning. */
+async function refuseForFullPool(
+	db: Kysely<Database>,
+	ws: ProvisioningWorkspace,
+	err: ControllerClientError,
+): Promise<string | null> {
+	// Audit only the first refusal, so a long wait is one row, not one per sweep.
+	if (ws.error_code === "POOL_FULL") return null;
+	const refused = await casUpdate(
+		db,
+		ws.id,
+		"provisioning",
+		{ error_code: err.code, error_message: userMessage(err.code) },
+		new Date(),
+	);
+	if (!refused) return null;
+	await recordAudit(db, {
+		actor: "worker",
+		target: ws.id,
+		action: "workspace.provision_refused",
+		result: "refused",
+		metadata: {
+			errorCode: err.code,
+		},
+	});
+	return "create refused: storage pool full";
+}
+
+/** Move a row whose create failed to error and audit it. */
+async function markProvisionFailed(
+	db: Kysely<Database>,
+	id: string,
+	err: ControllerClientError,
+	attempts: number,
+): Promise<string | null> {
+	const updated = await casUpdate(
+		db,
+		id,
+		"provisioning",
+		{
+			state: "error",
+			error_code: err.code,
+			error_message: userMessage(err.code),
+		},
+		new Date(),
+	);
+	if (!updated) return null;
+	await recordAudit(db, {
+		actor: "worker",
+		target: id,
+		action: "workspace.provision_failed",
+		result: "failed",
+		metadata: {
+			errorCode: err.code,
+			message: err.message,
+			attempts,
+		},
+	});
+	return "create failed";
 }
 
 /**
