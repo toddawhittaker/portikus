@@ -97,11 +97,14 @@ export function registerAdminAccountLinkRoutes(
 		const admin = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
-		const body = AdminLinkRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "Choose a course account.");
-		}
-		const { courseUserId } = body.data;
+		const body = parseOr400(
+			AdminLinkRequest,
+			request.body ?? {},
+			reply,
+			"Choose a course account.",
+		);
+		if (!body) return reply;
+		const { courseUserId } = body;
 		const actor = `user:${admin.id}`;
 		const course = { displayName: await displayNameOf(courseUserId) };
 

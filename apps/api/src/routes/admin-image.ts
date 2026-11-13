@@ -27,7 +27,7 @@ import {
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { diffManifests } from "../image/manifest-diff.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import {
@@ -259,21 +259,19 @@ export function registerAdminImageRoutes(
 
 	app.get("/admin/image/diff", adminOnly, async (request, reply) => {
 		if (off(reply) || !imagesDir) return;
-		const query = ImageDiffQuery.safeParse(request.query);
-		if (!query.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"from and to must be image versions",
-			);
-		}
+		const query = parseOr400(
+			ImageDiffQuery,
+			request.query,
+			reply,
+			"from and to must be image versions",
+		);
+		if (!query) return reply;
 		const from = await readJson(
-			join(imagesDir, query.data.from, "manifest.json"),
+			join(imagesDir, query.from, "manifest.json"),
 			ImageManifest,
 		);
 		const to = await readJson(
-			join(imagesDir, query.data.to, "manifest.json"),
+			join(imagesDir, query.to, "manifest.json"),
 			ImageManifest,
 		);
 		if (!from || !to) {
@@ -303,45 +301,12 @@ export function registerAdminImageRoutes(
 	async function refuseImageJob(
 		wanted: ImageJobRequest,
 		imagesDir: string,
-	): Promise<{ status: 404 | 409; code: ApiError["code"]; message: string } | null> {
+	): Promise<ImageJobRefusal | null> {
 		const { aliases } = await readStore(imagesDir);
-		if (wanted.kind === "activate") {
-			const health = await readJson(
-				join(imagesDir, wanted.version, "health.json"),
-				ImageHealth,
-			);
-			if (wanted.version === aliases.default) {
-				return {
-					status: 409,
-					code: "IMAGE_ALREADY_DEFAULT",
-					message: "That image is already the default.",
-				};
-			}
-			if (health?.result !== "passed") {
-				return {
-					status: 409,
-					code: "IMAGE_NOT_HEALTHY",
-					message: "Only an image that passed its health check can become the default.",
-				};
-			}
-		}
-		if (wanted.kind === "delete") {
-			// The job refuses these too; the API says why before anything is queued.
-			if (wanted.version === aliases.default || wanted.version === aliases.previous) {
-				return {
-					status: 409,
-					code: "IMAGE_IN_USE",
-					message: "The default and the previous image cannot be deleted.",
-				};
-			}
-			if (!(await listDir(imagesDir)).includes(wanted.version)) {
-				return {
-					status: 404,
-					code: "NOT_FOUND",
-					message: "No such image on this host.",
-				};
-			}
-		}
+		if (wanted.kind === "activate")
+			return refuseActivate(wanted.version, imagesDir, aliases);
+		if (wanted.kind === "delete")
+			return refuseDelete(wanted.version, imagesDir, aliases);
 		if (wanted.kind === "rollback" && (!aliases.previous || !aliases.default)) {
 			return {
 				status: 409,
@@ -349,18 +314,71 @@ export function registerAdminImageRoutes(
 				message: "There is no previous image to roll back to.",
 			};
 		}
-		if (wanted.kind === "agents-rollback") {
-			const agents = await readJson(
-				join(imagesDir, "coding-agents.json"),
-				CodingAgentsFile,
-			);
-			if (!agents?.[wanted.tool].previous) {
-				return {
-					status: 409,
-					code: "CODING_AGENT_NO_PREVIOUS",
-					message: "There is no previous version of that tool to roll back to.",
-				};
-			}
+		if (wanted.kind === "agents-rollback")
+			return refuseAgentsRollback(wanted.tool, imagesDir);
+		return null;
+	}
+
+	async function refuseActivate(
+		version: string,
+		imagesDir: string,
+		aliases: ImageAliasesFile,
+	): Promise<ImageJobRefusal | null> {
+		const health = await readJson(join(imagesDir, version, "health.json"), ImageHealth);
+		if (version === aliases.default) {
+			return {
+				status: 409,
+				code: "IMAGE_ALREADY_DEFAULT",
+				message: "That image is already the default.",
+			};
+		}
+		if (health?.result !== "passed") {
+			return {
+				status: 409,
+				code: "IMAGE_NOT_HEALTHY",
+				message: "Only an image that passed its health check can become the default.",
+			};
+		}
+		return null;
+	}
+
+	async function refuseDelete(
+		version: string,
+		imagesDir: string,
+		aliases: ImageAliasesFile,
+	): Promise<ImageJobRefusal | null> {
+		// The job refuses these too; the API says why before anything is queued.
+		if (version === aliases.default || version === aliases.previous) {
+			return {
+				status: 409,
+				code: "IMAGE_IN_USE",
+				message: "The default and the previous image cannot be deleted.",
+			};
+		}
+		if (!(await listDir(imagesDir)).includes(version)) {
+			return {
+				status: 404,
+				code: "NOT_FOUND",
+				message: "No such image on this host.",
+			};
+		}
+		return null;
+	}
+
+	async function refuseAgentsRollback(
+		tool: Extract<ImageJobRequest, { kind: "agents-rollback" }>["tool"],
+		imagesDir: string,
+	): Promise<ImageJobRefusal | null> {
+		const agents = await readJson(
+			join(imagesDir, "coding-agents.json"),
+			CodingAgentsFile,
+		);
+		if (!agents?.[tool].previous) {
+			return {
+				status: 409,
+				code: "CODING_AGENT_NO_PREVIOUS",
+				message: "There is no previous version of that tool to roll back to.",
+			};
 		}
 		return null;
 	}
@@ -368,16 +386,13 @@ export function registerAdminImageRoutes(
 	app.post("/admin/image/jobs", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir || !imagesDir) return;
 		const admin = requireUser(request);
-		const body = ImageJobRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"unknown kind, choice or version",
-			);
-		}
-		const wanted = body.data;
+		const wanted = parseOr400(
+			ImageJobRequest,
+			request.body ?? {},
+			reply,
+			"unknown kind, choice or version",
+		);
+		if (!wanted) return reply;
 		if (writing) {
 			return sendError(
 				reply,
@@ -424,3 +439,6 @@ export function registerAdminImageRoutes(
 		}
 	});
 }
+
+/** A refusal of an image job, before anything is queued. */
+type ImageJobRefusal = { status: 404 | 409; code: ApiError["code"]; message: string };

@@ -240,14 +240,8 @@ export function TerminalPane({
 				// Stop the terminal scrolling its own buffer instead.
 				event.preventDefault();
 				event.stopPropagation();
-				// A wheel reports pixels, lines, or pages; turn them all into rows.
-				let scrolled = Math.abs(event.deltaY);
-				if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) scrolled /= rowHeight();
-				if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) scrolled *= term.rows;
-				const notches = Math.min(term.rows, Math.max(1, Math.round(scrolled)));
-				const key = term.modes.applicationCursorKeysMode
-					? `\u001bO${event.deltaY < 0 ? "A" : "B"}`
-					: `\u001b[${event.deltaY < 0 ? "A" : "B"}`;
+				const notches = wheelNotches(event, rowHeight, term.rows);
+				const key = arrowKey(event.deltaY < 0, term.modes.applicationCursorKeysMode);
 				const data = key.repeat(notches);
 				if (data !== "") send({ type: "input", data });
 			}
@@ -391,4 +385,23 @@ export function TerminalPane({
 			</div>
 		</div>
 	);
+}
+
+/** The rows a wheel turn moved, from one up to a whole screen. */
+function wheelNotches(
+	event: WheelEvent,
+	rowHeight: () => number,
+	rows: number,
+): number {
+	// A wheel reports pixels, lines, or pages; turn them all into rows.
+	let scrolled = Math.abs(event.deltaY);
+	if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL) scrolled /= rowHeight();
+	if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) scrolled *= rows;
+	return Math.min(rows, Math.max(1, Math.round(scrolled)));
+}
+
+/** The up or down arrow key, in the cursor key mode the program asked for. */
+function arrowKey(up: boolean, applicationCursorKeys: boolean): string {
+	const direction = up ? "A" : "B";
+	return applicationCursorKeys ? `\u001bO${direction}` : `\u001b[${direction}`;
 }

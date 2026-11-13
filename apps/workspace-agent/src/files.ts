@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, type Dirent, constants as fsConstants } from "node:fs";
 import {
+	type FileHandle,
 	link,
 	lstat,
 	mkdir as mkdirFs,
@@ -88,18 +89,7 @@ export async function resolveInProject(
 	if (options.noLinks) await refuseLinkedComponents(root, relPath);
 
 	const requested = join(root, relPath);
-	let parent: string;
-	try {
-		parent = await realpath(dirname(requested));
-	} catch (error) {
-		if (errorCode(error) === "ENOENT") {
-			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
-		}
-		throw new AgentFailure("PATH_INVALID", "invalid path");
-	}
-	if (!contains(root, parent)) {
-		throw new AgentFailure("PATH_INVALID", "path leaves the project");
-	}
+	const parent = await realParentInside(root, requested);
 	const path = join(parent, basename(requested));
 
 	if (options.refuseSymlink || options.linkOk) {
@@ -117,6 +107,32 @@ export async function resolveInProject(
 		}
 	}
 
+	return resolveFinal(root, path, options.mustExist);
+}
+
+/** The real directory that holds `requested`, refused unless it is inside `root`. */
+async function realParentInside(root: string, requested: string): Promise<string> {
+	let parent: string;
+	try {
+		parent = await realpath(dirname(requested));
+	} catch (error) {
+		if (errorCode(error) === "ENOENT") {
+			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
+		}
+		throw new AgentFailure("PATH_INVALID", "invalid path");
+	}
+	if (!contains(root, parent)) {
+		throw new AgentFailure("PATH_INVALID", "path leaves the project");
+	}
+	return parent;
+}
+
+/** Follow `path` to the end and refuse it unless it stays inside `root`. */
+async function resolveFinal(
+	root: string,
+	path: string,
+	mustExist: boolean,
+): Promise<ResolvedPath> {
 	try {
 		const real = await realpath(path);
 		if (!contains(root, real)) {
@@ -129,7 +145,7 @@ export async function resolveInProject(
 			// Fail closed: anything we cannot resolve is treated as an escape.
 			throw new AgentFailure("PATH_INVALID", "invalid path");
 		}
-		if (options.mustExist) {
+		if (mustExist) {
 			throw new AgentFailure("FILE_NOT_FOUND", "no such file or directory");
 		}
 		return { path, exists: false, isSymlink: false };
@@ -413,7 +429,6 @@ export async function writeFile(
 
 	const limit = options.upload ? MAX_UPLOAD_BYTES : MAX_EDITOR_FILE_BYTES;
 	const hash = createHash("sha256");
-	let size = 0;
 	const tmpPath = join(dirname(target.path), tempName(basename(target.path)));
 	// O_EXCL: a name nobody else holds. O_NOFOLLOW: the kernel refuses even if
 	// the name became a symlink since the check above (SPEC.md §24.6).
@@ -431,52 +446,11 @@ export async function writeFile(
 			// Keep executable bits and the like across the rename.
 			await handle.chmod(mode);
 		}
-		// destroyOnReturn: false, so stopping at the cap leaves the request
-		// stream alive and the route can still answer on it (SPEC.md §13.5).
-		let overLimit = false;
-		for await (const chunk of body.iterator({ destroyOnReturn: false })) {
-			const buffer = chunk as Buffer;
-			if (size + buffer.length > limit) {
-				overLimit = true;
-				break;
-			}
-			size += buffer.length;
-			hash.update(buffer);
-			await handle.write(buffer);
-		}
-		if (overLimit) {
-			// Stop pulling bytes; the caller decides when to close the socket.
-			body.pause();
-			throw new AgentFailure("FILE_TOO_LARGE", "that file is too large");
-		}
+		const size = await copyBody(body, handle, limit, hash);
 		await handle.close();
 		closed = true;
-		if (options.ifNoneMatch) {
-			// link fails with EEXIST rather than replacing anything, so a file
-			// that appeared while the body was in flight survives. It also
-			// fails on a dangling symlink instead of following it
-			// (SPEC.md §13.5, §24.6).
-			try {
-				await link(tmpPath, target.path);
-			} catch (error) {
-				if (errorCode(error) === "EEXIST") {
-					throw new AgentFailure("FILE_EXISTS", "that file already exists");
-				}
-				throw error;
-			}
-			await unlink(tmpPath);
-		} else if (options.ifMatch !== "*") {
-			// Re-check just before the rename so a write that landed while the
-			// body was in flight is not lost (SPEC.md §13.5).
-			const current = await hashFile(target.path);
-			if (current !== options.ifMatch) {
-				throw new FileChanged(current);
-			}
-			await rename(tmpPath, target.path);
-		} else {
-			// "*" is the HTTP wildcard: any existing version will do.
-			await rename(tmpPath, target.path);
-		}
+		await moveIntoPlace(tmpPath, target.path, options);
+		return { etag: hash.digest("hex"), size };
 	} catch (error) {
 		if (!closed) {
 			await handle.close().catch(() => {});
@@ -486,7 +460,69 @@ export async function writeFile(
 		await rm(tmpPath, { force: true });
 		throw error;
 	}
-	return { etag: hash.digest("hex"), size };
+}
+
+/** Stream the body into the open temporary file, refusing one over `limit`; returns its size. */
+async function copyBody(
+	body: Readable,
+	handle: FileHandle,
+	limit: number,
+	hash: ReturnType<typeof createHash>,
+): Promise<number> {
+	let size = 0;
+	// destroyOnReturn: false, so stopping at the cap leaves the request
+	// stream alive and the route can still answer on it (SPEC.md §13.5).
+	let overLimit = false;
+	for await (const chunk of body.iterator({ destroyOnReturn: false })) {
+		const buffer = chunk as Buffer;
+		if (size + buffer.length > limit) {
+			overLimit = true;
+			break;
+		}
+		size += buffer.length;
+		hash.update(buffer);
+		await handle.write(buffer);
+	}
+	if (overLimit) {
+		// Stop pulling bytes; the caller decides when to close the socket.
+		body.pause();
+		throw new AgentFailure("FILE_TOO_LARGE", "that file is too large");
+	}
+	return size;
+}
+
+/** Put the finished temporary file in place, under the write's condition. */
+async function moveIntoPlace(
+	tmpPath: string,
+	targetPath: string,
+	options: WriteOptions,
+): Promise<void> {
+	if (options.ifNoneMatch) {
+		// link fails with EEXIST rather than replacing anything, so a file
+		// that appeared while the body was in flight survives. It also
+		// fails on a dangling symlink instead of following it
+		// (SPEC.md §13.5, §24.6).
+		try {
+			await link(tmpPath, targetPath);
+		} catch (error) {
+			if (errorCode(error) === "EEXIST") {
+				throw new AgentFailure("FILE_EXISTS", "that file already exists");
+			}
+			throw error;
+		}
+		await unlink(tmpPath);
+		return;
+	}
+	// "*" is the HTTP wildcard: any existing version will do.
+	if (options.ifMatch !== "*") {
+		// Re-check just before the rename so a write that landed while the
+		// body was in flight is not lost (SPEC.md §13.5).
+		const current = await hashFile(targetPath);
+		if (current !== options.ifMatch) {
+			throw new FileChanged(current);
+		}
+	}
+	await rename(tmpPath, targetPath);
 }
 
 /**

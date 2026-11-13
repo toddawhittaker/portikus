@@ -9,12 +9,12 @@ import {
 	SharedTreeResponse,
 	WorkspaceState,
 } from "@portikus/contracts";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sql } from "kysely";
 import { AGENT_TIMEOUT_MS, readAgentError } from "../agent-client.js";
 import { taughtCourseId } from "../courses/membership.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import {
 	GIT_DIFF_BUDGET_MS,
 	GIT_STATUS_BUDGET_MS,
@@ -33,7 +33,7 @@ import {
 	filterTree,
 	isSecretPath,
 } from "../workspaces/secret-paths.js";
-import { sharedProject } from "../workspaces/shared-scope.js";
+import { type SharedScope, sharedProject } from "../workspaces/shared-scope.js";
 
 /** A secret path answers as a missing file, so the name gives nothing away. */
 const HIDDEN_MESSAGE = "no such file or directory";
@@ -43,6 +43,83 @@ const HIDDEN_MESSAGE = "no such file or directory";
  * with an innocent name cannot show a secret's contents (SPEC.md §5.2).
  */
 const NO_LINKS = { [NO_LINKS_QUERY]: "1" };
+
+/** One shared file, text or image only: never a download (ADR 0057). */
+async function streamSharedFile(
+	scope: SharedScope,
+	request: FastifyRequest,
+	reply: FastifyReply,
+) {
+	const path = queryPath(request, reply, { allowRoot: false });
+	if (path === null) return;
+	const wantsInline = (request.query as { inline?: string }).inline === "1";
+	const inline = wantsInline ? inlineType(path) : null;
+	if (wantsInline && inline === null) {
+		return sendError(
+			reply,
+			415,
+			"VALIDATION_FAILED",
+			"Only images and PDF files can be shown here.",
+		);
+	}
+	if (isSecretPath(path)) {
+		return sendError(reply, 404, "FILE_NOT_FOUND", HIDDEN_MESSAGE);
+	}
+	await scope.recordView();
+
+	const deadline = headersDeadline();
+	let response: Response;
+	try {
+		response = await scope.agent.fetchRaw(
+			"GET",
+			// An inline file streams like a download, as the owner's viewer does.
+			agentUrl(
+				scope.slug,
+				"file",
+				inline ? { path, download: "1", ...NO_LINKS } : { path, ...NO_LINKS },
+			),
+			{ signal: deadline.signal },
+		);
+	} catch (error) {
+		return sendAgentError(reply, error);
+	} finally {
+		deadline.clear();
+	}
+	if (!response.ok) return sendAgentError(reply, await readAgentError(response));
+	if (!response.body) {
+		return sendError(
+			reply,
+			503,
+			"AGENT_UNAVAILABLE",
+			"The workspace agent sent no response body.",
+		);
+	}
+	return sendFile(reply, response, response.body, path, false, inline);
+}
+
+/** The checks of a shared project, without their commands. */
+function toSharedChecks(checks: ChecksResponse): SharedChecksResponse {
+	// Names and results only: a command may carry a token (SPEC.md §5.2).
+	const runs = new Map(checks.runs.map((run) => [run.checkId, run]));
+	return {
+		checks: checks.checks.map((check) => {
+			const run = runs.get(check.id);
+			return {
+				id: check.id,
+				name: check.name,
+				lastRun: run
+					? {
+							state: run.state,
+							startedAt: run.startedAt,
+							endedAt: run.endedAt,
+							exitCode: run.exitCode,
+						}
+					: null,
+			};
+		}),
+		error: checks.error,
+	};
+}
 
 /**
  * An instructor's read-only view of projects their students shared
@@ -131,51 +208,7 @@ export function registerCourseShareRoutes(
 			async (request, reply) => {
 				const scope = await sharedProject(db, config, request, reply);
 				if (!scope) return;
-				const path = queryPath(request, reply, { allowRoot: false });
-				if (path === null) return;
-				const wantsInline = (request.query as { inline?: string }).inline === "1";
-				const inline = wantsInline ? inlineType(path) : null;
-				if (wantsInline && inline === null) {
-					return sendError(
-						reply,
-						415,
-						"VALIDATION_FAILED",
-						"Only images and PDF files can be shown here.",
-					);
-				}
-				if (isSecretPath(path)) {
-					return sendError(reply, 404, "FILE_NOT_FOUND", HIDDEN_MESSAGE);
-				}
-				await scope.recordView();
-
-				const deadline = headersDeadline();
-				let response: Response;
-				try {
-					response = await scope.agent.fetchRaw(
-						"GET",
-						// An inline file streams like a download, as the owner's viewer does.
-						agentUrl(
-							scope.slug,
-							"file",
-							inline ? { path, download: "1", ...NO_LINKS } : { path, ...NO_LINKS },
-						),
-						{ signal: deadline.signal },
-					);
-				} catch (error) {
-					return sendAgentError(reply, error);
-				} finally {
-					deadline.clear();
-				}
-				if (!response.ok) return sendAgentError(reply, await readAgentError(response));
-				if (!response.body) {
-					return sendError(
-						reply,
-						503,
-						"AGENT_UNAVAILABLE",
-						"The workspace agent sent no response body.",
-					);
-				}
-				return sendFile(reply, response, response.body, path, false, inline);
+				return streamSharedFile(scope, request, reply);
 			},
 		);
 
@@ -203,16 +236,14 @@ export function registerCourseShareRoutes(
 			async (request, reply) => {
 				const scope = await sharedProject(db, config, request, reply);
 				if (!scope) return;
-				const path = ProjectPath.safeParse((request.query as { path?: unknown }).path);
-				if (!path.success) {
-					return sendError(
-						reply,
-						400,
-						"VALIDATION_FAILED",
-						"that path is not inside the project",
-					);
-				}
-				if (isSecretPath(path.data)) {
+				const path = parseOr400(
+					ProjectPath,
+					(request.query as { path?: unknown }).path,
+					reply,
+					"that path is not inside the project",
+				);
+				if (path === null) return reply;
+				if (isSecretPath(path)) {
 					return sendError(reply, 404, "FILE_NOT_FOUND", HIDDEN_MESSAGE);
 				}
 				await scope.recordView();
@@ -220,7 +251,7 @@ export function registerCourseShareRoutes(
 					reply,
 					request.log,
 					scope.agent,
-					agentUrl(scope.slug, "git/diff", { path: path.data, ...NO_LINKS }),
+					agentUrl(scope.slug, "git/diff", { path, ...NO_LINKS }),
 					SharedGitDiffResponse,
 					AbortSignal.timeout(GIT_DIFF_BUDGET_MS),
 				);
@@ -248,27 +279,7 @@ export function registerCourseShareRoutes(
 					AbortSignal.timeout(AGENT_TIMEOUT_MS),
 				);
 				if (!checks) return;
-				// Names and results only: a command may carry a token (SPEC.md §5.2).
-				const runs = new Map(checks.runs.map((run) => [run.checkId, run]));
-				const body: SharedChecksResponse = {
-					checks: checks.checks.map((check) => {
-						const run = runs.get(check.id);
-						return {
-							id: check.id,
-							name: check.name,
-							lastRun: run
-								? {
-										state: run.state,
-										startedAt: run.startedAt,
-										endedAt: run.endedAt,
-										exitCode: run.exitCode,
-									}
-								: null,
-						};
-					}),
-					error: checks.error,
-				};
-				return body;
+				return toSharedChecks(checks);
 			},
 		);
 	});

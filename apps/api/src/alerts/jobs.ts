@@ -80,6 +80,26 @@ function urlHost(url: string | undefined, kept: string | undefined): string | nu
 	return kept ?? null;
 }
 
+/** True when a setting is turned on or off. */
+function onOff(a: unknown, b: unknown): boolean {
+	return (a === null) !== (b === null);
+}
+
+function smtpChanged(
+	current: NotificationSettingsView["smtp"],
+	next: NotificationSettingsUpdate["smtp"],
+): boolean {
+	if (onOff(current, next)) return true;
+	if (next === null) return false;
+	return (
+		next.password !== undefined ||
+		next.host !== current?.host ||
+		next.port !== current?.port ||
+		next.username !== current?.username ||
+		next.from !== current?.from
+	);
+}
+
 /**
  * What an audit row may say about a change: the kinds that changed, the
  * kinds left on and their hosts. Never a secret (ADR 0052, SPEC.md 24.11).
@@ -90,16 +110,8 @@ export function changeSummary(
 ) {
 	const { alerts } = update;
 	const now = current.alerts;
-	const onOff = (a: unknown, b: unknown) => (a === null) !== (b === null);
 	const changed: Record<Kind, boolean> = {
-		smtp:
-			onOff(current.smtp, update.smtp) ||
-			(update.smtp !== null &&
-				(update.smtp.password !== undefined ||
-					update.smtp.host !== current.smtp?.host ||
-					update.smtp.port !== current.smtp?.port ||
-					update.smtp.username !== current.smtp?.username ||
-					update.smtp.from !== current.smtp?.from)),
+		smtp: smtpChanged(current.smtp, update.smtp),
 		email:
 			onOff(now.email, alerts.email) ||
 			JSON.stringify(alerts.email?.to) !== JSON.stringify(now.email?.to),

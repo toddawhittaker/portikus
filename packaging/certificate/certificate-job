@@ -250,6 +250,68 @@ def _service_account(text):
             and doc.get("universe_domain", GOOGLE_UNIVERSE) == GOOGLE_UNIVERSE)
 
 
+def _validate_dns_secret(provider, name, value):
+    if (provider, name) in PATH_SECRET_FIELDS:
+        if not isinstance(value, str) or not 1 <= len(value) <= MAX_SERVICE_ACCOUNT_JSON \
+                or not _service_account(value):
+            raise Refused(f"the {provider} secret {name} is not a service account key")
+    elif not isinstance(value, str) or not 1 <= len(value) <= MAX_SECRET_LENGTH \
+            or "\n" in value or "\r" in value:
+        raise Refused(f"the {provider} secret {name} is not one line of at most "
+                      f"{MAX_SECRET_LENGTH} characters")
+
+
+def _validate_dns(dns):
+    _keys(dns, ["provider", "fields"], what="the DNS provider")
+    provider = dns["provider"]
+    if not isinstance(provider, str) or provider not in DNS_PROVIDER_FIELDS:
+        raise Refused("unknown DNS provider")
+    plain = DNS_PROVIDER_FIELDS[provider]["plain"]
+    secret = DNS_PROVIDER_FIELDS[provider]["secret"]
+    _keys(dns["fields"], plain, secret, f"the {provider} fields")
+    for name in plain:
+        _string(dns["fields"][name], PLAIN_RE, f"the {provider} field {name}")
+    if provider == "ovh" and dns["fields"]["endpoint"] not in OVH_ENDPOINTS:
+        raise Refused("the ovh field endpoint must be one of " + ", ".join(sorted(OVH_ENDPOINTS)))
+    for name in secret:
+        value = dns["fields"].get(name)
+        if value is not None:
+            _validate_dns_secret(provider, name, value)
+
+
+def _validate_challenge(challenge):
+    _keys(challenge, ["mode"], ["dns"], "the challenge")
+    if challenge["mode"] == "http01":
+        _keys(challenge, ["mode"], what="the HTTP-01 challenge")
+    elif challenge["mode"] == "dns01":
+        _keys(challenge, ["mode", "dns"], what="the DNS-01 challenge")
+        _validate_dns(challenge["dns"])
+    else:
+        raise Refused("unknown challenge mode")
+
+
+def _validate_acme(settings):
+    _keys(settings, ["source", "directory", "email", "challenge"], ["eab"], "ACME settings")
+    _string(settings["directory"], HTTPS_URL_RE, "the ACME directory URL", 500)
+    _string(settings["email"], EMAIL_RE, "the email", 200)
+    if "eab" in settings:
+        _keys(settings["eab"], ["keyId"], ["hmacKey"], "the external account binding")
+        _string(settings["eab"]["keyId"], EAB_KEY_ID_RE, "the EAB key ID")
+        if "hmacKey" in settings["eab"]:
+            _string(settings["eab"]["hmacKey"], EAB_HMAC_RE, "the EAB HMAC key")
+    _validate_challenge(settings["challenge"])
+
+
+def _validate_files(settings):
+    _keys(settings, ["source", "site"], ["preview"], "uploaded-files settings")
+    for part in ("site", "preview"):
+        if part in settings:
+            _keys(settings[part], ["certificate"], ["privateKey"], f"the {part} upload")
+            _pem(settings[part]["certificate"], f"the {part} certificate")
+            if "privateKey" in settings[part]:
+                _pem(settings[part]["privateKey"], f"the {part} private key")
+
+
 def validate_settings(settings, acme_only=False):
     if not isinstance(settings, dict):
         raise Refused("the settings are not an object")
@@ -259,54 +321,9 @@ def validate_settings(settings, acme_only=False):
     if source == "internal":
         _keys(settings, ["source"], what="internal settings")
     elif source == "acme":
-        _keys(settings, ["source", "directory", "email", "challenge"], ["eab"], "ACME settings")
-        _string(settings["directory"], HTTPS_URL_RE, "the ACME directory URL", 500)
-        _string(settings["email"], EMAIL_RE, "the email", 200)
-        if "eab" in settings:
-            _keys(settings["eab"], ["keyId"], ["hmacKey"], "the external account binding")
-            _string(settings["eab"]["keyId"], EAB_KEY_ID_RE, "the EAB key ID")
-            if "hmacKey" in settings["eab"]:
-                _string(settings["eab"]["hmacKey"], EAB_HMAC_RE, "the EAB HMAC key")
-        challenge = settings["challenge"]
-        _keys(challenge, ["mode"], ["dns"], "the challenge")
-        if challenge["mode"] == "http01":
-            _keys(challenge, ["mode"], what="the HTTP-01 challenge")
-        elif challenge["mode"] == "dns01":
-            _keys(challenge, ["mode", "dns"], what="the DNS-01 challenge")
-            dns = challenge["dns"]
-            _keys(dns, ["provider", "fields"], what="the DNS provider")
-            provider = dns["provider"]
-            if not isinstance(provider, str) or provider not in DNS_PROVIDER_FIELDS:
-                raise Refused("unknown DNS provider")
-            plain = DNS_PROVIDER_FIELDS[provider]["plain"]
-            secret = DNS_PROVIDER_FIELDS[provider]["secret"]
-            _keys(dns["fields"], plain, secret, f"the {provider} fields")
-            for name in plain:
-                _string(dns["fields"][name], PLAIN_RE, f"the {provider} field {name}")
-            if provider == "ovh" and dns["fields"]["endpoint"] not in OVH_ENDPOINTS:
-                raise Refused("the ovh field endpoint must be one of " + ", ".join(sorted(OVH_ENDPOINTS)))
-            for name in secret:
-                value = dns["fields"].get(name)
-                if value is None:
-                    continue
-                if (provider, name) in PATH_SECRET_FIELDS:
-                    if not isinstance(value, str) or not 1 <= len(value) <= MAX_SERVICE_ACCOUNT_JSON \
-                            or not _service_account(value):
-                        raise Refused(f"the {provider} secret {name} is not a service account key")
-                elif not isinstance(value, str) or not 1 <= len(value) <= MAX_SECRET_LENGTH \
-                        or "\n" in value or "\r" in value:
-                    raise Refused(f"the {provider} secret {name} is not one line of at most "
-                                  f"{MAX_SECRET_LENGTH} characters")
-        else:
-            raise Refused("unknown challenge mode")
+        _validate_acme(settings)
     elif source == "files":
-        _keys(settings, ["source", "site"], ["preview"], "uploaded-files settings")
-        for part in ("site", "preview"):
-            if part in settings:
-                _keys(settings[part], ["certificate"], ["privateKey"], f"the {part} upload")
-                _pem(settings[part]["certificate"], f"the {part} certificate")
-                if "privateKey" in settings[part]:
-                    _pem(settings[part]["privateKey"], f"the {part} private key")
+        _validate_files(settings)
     else:
         raise Refused("unknown certificate source")
     return settings
@@ -387,6 +404,16 @@ def iso(stamp):
     return stamp.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _dns_names(san_line):
+    """The DNS names in openssl's subjectAltName line, lowercased."""
+    names = []
+    for part in san_line.split(","):
+        part = part.strip()
+        if part.startswith("DNS:"):
+            names.append(part[4:].lower()[:253])
+    return names
+
+
 def certificate_info(run_, pem):
     """{issuer, names, notBefore, notAfter, fingerprint} of the first certificate in pem, or None."""
     code, out = run_(["openssl", "x509", "-noout", "-issuer", "-startdate", "-enddate",
@@ -407,10 +434,7 @@ def certificate_info(run_, pem):
             elif "Fingerprint=" in line:
                 info["fingerprint"] = line.split("=", 1)[1].strip().replace(":", "").lower()
             elif "Subject Alternative Name" in line and index + 1 < len(lines):
-                for part in lines[index + 1].split(","):
-                    part = part.strip()
-                    if part.startswith("DNS:"):
-                        info["names"].append(part[4:].lower()[:253])
+                info["names"] += _dns_names(lines[index + 1])
     except ValueError:
         return None
     if info["notBefore"] is None or info["notAfter"] is None:
@@ -438,6 +462,14 @@ def view_info(info, name=None):
 
 def split_certificates(pem):
     return [block + "\n" for block in PEM_BLOCK_RE.findall(pem)]
+
+
+def caddy_failure(log):
+    """The last few errors in a throwaway Caddy's log, for the admin."""
+    errors = [e["message"] for e in parse_caddy_events(log) if not e["ok"]]
+    # Caddy prints "Error: ..." on stderr when it cannot start at all.
+    errors = errors or [line for line in log.splitlines() if line.startswith("Error: ")]
+    return " | ".join(errors[-3:])[:1500] or "nothing; the log has its output"
 
 
 def storage_name(name):
@@ -1414,23 +1446,26 @@ class Runner:
         """
         work = tempfile.mkdtemp(prefix=".throwaway-", dir=self.state_dir)
         try:
-            return self.run_throwaway(job, settings, names, base, seed, work)
+            storage = os.path.join(work, "storage")
+            os.mkdir(storage, 0o700)
+            if seed:
+                self.seed_acme_accounts(storage)
+            return self.run_throwaway(job, settings, names, base, work)
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def run_throwaway(self, job, settings, names, base, seed, work):
-        storage = os.path.join(work, "storage")
-        os.mkdir(storage, 0o700)
-        if seed:
-            try:
-                acme_fd = open_nofollow(os.path.join(self.caddy_data, "acme"), directory=True)
-            except OSError:
-                acme_fd = None
-            if acme_fd is not None:
-                try:
-                    copy_tree_at(acme_fd, os.path.join(storage, "acme"))
-                finally:
-                    os.close(acme_fd)
+    def seed_acme_accounts(self, storage):
+        """Copy the live Caddy's ACME accounts into the throwaway's storage, when it has any."""
+        try:
+            acme_fd = open_nofollow(os.path.join(self.caddy_data, "acme"), directory=True)
+        except OSError:
+            return
+        try:
+            copy_tree_at(acme_fd, os.path.join(storage, "acme"))
+        finally:
+            os.close(acme_fd)
+
+    def throwaway_caddyfile(self, settings, names, base, storage):
         http01 = settings["challenge"]["mode"] == "http01"
         # No server of the throwaway's own listens on the challenge port: Caddy's solver binds it
         # itself, before it tells the authority the challenge is ready, so validation cannot arrive
@@ -1438,7 +1473,7 @@ class Runner:
         challenge_port = self.test_http_port or CHALLENGE_PORT
         http_port, https_port = free_ports(2, avoid=(challenge_port,))
         tls = snippets(settings, base, alt_http_port=challenge_port if http01 else None)
-        config = (
+        return (
             "{\n\tadmin off\n\tpersist_config off\n\tskip_install_trust\n"
             f"\tstorage file_system {{\n\t\troot {storage}\n\t}}\n"
             f"\thttp_port {http_port}\n\thttps_port {https_port}\n"
@@ -1447,17 +1482,46 @@ class Runner:
             + f"\n{', '.join(f'https://{n}' for n in names)} {{\n"
             "\timport portikus_tls_site\n\trespond \"portikus certificate test\"\n}\n"
         )
-        with open(os.path.join(work, "Caddyfile"), "w", encoding="utf-8") as f:
-            f.write(config)
-        user = {}
+
+    def throwaway_account(self, work):
+        """The Popen account options for the throwaway, handing work to the caddy account as root."""
         if self.host.root and self.host.caddy_uid < 0:
             raise JobFailed("There is no caddy account to run the test Caddy as.")
-        if self.host.root:
-            # The caddy account, not root, talks to the ACME service, as the live Caddy does.
-            for dirpath, dirnames, filenames in os.walk(work):
-                for path in [dirpath, *(os.path.join(dirpath, n) for n in filenames)]:
-                    os.chown(path, self.host.caddy_uid, self.host.caddy_gid, follow_symlinks=False)
-            user = {"user": "caddy", "group": "caddy"}
+        if not self.host.root:
+            return {}
+        # The caddy account, not root, talks to the ACME service, as the live Caddy does.
+        for dirpath, dirnames, filenames in os.walk(work):
+            for path in [dirpath, *(os.path.join(dirpath, n) for n in filenames)]:
+                os.chown(path, self.host.caddy_uid, self.host.caddy_gid, follow_symlinks=False)
+        return {"user": "caddy", "group": "caddy"}
+
+    def wait_for_certificates(self, proc, caddy_log, wanted, started):
+        """Poll until every wanted file exists, Caddy exits, the deadline passes or Caddy is refused."""
+        while not all(glob.glob(pattern) for pattern in wanted):
+            if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
+                return
+            # Caddy retries a refusal forever; a definitive one ends the wait at once.
+            so_far = os.pread(caddy_log.fileno(), 4 * 1024 * 1024, 0).decode("utf-8", "replace")
+            if any(definitive_refusal(e["message"]) for e in parse_caddy_events(so_far) if not e["ok"]):
+                return
+            self.sleep(POLL_SECONDS)
+
+    def reclaim_work(self, work):
+        """Take the folder back before reading anything in it."""
+        work_fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if self.host.root:
+                os.fchown(work_fd, 0, 0)
+            os.fchmod(work_fd, 0o700)
+        finally:
+            os.close(work_fd)
+
+    def run_throwaway(self, job, settings, names, base, work):
+        storage = os.path.join(work, "storage")
+        config = self.throwaway_caddyfile(settings, names, base, storage)
+        with open(os.path.join(work, "Caddyfile"), "w", encoding="utf-8") as f:
+            f.write(config)
+        user = self.throwaway_account(work)
         env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": work, "XDG_DATA_HOME": work,
                "XDG_CONFIG_HOME": work, **self.test_env}
         # Caddy writes a certificate's .json last, so its presence means the files are complete.
@@ -1470,14 +1534,7 @@ class Runner:
                 [self.caddy, "run", "--config", os.path.join(work, "Caddyfile"), "--adapter", "caddyfile"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=caddy_log, env=env, cwd=work, **user)
             try:
-                while not all(glob.glob(pattern) for pattern in wanted):
-                    if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
-                        break
-                    # Caddy retries a refusal forever; a definitive one ends the wait at once.
-                    so_far = os.pread(caddy_log.fileno(), 4 * 1024 * 1024, 0).decode("utf-8", "replace")
-                    if any(definitive_refusal(e["message"]) for e in parse_caddy_events(so_far) if not e["ok"]):
-                        break
-                    self.sleep(POLL_SECONDS)
+                self.wait_for_certificates(proc, caddy_log, wanted, started)
             finally:
                 proc.terminate()
                 try:
@@ -1485,14 +1542,7 @@ class Runner:
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait()
-            # Take the folder back before reading anything in it.
-            work_fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            try:
-                if self.host.root:
-                    os.fchown(work_fd, 0, 0)
-                os.fchmod(work_fd, 0o700)
-            finally:
-                os.close(work_fd)
+            self.reclaim_work(work)
             caddy_log.seek(0)
             log = caddy_log.read()[-200000:].decode("utf-8", "replace")
         job.write(log[-20000:])
@@ -1500,11 +1550,8 @@ class Runner:
         found = {folder for (_, folder), files in certificates.items()
                  if f"{folder}.crt" in files and f"{folder}.json" in files}
         if not {storage_name(n) for n in names} <= found:
-            errors = [e["message"] for e in parse_caddy_events(log) if not e["ok"]]
-            # Caddy prints "Error: ..." on stderr when it cannot start at all.
-            errors = errors or [line for line in log.splitlines() if line.startswith("Error: ")]
-            said = " | ".join(errors[-3:])[:1500] or "nothing; the log has its output"
-            raise JobFailed(f"No certificate was obtained, and the live site is unchanged. Caddy said: {said}")
+            raise JobFailed("No certificate was obtained, and the live site is unchanged. Caddy said: "
+                            + caddy_failure(log))
         return certificates
 
     def system_trusts(self, blocks, name=None):
@@ -2188,46 +2235,14 @@ class Runner:
         if seeded and self.pending_admin_email() is None:
             print("unchanged", file=out)
             return 0
-        try:
-            settings = validate_settings(json.loads(stdin.read(), object_pairs_hook=_no_duplicates))
-        except ValueError:
-            journal("first-install: the settings are not JSON")
+        settings = self.first_install_settings(stdin)
+        if settings is None:
             return 2
-        except Refused as err:
-            journal(f"first-install: the settings are refused: {err}")
-            return 2
-        try:
-            if settings["source"] == "internal":
-                self.refuse_internal_on_public("first-install", first_install=True)
-        except Refused as err:
-            journal(f"first-install: the settings are refused: {err}")
-            return 2
-        except JobFailed:
-            # No site name to look up yet; the hourly check looks once there is.
-            pass
         lock_fd = self.locked(blocking=True)
         try:
-            secrets = self.resolve_secrets(settings)
-            uploads = None
-            if settings["source"] == "files":
-                site, _, suffix = read_api_env(self.api_env)
-                uploads = self.check_uploads(settings, site, suffix)
-            new = self.state(".new")
-            remove(new)
-            self.build_generation(new, settings, secrets, uploads, self.view(settings, secrets, uploads))
-            if seeded and self.same_generation(new):
-                remove(new)
+            if not self.install_first_generation(settings, seeded):
                 print("unchanged", file=out)
                 return 0
-            self.install(new)
-            remove(new)
-            # The unit's reload is `caddy reload --force`; a Caddy not running yet is left alone.
-            self.run(["systemctl", "try-reload-or-restart", "caddy"], timeout=180)
-            self.sync_trust(restart=False)
-            try:
-                self.write_status()
-            except JobFailed as err:
-                journal(f"first-install: no status yet: {err}")
         except (Refused, JobFailed) as err:
             journal(f"first-install: {err}")
             return 1
@@ -2236,6 +2251,50 @@ class Runner:
         print("changed", file=out)
         return 0
 
+    def first_install_settings(self, stdin):
+        """The checked settings on stdin, or None after journaling why they are refused."""
+        try:
+            settings = validate_settings(json.loads(stdin.read(), object_pairs_hook=_no_duplicates))
+        except ValueError:
+            journal("first-install: the settings are not JSON")
+            return None
+        except Refused as err:
+            journal(f"first-install: the settings are refused: {err}")
+            return None
+        try:
+            if settings["source"] == "internal":
+                self.refuse_internal_on_public("first-install", first_install=True)
+        except Refused as err:
+            journal(f"first-install: the settings are refused: {err}")
+            return None
+        except JobFailed:
+            # No site name to look up yet; the hourly check looks once there is.
+            pass
+        return settings
+
+    def install_first_generation(self, settings, seeded):
+        """Build and install the generation for settings. False when it matches the one in force."""
+        secrets = self.resolve_secrets(settings)
+        uploads = None
+        if settings["source"] == "files":
+            site, _, suffix = read_api_env(self.api_env)
+            uploads = self.check_uploads(settings, site, suffix)
+        new = self.state(".new")
+        remove(new)
+        self.build_generation(new, settings, secrets, uploads, self.view(settings, secrets, uploads))
+        if seeded and self.same_generation(new):
+            remove(new)
+            return False
+        self.install(new)
+        remove(new)
+        # The unit's reload is `caddy reload --force`; a Caddy not running yet is left alone.
+        self.run(["systemctl", "try-reload-or-restart", "caddy"], timeout=180)
+        self.sync_trust(restart=False)
+        try:
+            self.write_status()
+        except JobFailed as err:
+            journal(f"first-install: no status yet: {err}")
+        return True
 
 def main(argv):
     if argv[1:] == ["recover"]:

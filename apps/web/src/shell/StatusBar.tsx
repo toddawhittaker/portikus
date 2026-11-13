@@ -80,23 +80,8 @@ export function usageMeter(
 	};
 }
 
-/** The bottom bar: where you are, and the workspace state, which opens its dialog. */
-export function StatusBar({
-	workspaceId,
-	project,
-	workspace,
-	dialog,
-	onDialogChange,
-}: {
-	workspaceId: string;
-	project: Project | undefined;
-	workspace: Workspace | null;
-	dialog: WorkspaceDialogMode;
-	onDialogChange: (mode: WorkspaceDialogMode) => void;
-}) {
-	const setStatusOpen = (open: boolean) => onDialogChange(open ? "open" : "closed");
-	const resolved = resolveStatus(workspace);
-	const unverified = workspace?.stateVerified === false;
+/** The workspace's usage figures, and the meters and storage warning made from them. */
+function useStatusUsage(workspaceId: string, workspace: Workspace | null) {
 	const running = workspace?.state === "running";
 	// The agent may still answer in error, and the error screen shows its figures (SPEC.md §28).
 	const errored = workspace?.state === "error";
@@ -115,6 +100,30 @@ export function StatusBar({
 	const diskWarned = useRef(false);
 	const disk = running ? usageMeter(storage?.home, diskWarned.current, true) : null;
 	diskWarned.current = disk !== null && disk.level !== "ok";
+	return { running, errored, usage, warning, memory, disk };
+}
+
+/** The bottom bar: where you are, and the workspace state, which opens its dialog. */
+export function StatusBar({
+	workspaceId,
+	project,
+	workspace,
+	dialog,
+	onDialogChange,
+}: {
+	workspaceId: string;
+	project: Project | undefined;
+	workspace: Workspace | null;
+	dialog: WorkspaceDialogMode;
+	onDialogChange: (mode: WorkspaceDialogMode) => void;
+}) {
+	const setStatusOpen = (open: boolean) => onDialogChange(open ? "open" : "closed");
+	const resolved = resolveStatus(workspace);
+	const unverified = workspace?.stateVerified === false;
+	const { running, errored, usage, warning, memory, disk } = useStatusUsage(
+		workspaceId,
+		workspace,
+	);
 	const showMonitor = useShowMonitor();
 	const countdown = useCountdown(workspace?.shutdownDeadline ?? null);
 	const timeZone = useStudentTimezone();

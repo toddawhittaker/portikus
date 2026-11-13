@@ -214,28 +214,32 @@ def validate_smtp(smtp):
     return {key: smtp[key] for key in ("host", "port", "username", "password", "from")}
 
 
+def _validate_email(email):
+    _keys(email, ["to"], code="invalid_email")
+    to = email["to"]
+    if not isinstance(to, list) or not 1 <= len(to) <= MAX_EMAIL_RECIPIENTS:
+        raise Refused("invalid_email")
+    for address in to:
+        if not isinstance(address, str) or len(address) > 200 or not EMAIL_RE.fullmatch(address):
+            raise Refused("invalid_email")
+    return {"to": list(to)}
+
+
+def _validate_pushover(pushover):
+    _keys(pushover, ["userKey", "appToken"], code="invalid_pushover")
+    for key in ("userKey", "appToken"):
+        if not isinstance(pushover[key], str) or not PUSHOVER_KEY_RE.fullmatch(pushover[key]):
+            raise Refused("invalid_pushover")
+    return {"userKey": pushover["userKey"], "appToken": pushover["appToken"]}
+
+
 def validate_alerts(alerts):
     _keys(alerts, KINDS)
     out = {}
     email = alerts["email"]
-    if email is not None:
-        _keys(email, ["to"], code="invalid_email")
-        to = email["to"]
-        if not isinstance(to, list) or not 1 <= len(to) <= MAX_EMAIL_RECIPIENTS:
-            raise Refused("invalid_email")
-        for address in to:
-            if not isinstance(address, str) or len(address) > 200 or not EMAIL_RE.fullmatch(address):
-                raise Refused("invalid_email")
-        email = {"to": list(to)}
-    out["email"] = email
+    out["email"] = _validate_email(email) if email is not None else None
     pushover = alerts["pushover"]
-    if pushover is not None:
-        _keys(pushover, ["userKey", "appToken"], code="invalid_pushover")
-        for key in ("userKey", "appToken"):
-            if not isinstance(pushover[key], str) or not PUSHOVER_KEY_RE.fullmatch(pushover[key]):
-                raise Refused("invalid_pushover")
-        pushover = {"userKey": pushover["userKey"], "appToken": pushover["appToken"]}
-    out["pushover"] = pushover
+    out["pushover"] = _validate_pushover(pushover) if pushover is not None else None
     for kind in ("webhook", "teams"):
         block = alerts[kind]
         if block is not None:
@@ -265,6 +269,35 @@ def validate_file(doc):
     return {"version": 1, "smtp": smtp, "alerts": alerts, "rootShellOpenedAlert": alert_on_open}
 
 
+def _merge_smtp(smtp, stored):
+    """The SMTP block, keeping the stored password while the server and account stay the same."""
+    _keys(smtp, ["host", "port", "username", "from"], ["password"], code="invalid_smtp")
+    old = stored["smtp"]
+    if "password" in smtp:
+        password = smtp["password"]
+    elif old and isinstance(smtp["host"], str) and old["host"].lower() == smtp["host"].lower() \
+            and old["port"] == smtp["port"] and old["username"] == smtp["username"]:
+        password = old["password"]
+    else:
+        password = ""
+    return {"host": smtp["host"], "port": smtp["port"], "username": smtp["username"],
+            "password": password, "from": smtp["from"]}
+
+
+def _merge_ntfy(ntfy, old_alerts, kept):
+    """The ntfy block, keeping the stored token while the server stays the same."""
+    _keys(ntfy, [], ["url", "token"], code="invalid_ntfy")
+    url = check_url(kept("ntfy", ntfy, "url"), "invalid_ntfy")
+    old = old_alerts["ntfy"]
+    if "token" in ntfy:
+        token = ntfy["token"]
+    elif old and url_host(old["url"]) == url_host(url):
+        token = old["token"]
+    else:
+        token = ""
+    return {"url": url, "token": token}
+
+
 def merge(update, stored):
     """The file a NotificationSettingsUpdate asks for: secrets left out are kept where ADR 0052 allows."""
     _keys(update, ["smtp", "alerts", "rootShellOpenedAlert"])
@@ -272,17 +305,7 @@ def merge(update, stored):
     old_alerts = stored["alerts"]
     smtp = update["smtp"]
     if smtp is not None:
-        _keys(smtp, ["host", "port", "username", "from"], ["password"], code="invalid_smtp")
-        old = stored["smtp"]
-        if "password" in smtp:
-            password = smtp["password"]
-        elif old and isinstance(smtp["host"], str) and old["host"].lower() == smtp["host"].lower() \
-                and old["port"] == smtp["port"] and old["username"] == smtp["username"]:
-            password = old["password"]
-        else:
-            password = ""
-        smtp = {"host": smtp["host"], "port": smtp["port"], "username": smtp["username"],
-                "password": password, "from": smtp["from"]}
+        smtp = _merge_smtp(smtp, stored)
     alerts = update["alerts"]
     _keys(alerts, KINDS)
     merged = {"email": alerts["email"]}
@@ -308,16 +331,7 @@ def merge(update, stored):
         merged[kind] = block
     ntfy = alerts["ntfy"]
     if ntfy is not None:
-        _keys(ntfy, [], ["url", "token"], code="invalid_ntfy")
-        url = check_url(kept("ntfy", ntfy, "url"), "invalid_ntfy")
-        old = old_alerts["ntfy"]
-        if "token" in ntfy:
-            token = ntfy["token"]
-        elif old and url_host(old["url"]) == url_host(url):
-            token = old["token"]
-        else:
-            token = ""
-        ntfy = {"url": url, "token": token}
+        ntfy = _merge_ntfy(ntfy, old_alerts, kept)
     merged["ntfy"] = ntfy
     return validate_file({"version": 1, "smtp": smtp, "alerts": merged,
                           "rootShellOpenedAlert": update["rootShellOpenedAlert"]})

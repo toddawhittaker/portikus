@@ -209,24 +209,29 @@ const FIELD_OF: Record<string, Exclude<keyof SsoForm, "provider">> = {
 	"groups.admin": "adminGroup",
 };
 
+/** The first problem the API's schema finds on each field, by element ID. */
+function schemaErrors(form: SsoForm): Record<string, string> {
+	const errors: Record<string, string> = {};
+	const parsed = SigninSettings.safeParse(toSettings(form));
+	if (parsed.success) return errors;
+	for (const issue of parsed.error.issues) {
+		const path = issue.path.filter((p) => typeof p === "string").join(".");
+		const field = FIELD_OF[path] ?? FIELD_OF[String(issue.path[0])];
+		if (field && !(FIELD_ID[field] in errors)) {
+			errors[FIELD_ID[field]] = GROUP_FIELDS.includes(field)
+				? groupMessage(form, field)
+				: MESSAGE[field];
+		}
+	}
+	return errors;
+}
+
 /** Problems keyed by the field's element ID, checked with the API's own schema. */
 export function validate(
 	form: SsoForm,
 	view: SigninView | null,
 ): Record<string, string> {
-	const errors: Record<string, string> = {};
-	const parsed = SigninSettings.safeParse(toSettings(form));
-	if (!parsed.success) {
-		for (const issue of parsed.error.issues) {
-			const path = issue.path.filter((p) => typeof p === "string").join(".");
-			const field = FIELD_OF[path] ?? FIELD_OF[String(issue.path[0])];
-			if (field && !(FIELD_ID[field] in errors)) {
-				errors[FIELD_ID[field]] = GROUP_FIELDS.includes(field)
-					? groupMessage(form, field)
-					: MESSAGE[field];
-			}
-		}
-	}
+	const errors = schemaErrors(form);
 	if (form.provider === "google" && usesGroups(form) && form.googleKey.trim() === "") {
 		if (!view?.googleKeySet) {
 			errors[FIELD_ID.googleKey] =

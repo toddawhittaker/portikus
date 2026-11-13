@@ -3,7 +3,7 @@ import { AgentProtectedProcesses, type InstanceProcess } from "@portikus/contrac
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { type ControllerClient, controllerErrorCode } from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a pending Refresh (ADR 0037). */
@@ -43,6 +43,17 @@ export async function fetchProtectedProcesses(
 	} catch {
 		return null;
 	}
+}
+
+/** The processes with the agent's protected ones flagged as well as the controller's. */
+function flagProtected(
+	processes: InstanceProcess[],
+	agentSet: ProtectedSet,
+): InstanceProcess[] {
+	return processes.map((p) => ({
+		...p,
+		protected: p.protected || agentSet.has(`${p.pid}:${p.startTicks}`),
+	}));
 }
 
 /** Snapshots older than this are deleted, with their process names. */
@@ -100,14 +111,9 @@ export async function serveProcessSnapshots(
 					row.agent_address && row.agent_token
 						? await readProtected(row.agent_address, row.agent_token)
 						: null;
-				if (agentSet) {
-					processes = processes.map((p) => ({
-						...p,
-						protected: p.protected || agentSet.has(`${p.pid}:${p.startTicks}`),
-					}));
-				}
+				if (agentSet) processes = flagProtected(processes, agentSet);
 			} catch (e) {
-				error = e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+				error = controllerErrorCode(e);
 				logger.warn(
 					{ workspaceId: row.workspace_id, errorCode: error },
 					"process snapshot failed",

@@ -40,6 +40,23 @@ export class PlatformsFileError extends Error {
 	}
 }
 
+/** A problem for each URL field whose scheme is not https, or http on a mock platform. */
+function urlSchemeProblems(platform: LtiPlatform, where: string): string[] {
+	const problems: string[] = [];
+	for (const field of URL_FIELDS) {
+		const value = platform[field];
+		if (value === undefined) continue;
+		const protocol = new URL(value).protocol;
+		const allowed = platform.mock ? ["https:", "http:"] : ["https:"];
+		if (!allowed.includes(protocol)) {
+			problems.push(
+				`${where}.${field}: must be an https URL${platform.mock ? " or http URL" : " (http only when mock is true)"}`,
+			);
+		}
+	}
+	return problems;
+}
+
 /**
  * Validate parsed platforms-file JSON. Throws {@link PlatformsFileError}
  * naming every problem, so the API can refuse to start.
@@ -59,17 +76,7 @@ export function parsePlatformsFile(data: unknown): LtiPlatform[] {
 	const keys = new Set<string>();
 	parsed.data.platforms.forEach((platform, index) => {
 		const where = `platforms.${index}`;
-		for (const field of URL_FIELDS) {
-			const value = platform[field];
-			if (value === undefined) continue;
-			const protocol = new URL(value).protocol;
-			const allowed = platform.mock ? ["https:", "http:"] : ["https:"];
-			if (!allowed.includes(protocol)) {
-				problems.push(
-					`${where}.${field}: must be an https URL${platform.mock ? " or http URL" : " (http only when mock is true)"}`,
-				);
-			}
-		}
+		problems.push(...urlSchemeProblems(platform, where));
 		if (names.has(platform.name)) {
 			problems.push(`${where}.name: duplicate name "${platform.name}"`);
 		}

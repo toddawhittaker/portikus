@@ -35,7 +35,7 @@ import {
 	readJson,
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import {
 	fromJson,
@@ -141,6 +141,15 @@ async function recentAudit(
 	}));
 }
 
+async function workspaceExists(trx: Kysely<Database>, id: string): Promise<boolean> {
+	const row = await trx
+		.selectFrom("workspaces")
+		.select("id")
+		.where("id", "=", id)
+		.executeTakeFirst();
+	return row !== undefined;
+}
+
 /**
  * The admin workspace detail, archive and storage routes (SPEC.md §20.1).
  * An administrator sees aggregates and port facts, never contents
@@ -170,7 +179,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const ownerId = row.owner_user_id as string;
 		const owner = await db
@@ -267,7 +276,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const already = (row.archived_at !== null) === archive;
 		if (!already) {
@@ -308,14 +317,12 @@ export function registerAdminWorkspaceRoutes(
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
-		const body = UpdateQuotaRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateQuotaRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		if (row.state === "provisioning") {
 			return sendError(
@@ -329,7 +336,7 @@ export function registerAdminWorkspaceRoutes(
 		const from = stored
 			? { homeGiB: stored.homeGiB, dockerGiB: stored.dockerGiB }
 			: defaults;
-		const to = body.data;
+		const to = body;
 		if (!isQuotaGrowOnly(from, to)) {
 			return sendError(reply, 400, "VALIDATION_FAILED", QUOTA_SHRINK_MESSAGE);
 		}
@@ -378,10 +385,8 @@ export function registerAdminWorkspaceRoutes(
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
-		const body = UpdateGuardRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateGuardRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 		const id = params.id;
 		const found = await db.transaction().execute(async (trx) => {
 			// Locked, so two administrators' edits merge rather than overwrite.
@@ -394,7 +399,7 @@ export function registerAdminWorkspaceRoutes(
 			if (!row) return false;
 			const from: GuardConfig = fromJson<GuardConfig>(row.guard_config) ?? {};
 			const to: GuardConfig = { ...from };
-			for (const [key, value] of Object.entries(body.data)) {
+			for (const [key, value] of Object.entries(body)) {
 				if (value === undefined) continue;
 				const name = key as keyof GuardConfig;
 				if (value === null) delete to[name];
@@ -419,7 +424,7 @@ export function registerAdminWorkspaceRoutes(
 			return true;
 		});
 		if (!found) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		return reply.status(204).send();
 	});
@@ -447,12 +452,7 @@ export function registerAdminWorkspaceRoutes(
 				.returning("owner_user_id")
 				.executeTakeFirst();
 			if (!cleared) {
-				const exists = await trx
-					.selectFrom("workspaces")
-					.select("id")
-					.where("id", "=", id)
-					.executeTakeFirst();
-				return exists ? "not_set" : "not_found";
+				return (await workspaceExists(trx, id)) ? "not_set" : "not_found";
 			}
 			await trx
 				.deleteFrom("workspace_usage_samples")
@@ -479,7 +479,7 @@ export function registerAdminWorkspaceRoutes(
 			return "cleared";
 		});
 		if (outcome === "not_found") {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		if (outcome === "not_set") {
 			return mark === "cpu_throttle"
@@ -507,13 +507,11 @@ export function registerAdminWorkspaceRoutes(
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
-		const body = UpdateLimitsRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateLimitsRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 		const id = params.id;
 		const host = await loadHostCpu(db);
-		if (body.data.cpu !== null && host && body.data.cpu > host.cpuCount) {
+		if (body.cpu !== null && host && body.cpu > host.cpuCount) {
 			return sendError(
 				reply,
 				400,
@@ -522,9 +520,9 @@ export function registerAdminWorkspaceRoutes(
 			);
 		}
 		const to: WorkspaceLimits = {};
-		if (body.data.cpu !== null) to.cpu = body.data.cpu;
-		if (body.data.memoryMiB !== null) to.memoryMiB = body.data.memoryMiB;
-		if (body.data.processes !== null) to.processes = body.data.processes;
+		if (body.cpu !== null) to.cpu = body.cpu;
+		if (body.memoryMiB !== null) to.memoryMiB = body.memoryMiB;
+		if (body.processes !== null) to.processes = body.processes;
 
 		const found = await db.transaction().execute(async (trx) => {
 			const row = await trx
@@ -564,7 +562,7 @@ export function registerAdminWorkspaceRoutes(
 			return true;
 		});
 		if (!found) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		return reply.status(204).send();
 	});
@@ -594,12 +592,7 @@ export function registerAdminWorkspaceRoutes(
 				.where("state", "=", "error")
 				.executeTakeFirst();
 			if (Number(moved.numUpdatedRows) === 0) {
-				const exists = await trx
-					.selectFrom("workspaces")
-					.select("id")
-					.where("id", "=", id)
-					.executeTakeFirst();
-				return exists ? "not_in_error" : "not_found";
+				return (await workspaceExists(trx, id)) ? "not_in_error" : "not_found";
 			}
 			await recordAudit(trx, {
 				actor: `user:${actor.id}`,
@@ -610,7 +603,7 @@ export function registerAdminWorkspaceRoutes(
 			return "moved";
 		});
 		if (outcome === "not_found") {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		if (outcome === "not_in_error") {
 			return sendError(
@@ -634,7 +627,7 @@ export function registerAdminWorkspaceRoutes(
 		if (!params) return;
 		const row = await loadRow(params.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		if (row.state !== "running") {
 			return sendError(

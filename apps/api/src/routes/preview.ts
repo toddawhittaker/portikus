@@ -12,7 +12,7 @@ import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound } from "../http.js";
 import { fromLoopback } from "../loopback.js";
 import { previewPagePolicy } from "../page-policy.js";
 import {
@@ -199,15 +199,13 @@ export function registerPreviewRoutes(
 
 	app.get("/workspaces/:id/listening", async (request, reply) => {
 		const user = requireUser(request);
-		const params = IdParams.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-		}
-		const workspace = await previewWorkspace(params.data.id, user.id);
+		const params = parseOr400(IdParams, request.params, reply, "invalid workspace id");
+		if (!params) return reply;
+		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
-		return reply.send({ services: servicesOf(params.data.id) });
+		return reply.send({ services: servicesOf(params.id) });
 	});
 
 	/**
@@ -224,7 +222,7 @@ export function registerPreviewRoutes(
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		if (workspace.state !== "running") {
 			return sendError(
@@ -277,24 +275,25 @@ export function registerPreviewRoutes(
 
 	app.post("/workspaces/:id/preview-grants", async (request, reply) => {
 		const user = requireUser(request);
-		const params = IdParams.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-		}
-		const body = PreviewGrantRequest.safeParse(request.body);
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid grant request");
-		}
+		const params = parseOr400(IdParams, request.params, reply, "invalid workspace id");
+		if (!params) return reply;
+		const body = parseOr400(
+			PreviewGrantRequest,
+			request.body,
+			reply,
+			"invalid grant request",
+		);
+		if (!body) return reply;
 
-		const workspace = await previewWorkspace(params.data.id, user.id);
+		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const payload = await issuePreviewGrant(deps, request, reply, {
 			userId: user.id,
-			workspace: { id: params.data.id, label: workspace.label, state: workspace.state },
-			port: body.data.port,
-			presentation: body.data.presentation,
+			workspace: { id: params.id, label: workspace.label, state: workspace.state },
+			port: body.port,
+			presentation: body.presentation,
 			stoppedMessage: "Start the workspace before opening a preview",
 		});
 		return payload ? sendPreviewGrant(reply, payload) : reply;
@@ -319,7 +318,7 @@ export function registerPreviewRoutes(
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		const port = query.data.port;
 		if (!portAllowed(config, port)) {
@@ -378,21 +377,19 @@ export function registerPreviewRoutes(
 	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.post("/workspaces/:id/preview/reset", async (request, reply) => {
 		const user = requireUser(request);
-		const params = IdParams.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-		}
-		const workspace = await previewWorkspace(params.data.id, user.id);
+		const params = parseOr400(IdParams, request.params, reply, "invalid workspace id");
+		if (!params) return reply;
+		const workspace = await previewWorkspace(params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
-		await revokeWorkspacePreviewSessions(db, params.data.id);
+		await revokeWorkspacePreviewSessions(db, params.id);
 		// A reset in this process takes effect at once, not two seconds late.
 		lookups.clear();
-		await bridge.closeForWorkspace(params.data.id);
-		for (const service of servicesOf(params.data.id)) {
+		await bridge.closeForWorkspace(params.id);
+		for (const service of servicesOf(params.id)) {
 			if (service.previewReachability !== "forwarded") continue;
-			await registry.closeForward(params.data.id, service.port).catch(() => undefined);
+			await registry.closeForward(params.id, service.port).catch(() => undefined);
 		}
 		return reply.status(204).send();
 	});
@@ -536,15 +533,7 @@ export function registerPreviewRoutes(
 	async function signedInPreview(
 		request: FastifyRequest,
 		reply: FastifyReply,
-	): Promise<
-		AuthorizeStep<{
-			host: string;
-			parsed: PreviewHostParts;
-			session: PreviewSessionRow;
-			workspace: PreviewLookup["workspace"];
-			liveHelp: PreviewLookup["liveHelp"];
-		}>
-	> {
+	): Promise<AuthorizeStep<SignedInPreview>> {
 		// Only Caddy on this machine may ask. The peer address is used, not
 		// request.ip, which trustProxy would let a forwarded header move.
 		if (!fromLoopback(request)) {
@@ -561,20 +550,8 @@ export function registerPreviewRoutes(
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace, liveHelp } = await lookups.get(token);
-		const address = addressKey(request.ip);
 		if (!session) {
-			// Past the limit a guess costs only the one session query, and a real
-			// cookie from the same network still works (SPEC.md section 24.13).
-			if (overMissLimit(request, reply, address)) {
-				return { refused: page(reply, 429, missLimitPage()) };
-			}
-			// A revoked or expired cookie was real; only a made-up one counts.
-			if (!(await previewTokenIssued(db, token))) cookieMisses.hit(address);
-			// Stopping revokes the sessions; the more specific cause wins.
-			if (await revokedForStoppedWorkspace(db, token, host)) {
-				return { refused: page(reply, 503, stoppedWorkspacePage()) };
-			}
-			return { refused: page(reply, 401, signInPage()) };
+			return { refused: await refuseMissingSession(request, reply, token, host) };
 		}
 
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
@@ -583,19 +560,54 @@ export function registerPreviewRoutes(
 		// An account held at any session gate gets no preview (SPEC.md sections 5.1 and 5.3).
 		if (sessionGate(user)) return { refused: page(reply, 403, refusedPage()) };
 
-		// A runaway page is held to 2,000 requests per 10 seconds.
-		const capped = check(sessionCap, session.id);
-		if (!capped.allowed) {
-			if (capped.firstRefusal) {
-				request.log.warn(
-					{ workspaceId: session.workspace_id, previewSessionId: session.id },
-					"preview session request cap reached",
-				);
-			}
-			reply.header("retry-after", String(capped.retryAfterSeconds));
+		if (overSessionCap(request, reply, session)) {
 			return { refused: page(reply, 429, tooManyRequestsPage()) };
 		}
 		return { ok: { host, parsed, session, workspace, liveHelp } };
+	}
+
+	/** The refusal for a cookie that names no live preview session. */
+	async function refuseMissingSession(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		token: string,
+		host: string,
+	): Promise<FastifyReply> {
+		const address = addressKey(request.ip);
+		// Past the limit a guess costs only the one session query, and a real
+		// cookie from the same network still works (SPEC.md section 24.13).
+		if (overMissLimit(request, reply, address)) {
+			return page(reply, 429, missLimitPage());
+		}
+		// A revoked or expired cookie was real; only a made-up one counts.
+		if (!(await previewTokenIssued(db, token))) cookieMisses.hit(address);
+		// Stopping revokes the sessions; the more specific cause wins.
+		if (await revokedForStoppedWorkspace(db, token, host)) {
+			return page(reply, 503, stoppedWorkspacePage());
+		}
+		return page(reply, 401, signInPage());
+	}
+
+	/**
+	 * Whether this session is past its request cap: a runaway page is held to
+	 * 2,000 requests per 10 seconds. The first refusal is logged, and every
+	 * one is given a retry time.
+	 */
+	function overSessionCap(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		session: PreviewSessionRow,
+	): boolean {
+		const capped = check(sessionCap, session.id);
+		if (capped.allowed) return false;
+		if (capped.firstRefusal) {
+			request.log.warn(
+				{ workspaceId: session.workspace_id, previewSessionId: session.id },
+				"preview session request cap reached",
+			);
+		}
+		reply.header("retry-after", String(capped.retryAfterSeconds));
+		return true;
 	}
 
 	/**
@@ -643,36 +655,56 @@ export function registerPreviewRoutes(
 		return { ok: service };
 	}
 
-	app.get("/preview/authorize", async (request, reply) => {
-		const signedIn = await signedInPreview(request, reply);
-		if ("refused" in signedIn) return signedIn.refused;
-		const { host, parsed, session, workspace, liveHelp } = signedIn.ok;
-
-		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
-		/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */
-		async function denied(reason: PreviewDeniedReason): Promise<FastifyReply> {
-			try {
-				await deniedAudit.record({
-					workspaceId: sessionWorkspaceId,
-					userId: sessionUserId,
-					reason,
-				});
-			} catch (error) {
-				request.log.warn({ err: error, reason }, "preview refusal was not audited");
-			}
-			return page(reply, 403, refusedPage());
+	/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */
+	async function denied(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		session: PreviewSessionRow,
+		reason: PreviewDeniedReason,
+	): Promise<FastifyReply> {
+		try {
+			await deniedAudit.record({
+				workspaceId: session.workspace_id,
+				userId: session.user_id,
+				reason,
+			});
+		} catch (error) {
+			request.log.warn({ err: error, reason }, "preview refusal was not audited");
 		}
+		return page(reply, 403, refusedPage());
+	}
 
-		if (session.preview_host !== host) return denied("host_mismatch");
-		if (session.port !== parsed.port) return denied("port_mismatch");
-		if (!portAllowed(config, session.port)) return denied("port_not_allowed");
+	/**
+	 * The middle authorize steps: the session matches the host, the workspace
+	 * is one the caller may preview and is running, and the port it reaches
+	 * is allowed.
+	 */
+	async function previewTarget(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		{ host, parsed, session, workspace, liveHelp }: SignedInPreview,
+	): Promise<
+		AuthorizeStep<{
+			workspace: NonNullable<PreviewLookup["workspace"]>;
+			agentAddress: string;
+			access: NonNullable<ReturnType<typeof previewAccess>>;
+			port: number;
+			bridged: boolean;
+		}>
+	> {
+		const deny = async (reason: PreviewDeniedReason) => ({
+			refused: await denied(request, reply, session, reason),
+		});
+		if (session.preview_host !== host) return deny("host_mismatch");
+		if (session.port !== parsed.port) return deny("port_mismatch");
+		if (!portAllowed(config, session.port)) return deny("port_not_allowed");
 
-		if (!workspace) return denied("workspace_missing");
+		if (!workspace) return deny("workspace_missing");
 		const access = previewAccess({ session, workspace, liveHelp });
-		if (!access) return denied("not_owner");
-		if (workspace.label !== parsed.label) return denied("label_mismatch");
+		if (!access) return deny("not_owner");
+		if (workspace.label !== parsed.label) return deny("label_mismatch");
 		if (workspace.state !== "running") {
-			return page(reply, 503, stoppedWorkspacePage());
+			return { refused: page(reply, 503, stoppedWorkspacePage()) };
 		}
 
 		// The same-origin port bridge may name another port of this same
@@ -681,21 +713,34 @@ export function registerPreviewRoutes(
 		// session's own port.
 		const headers = request.headers as Record<string, unknown>;
 		const target = parseBridgeUri(headers["x-forwarded-uri"]);
-		if (target.kind === "invalid") return denied("invalid_bridge_path");
+		if (target.kind === "invalid") return deny("invalid_bridge_path");
 		const port = target.kind === "port" ? target.port : session.port;
-		if (!portAllowed(config, port)) return denied("port_not_allowed");
+		if (!portAllowed(config, port)) return deny("port_not_allowed");
 
 		if (!workspace.agent_address) {
-			return page(reply, 503, inactiveServicePage(port));
+			return { refused: page(reply, 503, inactiveServicePage(port)) };
 		}
+		return {
+			ok: {
+				workspace,
+				agentAddress: workspace.agent_address,
+				access,
+				port,
+				bridged: target.kind === "port",
+			},
+		};
+	}
 
-		const reached = await reachableService(
-			request,
-			reply,
-			session,
-			port,
-			target.kind === "port",
-		);
+	app.get("/preview/authorize", async (request, reply) => {
+		const signedIn = await signedInPreview(request, reply);
+		if ("refused" in signedIn) return signedIn.refused;
+		const { session } = signedIn.ok;
+		const found = await previewTarget(request, reply, signedIn.ok);
+		if ("refused" in found) return found.refused;
+		const { workspace, agentAddress, access, port, bridged } = found.ok;
+		const headers = request.headers as Record<string, unknown>;
+
+		const reached = await reachableService(request, reply, session, port, bridged);
 		if ("refused" in reached) return reached.refused;
 		const service = reached.ok;
 
@@ -716,7 +761,7 @@ export function registerPreviewRoutes(
 		// vouched for, never from anything the request carries (SPEC.md §24.7).
 		return (
 			reply
-				.header("x-portikus-upstream", `${workspace.agent_address}:${port}`)
+				.header("x-portikus-upstream", `${agentAddress}:${port}`)
 				// Caddy speaks TLS to the upstream only when this says https (ADR 0041).
 				.header("x-portikus-upstream-scheme", upstreamScheme(settled.protocolHint))
 				.header("cache-control", "no-store")
@@ -730,6 +775,15 @@ export function registerPreviewRoutes(
 type AuthorizeStep<T> = { refused: FastifyReply } | { ok: T };
 
 type PreviewHostParts = NonNullable<ReturnType<typeof parsePreviewHost>>;
+
+/** What the first authorize steps found for a signed-in preview request. */
+type SignedInPreview = {
+	host: string;
+	parsed: PreviewHostParts;
+	session: PreviewSessionRow;
+	workspace: PreviewLookup["workspace"];
+	liveHelp: PreviewLookup["liveHelp"];
+};
 
 /** A page or Preview-iframe navigation the user started. */
 function userNavigation(headers: Record<string, unknown>): boolean {

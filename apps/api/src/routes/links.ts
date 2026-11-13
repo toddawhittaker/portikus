@@ -139,6 +139,16 @@ export function registerLinkRoutes(
 			);
 			return "refused";
 		}
+		return passCode(request, reply, userId, code);
+	}
+
+	/** An authenticator or recovery code for a link, throttled like the sign-in gate. */
+	async function passCode(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		userId: string,
+		code: string,
+	): Promise<"passed" | "refused"> {
 		const allowance = await throttle.allow(request, reply, userId, {
 			sessionId: sessionId(request),
 			eligible: isRecoveryCodeShape(code),
@@ -355,29 +365,20 @@ export function registerLinkRoutes(
 		return reply.header("cache-control", "no-store").send(body);
 	});
 
-	// Link, retire the course account, and sign in to the SSO account.
-	app.post("/me/links/confirm", async (request, reply) => {
-		const input = LinkConfirm.safeParse(request.body ?? {});
-		if (!input.success) {
-			return fail(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				input.error.issues[0]?.message ?? "Enter a code to link.",
-			);
-		}
-		const id = sessionId(request);
-		// Checked before the intent is used, so a wrong code can be retried.
-		const pending = await pendingLinkIntent(db, id);
-		const checked = pending
-			? await passSecondFactor(request, reply, pending.userId, input.data)
-			: "not_needed";
-		if (checked === "refused") return reply;
-		const outcome = await db.transaction().execute(async (trx) => {
+	/**
+	 * Use the session's link intent and, while the course window is still
+	 * open, link the accounts with their audit rows in one transaction.
+	 */
+	async function consumeAndLink(
+		request: FastifyRequest,
+		id: string,
+		pendingUserId: string | undefined,
+	) {
+		return db.transaction().execute(async (trx) => {
 			const intent = await consumeLinkIntent(trx, id);
 			if (!intent) return { kind: "none" as const };
 			// The code or passkey proved this account; any other is never linked.
-			if (intent.userId !== pending?.userId) return { kind: "none" as const };
+			if (intent.userId !== pendingUserId) return { kind: "none" as const };
 			const window = await courseLinkWindow(trx, id);
 			if (!window?.open || window.courseUserId !== intent.courseUserId) {
 				return { kind: "too_late" as const, intent };
@@ -409,32 +410,64 @@ export function registerLinkRoutes(
 			}
 			return { kind: "linked" as const, intent };
 		});
+	}
+
+	/** Audit and answer a link that came too late or was refused. */
+	async function refuseLink(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		outcome: Exclude<
+			Awaited<ReturnType<typeof consumeAndLink>>,
+			{ kind: "none" } | { kind: "linked" }
+		>,
+	) {
+		const { intent } = outcome;
+		const reason = outcome.kind === "too_late" ? "expired" : outcome.reason;
+		await recordAudit(db, {
+			actor: `user:${intent.userId}`,
+			target: intent.userId,
+			action: "user.linked",
+			result: "denied",
+			metadata: {
+				reason,
+				courseUserId: intent.courseUserId,
+				...requestMetadata(request),
+			},
+		});
+		const message =
+			outcome.kind === "too_late"
+				? TOO_LATE
+				: reason === "already_linked"
+					? "This SSO account already has a link from this course system."
+					: "These accounts cannot be linked.";
+		return fail(reply, 400, "VALIDATION_FAILED", message);
+	}
+
+	// Link, retire the course account, and sign in to the SSO account.
+	app.post("/me/links/confirm", async (request, reply) => {
+		const input = LinkConfirm.safeParse(request.body ?? {});
+		if (!input.success) {
+			return fail(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				input.error.issues[0]?.message ?? "Enter a code to link.",
+			);
+		}
+		const id = sessionId(request);
+		// Checked before the intent is used, so a wrong code can be retried.
+		const pending = await pendingLinkIntent(db, id);
+		const checked = pending
+			? await passSecondFactor(request, reply, pending.userId, input.data)
+			: "not_needed";
+		if (checked === "refused") return reply;
+		const outcome = await consumeAndLink(request, id, pending?.userId);
 
 		if (outcome.kind === "none") {
 			return fail(reply, 404, "NOT_FOUND", "No link is waiting.");
 		}
+		if (outcome.kind !== "linked") return refuseLink(request, reply, outcome);
 		const { intent } = outcome;
-		if (outcome.kind !== "linked") {
-			const reason = outcome.kind === "too_late" ? "expired" : outcome.reason;
-			await recordAudit(db, {
-				actor: `user:${intent.userId}`,
-				target: intent.userId,
-				action: "user.linked",
-				result: "denied",
-				metadata: {
-					reason,
-					courseUserId: intent.courseUserId,
-					...requestMetadata(request),
-				},
-			});
-			const message =
-				outcome.kind === "too_late"
-					? TOO_LATE
-					: reason === "already_linked"
-						? "This SSO account already has a link from this course system."
-						: "These accounts cannot be linked.";
-			return fail(reply, 400, "VALIDATION_FAILED", message);
-		}
 
 		const newSession = await startSession(db, auth, reply, intent.userId, {
 			method: "link",

@@ -637,6 +637,51 @@ class Shell:
         self.send(encode_json(EXIT, {"status": self.status}))
         return "exit"
 
+    def from_client(self):
+        """Handles what the client sent; returns the reason the connection ends, or None to go on."""
+        try:
+            data = self.sock.recv(READ_CHUNK)
+        except OSError:
+            data = b""
+        if not data:
+            return "client"
+        for kind, body in self.reader.feed(data):
+            action, value = self.protocol.accept(kind, body)
+            if action == "open":
+                self.start(value)
+            elif action == "input":
+                self.queue(value)
+                if not self.flush():
+                    return self.finish()
+            elif action == "resize":
+                set_size(self.master, *value)
+            else:
+                return "end:" + value
+        return None
+
+    def from_terminal(self, events):
+        """Writes queued input and relays the terminal's output; returns why the connection ends, or None."""
+        if events & selectors.EVENT_WRITE and not self.flush():
+            return self.finish()
+        if not events & selectors.EVENT_READ:
+            return None
+        try:
+            data = os.read(self.master, READ_CHUNK)
+        except BlockingIOError:
+            return None
+        except OSError as e:
+            if e.errno != errno.EIO:
+                raise
+            # No process holds the terminal open, as during login's vhangup()
+            # or after the shell exits; the reap at the top of the loop decides.
+            time.sleep(NO_TERMINAL_POLL)
+            return None
+        if not data:
+            return self.finish()
+        if not self.send(encode(OUTPUT, data)):
+            return "client"
+        return None
+
     def run(self):
         """Serves the connection to its end; returns the reason it ended, a fixed string."""
         selector = selectors.DefaultSelector()
@@ -649,45 +694,9 @@ class Shell:
                 self.learn_session()
                 self.watch(selector)
                 for key, events in selector.select(timeout=0.5):
-                    if key.data == "socket":
-                        try:
-                            data = self.sock.recv(READ_CHUNK)
-                        except OSError:
-                            data = b""
-                        if not data:
-                            return "client"
-                        for kind, body in self.reader.feed(data):
-                            action, value = self.protocol.accept(kind, body)
-                            if action == "open":
-                                self.start(value)
-                            elif action == "input":
-                                self.queue(value)
-                                if not self.flush():
-                                    return self.finish()
-                            elif action == "resize":
-                                set_size(self.master, *value)
-                            else:
-                                return "end:" + value
-                        continue
-                    if events & selectors.EVENT_WRITE and not self.flush():
-                        return self.finish()
-                    if not events & selectors.EVENT_READ:
-                        continue
-                    try:
-                        data = os.read(self.master, READ_CHUNK)
-                    except BlockingIOError:
-                        continue
-                    except OSError as e:
-                        if e.errno != errno.EIO:
-                            raise
-                        # No process holds the terminal open, as during login's vhangup()
-                        # or after the shell exits; the reap at the top of the loop decides.
-                        time.sleep(NO_TERMINAL_POLL)
-                        continue
-                    if not data:
-                        return self.finish()
-                    if not self.send(encode(OUTPUT, data)):
-                        return "client"
+                    reason = self.from_client() if key.data == "socket" else self.from_terminal(events)
+                    if reason is not None:
+                        return reason
         except ProtocolError as e:
             self.refuse(e.code)
             return "protocol"

@@ -41,7 +41,15 @@ function formatIpv6(bytes: number[]): string {
 	for (let index = 0; index < 16; index += 2) {
 		groups.push((((bytes[index] ?? 0) << 8) | (bytes[index + 1] ?? 0)).toString(16));
 	}
-	// Find the longest run of zero groups to replace with "::".
+	const { start: bestStart, length: bestLength } = longestZeroRun(groups);
+	if (bestLength < 2) return groups.join(":");
+	const head = groups.slice(0, bestStart).join(":");
+	const tail = groups.slice(bestStart + bestLength).join(":");
+	return `${head}::${tail}`;
+}
+
+/** The longest run of "0" groups, the one `::` replaces; the first wins a tie. */
+function longestZeroRun(groups: readonly string[]): { start: number; length: number } {
 	let bestStart = -1;
 	let bestLength = 0;
 	let runStart = -1;
@@ -59,37 +67,40 @@ function formatIpv6(bytes: number[]): string {
 			runStart = -1;
 		}
 	}
-	if (bestLength < 2) return groups.join(":");
-	const head = groups.slice(0, bestStart).join(":");
-	const tail = groups.slice(bestStart + bestLength).join(":");
-	return `${head}::${tail}`;
+	return { start: bestStart, length: bestLength };
 }
 
 /** Parse the LISTEN rows out of a `/proc/net/tcp` or `tcp6` file. */
 export function parseProcNetTcp(text: string): ProcListener[] {
 	const listeners: ProcListener[] = [];
 	for (const line of text.split("\n").slice(1)) {
-		const fields = line.trim().split(/\s+/);
-		// sl, local, remote, state, queues, timer, retransmit, uid, timeout, inode
-		if (fields.length < 10) continue;
-		if (fields[3] !== LISTEN_STATE) continue;
-		const [hexAddress, hexPort] = (fields[1] ?? "").split(":");
-		if (!hexAddress || !hexPort) continue;
-		let address: string;
-		try {
-			address = decodeHexAddress(hexAddress);
-		} catch {
-			continue;
-		}
-		const port = Number.parseInt(hexPort, 16);
-		if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
-		const uid = Number.parseInt(fields[7] ?? "", 10);
-		listeners.push({
-			address,
-			port,
-			inode: fields[9] ?? "",
-			uid: Number.isInteger(uid) ? uid : -1,
-		});
+		const listener = parseListenRow(line);
+		if (listener) listeners.push(listener);
 	}
 	return listeners;
+}
+
+/** One row of the file, or null unless it is a well-formed LISTEN row. */
+function parseListenRow(line: string): ProcListener | null {
+	const fields = line.trim().split(/\s+/);
+	// sl, local, remote, state, queues, timer, retransmit, uid, timeout, inode
+	if (fields.length < 10) return null;
+	if (fields[3] !== LISTEN_STATE) return null;
+	const [hexAddress, hexPort] = (fields[1] ?? "").split(":");
+	if (!hexAddress || !hexPort) return null;
+	let address: string;
+	try {
+		address = decodeHexAddress(hexAddress);
+	} catch {
+		return null;
+	}
+	const port = Number.parseInt(hexPort, 16);
+	if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;
+	const uid = Number.parseInt(fields[7] ?? "", 10);
+	return {
+		address,
+		port,
+		inode: fields[9] ?? "",
+		uid: Number.isInteger(uid) ? uid : -1,
+	};
 }

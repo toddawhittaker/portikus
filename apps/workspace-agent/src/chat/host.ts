@@ -354,38 +354,47 @@ export class ChatHost {
 	private handle(message: SDKMessage): void {
 		this.followSession(message);
 		if (this.subagents.handle(message)) return;
+		if (this.handleControl(message)) return;
+		if (message.type === "stream_event" && !this.turnRunning) this.beginTurn();
+		this.requestMade(message);
+		for (const event of this.mapper.map(message)) this.relay(event);
+	}
+
+	/** Messages about the session rather than the conversation; true when handled. */
+	private handleControl(message: SDKMessage): boolean {
 		if (message.type === "system" && message.subtype === "init") {
 			this.sessionStarted(message);
-			return;
+			return true;
 		}
 		// Always allow can switch the mode mid-turn; the picker shows the mode in force.
 		if (message.type === "system" && message.subtype === "status") {
 			if (message.permissionMode) this.modeChanged(message.permissionMode);
-			return;
+			return true;
 		}
 		if (message.type === "system" && message.subtype === "commands_changed") {
 			if (this.session) this.commands.changed(message.commands);
-			return;
+			return true;
 		}
 		if (message.type === "rate_limit_event") {
 			this.planUsage.rateLimit(message.rate_limit_info);
-			return;
+			return true;
 		}
 		if (message.type === "result") {
 			this.resultArrived(message);
-			return;
+			return true;
 		}
-		if (message.type === "stream_event" && !this.turnRunning) this.beginTurn();
-		this.requestMade(message);
-		for (const event of this.mapper.map(message)) {
-			if (event.type === "text.delta") {
-				const text = this.partial?.id === event.messageId ? this.partial.text : "";
-				this.partial = { id: event.messageId, text: text + event.text };
-			} else if (event.type === "message" && this.partial?.id === event.id) {
-				this.partial = null;
-			}
-			this.broadcast(event);
+		return false;
+	}
+
+	/** Broadcast one event, keeping the reply streaming now for late attachers. */
+	private relay(event: ChatEventBody): void {
+		if (event.type === "text.delta") {
+			const text = this.partial?.id === event.messageId ? this.partial.text : "";
+			this.partial = { id: event.messageId, text: text + event.text };
+		} else if (event.type === "message" && this.partial?.id === event.id) {
+			this.partial = null;
 		}
+		this.broadcast(event);
 	}
 
 	private resultArrived(message: Extract<SDKMessage, { type: "result" }>): void {
@@ -520,19 +529,9 @@ export class ChatHost {
 		const partial = this.partial;
 		const cards = this.cards.current;
 		const turnRunning = this.turnRunning;
-		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
-		let context = this.context.figures;
-		try {
-			const messages = await this.sdk.sessionMessages(
-				this.sessionId,
-				this.options.projectDir,
-			);
-			replay = replayHistory(messages, turnRunning);
-			context ??= fromTranscript(messages, this.context.windowTokens);
-		} catch {
-			this.options.log.warn("could not read the chat transcript");
-		}
-		context ??= this.context.current();
+		const history = await this.readHistory(turnRunning, this.context.figures);
+		const replay = history.replay;
+		const context = history.context ?? this.context.current();
 		// What is not known yet arrives as its own event once Claude Code answers.
 		if (this.session && !this.modelList.current) void this.refreshModels(this.session);
 		if (this.session && this.context.windowTokens === null) {
@@ -548,21 +547,7 @@ export class ChatHost {
 		writeLine(socket, JSON.stringify(snapshot));
 		const replayed = [...replay.events, ...this.cards.replayDecisions(replay.events)];
 		for (const event of replayed) writeLine(socket, this.frame(event));
-		// The reply streaming now, as one delta that later deltas append to.
-		if (partial) {
-			writeLine(
-				socket,
-				this.frame({ type: "text.delta", messageId: partial.id, text: partial.text }),
-			);
-		}
-		// A `!` command still running; its "done" event follows.
-		const shell = this.shell;
-		if (
-			shell &&
-			!replay.events.some((event) => event.type === "shell" && event.id === shell.id)
-		) {
-			writeLine(socket, this.frame({ type: "shell", ...withoutKind(shell) }));
-		}
+		this.sendInProgress(socket, partial, replay.events);
 		const held = client.held ?? [];
 		client.held = null;
 		for (const event of held) {
@@ -580,6 +565,55 @@ export class ChatHost {
 		// A figure that arrived during the read was already sent, held.
 		if (context && !held.some((event) => event.type === "context")) {
 			writeLine(socket, this.frame(this.contextEvent(context)));
+		}
+	}
+
+	/**
+	 * The transcript's replay, and the context figures: `figures` when known,
+	 * else read from the transcript. An unreadable transcript replays nothing.
+	 */
+	private async readHistory(
+		turnRunning: boolean,
+		figures: typeof this.context.figures,
+	): Promise<{
+		replay: ReturnType<typeof replayHistory>;
+		context: ReturnType<typeof fromTranscript> | null;
+	}> {
+		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
+		let context = figures;
+		try {
+			const messages = await this.sdk.sessionMessages(
+				this.sessionId,
+				this.options.projectDir,
+			);
+			replay = replayHistory(messages, turnRunning);
+			context ??= fromTranscript(messages, this.context.windowTokens);
+		} catch {
+			this.options.log.warn("could not read the chat transcript");
+		}
+		return { replay, context };
+	}
+
+	/** What the replay cannot hold: the reply streaming now and a running `!` command. */
+	private sendInProgress(
+		socket: Socket,
+		partial: { id: string; text: string } | null,
+		replayed: readonly ChatEventBody[],
+	): void {
+		// The reply streaming now, as one delta that later deltas append to.
+		if (partial) {
+			writeLine(
+				socket,
+				this.frame({ type: "text.delta", messageId: partial.id, text: partial.text }),
+			);
+		}
+		// A `!` command still running; its "done" event follows.
+		const shell = this.shell;
+		if (
+			shell &&
+			!replayed.some((event) => event.type === "shell" && event.id === shell.id)
+		) {
+			writeLine(socket, this.frame({ type: "shell", ...withoutKind(shell) }));
 		}
 	}
 

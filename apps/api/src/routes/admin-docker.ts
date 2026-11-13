@@ -29,7 +29,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql } from "kysely";
 import type { ServerDeps } from "../deps.js";
 import { insertJob, type JobRow, matchedImages, readMatch } from "../docker/seed.js";
-import { sendError } from "../http.js";
+import { parseOr400, sendError } from "../http.js";
 import { imagesDirOf } from "../image/release-notices.js";
 import { readJson, writeRequestFile } from "../job-files.js";
 
@@ -201,14 +201,17 @@ export function registerAdminDockerRoutes(
 	app.put("/admin/docker/settings", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir) return;
 		const admin = requireUser(request);
-		const body = DockerSettingsRequest.safeParse(request.body);
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "Invalid Docker settings.");
-		}
+		const body = parseOr400(
+			DockerSettingsRequest,
+			request.body,
+			reply,
+			"Invalid Docker settings.",
+		);
+		if (!body) return reply;
 		const before = await readSettings(db);
 		const after = {
-			ghcrEnabled: body.data.ghcrEnabled ?? before.ghcrEnabled,
-			seedMaxGiB: body.data.seedMaxGiB ?? before.seedMaxGiB,
+			ghcrEnabled: body.ghcrEnabled ?? before.ghcrEnabled,
+			seedMaxGiB: body.seedMaxGiB ?? before.seedMaxGiB,
 		};
 		const updated = await db
 			.updateTable("settings")

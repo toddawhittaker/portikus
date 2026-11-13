@@ -12,7 +12,13 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Kysely } from "kysely";
 import type { RawData } from "ws";
 import { pipeBackpressure } from "../workspaces/terminal-pipe.js";
-import { encodeFrame, encodeJsonFrame, FrameDecoder, FrameType } from "./frames.js";
+import {
+	encodeFrame,
+	encodeJsonFrame,
+	type Frame,
+	FrameDecoder,
+	FrameType,
+} from "./frames.js";
 
 /** How often an open root shell re-checks its session (ADR 0051, SPEC.md §5.3). */
 export const SESSION_CHECK_INTERVAL_MS = 1000;
@@ -169,7 +175,7 @@ export function pipeRootShell(options: RootShellPipeOptions): RootShellPipe {
 	}
 
 	function fromHelper(chunk: Buffer): void {
-		let frames: ReturnType<FrameDecoder["push"]>;
+		let frames: Frame[];
 		try {
 			frames = decoder.push(chunk);
 		} catch {
@@ -178,27 +184,23 @@ export function pipeRootShell(options: RootShellPipeOptions): RootShellPipe {
 			helper.destroy();
 			return;
 		}
-		for (const frame of frames) {
-			if (frame.type === FrameType.OUTPUT) {
-				if (socket.readyState === socket.OPEN) {
-					socket.send(frame.body, { binary: true });
-					backpressure.apply();
-				}
-			} else if (frame.type === FrameType.EXIT) {
-				endWith("exit");
-				sendJson(socket, { type: "exit" });
-			} else if (frame.type === FrameType.ERROR) {
-				const code = (safeJson(frame.body.toString()) as { code?: unknown } | null)
-					?.code;
-				log.error(
-					{
-						shellId,
-						code: typeof code === "string" && HELPER_CODE.test(code) ? code : "?",
-					},
-					"root shell helper refused the shell",
-				);
-				endWith("exit");
-			}
+		for (const frame of frames) onHelperFrame(frame);
+	}
+
+	function onHelperFrame(frame: Frame): void {
+		if (frame.type === FrameType.OUTPUT) {
+			if (socket.readyState !== socket.OPEN) return;
+			socket.send(frame.body, { binary: true });
+			backpressure.apply();
+		} else if (frame.type === FrameType.EXIT) {
+			endWith("exit");
+			sendJson(socket, { type: "exit" });
+		} else if (frame.type === FrameType.ERROR) {
+			log.error(
+				{ shellId, code: helperErrorCode(frame.body) },
+				"root shell helper refused the shell",
+			);
+			endWith("exit");
 		}
 	}
 
@@ -248,6 +250,12 @@ export function pipeRootShell(options: RootShellPipeOptions): RootShellPipe {
 			socket.close(1001, "server shutting down");
 		},
 	};
+}
+
+/** The helper's error code when it has the expected shape, else "?". */
+function helperErrorCode(body: Buffer): string {
+	const code = (safeJson(body.toString()) as { code?: unknown } | null)?.code;
+	return typeof code === "string" && HELPER_CODE.test(code) ? code : "?";
 }
 
 function safeJson(text: string): unknown {

@@ -311,41 +311,53 @@ SIGNIN_OPTIONAL = ("entraTenantId", "entraRoleSource", "googleDomains", "oidcIss
                    "groups", "googleAdminEmail", "googleServiceAccountKey")
 
 
+ROLES = ("student", "instructor", "admin")
+
+
+def check_google_domains(value):
+    domains = _list(value, MAX_GOOGLE_DOMAINS, 1)
+    return _unique([check_site_host(d) for d in domains])
+
+
+def check_role_groups(groups):
+    if not isinstance(groups, dict) or set(groups) != set(ROLES):
+        raise Refused("invalid_value")
+    return {role: check_group(groups[role]) for role in ROLES}
+
+
+def check_entra_role_source(value):
+    if value not in ENTRA_ROLE_SOURCES:
+        raise Refused("invalid_value")
+    return value
+
+
+# Each optional signin field and its check, in the order they are checked.
+SIGNIN_FIELD_CHECKS = (
+    ("entraTenantId", check_tenant),
+    ("googleDomains", check_google_domains),
+    ("oidcIssuer", check_oidc_issuer),
+    ("clientId", check_identifier),
+    ("groupsClaim", check_groups_claim),
+    ("groups", check_role_groups),
+    ("entraRoleSource", check_entra_role_source),
+    ("googleAdminEmail", check_email),
+    ("googleServiceAccountKey", check_service_account_key),
+)
+
+
 def check_signin(doc):
     """The signin body, every optional field checked whether or not its provider uses it, as zod does."""
     provider = doc["provider"]
     if not isinstance(provider, str) or provider not in PROVIDERS:
         raise Refused("invalid_value")
     out = {"provider": provider}
-    if "entraTenantId" in doc:
-        out["entraTenantId"] = check_tenant(doc["entraTenantId"])
-    if "googleDomains" in doc:
-        domains = _list(doc["googleDomains"], MAX_GOOGLE_DOMAINS, 1)
-        out["googleDomains"] = _unique([check_site_host(d) for d in domains])
-    if "oidcIssuer" in doc:
-        out["oidcIssuer"] = check_oidc_issuer(doc["oidcIssuer"])
-    if "clientId" in doc:
-        out["clientId"] = check_identifier(doc["clientId"])
-    if "groupsClaim" in doc:
-        out["groupsClaim"] = check_groups_claim(doc["groupsClaim"])
-    if "groups" in doc:
-        groups = doc["groups"]
-        if not isinstance(groups, dict) or set(groups) != {"student", "instructor", "admin"}:
-            raise Refused("invalid_value")
-        out["groups"] = {role: check_group(groups[role]) for role in ("student", "instructor", "admin")}
-    if "entraRoleSource" in doc:
-        if doc["entraRoleSource"] not in ENTRA_ROLE_SOURCES:
-            raise Refused("invalid_value")
-        out["entraRoleSource"] = doc["entraRoleSource"]
-    if "googleAdminEmail" in doc:
-        out["googleAdminEmail"] = check_email(doc["googleAdminEmail"])
-    if "googleServiceAccountKey" in doc:
-        out["googleServiceAccountKey"] = check_service_account_key(doc["googleServiceAccountKey"])
+    for field, check in SIGNIN_FIELD_CHECKS:
+        if field in doc:
+            out[field] = check(doc[field])
     secret = doc["clientSecret"]
     out["clientSecret"] = None if secret is None else check_client_secret(secret)
-    for field in SIGNIN_NEEDS[provider]:
-        if field not in out:
-            raise Refused("invalid_value")
+    if any(field not in out for field in SIGNIN_NEEDS[provider]):
+        raise Refused("invalid_value")
     if provider == "dex" and out["clientSecret"] is not None:
         raise Refused("invalid_value")
     rule = group_rule(out)

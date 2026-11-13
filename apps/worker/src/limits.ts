@@ -2,7 +2,7 @@ import { WorkspaceLimits } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { type ControllerClient, controllerErrorCode } from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for limits an administrator changed. */
@@ -84,8 +84,7 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 				processes: wanted.processes ?? null,
 			});
 		} catch (e) {
-			const errorCode =
-				e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+			const errorCode = controllerErrorCode(e);
 			const previous = failures.get(id);
 			failures.set(id, { wanted: key, at: now().getTime() });
 			logger.warn({ workspaceId: id, errorCode }, "limits apply failed");

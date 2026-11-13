@@ -92,7 +92,6 @@ export async function searchProject(
 	runningSearches += 1;
 	options.onChild?.(child);
 
-	const matches: SearchMatch[] = [];
 	let truncated = false;
 	// Once we stop the child ourselves, its exit code means nothing.
 	let stopped = false;
@@ -110,91 +109,9 @@ export async function searchProject(
 	const onAbort = () => stop();
 	options.signal?.addEventListener("abort", onAbort, { once: true });
 
-	// A context line before a match belongs to that match; one after belongs
-	// to the match we last saw. With -C1 there is at most one of each, and a
-	// single line can serve as both when two matches are two lines apart.
-	let pendingBefore: { line: number; text: string } | undefined;
-	// The file ripgrep is currently reporting, from its `begin` message.
-	let currentFile: string | undefined;
-	// The file the most recent match came from, so context never crosses files.
-	let lastMatchFile: string | undefined;
-	// Counted before slicing, because that is the text ripgrep made us handle.
-	let textBytes = 0;
-
+	const collector = new MatchCollector(project.path);
 	const handle = (raw: string) => {
-		let message: RgLine;
-		try {
-			message = JSON.parse(raw) as RgLine;
-		} catch {
-			return;
-		}
-		const data = message.data;
-		if (!data) {
-			return;
-		}
-		if (message.type === "begin") {
-			currentFile = data.path?.text;
-			pendingBefore = undefined;
-			return;
-		}
-		if (message.type === "end") {
-			currentFile = undefined;
-			pendingBefore = undefined;
-			return;
-		}
-		if (data.line_number === undefined) {
-			return;
-		}
-		const fullText = stripNewline(data.lines?.text ?? "");
-		textBytes += Buffer.byteLength(fullText, "utf8");
-		if (textBytes > MAX_TEXT_BYTES) {
-			truncated = true;
-			stop();
-			return;
-		}
-		const text = fullText.slice(0, MAX_LINE_CHARS);
-		if (message.type === "context") {
-			const last = matches.at(-1);
-			if (
-				last &&
-				currentFile !== undefined &&
-				currentFile === lastMatchFile &&
-				isFirstLineAfter(last, data.line_number)
-			) {
-				last.after.push(text);
-			}
-			// The same line may still be the `before` of the next match.
-			pendingBefore = { line: data.line_number, text };
-			return;
-		}
-		if (message.type !== "match") {
-			return;
-		}
-		// rg reports a path that is not valid UTF-8 as bytes only; without a
-		// text path there is nothing safe to return.
-		const pathText = data.path?.text;
-		if (pathText === undefined) {
-			pendingBefore = undefined;
-			return;
-		}
-		const relativePath = insideProject(project.path, pathText);
-		if (relativePath === null) {
-			pendingBefore = undefined;
-			return;
-		}
-		const before =
-			currentFile === pathText ? beforeContext(pendingBefore, data.line_number) : [];
-		pendingBefore = undefined;
-		lastMatchFile = pathText;
-		matches.push({
-			path: relativePath,
-			line: data.line_number,
-			...matchSpan(fullText, data.submatches?.[0]),
-			text,
-			before,
-			after: [],
-		});
-		if (matches.length >= MAX_SEARCH_MATCHES) {
+		if (collector.accept(raw)) {
 			truncated = true;
 			stop();
 		}
@@ -249,7 +166,114 @@ export async function searchProject(
 		options.signal?.removeEventListener("abort", onAbort);
 	}
 
-	return { matches: matches.slice(0, MAX_SEARCH_MATCHES), truncated };
+	return { matches: collector.matches.slice(0, MAX_SEARCH_MATCHES), truncated };
+}
+
+/** Turns ripgrep's `--json` lines into matches with one line of context each side. */
+class MatchCollector {
+	readonly matches: SearchMatch[] = [];
+	// A context line before a match belongs to that match; one after belongs
+	// to the match we last saw. With -C1 there is at most one of each, and a
+	// single line can serve as both when two matches are two lines apart.
+	private pendingBefore: { line: number; text: string } | undefined;
+	// The file ripgrep is currently reporting, from its `begin` message.
+	private currentFile: string | undefined;
+	// The file the most recent match came from, so context never crosses files.
+	private lastMatchFile: string | undefined;
+	// Counted before slicing, because that is the text ripgrep made us handle.
+	private textBytes = 0;
+
+	constructor(private readonly projectPath: string) {}
+
+	/** Take one line of ripgrep output; true when the search should stop. */
+	accept(raw: string): boolean {
+		const message = parseRgLine(raw);
+		if (message === undefined) {
+			return false;
+		}
+		const data = message.data;
+		if (!data) {
+			return false;
+		}
+		if (message.type === "begin" || message.type === "end") {
+			this.currentFile = message.type === "begin" ? data.path?.text : undefined;
+			this.pendingBefore = undefined;
+			return false;
+		}
+		const lineNumber = data.line_number;
+		if (lineNumber === undefined) {
+			return false;
+		}
+		const fullText = stripNewline(data.lines?.text ?? "");
+		this.textBytes += Buffer.byteLength(fullText, "utf8");
+		if (this.textBytes > MAX_TEXT_BYTES) {
+			return true;
+		}
+		const text = fullText.slice(0, MAX_LINE_CHARS);
+		if (message.type === "context") {
+			this.addContext(lineNumber, text);
+			return false;
+		}
+		if (message.type !== "match") {
+			return false;
+		}
+		return this.addMatch(data, lineNumber, fullText, text);
+	}
+
+	private addContext(lineNumber: number, text: string): void {
+		const last = this.matches.at(-1);
+		if (
+			last &&
+			this.currentFile !== undefined &&
+			this.currentFile === this.lastMatchFile &&
+			isFirstLineAfter(last, lineNumber)
+		) {
+			last.after.push(text);
+		}
+		// The same line may still be the `before` of the next match.
+		this.pendingBefore = { line: lineNumber, text };
+	}
+
+	/** Record a match; true once the result is full. */
+	private addMatch(
+		data: NonNullable<RgLine["data"]>,
+		lineNumber: number,
+		fullText: string,
+		text: string,
+	): boolean {
+		// rg reports a path that is not valid UTF-8 as bytes only; without a
+		// text path there is nothing safe to return.
+		const pathText = data.path?.text;
+		const relativePath =
+			pathText === undefined ? null : insideProject(this.projectPath, pathText);
+		if (pathText === undefined || relativePath === null) {
+			this.pendingBefore = undefined;
+			return false;
+		}
+		const before =
+			this.currentFile === pathText
+				? beforeContext(this.pendingBefore, lineNumber)
+				: [];
+		this.pendingBefore = undefined;
+		this.lastMatchFile = pathText;
+		this.matches.push({
+			path: relativePath,
+			line: lineNumber,
+			...matchSpan(fullText, data.submatches?.[0]),
+			text,
+			before,
+			after: [],
+		});
+		return this.matches.length >= MAX_SEARCH_MATCHES;
+	}
+}
+
+function parseRgLine(raw: string): RgLine | undefined {
+	try {
+		return JSON.parse(raw) as RgLine;
+	} catch {
+		return undefined;
+	}
 }
 
 /**

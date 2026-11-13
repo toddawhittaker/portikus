@@ -624,6 +624,47 @@ def agents_health_check(job, candidates, sleep=time.sleep):
 
 # ---- Manifest ----
 
+def image_packages(root, log):
+    """{package: version} from the dpkg database of the unpacked root filesystem."""
+    code, out = run(["dpkg-query", f"--admindir={root}/var/lib/dpkg", "-W",
+                     "-f", "${binary:Package}\\t${Version}\\n"], log=log, capture=True)
+    if code != 0:
+        raise JobFailed("Could not list the image's packages.")
+    packages = {}
+    for line in out.splitlines():
+        name, _, pkg_version = line.partition("\t")
+        if name:
+            packages[name[:200]] = pkg_version[:200]
+    return packages
+
+
+def image_tool_versions(root, log):
+    """{tool: first line of `tool --version`, or None} run inside the unpacked root filesystem."""
+    # A tmpfs /dev with four nodes, not the host's /dev, so nothing in the image reaches host devices.
+    mounted = []
+    tools = {}
+    try:
+        for sub in ("proc", "dev"):
+            if not os.path.isdir(os.path.join(root, sub)) or os.path.islink(os.path.join(root, sub)):
+                raise JobFailed(f"The image has no /{sub} directory.")
+        for argv in (["mount", "-t", "proc", "proc", f"{root}/proc"],
+                     ["mount", "-t", "tmpfs", "-o", "mode=0755,size=1m", "tmpfs", f"{root}/dev"]):
+            if run(argv, log=log)[0] != 0:
+                raise JobFailed("Could not prepare the image to read its tool versions.")
+            mounted.append(argv[-1])
+        for dev, major, minor in (("null", 1, 3), ("zero", 1, 5), ("random", 1, 8), ("urandom", 1, 9)):
+            run(["mknod", "-m", "666", f"{root}/dev/{dev}", "c", str(major), str(minor)], log=log)
+        for tool in TOOLS:
+            code, out = run(["chroot", root, "/usr/bin/env", "-i",
+                             "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/root", tool, "--version"],
+                            log=log, capture=True, timeout=120)
+            tools[tool] = first_line(out)[:200] if code == 0 and first_line(out) else None
+    finally:
+        for point in reversed(mounted):
+            run(["umount", "-l", point], log=log)
+    return tools
+
+
 def manifest_from_squashfs(squashfs, version, recipe_version, source, node, python, log=None):
     """Unpack the image's root filesystem and read its packages and tool versions."""
     work = tempfile.mkdtemp(prefix=".manifest-", dir=os.path.dirname(os.path.abspath(squashfs)))
@@ -632,37 +673,8 @@ def manifest_from_squashfs(squashfs, version, recipe_version, source, node, pyth
         code, _ = run(["unsquashfs", "-no-progress", "-d", root, squashfs], log=log, timeout=1800)
         if code != 0:
             raise JobFailed("Could not unpack the image to read its manifest.")
-        code, out = run(["dpkg-query", f"--admindir={root}/var/lib/dpkg", "-W",
-                         "-f", "${binary:Package}\\t${Version}\\n"], log=log, capture=True)
-        if code != 0:
-            raise JobFailed("Could not list the image's packages.")
-        packages = {}
-        for line in out.splitlines():
-            name, _, pkg_version = line.partition("\t")
-            if name:
-                packages[name[:200]] = pkg_version[:200]
-        # A tmpfs /dev with four nodes, not the host's /dev, so nothing in the image reaches host devices.
-        mounted = []
-        tools = {}
-        try:
-            for sub in ("proc", "dev"):
-                if not os.path.isdir(os.path.join(root, sub)) or os.path.islink(os.path.join(root, sub)):
-                    raise JobFailed(f"The image has no /{sub} directory.")
-            for argv in (["mount", "-t", "proc", "proc", f"{root}/proc"],
-                         ["mount", "-t", "tmpfs", "-o", "mode=0755,size=1m", "tmpfs", f"{root}/dev"]):
-                if run(argv, log=log)[0] != 0:
-                    raise JobFailed("Could not prepare the image to read its tool versions.")
-                mounted.append(argv[-1])
-            for dev, major, minor in (("null", 1, 3), ("zero", 1, 5), ("random", 1, 8), ("urandom", 1, 9)):
-                run(["mknod", "-m", "666", f"{root}/dev/{dev}", "c", str(major), str(minor)], log=log)
-            for tool in TOOLS:
-                code, out = run(["chroot", root, "/usr/bin/env", "-i",
-                                 "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/root", tool, "--version"],
-                                log=log, capture=True, timeout=120)
-                tools[tool] = first_line(out)[:200] if code == 0 and first_line(out) else None
-        finally:
-            for point in reversed(mounted):
-                run(["umount", "-l", point], log=log)
+        packages = image_packages(root, log)
+        tools = image_tool_versions(root, log)
     finally:
         safe_rmtree(work)
     return {
@@ -1108,46 +1120,14 @@ class Runner:
         coding_agents.ensure_bin_links(store)
         work = os.path.join(store, f".staging-{job.id}")
         os.mkdir(work, 0o700)
-        said, failed, pending = {}, set(), {}
+        said, failed = {}, set()
         try:
-            for tool in coding_agents.TOOLS:
-                name = coding_agents.NAMES[tool]
-                job.status("running", f"Downloading {name}")
-                try:
-                    version, outcome = self.agent_candidate(job, work, tool)
-                except (coding_agents.AgentError, JobFailed, OSError, tarfile.TarError) as err:
-                    job.line(f"{name}: {err}")
-                    said[tool] = f"{name} was not switched. {err}"
-                    failed.add(tool)
-                    continue
-                if outcome == "current":
-                    said[tool] = f"{name} is already at {version}."
-                elif outcome == "older":
-                    current = coding_agents.read_link(store, tool, "current")
-                    said[tool] = f"{name} was left at {current}: the vendor offered {version}, which is older."
-                    job.line(f"{name}: the vendor offered {version}, older than {current}")
-                else:
-                    pending[tool] = (version, outcome)
+            pending = self.agent_candidates(job, work, said, failed)
             if pending:
                 job.status("running", "Checking the coding agents")
-                results = agents_health_check(job, {tool: v for tool, (v, _) in pending.items()}, self.sleep)
-                for tool, (version, outcome) in pending.items():
-                    name = coding_agents.NAMES[tool]
-                    if results[tool]:
-                        said[tool] = (f"{name} {version} failed its health check ({', '.join(results[tool])}) "
-                                      "and was not switched.")
-                        failed.add(tool)
-                        if outcome == "new":
-                            coding_agents.remove_version(store, tool, version)
-                        continue
-                    coding_agents.switch(store, tool, version)
-                    said[tool] = f"{name} switched to {version}."
+                self.switch_healthy_agents(job, pending, said, failed)
             job.status("running", "Removing old versions")
-            running = coding_agents.running_files(self.proc_dir)
-            for tool in coding_agents.TOOLS:
-                for version, was_in_use in coding_agents.prune(store, tool, running):
-                    note = " while a process still ran it" if was_in_use else ""
-                    job.line(f"removed {coding_agents.NAMES[tool]} {version}{note}")
+            self.prune_agents(job)
         finally:
             shutil.rmtree(work, ignore_errors=True)
             self.write_agents_state()
@@ -1155,6 +1135,51 @@ class Runner:
         if failed:
             raise JobFailed(message)
         return message
+
+    def agent_candidates(self, job, work, said, failed):
+        """Download each tool; {tool: (version, outcome)} for those that need a health check."""
+        pending = {}
+        for tool in coding_agents.TOOLS:
+            name = coding_agents.NAMES[tool]
+            job.status("running", f"Downloading {name}")
+            try:
+                version, outcome = self.agent_candidate(job, work, tool)
+            except (coding_agents.AgentError, JobFailed, OSError, tarfile.TarError) as err:
+                job.line(f"{name}: {err}")
+                said[tool] = f"{name} was not switched. {err}"
+                failed.add(tool)
+                continue
+            if outcome == "current":
+                said[tool] = f"{name} is already at {version}."
+            elif outcome == "older":
+                current = coding_agents.read_link(self.agents_dir, tool, "current")
+                said[tool] = f"{name} was left at {current}: the vendor offered {version}, which is older."
+                job.line(f"{name}: the vendor offered {version}, older than {current}")
+            else:
+                pending[tool] = (version, outcome)
+        return pending
+
+    def switch_healthy_agents(self, job, pending, said, failed):
+        """Health-check the pending versions and switch each tool whose check passed."""
+        results = agents_health_check(job, {tool: v for tool, (v, _) in pending.items()}, self.sleep)
+        for tool, (version, outcome) in pending.items():
+            name = coding_agents.NAMES[tool]
+            if results[tool]:
+                said[tool] = (f"{name} {version} failed its health check ({', '.join(results[tool])}) "
+                              "and was not switched.")
+                failed.add(tool)
+                if outcome == "new":
+                    coding_agents.remove_version(self.agents_dir, tool, version)
+                continue
+            coding_agents.switch(self.agents_dir, tool, version)
+            said[tool] = f"{name} switched to {version}."
+
+    def prune_agents(self, job):
+        running = coding_agents.running_files(self.proc_dir)
+        for tool in coding_agents.TOOLS:
+            for version, was_in_use in coding_agents.prune(self.agents_dir, tool, running):
+                note = " while a process still ran it" if was_in_use else ""
+                job.line(f"removed {coding_agents.NAMES[tool]} {version}{note}")
 
     def agents_rollback(self, job, request):
         """Swap current and previous for one tool. No health check: the previous one ran before."""
@@ -1523,23 +1548,27 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def print_manifest(args):
+    parser = argparse.ArgumentParser(prog="image-job manifest")
+    parser.add_argument("--squashfs", required=True)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--recipe-version", required=True)
+    parser.add_argument("--source", required=True, choices=("published", "local"))
+    parser.add_argument("--node", required=True, choices=NODE_CHOICES)
+    parser.add_argument("--python", required=True, choices=PYTHON_CHOICES)
+    args = parser.parse_args(args)
+    if not VERSION_RE.fullmatch(args.version):
+        parser.error("--version is not an image version")
+    manifest = manifest_from_squashfs(args.squashfs, args.version, args.recipe_version,
+                                      args.source, args.node, args.python)
+    json.dump(manifest, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main(argv):
     if argv[1:2] == ["manifest"]:
-        parser = argparse.ArgumentParser(prog="image-job manifest")
-        parser.add_argument("--squashfs", required=True)
-        parser.add_argument("--version", required=True)
-        parser.add_argument("--recipe-version", required=True)
-        parser.add_argument("--source", required=True, choices=("published", "local"))
-        parser.add_argument("--node", required=True, choices=NODE_CHOICES)
-        parser.add_argument("--python", required=True, choices=PYTHON_CHOICES)
-        args = parser.parse_args(argv[2:])
-        if not VERSION_RE.fullmatch(args.version):
-            parser.error("--version is not an image version")
-        manifest = manifest_from_squashfs(args.squashfs, args.version, args.recipe_version,
-                                          args.source, args.node, args.python)
-        json.dump(manifest, sys.stdout, indent=2)
-        sys.stdout.write("\n")
-        return 0
+        return print_manifest(argv[2:])
     if argv[1:] == ["recover"]:
         return Runner().run_recover()
     if argv[1:2] == ["first-install"] and len(argv) == 3 and PUBLISHED_RE.fullmatch(argv[2]):

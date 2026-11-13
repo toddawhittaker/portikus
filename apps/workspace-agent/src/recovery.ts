@@ -141,6 +141,20 @@ export async function walkProject(
 	return { paths, fingerprint: hash.digest("hex") };
 }
 
+/** Check a point's ids and find the project it belongs to. */
+async function pointProjectPath(
+	paths: RecoveryPaths,
+	input: { slug: string; projectId: string; pointId: string },
+): Promise<string> {
+	assertId(input.projectId);
+	assertId(input.pointId);
+	const project = await resolveProject(input.slug, paths.homeDir);
+	if (!project.exists) {
+		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
+	}
+	return project.path;
+}
+
 export interface CreatePointInput {
 	slug: string;
 	projectId: string;
@@ -159,14 +173,9 @@ export async function createRecoveryPoint(
 	input: CreatePointInput,
 	signal?: AbortSignal,
 ): Promise<AgentCreateRecoveryPointResponse> {
-	assertId(input.projectId);
-	assertId(input.pointId);
-	const project = await resolveProject(input.slug, paths.homeDir);
-	if (!project.exists) {
-		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
-	}
-	const matcher = await loadRecoveryMatcher(project.path);
-	const walk = await walkProject(project.path, matcher);
+	const projectPath = await pointProjectPath(paths, input);
+	const matcher = await loadRecoveryMatcher(projectPath);
+	const walk = await walkProject(projectPath, matcher);
 	if (input.skipIfFingerprint === walk.fingerprint) {
 		return { created: false, fingerprint: walk.fingerprint };
 	}
@@ -175,7 +184,7 @@ export async function createRecoveryPoint(
 	const final = join(dir, `${input.pointId}.tar.zst`);
 	const partial = `${final}.partial`;
 	try {
-		const written = await writeArchive(project.path, walk.paths, partial, signal);
+		const written = await writeArchive(projectPath, walk.paths, partial, signal);
 		await rename(partial, final);
 		return { created: true, ...written, fingerprint: walk.fingerprint };
 	} catch (error) {
@@ -205,12 +214,7 @@ export async function restoreRecoveryPoint(
 	paths: RecoveryPaths,
 	input: RestorePointInput,
 ): Promise<void> {
-	assertId(input.projectId);
-	assertId(input.pointId);
-	const project = await resolveProject(input.slug, paths.homeDir);
-	if (!project.exists) {
-		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
-	}
+	const projectPath = await pointProjectPath(paths, input);
 	const dir = await pointDirectory(paths.recoveryRoot, input.projectId, false);
 	const archive = join(dir, `${input.pointId}.tar.zst`);
 
@@ -268,11 +272,11 @@ export async function restoreRecoveryPoint(
 		// Kept when either the point's rules or today's rules exclude it, so
 		// nothing that no point ever held is moved aside.
 		const pointRules = await loadRecoveryMatcher(staging);
-		const todayRules = await loadRecoveryMatcher(project.path);
+		const todayRules = await loadRecoveryMatcher(projectPath);
 		const matcher: RecoveryMatcher = {
 			excludes: (path) => pointRules.excludes(path) || todayRules.excludes(path),
 		};
-		await swapIn(project.path, staging, aside, matcher);
+		await swapIn(projectPath, staging, aside, matcher);
 	} finally {
 		await rm(staging, { recursive: true, force: true });
 	}
@@ -491,27 +495,39 @@ async function moveAside(
 	if (names === null) return;
 	for (const name of names) {
 		const rel = dirRel === "" ? name : `${dirRel}/${name}`;
-		const path = join(projectPath, rel);
-		let info: Awaited<ReturnType<typeof lstat>>;
-		try {
-			info = await lstat(path);
-		} catch (error) {
-			if (isMissing(error) || isDenied(error)) continue;
-			throw error;
-		}
-		if (info.isDirectory()) {
-			if (matcher.excludes(`${rel}/`)) continue;
-			if ((await readdirOrNull(path)) === null) continue;
-			await moveDirectoryAside(projectPath, aside, rel, matcher, steps, info.mode);
-		} else if (info.isFile() || info.isSymbolicLink()) {
-			if (matcher.excludes(rel)) continue;
-			// tar skips an unreadable file, so no point holds it.
-			if (info.isFile() && !(await readable(path))) continue;
-			const to = join(aside, rel);
-			await rename(path, to);
-			steps.push({ kind: "moved", from: path, to });
-		}
+		await moveEntryAside(projectPath, aside, rel, matcher, steps);
 	}
+}
+
+/** Move one entry aside, unless it is excluded, unreadable, or gone. */
+async function moveEntryAside(
+	projectPath: string,
+	aside: string,
+	rel: string,
+	matcher: RecoveryMatcher,
+	steps: Step[],
+): Promise<void> {
+	const path = join(projectPath, rel);
+	let info: Awaited<ReturnType<typeof lstat>>;
+	try {
+		info = await lstat(path);
+	} catch (error) {
+		if (isMissing(error) || isDenied(error)) return;
+		throw error;
+	}
+	if (info.isDirectory()) {
+		if (matcher.excludes(`${rel}/`)) return;
+		if ((await readdirOrNull(path)) === null) return;
+		await moveDirectoryAside(projectPath, aside, rel, matcher, steps, info.mode);
+		return;
+	}
+	if (!info.isFile() && !info.isSymbolicLink()) return;
+	if (matcher.excludes(rel)) return;
+	// tar skips an unreadable file, so no point holds it.
+	if (info.isFile() && !(await readable(path))) return;
+	const to = join(aside, rel);
+	await rename(path, to);
+	steps.push({ kind: "moved", from: path, to });
 }
 
 /** Move a directory's contents aside, then remove it unless kept children remain. */

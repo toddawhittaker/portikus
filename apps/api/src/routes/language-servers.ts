@@ -9,7 +9,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400 } from "../http.js";
 import { siteSwitches } from "../site/switches.js";
 import { pipeMessages } from "../workspaces/message-pipe.js";
 import { createPendingWork, workspaceUpgradeGuard } from "../workspaces/presence.js";
@@ -61,17 +61,15 @@ export function registerLanguageServerSocket(
 			preHandler: [
 				workspaceUpgradeGuard(db, config, { ownerOnly: true }),
 				async (request, reply) => {
-					const server = LanguageServerId.safeParse(
-						(request.params as { server?: unknown }).server,
-					);
-					if (!server.success) {
-						return sendError(
+					if (
+						parseOr400(
+							LanguageServerId,
+							(request.params as { server?: unknown }).server,
 							reply,
-							400,
-							"VALIDATION_FAILED",
 							"Unknown language server.",
-						);
-					}
+						) === null
+					)
+						return reply;
 				},
 				// The one ownership gate for this socket, answered before the
 				// upgrade so a refusal is a plain HTTP status (SPEC.md §5.2, §24.6).

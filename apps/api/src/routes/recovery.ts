@@ -235,10 +235,8 @@ export function registerRecoveryRoutes(
 			const user = requireUser(request);
 			const params = parseOr400(PointParam, request.params, reply);
 			if (!params) return;
-			const body = RestoreRecoveryPointRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(RestoreRecoveryPointRequest, request.body ?? {}, reply);
+			if (!body) return reply;
 			const found = await scoped(request, reply);
 			if (!found) return;
 			const { scope, project } = found;
@@ -257,7 +255,7 @@ export function registerRecoveryRoutes(
 					workspaceId: scope.workspaceId,
 					project,
 					point,
-					skipSafetyPoint: body.data.skipSafetyPoint === true,
+					skipSafetyPoint: body.skipSafetyPoint === true,
 				});
 			} finally {
 				releaseLongOperation(scope.workspaceId);
@@ -278,15 +276,13 @@ export function registerRecoveryRoutes(
 			const { scope, project } = found;
 			// Checked here as well as in the agent, so a traversal attempt
 			// never leaves the control plane (SPEC.md §24.6).
-			const path = ProjectPath.safeParse((request.query as { path?: unknown })?.path);
-			if (!path.success) {
-				return sendError(
-					reply,
-					400,
-					"VALIDATION_FAILED",
-					"that path is not inside the project",
-				);
-			}
+			const path = parseOr400(
+				ProjectPath,
+				(request.query as { path?: unknown })?.path,
+				reply,
+				"that path is not inside the project",
+			);
+			if (path === null) return reply;
 			const point = await ownedPoint(params.rpid, project.id, scope.workspaceId, reply);
 			if (!point) return;
 			const agent = requireAgent(scope, reply);
@@ -314,7 +310,7 @@ export function registerRecoveryRoutes(
 					pointId: point.id,
 					query: {
 						projectId: project.id,
-						path: path.data,
+						path,
 						sha256: point.sha256,
 					},
 					signal: AbortSignal.any([

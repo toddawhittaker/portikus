@@ -142,6 +142,15 @@ function firstLine(stderr: string): string {
 	return line ? `: ${line}` : "";
 }
 
+// journald sends a field that is not valid UTF-8 as an array of bytes.
+function messageText(field: unknown): string | null {
+	if (typeof field === "string") return field;
+	if (Array.isArray(field) && field.every((b) => typeof b === "number")) {
+		return Buffer.from(field as number[]).toString("utf8");
+	}
+	return null;
+}
+
 /** One `--output=json` line as an entry, or null when it is not a usable one. */
 export function parseJournalLine(text: string): JournalEntry | null {
 	let raw: unknown;
@@ -164,19 +173,24 @@ export function parseJournalLine(text: string): JournalEntry | null {
 	if (typeof micros !== "string" || !/^[0-9]+$/.test(micros)) return null;
 	const at = new Date(Number(BigInt(micros) / 1000n));
 
-	// journald sends a field that is not valid UTF-8 as an array of bytes.
-	const field = record.MESSAGE;
-	let message: string | null = null;
-	if (typeof field === "string") message = field;
-	else if (Array.isArray(field) && field.every((b) => typeof b === "number")) {
-		message = Buffer.from(field as number[]).toString("utf8");
-	}
+	const message = messageText(record.MESSAGE);
 	if (kernel) {
 		// Every other kernel line is dropped unread (docs/adr/0036).
 		const line = kernelLineMessage(message, at);
 		return line === null ? null : { cursor, at, service, message: line };
 	}
 	return { cursor, at, service, message };
+}
+
+/** The error for a journalctl run that failed, or null when it finished normally. */
+function exitFailure(code: number | null, stderr: string): LogsUnavailableError | null {
+	if (PERMISSION_HINTS.some((hint) => stderr.includes(hint))) {
+		return new LogsUnavailableError("journalctl may not read the journal");
+	}
+	// With --grep, journalctl exits 1 and prints nothing when no entry matches.
+	const noMatch = code === 1 && stderr.trim() === "";
+	if (code === 0 || noMatch) return null;
+	return new LogsUnavailableError(`journalctl exited ${code}${firstLine(stderr)}`);
 }
 
 export interface JournalReaderOptions {
@@ -298,18 +312,10 @@ export class JournalReader {
 					return;
 				}
 				// A truncated last line (no newline) is dropped as unreadable.
-				const refused = PERMISSION_HINTS.some((hint) => stderr.includes(hint));
-				// With --grep, journalctl exits 1 and prints nothing when no entry matches.
-				const noMatch = code === 1 && stderr.trim() === "";
-				if (refused || (code !== 0 && !noMatch)) {
+				const failure = exitFailure(code, stderr);
+				if (failure) {
 					settled = true;
-					reject(
-						new LogsUnavailableError(
-							refused
-								? "journalctl may not read the journal"
-								: `journalctl exited ${code}${firstLine(stderr)}`,
-						),
-					);
+					reject(failure);
 					return;
 				}
 				settle({ lastCursor, reason: "end" });

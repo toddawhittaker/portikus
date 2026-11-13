@@ -166,14 +166,11 @@ export function registerSigninThrottle(
 		await reply.status(429).send(body);
 	}
 
-	app.addHook("onRequest", async (request, reply) => {
-		const url = request.routeOptions.url ?? "";
-		if (START_ROUTES.has(url)) {
-			const decision = throttle.checkStart(request.ip);
-			if (!decision.allowed) await refuse(request, reply, decision);
-			return;
-		}
-		if (url !== EDGE_THROTTLE_PATH) return;
+	/** Caddy's question before it forwards a request: 204 to let it through. */
+	async function answerEdge(
+		request: FastifyRequest,
+		reply: FastifyReply,
+	): Promise<void> {
 		// Only Caddy on this machine may ask. The peer address is checked, not
 		// request.ip, which trustProxy lets X-Forwarded-For move.
 		if (!fromLoopback(request)) {
@@ -190,6 +187,16 @@ export function registerSigninThrottle(
 			}
 		}
 		await reply.status(204).send();
+	}
+
+	app.addHook("onRequest", async (request, reply) => {
+		const url = request.routeOptions.url ?? "";
+		if (START_ROUTES.has(url)) {
+			const decision = throttle.checkStart(request.ip);
+			if (!decision.allowed) await refuse(request, reply, decision);
+			return;
+		}
+		if (url === EDGE_THROTTLE_PATH) await answerEdge(request, reply);
 	});
 	return throttle;
 }

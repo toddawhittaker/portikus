@@ -51,13 +51,15 @@ export class AlertGate {
 	}
 }
 
+type Send = (alert: Alert, channels: AlertChannels) => Promise<ChannelResult[]>;
+
 export interface AlertForwarderOptions {
 	db: Kysely<Database>;
 	logger: Logger;
 	/** The channels as they are now; read at each tick, so a settings change needs no restart (ADR 0052). */
 	loadChannels: () => Promise<AlertChannels>;
 	now?: () => Date;
-	send?: (alert: Alert, channels: AlertChannels) => Promise<ChannelResult[]>;
+	send?: Send;
 }
 
 /**
@@ -87,24 +89,7 @@ export function createAlertForwarder(
 			// `since` stays put, so these alerts go out once the file reads again.
 			return;
 		}
-		const rows = await db
-			.selectFrom("notifications")
-			.innerJoin("users", "users.id", "notifications.user_id")
-			.select(["notifications.title", "notifications.body", "notifications.tone"])
-			.select((eb) => eb.fn.max("notifications.created_at").as("at"))
-			.where("users.role", "=", "administrator")
-			// Personal notices to an administrator stay on the site.
-			.where("notifications.site_alert", "=", true)
-			.where("notifications.tone", "in", ["warning", "danger"])
-			// At the Date's precision, or the newest row stays newer than `since`.
-			.where(
-				sql<Date>`date_trunc('milliseconds', notifications.created_at)`,
-				">",
-				since,
-			)
-			.groupBy(["notifications.title", "notifications.body", "notifications.tone"])
-			.orderBy("at")
-			.execute();
+		const rows = await adminAlertsSince(db, since);
 		// Rows read while no channel is set are passed over, never sent later.
 		const live = anyAlertChannel(channels) ? channels : null;
 		for (const row of rows) {
@@ -121,20 +106,57 @@ export function createAlertForwarder(
 				tone: row.tone === "danger" ? "danger" : "warning",
 				at,
 			};
-			try {
-				for (const result of await send(alert, live)) {
-					if (result.ok) logger.info({ channel: result.channel }, "alert sent");
-					else
-						logger.warn(
-							{ channel: result.channel, error: result.error },
-							"alert could not be sent",
-						);
-				}
-			} catch (e) {
-				logger.warn({ error: errorMessage(e) }, "alert could not be sent");
-			}
+			await forward(send, alert, live, logger);
 		}
 	};
+}
+
+/**
+ * Warning and danger site alerts for administrators created after `since`,
+ * one row per distinct alert, oldest first.
+ */
+function adminAlertsSince(db: Kysely<Database>, since: Date) {
+	return (
+		db
+			.selectFrom("notifications")
+			.innerJoin("users", "users.id", "notifications.user_id")
+			.select(["notifications.title", "notifications.body", "notifications.tone"])
+			.select((eb) => eb.fn.max("notifications.created_at").as("at"))
+			.where("users.role", "=", "administrator")
+			// Personal notices to an administrator stay on the site.
+			.where("notifications.site_alert", "=", true)
+			.where("notifications.tone", "in", ["warning", "danger"])
+			// At the Date's precision, or the newest row stays newer than `since`.
+			.where(
+				sql<Date>`date_trunc('milliseconds', notifications.created_at)`,
+				">",
+				since,
+			)
+			.groupBy(["notifications.title", "notifications.body", "notifications.tone"])
+			.orderBy("at")
+			.execute()
+	);
+}
+
+/** Send one alert and log each channel's outcome; a failed send is logged, never thrown. */
+async function forward(
+	send: Send,
+	alert: Alert,
+	channels: AlertChannels,
+	logger: Logger,
+): Promise<void> {
+	try {
+		for (const result of await send(alert, channels)) {
+			if (result.ok) logger.info({ channel: result.channel }, "alert sent");
+			else
+				logger.warn(
+					{ channel: result.channel, error: result.error },
+					"alert could not be sent",
+				);
+		}
+	} catch (e) {
+		logger.warn({ error: errorMessage(e) }, "alert could not be sent");
+	}
 }
 
 /** Forward now and then every ALERT_FORWARD_SECONDS; returns a stop function. */

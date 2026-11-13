@@ -16,6 +16,11 @@ export function sendError(
 	return reply.status(statusCode).send(body);
 }
 
+/** The 404 for a workspace that does not exist or that the caller may not see. */
+export function sendWorkspaceNotFound(reply: FastifyReply): FastifyReply {
+	return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+}
+
 /** sendError for responses that must never be cached. */
 export function sendNoStoreError(
 	reply: FastifyReply,

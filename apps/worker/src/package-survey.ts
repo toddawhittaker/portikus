@@ -5,7 +5,11 @@ import {
 import type { Database } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import {
+	type ControllerClient,
+	ControllerClientError,
+	controllerErrorCode,
+} from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a running workspace not yet surveyed today. */
@@ -59,27 +63,15 @@ export function createPackageSurvey(
 
 			for (const row of rows) {
 				if (!row.incus_instance_name) continue;
-				let list: AddedPackagesResponse | null;
-				try {
-					list = await controller.addedPackages(row.incus_instance_name);
-					// No image header and no packages: the workspace has no list yet.
-					if (list.image === null && list.packages.length === 0) list = null;
-				} catch (e) {
-					if (
-						e instanceof ControllerClientError &&
-						(e.code === "NOT_FOUND" || e.code === "BAD_REQUEST")
-					) {
-						list = null;
-					} else {
-						const errorCode =
-							e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
-						logger.warn(
-							{ workspaceId: row.id, errorCode },
-							"package survey read failed",
-						);
-						continue;
-					}
+				const read = await readAddedPackages(controller, row.incus_instance_name);
+				if ("errorCode" in read) {
+					logger.warn(
+						{ workspaceId: row.id, errorCode: read.errorCode },
+						"package survey read failed",
+					);
+					continue;
 				}
+				const { list } = read;
 				await record(row.id, day, list);
 			}
 
@@ -134,6 +126,32 @@ export function createPackageSurvey(
 				)
 				.execute();
 		});
+	}
+}
+
+/**
+ * A workspace's added-package list, null when it has no readable list, or
+ * the error code when the controller could not be reached.
+ */
+async function readAddedPackages(
+	controller: ControllerClient,
+	instance: string,
+): Promise<{ list: AddedPackagesResponse | null } | { errorCode: string }> {
+	try {
+		const list = await controller.addedPackages(instance);
+		// No image header and no packages: the workspace has no list yet.
+		if (list.image === null && list.packages.length === 0) return { list: null };
+		return { list };
+	} catch (e) {
+		if (
+			e instanceof ControllerClientError &&
+			(e.code === "NOT_FOUND" || e.code === "BAD_REQUEST")
+		) {
+			return { list: null };
+		}
+		return {
+			errorCode: controllerErrorCode(e),
+		};
 	}
 }
 

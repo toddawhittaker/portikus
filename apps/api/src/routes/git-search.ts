@@ -13,7 +13,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AGENT_TIMEOUT_MS } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400 } from "../http.js";
 import {
 	GIT_DIFF_BUDGET_MS,
 	GIT_STATUS_BUDGET_MS,
@@ -48,15 +48,18 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 	app.get("/workspaces/:id/projects/:pid/git/status", async (request, reply) => {
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
-		const query = GitStatusQuery.safeParse(request.query ?? {});
-		if (!query.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "hidden must be true or false");
-		}
+		const query = parseOr400(
+			GitStatusQuery,
+			request.query ?? {},
+			reply,
+			"hidden must be true or false",
+		);
+		if (!query) return reply;
 		return relayJson(
 			reply,
 			request.log,
 			scope.agent,
-			agentUrl(scope.slug, "git/status", { hidden: String(query.data.hidden) }),
+			agentUrl(scope.slug, "git/status", { hidden: String(query.hidden) }),
 			GitStatus,
 			AbortSignal.timeout(GIT_STATUS_BUDGET_MS),
 		);
@@ -69,23 +72,19 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
 		const query = (request.query ?? {}) as { path?: unknown; ref?: unknown };
-		const path = ProjectPath.safeParse(query.path);
-		if (!path.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"that path is not inside the project",
-			);
-		}
+		const path = parseOr400(
+			ProjectPath,
+			query.path,
+			reply,
+			"that path is not inside the project",
+		);
+		if (path === null) return reply;
 		// An optional ref compares with that commit instead of HEAD.
-		const params: Record<string, string> = { path: path.data };
+		const params: Record<string, string> = { path };
 		if (query.ref !== undefined) {
-			const ref = GitRef.safeParse(query.ref);
-			if (!ref.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "That Git ref is not valid.");
-			}
-			params.ref = ref.data;
+			const ref = parseOr400(GitRef, query.ref, reply, "That Git ref is not valid.");
+			if (ref === null) return reply;
+			params.ref = ref;
 		}
 		return relayJson(
 			reply,
@@ -105,22 +104,18 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 	app.get("/workspaces/:id/projects/:pid/baseline-status", async (request, reply) => {
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
-		const object = BaselineObject.safeParse(
+		const object = parseOr400(
+			BaselineObject,
 			(request.query as { object?: unknown })?.object,
+			reply,
+			"object must be a Git object id",
 		);
-		if (!object.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"object must be a Git object id",
-			);
-		}
+		if (object === null) return reply;
 		return relayJson(
 			reply,
 			request.log,
 			scope.agent,
-			agentUrl(scope.slug, "baseline-status", { object: object.data }),
+			agentUrl(scope.slug, "baseline-status", { object }),
 			GitStatus,
 			AbortSignal.timeout(GIT_STATUS_BUDGET_MS),
 		);
@@ -130,29 +125,25 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
 		const query = request.query as { object?: unknown; path?: unknown };
-		const object = BaselineObject.safeParse(query.object);
-		if (!object.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"object must be a Git object id",
-			);
-		}
-		const path = ProjectPath.safeParse(query.path);
-		if (!path.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"that path is not inside the project",
-			);
-		}
+		const object = parseOr400(
+			BaselineObject,
+			query.object,
+			reply,
+			"object must be a Git object id",
+		);
+		if (object === null) return reply;
+		const path = parseOr400(
+			ProjectPath,
+			query.path,
+			reply,
+			"that path is not inside the project",
+		);
+		if (path === null) return reply;
 		return relayJson(
 			reply,
 			request.log,
 			scope.agent,
-			agentUrl(scope.slug, "baseline-diff", { object: object.data, path: path.data }),
+			agentUrl(scope.slug, "baseline-diff", { object, path }),
 			GitDiff,
 			AbortSignal.timeout(GIT_DIFF_BUDGET_MS),
 		);
@@ -162,15 +153,13 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 	app.get("/workspaces/:id/projects/:pid/search", async (request, reply) => {
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
-		const query = SearchQuery.safeParse(request.query ?? {});
-		if (!query.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"that search query is not valid",
-			);
-		}
+		const query = parseOr400(
+			SearchQuery,
+			request.query ?? {},
+			reply,
+			"that search query is not valid",
+		);
+		if (!query) return reply;
 
 		// A browser that cancels a superseded search must kill the ripgrep
 		// behind it, so the cancellation is carried to the agent
@@ -185,11 +174,11 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 				request.log,
 				scope.agent,
 				agentUrl(scope.slug, "search", {
-					q: query.data.q,
-					hidden: String(query.data.hidden),
-					regex: String(query.data.regex),
-					caseSensitive: String(query.data.caseSensitive),
-					wholeWord: String(query.data.wholeWord),
+					q: query.q,
+					hidden: String(query.hidden),
+					regex: String(query.regex),
+					caseSensitive: String(query.caseSensitive),
+					wholeWord: String(query.wholeWord),
 				}),
 				RelayedSearchResponse,
 				controller.signal,

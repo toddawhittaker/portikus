@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AGENT_TIMEOUT_MS } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400 } from "../http.js";
 import { relayJson } from "../workspaces/agent-relay.js";
 import { agentUrl, scopedProject } from "../workspaces/project-scope.js";
 
@@ -42,15 +42,13 @@ export function registerFileSearchRoutes(app: FastifyInstance, deps: ServerDeps)
 		});
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
-		const body = FileNameSearchRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"that file search is not valid",
-			);
-		}
+		const body = parseOr400(
+			FileNameSearchRequest,
+			request.body ?? {},
+			reply,
+			"that file search is not valid",
+		);
+		if (!body) return reply;
 
 		const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
 		try {
@@ -61,7 +59,7 @@ export function registerFileSearchRoutes(app: FastifyInstance, deps: ServerDeps)
 				agentUrl(scope.slug, "file-search"),
 				RelayedFileNames,
 				controller.signal,
-				body.data,
+				body,
 			);
 		} finally {
 			clearTimeout(timer);

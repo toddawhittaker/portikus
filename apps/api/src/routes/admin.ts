@@ -68,7 +68,8 @@ const SETTINGS_COLUMNS = [
 	"updated_at",
 ] as const;
 
-function toPlatformSettings(row: {
+/** A settings row as `SETTINGS_COLUMNS` reads it. */
+type SettingsRow = {
 	shutdown_grace_seconds: number;
 	log_level: string | null;
 	cpu_guard_threshold_percent: number;
@@ -87,7 +88,12 @@ function toPlatformSettings(row: {
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
 	updated_at: Date | null;
-}): PlatformSettings {
+};
+
+/** One audit row a settings change writes, before the request's own fields. */
+type SettingsAudit = { action: string; details: Record<string, unknown> };
+
+function toPlatformSettings(row: SettingsRow): PlatformSettings {
 	return {
 		shutdownGraceSeconds: row.shutdown_grace_seconds,
 		logLevel: toLogLevel(row.log_level),
@@ -117,7 +123,7 @@ function toPlatformSettings(row: {
  */
 function applyCodeHelpLanguages(
 	changes: SettingsUpdate,
-	audits: { action: string; details: Record<string, unknown> }[],
+	audits: SettingsAudit[],
 	stored: readonly string[],
 	requested: readonly string[] | undefined,
 ): void {
@@ -127,6 +133,122 @@ function applyCodeHelpLanguages(
 	if (from.join() === to.join()) return;
 	changes.code_help_languages = to;
 	audits.push({ action: "settings.code_help_updated", details: { from, to } });
+}
+
+/** The grace period and the log level, each with its own audit row. */
+function applyNamedSettings(
+	changes: SettingsUpdate,
+	audits: SettingsAudit[],
+	before: SettingsRow,
+	body: UpdatePlatformSettingsRequest,
+): void {
+	if (body.shutdownGraceSeconds !== undefined) {
+		changes.shutdown_grace_seconds = body.shutdownGraceSeconds;
+		audits.push({
+			action: "settings.shutdown_grace_updated",
+			details: {
+				from: before.shutdown_grace_seconds,
+				to: body.shutdownGraceSeconds,
+			},
+		});
+	}
+	if (body.logLevel !== undefined) {
+		changes.log_level = body.logLevel;
+		audits.push({
+			action: "settings.log_level_updated",
+			details: {
+				from: toLogLevel(before.log_level),
+				to: body.logLevel,
+			},
+		});
+	}
+}
+
+/**
+ * The guard numbers, idle lift and throttle hold included, share one audit
+ * row with only the keys whose value changed.
+ */
+function applyGuardSettings(
+	changes: SettingsUpdate,
+	audits: SettingsAudit[],
+	before: SettingsRow,
+	body: UpdatePlatformSettingsRequest,
+): void {
+	const guardFields = [
+		["cpuGuardThresholdPercent", "cpu_guard_threshold_percent"],
+		["memoryGuardThresholdPercent", "memory_guard_threshold_percent"],
+		["guardWindowMinutes", "guard_window_minutes"],
+		["cpuThrottleSharePercent", "cpu_throttle_share_percent"],
+		["cpuIdleLiftMinutes", "cpu_idle_lift_minutes"],
+		["cpuIdleLiftPercent", "cpu_idle_lift_percent"],
+		["cpuThrottleHoldAfter", "cpu_throttle_hold_after"],
+		["cpuThrottleHoldHours", "cpu_throttle_hold_hours"],
+	] as const;
+	const guardFrom: Record<string, number> = {};
+	const guardTo: Record<string, number> = {};
+	for (const [field, column] of guardFields) {
+		const value = body[field];
+		if (value === undefined || value === before[column]) continue;
+		changes[column] = value;
+		guardFrom[field] = before[column];
+		guardTo[field] = value;
+	}
+	if (Object.keys(guardTo).length > 0) {
+		audits.push({
+			action: "settings.resource_guard_updated",
+			details: {
+				from: guardFrom,
+				to: guardTo,
+			},
+		});
+	}
+}
+
+/** Each of these is one value with its own from-to audit row. */
+function applySingleSettings(
+	changes: SettingsUpdate,
+	audits: SettingsAudit[],
+	before: SettingsRow,
+	body: UpdatePlatformSettingsRequest,
+): void {
+	const singleFields = [
+		["idleStopMinutes", "idle_stop_minutes", "settings.idle_stop_updated"],
+		["keepRunningMaxHours", "keep_running_max_hours", "settings.keep_running_updated"],
+		["voiceInputEnabled", "voice_input_enabled", "settings.voice_input_updated"],
+		["accountEmailEnabled", "account_email_enabled", "settings.account_email_updated"],
+	] as const;
+	for (const [field, column, action] of singleFields) {
+		const value = body[field];
+		if (value === undefined || value === before[column]) continue;
+		Object.assign(changes, { [column]: value });
+		audits.push({ action, details: { from: before[column], to: value } });
+	}
+}
+
+/**
+ * Any change to the text everyone sees asks everyone to accept again; the
+ * audit row holds versions, never the text.
+ */
+function applyAcceptableUse(
+	changes: SettingsUpdate,
+	audits: SettingsAudit[],
+	before: SettingsRow,
+	requested: string | null | undefined,
+): void {
+	if (requested === undefined) return;
+	changes.acceptable_use_text = requested;
+	const oldText = before.acceptable_use_text ?? DEFAULT_ACCEPTABLE_USE_TEXT;
+	const newText = requested ?? DEFAULT_ACCEPTABLE_USE_TEXT;
+	if (oldText !== newText) {
+		changes.acceptable_use_version = before.acceptable_use_version + 1;
+		audits.push({
+			action: "settings.acceptable_use_updated",
+			details: {
+				fromVersion: before.acceptable_use_version,
+				toVersion: before.acceptable_use_version + 1,
+			},
+		});
+	}
 }
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -165,10 +287,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	app.put("/admin/settings", adminOnly, async (request, reply) => {
 		const user = requireUser(request);
 
-		const body = UpdatePlatformSettingsRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdatePlatformSettingsRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const before = await db
 			.selectFrom("settings")
@@ -184,101 +304,17 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			updated_at: new Date().toISOString(),
 			updated_by: user.id,
 		};
-		const audits: { action: string; details: Record<string, unknown> }[] = [];
-		if (body.data.shutdownGraceSeconds !== undefined) {
-			changes.shutdown_grace_seconds = body.data.shutdownGraceSeconds;
-			audits.push({
-				action: "settings.shutdown_grace_updated",
-				details: {
-					from: before.shutdown_grace_seconds,
-					to: body.data.shutdownGraceSeconds,
-				},
-			});
-		}
-		if (body.data.logLevel !== undefined) {
-			changes.log_level = body.data.logLevel;
-			audits.push({
-				action: "settings.log_level_updated",
-				details: {
-					from: toLogLevel(before.log_level),
-					to: body.data.logLevel,
-				},
-			});
-		}
-
-		// The guard numbers, idle lift and throttle hold included, share one audit row with only the keys whose value changed.
-		const guardFields = [
-			["cpuGuardThresholdPercent", "cpu_guard_threshold_percent"],
-			["memoryGuardThresholdPercent", "memory_guard_threshold_percent"],
-			["guardWindowMinutes", "guard_window_minutes"],
-			["cpuThrottleSharePercent", "cpu_throttle_share_percent"],
-			["cpuIdleLiftMinutes", "cpu_idle_lift_minutes"],
-			["cpuIdleLiftPercent", "cpu_idle_lift_percent"],
-			["cpuThrottleHoldAfter", "cpu_throttle_hold_after"],
-			["cpuThrottleHoldHours", "cpu_throttle_hold_hours"],
-		] as const;
-		const guardFrom: Record<string, number> = {};
-		const guardTo: Record<string, number> = {};
-		for (const [field, column] of guardFields) {
-			const value = body.data[field];
-			if (value === undefined || value === before[column]) continue;
-			changes[column] = value;
-			guardFrom[field] = before[column];
-			guardTo[field] = value;
-		}
-		if (Object.keys(guardTo).length > 0) {
-			audits.push({
-				action: "settings.resource_guard_updated",
-				details: {
-					from: guardFrom,
-					to: guardTo,
-				},
-			});
-		}
-		// Each of these is one value with its own from-to audit row.
-		const singleFields = [
-			["idleStopMinutes", "idle_stop_minutes", "settings.idle_stop_updated"],
-			[
-				"keepRunningMaxHours",
-				"keep_running_max_hours",
-				"settings.keep_running_updated",
-			],
-			["voiceInputEnabled", "voice_input_enabled", "settings.voice_input_updated"],
-			[
-				"accountEmailEnabled",
-				"account_email_enabled",
-				"settings.account_email_updated",
-			],
-		] as const;
-		for (const [field, column, action] of singleFields) {
-			const value = body.data[field];
-			if (value === undefined || value === before[column]) continue;
-			Object.assign(changes, { [column]: value });
-			audits.push({ action, details: { from: before[column], to: value } });
-		}
+		const audits: SettingsAudit[] = [];
+		applyNamedSettings(changes, audits, before, body);
+		applyGuardSettings(changes, audits, before, body);
+		applySingleSettings(changes, audits, before, body);
 		applyCodeHelpLanguages(
 			changes,
 			audits,
 			before.code_help_languages,
-			body.data.codeHelpLanguages,
+			body.codeHelpLanguages,
 		);
-		if (body.data.acceptableUseText !== undefined) {
-			changes.acceptable_use_text = body.data.acceptableUseText;
-			// Any change to the text everyone sees asks everyone to accept again;
-			// the audit row holds versions, never the text.
-			const oldText = before.acceptable_use_text ?? DEFAULT_ACCEPTABLE_USE_TEXT;
-			const newText = body.data.acceptableUseText ?? DEFAULT_ACCEPTABLE_USE_TEXT;
-			if (oldText !== newText) {
-				changes.acceptable_use_version = before.acceptable_use_version + 1;
-				audits.push({
-					action: "settings.acceptable_use_updated",
-					details: {
-						fromVersion: before.acceptable_use_version,
-						toVersion: before.acceptable_use_version + 1,
-					},
-				});
-			}
-		}
+		applyAcceptableUse(changes, audits, before, body.acceptableUseText);
 
 		// The change and its audit rows commit together (SPEC.md §24.11).
 		const updated = await db.transaction().execute(async (trx) => {
@@ -308,12 +344,15 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	});
 
 	app.get("/admin/users", adminOnly, async (request, reply) => {
-		const query = AdminUsersQuery.safeParse(request.query);
-		if (!query.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid users query");
-		}
+		const query = parseOr400(
+			AdminUsersQuery,
+			request.query,
+			reply,
+			"invalid users query",
+		);
+		if (!query) return reply;
 		// Markers are computed over every account; only then does a page cut the list.
-		const page = queryAdminUsers(await listAdminUsers(deps), query.data);
+		const page = queryAdminUsers(await listAdminUsers(deps), query);
 		const body: AdminUserList = { ...page, dexUsers: deps.dex !== undefined };
 		return body;
 	});
@@ -467,10 +506,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
 
-		const body = UpdateAdminUserSettingsRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateAdminUserSettingsRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const before = await db
 			.selectFrom("users")
@@ -486,7 +523,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			const row = await trx
 				.updateTable("users")
 				.set({
-					shutdown_grace_seconds: body.data.shutdownGraceSeconds,
+					shutdown_grace_seconds: body.shutdownGraceSeconds,
 					updated_at: new Date().toISOString(),
 				})
 				.where("id", "=", params.id)
@@ -499,7 +536,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				result: "ok",
 				metadata: {
 					from: before.shutdown_grace_seconds,
-					to: body.data.shutdownGraceSeconds,
+					to: body.shutdownGraceSeconds,
 					ip: request.ip,
 					userAgent: request.headers["user-agent"] ?? null,
 				},

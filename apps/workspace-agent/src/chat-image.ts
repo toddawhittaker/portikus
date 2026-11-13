@@ -57,18 +57,7 @@ export async function readChatImage(
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
 	}
 	const requested = path.startsWith("/") ? path : join(project.path, path);
-	let real: string;
-	try {
-		real = await realpath(requested);
-	} catch (error) {
-		if (errorCode(error) === "ENOENT") {
-			throw new AgentFailure("FILE_NOT_FOUND", "no such file");
-		}
-		throw new AgentFailure("PATH_INVALID", "invalid path");
-	}
-	if (!contains(await realpath(homeDir), real)) {
-		throw new AgentFailure("PATH_INVALID", "path leaves the home folder");
-	}
+	const real = await realPathInHome(homeDir, requested);
 	// The real path has no links left, so O_NOFOLLOW refuses one swapped in
 	// since. O_NONBLOCK keeps a named pipe from holding a thread until a
 	// writer appears; a regular file ignores it.
@@ -87,18 +76,7 @@ export async function readChatImage(
 		if (info.size > MAX_CHAT_IMAGE_BYTES) {
 			throw new AgentFailure("FILE_TOO_LARGE", "that image is too large");
 		}
-		// Read one byte past the stat size, so a file that grew since is caught.
-		const buffer = Buffer.alloc(info.size + 1);
-		let length = 0;
-		while (length < buffer.length) {
-			const { bytesRead } = await handle.read(buffer, length, buffer.length - length);
-			if (bytesRead === 0) break;
-			length += bytesRead;
-		}
-		if (length > info.size) {
-			throw new AgentFailure("BAD_REQUEST", "that image changed while it was read");
-		}
-		const body = buffer.subarray(0, length);
+		const body = await readExactly(handle, info.size);
 		if (sniffImageType(body) !== declared) {
 			throw new AgentFailure("BAD_REQUEST", "not an image chat can show");
 		}
@@ -106,4 +84,40 @@ export async function readChatImage(
 	} finally {
 		await handle.close();
 	}
+}
+
+/** Where `requested` really is, refused unless it is inside the home folder. */
+async function realPathInHome(homeDir: string, requested: string): Promise<string> {
+	let real: string;
+	try {
+		real = await realpath(requested);
+	} catch (error) {
+		if (errorCode(error) === "ENOENT") {
+			throw new AgentFailure("FILE_NOT_FOUND", "no such file");
+		}
+		throw new AgentFailure("PATH_INVALID", "invalid path");
+	}
+	if (!contains(await realpath(homeDir), real)) {
+		throw new AgentFailure("PATH_INVALID", "path leaves the home folder");
+	}
+	return real;
+}
+
+/** Read the whole file, refusing one that is no longer `size` bytes long. */
+async function readExactly(
+	handle: Awaited<ReturnType<typeof open>>,
+	size: number,
+): Promise<Buffer> {
+	// Read one byte past the stat size, so a file that grew since is caught.
+	const buffer = Buffer.alloc(size + 1);
+	let length = 0;
+	while (length < buffer.length) {
+		const { bytesRead } = await handle.read(buffer, length, buffer.length - length);
+		if (bytesRead === 0) break;
+		length += bytesRead;
+	}
+	if (length > size) {
+		throw new AgentFailure("BAD_REQUEST", "that image changed while it was read");
+	}
+	return buffer.subarray(0, length);
 }

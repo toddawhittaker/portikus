@@ -116,6 +116,37 @@ const FIELD_IDS: Record<Exclude<(typeof FIELD_ORDER)[number], "levels">, string>
 	person: "logs-person",
 };
 
+/** Each field's message when the form cannot be applied as it stands. */
+function draftErrors(
+	draft: Draft,
+	person: { id: string } | { error: string },
+	since: string,
+	until: string,
+): Record<string, string> {
+	const errors: Record<string, string> = {};
+	if (draft.levels.length === 0) errors.levels = "Choose at least one level.";
+	if ("error" in person) errors.person = person.error;
+	if (draft.window === "custom" && since === "") errors.from = "Enter a start time.";
+	if (since !== "" && until !== "" && !errors.from && since > until) {
+		errors.to = "The end must not be before the start.";
+	}
+	return errors;
+}
+
+/** Focus the first bad field so a screen reader hears its error. */
+function focusInvalid(
+	first: (typeof FIELD_ORDER)[number] | undefined,
+	form: HTMLFormElement | null,
+): void {
+	const target =
+		first === "levels"
+			? form?.querySelector<HTMLElement>("[data-level-checks] input")
+			: document.getElementById(FIELD_IDS[first ?? "person"]);
+	// Focusing the field that already has focus says nothing, so leave it first.
+	if (target && target === document.activeElement) target.blur();
+	target?.focus();
+}
+
 /**
  * The Logs tab (SPEC.md section 24.11): the platform's own JSON
  * lines from the journal, filtered by the URL, newest first.
@@ -162,24 +193,11 @@ export function LogsTab() {
 				: resolvePerson(draft.person, users.data?.users);
 		const since = draft.window === "custom" ? fromLocalInput(draft.from) : draft.window;
 		const until = draft.window === "custom" ? fromLocalInput(draft.to) : "";
-		const errors: Record<string, string> = {};
-		if (draft.levels.length === 0) errors.levels = "Choose at least one level.";
-		if ("error" in person) errors.person = person.error;
-		if (draft.window === "custom" && since === "") errors.from = "Enter a start time.";
-		if (since !== "" && until !== "" && !errors.from && since > until) {
-			errors.to = "The end must not be before the start.";
-		}
+		const errors = draftErrors(draft, person, since, until);
 		setInvalid(errors);
 		const first = FIELD_ORDER.find((name) => errors[name]);
 		if (first || "error" in person) {
-			// Focus the first bad field so a screen reader hears its error.
-			const target =
-				first === "levels"
-					? formRef.current?.querySelector<HTMLElement>("[data-level-checks] input")
-					: document.getElementById(FIELD_IDS[first ?? "person"]);
-			// Focusing the field that already has focus says nothing, so leave it first.
-			if (target && target === document.activeElement) target.blur();
-			target?.focus();
+			focusInvalid(first, formRef.current);
 			return;
 		}
 		show({

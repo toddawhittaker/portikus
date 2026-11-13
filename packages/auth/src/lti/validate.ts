@@ -299,6 +299,64 @@ function deepLinkSettingsOf(
 	return { returnUrl, data: isString(data) ? data : null };
 }
 
+/** Whether the token was issued by this platform, for this tool, now, and for this login. */
+function checkToken(
+	claims: Record<string, unknown>,
+	platform: LtiPlatform,
+	nonce: string,
+	now: Date,
+): LtiRefusal | null {
+	// The login started with this platform, so the token must come from it.
+	if (claims.iss !== platform.issuer) return "unknown_issuer";
+	if (!audienceMatches(claims, platform.clientId)) return "wrong_audience";
+	const timeRefusal = checkTimes(claims, now);
+	if (timeRefusal) return timeRefusal;
+	if (claims.nonce !== nonce) return "nonce_mismatch";
+	return null;
+}
+
+type LaunchMessage = {
+	deploymentId: string;
+	messageType: "LtiResourceLinkRequest" | "LtiDeepLinkingRequest";
+	target: string;
+	sub: string;
+};
+
+/** The LTI message claims every launch needs, or the refusal for the first one that is wrong. */
+function messageOf(
+	claims: Record<string, unknown>,
+	platform: LtiPlatform,
+	publicUrl: string,
+): LaunchMessage | LtiRefusal {
+	const deploymentId = claims[`${CLAIM}deployment_id`];
+	if (!isString(deploymentId) || !platform.deploymentIds.includes(deploymentId)) {
+		return "unknown_deployment";
+	}
+	const messageType = claims[`${CLAIM}message_type`];
+	if (
+		messageType !== "LtiResourceLinkRequest" &&
+		messageType !== "LtiDeepLinkingRequest"
+	) {
+		return "wrong_message_type";
+	}
+	if (claims[`${CLAIM}version`] !== "1.3.0") return "wrong_version";
+
+	const target = claims[`${CLAIM}target_link_uri`];
+	if (!isString(target) || !isOnOrigin(target, publicUrl)) return "wrong_target";
+
+	const sub = claims.sub;
+	if (!isString(sub) || sub.length < 1 || sub.length > 255) return "missing_subject";
+
+	// A Deep Linking request has no resource link: it is how one gets made.
+	if (messageType === "LtiResourceLinkRequest") {
+		const resourceLink = objectClaim(claims[`${CLAIM}resource_link`]);
+		if (!resourceLink || !isString(resourceLink.id) || resourceLink.id === "") {
+			return "missing_resource_link";
+		}
+	}
+	return { deploymentId, messageType, target, sub };
+}
+
 /**
  * Check a launch's id_token against the login it answers. The signature is
  * checked (RS256 only, against the registration's keyset) before any claim
@@ -325,46 +383,17 @@ export async function validateLaunchToken(
 	// verifySignature refuses before this point when there is no platform.
 	if (!platform) return refuse("unknown_issuer");
 
-	// The login started with this platform, so the token must come from it.
-	if (claims.iss !== platform.issuer) return refuse("unknown_issuer");
+	const tokenRefusal = checkToken(
+		claims,
+		platform,
+		loginState.nonce,
+		input.now ?? new Date(),
+	);
+	if (tokenRefusal) return refuse(tokenRefusal);
 
-	if (!audienceMatches(claims, platform.clientId)) return refuse("wrong_audience");
-
-	const timeRefusal = checkTimes(claims, input.now ?? new Date());
-	if (timeRefusal) return refuse(timeRefusal);
-
-	if (claims.nonce !== loginState.nonce) return refuse("nonce_mismatch");
-
-	const deploymentId = claims[`${CLAIM}deployment_id`];
-	if (!isString(deploymentId) || !platform.deploymentIds.includes(deploymentId)) {
-		return refuse("unknown_deployment");
-	}
-	const messageType = claims[`${CLAIM}message_type`];
-	if (
-		messageType !== "LtiResourceLinkRequest" &&
-		messageType !== "LtiDeepLinkingRequest"
-	) {
-		return refuse("wrong_message_type");
-	}
-	if (claims[`${CLAIM}version`] !== "1.3.0") return refuse("wrong_version");
-
-	const target = claims[`${CLAIM}target_link_uri`];
-	if (!isString(target) || !isOnOrigin(target, input.publicUrl)) {
-		return refuse("wrong_target");
-	}
-
-	const sub = claims.sub;
-	if (!isString(sub) || sub.length < 1 || sub.length > 255) {
-		return refuse("missing_subject");
-	}
-
-	// A Deep Linking request has no resource link: it is how one gets made.
-	if (messageType === "LtiResourceLinkRequest") {
-		const resourceLink = objectClaim(claims[`${CLAIM}resource_link`]);
-		if (!resourceLink || !isString(resourceLink.id) || resourceLink.id === "") {
-			return refuse("missing_resource_link");
-		}
-	}
+	const message = messageOf(claims, platform, input.publicUrl);
+	if (isString(message)) return refuse(message);
+	const { deploymentId, messageType, target, sub } = message;
 
 	const context = contextOf(claims);
 	if (context === "bad") return refuse("bad_context");

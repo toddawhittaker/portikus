@@ -115,11 +115,9 @@ export function registerAdminDexUserRoutes(
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
 		if (!dex) return reply;
-		const body = CreateDexUserRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const { sendLink, ...fields } = body.data;
+		const body = parseOr400(CreateDexUserRequest, request.body ?? {}, reply);
+		if (!body) return reply;
+		const { sendLink, ...fields } = body;
 		if (sendLink && !(await accountEmailEnabled(db)))
 			return sendAdminSendFailure(reply, "disabled");
 		let created: Awaited<ReturnType<typeof createDexAccount>>;

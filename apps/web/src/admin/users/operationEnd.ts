@@ -155,6 +155,31 @@ function kindOf(pending: PendingOperation): Operation {
 }
 
 /**
+ * One operation kind's audit rows for these workspaces, newest first, paging
+ * only until each workspace has a row or the pages run out.
+ */
+async function readKindRows(
+	kind: Operation,
+	ids: Set<string>,
+): Promise<Map<string, AuditEvent[]>> {
+	const rows = new Map<string, AuditEvent[]>();
+	let before: number | null = null;
+	for (let page = 0; page < OUTCOME_PAGES; page++) {
+		const result: AuditPage = await request(
+			AuditPage,
+			`/admin/audit${auditQueryString({ workspace: "", user: "", action: ACTION_PREFIX[kind] }, before)}`,
+		);
+		for (const event of result.events) {
+			if (!event.target || !ids.has(event.target)) continue;
+			rows.set(event.target, [...(rows.get(event.target) ?? []), event]);
+		}
+		before = result.nextBefore;
+		if (before === null || rows.size === ids.size) break;
+	}
+	return rows;
+}
+
+/**
  * The outcomes of these operations that are audited yet, by workspace. One
  * read per operation kind covers every workspace, newest rows first, paging
  * only until each workspace has its newest row.
@@ -168,26 +193,35 @@ export async function readOutcomes(
 		const ids = new Set(
 			watched.filter((item) => item.operation === kind).map((item) => item.workspaceId),
 		);
-		const rows = new Map<string, AuditEvent[]>();
-		let before: number | null = null;
-		for (let page = 0; page < OUTCOME_PAGES; page++) {
-			const result: AuditPage = await request(
-				AuditPage,
-				`/admin/audit${auditQueryString({ workspace: "", user: "", action: ACTION_PREFIX[kind] }, before)}`,
-			);
-			for (const event of result.events) {
-				if (!event.target || !ids.has(event.target)) continue;
-				rows.set(event.target, [...(rows.get(event.target) ?? []), event]);
-			}
-			before = result.nextBefore;
-			if (before === null || rows.size === ids.size) break;
-		}
+		const rows = await readKindRows(kind, ids);
 		for (const [workspaceId, events] of rows) {
 			const outcome = operationOutcome(events);
 			if (outcome) outcomes.set(workspaceId, outcome);
 		}
 	}
 	return outcomes;
+}
+
+/** The operations among these whose outcome is known, with whose workspace each was. */
+function endedWith(
+	watched: Watched[],
+	outcomes: Map<string, OperationOutcome>,
+): EndedOperation[] {
+	const done: EndedOperation[] = [];
+	for (const item of watched) {
+		const outcome = outcomes.get(item.workspaceId);
+		if (outcome) done.push({ ownerName: item.ownerName, outcome });
+	}
+	return done;
+}
+
+/** The accounts that have a workspace, by workspace ID. */
+function byWorkspace(users: AdminUser[]): Map<string, AdminUser> {
+	const listed = new Map<string, AdminUser>();
+	for (const user of users) {
+		if (user.workspace) listed.set(user.workspace.id, user);
+	}
+	return listed;
 }
 
 /**
@@ -219,10 +253,7 @@ export function useOperationEndToasts(users: AdminUser[] | undefined) {
 
 	useEffect(() => {
 		if (!users) return;
-		const listed = new Map<string, AdminUser>();
-		for (const user of users) {
-			if (user.workspace) listed.set(user.workspace.id, user);
-		}
+		const listed = byWorkspace(users);
 
 		async function announce(ended: Watched[]) {
 			let waiting = ended;
@@ -247,12 +278,7 @@ export function useOperationEndToasts(users: AdminUser[] | undefined) {
 					() => new Map<string, OperationOutcome>(),
 				);
 				if (!alive.current) return;
-				const done: EndedOperation[] = [];
-				for (const item of waiting) {
-					const outcome = outcomes.get(item.workspaceId);
-					if (outcome) done.push({ ownerName: item.ownerName, outcome });
-				}
-				for (const shown of endToasts(done)) toast.show(shown);
+				for (const shown of endToasts(endedWith(waiting, outcomes))) toast.show(shown);
 				waiting = waiting.filter((item) => !outcomes.has(item.workspaceId));
 			}
 		}

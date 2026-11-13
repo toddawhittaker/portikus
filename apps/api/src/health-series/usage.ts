@@ -51,6 +51,40 @@ export function usageFrom(window: SeriesWindow): Date {
 
 type Row = HealthSeries["usage"]["workspaces"][number];
 
+interface Entry {
+	row: Row;
+	cells: Map<number, Row["cells"][number]>;
+	peak: number;
+	prev: Sample | null;
+}
+
+/** Fold one sample into its bucket's cell and the workspace's peak. */
+function recordSample(entry: Entry, sample: Sample, window: SeriesWindow): void {
+	const bucketMs = window.bucketSeconds * 1000;
+	const cpu = entry.prev ? pairCpuPercent(entry.prev, sample) : null;
+	const memory =
+		sample.memoryLimitBytes > 0
+			? (sample.memoryBytes / sample.memoryLimitBytes) * 100
+			: null;
+	entry.prev = sample;
+
+	const start =
+		window.from.getTime() +
+		Math.floor((sample.observedAt.getTime() - window.from.getTime()) / bucketMs) *
+			bucketMs;
+	const cell = entry.cells.get(start) ?? {
+		at: new Date(start).toISOString(),
+		cpuPercent: null,
+		memoryPercent: null,
+	};
+	// Percentages keep the highest value in the bucket (SPEC.md section 25.6).
+	if (cpu !== null) cell.cpuPercent = Math.max(cell.cpuPercent ?? 0, round1(cpu));
+	if (memory !== null)
+		cell.memoryPercent = Math.max(cell.memoryPercent ?? 0, round1(memory));
+	entry.cells.set(start, cell);
+	entry.peak = Math.max(entry.peak, cpu ?? 0, memory ?? 0);
+}
+
 /**
  * The per-workspace heat map (SPEC.md section 25.6): one row per
  * workspace with a sample in the window, one cell per bucket holding the
@@ -104,17 +138,8 @@ export async function usageSeries(
 	// The worker seeds settings before it records any sample.
 	if (!settings) return { ...body, workspaces: [] };
 
-	const bucketMs = window.bucketSeconds * 1000;
 	// Rows arrive ordered by workspace, then time.
-	const entries = new Map<
-		string,
-		{
-			row: Row;
-			cells: Map<number, Row["cells"][number]>;
-			peak: number;
-			prev: Sample | null;
-		}
-	>();
+	const entries = new Map<string, Entry>();
 	for (const r of rows) {
 		let entry = entries.get(r.workspace_id);
 		if (!entry) {
@@ -141,28 +166,7 @@ export async function usageSeries(
 			memoryBytes: Number(r.memory_bytes),
 			memoryLimitBytes: Number(r.memory_limit_bytes),
 		};
-		const cpu = entry.prev ? pairCpuPercent(entry.prev, sample) : null;
-		const memory =
-			sample.memoryLimitBytes > 0
-				? (sample.memoryBytes / sample.memoryLimitBytes) * 100
-				: null;
-		entry.prev = sample;
-
-		const start =
-			window.from.getTime() +
-			Math.floor((sample.observedAt.getTime() - window.from.getTime()) / bucketMs) *
-				bucketMs;
-		const cell = entry.cells.get(start) ?? {
-			at: new Date(start).toISOString(),
-			cpuPercent: null,
-			memoryPercent: null,
-		};
-		// Percentages keep the highest value in the bucket (SPEC.md section 25.6).
-		if (cpu !== null) cell.cpuPercent = Math.max(cell.cpuPercent ?? 0, round1(cpu));
-		if (memory !== null)
-			cell.memoryPercent = Math.max(cell.memoryPercent ?? 0, round1(memory));
-		entry.cells.set(start, cell);
-		entry.peak = Math.max(entry.peak, cpu ?? 0, memory ?? 0);
+		recordSample(entry, sample, window);
 	}
 	const built = [...entries.values()].map((entry) => ({
 		peak: entry.peak,

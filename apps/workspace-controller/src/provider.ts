@@ -21,7 +21,6 @@ import {
 	type StartInstanceResponse,
 	type StopInstanceResponse,
 	VOLUME_CREATE_TIMEOUT_MS,
-	type WorkspaceDockerConfig,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import {
@@ -40,7 +39,7 @@ import {
 	volumePath,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
-import { startInstance } from "./instance-start.js";
+import { type StartOptions, startInstance } from "./instance-start.js";
 import {
 	instanceProcesses,
 	instanceUsage,
@@ -80,17 +79,7 @@ export interface WorkspaceProvider {
 	): Promise<CreateInstanceResponse>;
 	start(
 		name: string,
-		opts: {
-			timeoutSeconds: number;
-			agentToken: string;
-			hostname: string;
-			previewHostSuffix: string;
-			timezone: string;
-			dockerGiB?: number;
-			recoveryGiB?: number;
-			cpuAllowance?: string;
-			docker?: WorkspaceDockerConfig;
-		},
+		opts: StartOptions,
 		signal?: AbortSignal,
 	): Promise<StartInstanceResponse>;
 	stop(
@@ -319,17 +308,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async start(
 		name: string,
-		opts: {
-			timeoutSeconds: number;
-			agentToken: string;
-			hostname: string;
-			previewHostSuffix: string;
-			timezone: string;
-			dockerGiB?: number;
-			recoveryGiB?: number;
-			cpuAllowance?: string;
-			docker?: WorkspaceDockerConfig;
-		},
+		opts: StartOptions,
 		caller?: AbortSignal,
 	): Promise<StartInstanceResponse> {
 		return startInstance(this.host, name, opts, caller);

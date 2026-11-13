@@ -1,9 +1,13 @@
 import type { ApiConfig } from "@portikus/config";
-import { type CreateProjectRequest, slugify } from "@portikus/contracts";
+import {
+	type AgentProject,
+	type CreateProjectRequest,
+	slugify,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply } from "fastify";
 import type { Kysely } from "kysely";
-import { AgentCallError } from "../agent-client.js";
+import { AgentCallError, type AgentClient } from "../agent-client.js";
 import { sendError } from "../http.js";
 import { claimLongOperation, releaseLongOperation } from "./long-operation.js";
 import {
@@ -17,6 +21,45 @@ import {
 /** Why a project cannot be made where a folder already sits (SPEC.md §7.6). */
 export function folderExistsMessage(slug: string): string {
 	return `A folder named ${slug} is already in ~/projects, so a new project cannot be made there. Rename or remove that folder, then try again.`;
+}
+
+async function slugTaken(
+	db: Kysely<Database>,
+	workspaceId: string,
+	slug: string,
+): Promise<boolean> {
+	const existing = await db
+		.selectFrom("projects")
+		.select("id")
+		.where("workspace_id", "=", workspaceId)
+		.where("slug", "=", slug)
+		.executeTakeFirst();
+	return existing !== undefined;
+}
+
+/** The agent's new project folder, or null after answering a refusal. */
+async function createFolder(
+	agent: AgentClient,
+	workspaceId: string,
+	reply: FastifyReply,
+	request: Parameters<AgentClient["createProject"]>[0],
+): Promise<AgentProject | null> {
+	// An empty directory is quick; a clone or a template is not.
+	const slow = request.source !== "new";
+	if (slow && !claimLongOperation(workspaceId, reply)) return null;
+	try {
+		return await agent.createProject(request);
+	} catch (error) {
+		// No row but the agent refused: a folder of that name is already there.
+		if (error instanceof AgentCallError && error.code === "PROJECT_EXISTS") {
+			sendError(reply, 409, "PROJECT_EXISTS", folderExistsMessage(request.slug));
+		} else {
+			sendAgentError(reply, error);
+		}
+		return null;
+	} finally {
+		if (slow) releaseLongOperation(workspaceId);
+	}
 }
 
 /**
@@ -58,40 +101,18 @@ export async function createProject(
 		url = template.url;
 	}
 
-	const existing = await db
-		.selectFrom("projects")
-		.select("id")
-		.where("workspace_id", "=", scope.workspaceId)
-		.where("slug", "=", slug)
-		.executeTakeFirst();
-	if (existing) {
+	if (await slugTaken(db, scope.workspaceId, slug)) {
 		sendError(reply, 409, "PROJECT_EXISTS", `A project called ${slug} already exists.`);
 		return null;
 	}
 
-	// An empty directory is quick; a clone or a template is not.
-	const slow = input.source !== "new";
-	if (slow && !claimLongOperation(scope.workspaceId, reply)) return null;
-
-	let created: { isGitRepo: boolean; suggestedName?: string };
-	try {
-		created = await agent.createProject({
-			slug,
-			source: input.source,
-			...(url === undefined ? {} : { url }),
-			gitInit: input.gitInit,
-		});
-	} catch (error) {
-		// No row but the agent refused: a folder of that name is already there.
-		if (error instanceof AgentCallError && error.code === "PROJECT_EXISTS") {
-			sendError(reply, 409, "PROJECT_EXISTS", folderExistsMessage(slug));
-		} else {
-			sendAgentError(reply, error);
-		}
-		return null;
-	} finally {
-		if (slow) releaseLongOperation(scope.workspaceId);
-	}
+	const created = await createFolder(agent, scope.workspaceId, reply, {
+		slug,
+		source: input.source,
+		...(url === undefined ? {} : { url }),
+		gitInit: input.gitInit,
+	});
+	if (!created) return null;
 
 	const row = await db
 		.insertInto("projects")

@@ -2,7 +2,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import { type PendingOperation, RebuildWorkspaceRequest } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import {
 	requestPendingOperation,
 	sendPendingOperationRefusal,
@@ -43,7 +43,7 @@ export function registerMaintenanceRoutes(
 		if (!params) return;
 		const row = await findOwnedWorkspace(db, user, params.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 		return request(
 			reply,
@@ -63,21 +63,19 @@ export function registerMaintenanceRoutes(
 			const user = requireUser(req);
 			const params = parseOr400(UuidParam, req.params, reply);
 			if (!params) return;
-			const body = RebuildWorkspaceRequest.safeParse(req.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-			}
+			const body = parseOr400(RebuildWorkspaceRequest, req.body ?? {}, reply);
+			if (!body) return reply;
 			const row = await findOwnedWorkspace(db, user, params.id);
 			if (!row) {
-				return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+				return sendWorkspaceNotFound(reply);
 			}
 			return request(
 				reply,
 				user.id,
 				params.id,
-				body.data.resetDocker ? "rebuild-reset-docker" : "rebuild",
+				body.resetDocker ? "rebuild-reset-docker" : "rebuild",
 				"workspace.rebuild_requested",
-				{ resetDocker: body.data.resetDocker, ip: req.ip },
+				{ resetDocker: body.resetDocker, ip: req.ip },
 			);
 		},
 	);

@@ -31,21 +31,8 @@ export class ImportFileError extends Error {}
 export const ADMIN_ROW_REASON =
 	"Administrators cannot be imported. Add them one at a time with Add user or Invite.";
 
-/** The data rows of an import file, or ImportFileError for a bad file. */
-export function readImportFile(text: string): ImportRow[] {
-	if (Buffer.byteLength(text, "utf8") > ACCOUNT_IMPORT_MAX_BYTES) {
-		throw new ImportFileError("The file is larger than 256 KB.");
-	}
-	let records: string[][];
-	try {
-		records = parseCsv(text);
-	} catch (err) {
-		if (err instanceof CsvError) throw new ImportFileError(err.message);
-		throw err;
-	}
-	const [header, ...data] = records;
-	if (!header) throw new ImportFileError("The file is empty.");
-	const names = header.map((cell) => cell.trim().toLowerCase());
+/** Throws ImportFileError unless the header names each column exactly once. */
+function checkHeader(names: string[]): void {
 	for (const name of names) {
 		if (!(ACCOUNT_IMPORT_COLUMNS as readonly string[]).includes(name)) {
 			throw new ImportFileError(
@@ -63,6 +50,24 @@ export function readImportFile(text: string): ImportRow[] {
 			);
 		}
 	}
+}
+
+/** The data rows of an import file, or ImportFileError for a bad file. */
+export function readImportFile(text: string): ImportRow[] {
+	if (Buffer.byteLength(text, "utf8") > ACCOUNT_IMPORT_MAX_BYTES) {
+		throw new ImportFileError("The file is larger than 256 KB.");
+	}
+	let records: string[][];
+	try {
+		records = parseCsv(text);
+	} catch (err) {
+		if (err instanceof CsvError) throw new ImportFileError(err.message);
+		throw err;
+	}
+	const [header, ...data] = records;
+	if (!header) throw new ImportFileError("The file is empty.");
+	const names = header.map((cell) => cell.trim().toLowerCase());
+	checkHeader(names);
 	if (data.length === 0)
 		throw new ImportFileError("The file has no rows after the header.");
 	if (data.length > ACCOUNT_IMPORT_MAX_ROWS) {
@@ -153,6 +158,54 @@ export async function classifyImport(
 		emails.add(shape.body.email);
 		if (shape.body.username) usernames.add(shape.body.username.toLowerCase());
 	}
+	const clashes = await findClashes(db, emails, usernames);
+
+	const seenEmail = new Map<string, number>();
+	const seenUsername = new Map<string, number>();
+	return shaped.map(({ row, shape }) => {
+		const preview: AccountImportPreviewRow = {
+			line: row.line,
+			name: row.name,
+			email: row.email,
+			username: row.username,
+			role: row.role,
+			kind: row.kind,
+			status: "valid",
+			reason: null,
+		};
+		if (typeof shape === "string") {
+			return { preview: { ...preview, status: "invalid", reason: shape }, valid: null };
+		}
+		const email = shape.body.email;
+		const username = shape.body.username?.toLowerCase();
+		const earlier =
+			seenEmail.get(email) ?? (username ? seenUsername.get(username) : undefined);
+		if (!seenEmail.has(email)) seenEmail.set(email, row.line);
+		if (username && !seenUsername.has(username)) seenUsername.set(username, row.line);
+		const reason =
+			earlier !== undefined
+				? `Repeats row ${earlier}.`
+				: clashReason(clashes, shape.kind, email, username);
+		if (reason !== null) {
+			return { preview: { ...preview, status: "duplicate", reason }, valid: null };
+		}
+		return { preview, valid: shape };
+	});
+}
+
+/** Emails and usernames already held by an account or a waiting invitation. */
+interface Clashes {
+	takenEmails: Set<string>;
+	takenDexUsernames: Set<string>;
+	invitedEmails: Set<string>;
+	invitedUsernames: Set<string>;
+}
+
+async function findClashes(
+	db: Kysely<Database>,
+	emails: Set<string>,
+	usernames: Set<string>,
+): Promise<Clashes> {
 	const takenEmails = new Set<string>();
 	const takenDexUsernames = new Set<string>();
 	const invitedEmails = new Set<string>();
@@ -190,45 +243,26 @@ export async function classifyImport(
 			.execute();
 		for (const u of users) takenDexUsernames.add(u.username);
 	}
+	return { takenEmails, takenDexUsernames, invitedEmails, invitedUsernames };
+}
 
-	const seenEmail = new Map<string, number>();
-	const seenUsername = new Map<string, number>();
-	return shaped.map(({ row, shape }) => {
-		const preview: AccountImportPreviewRow = {
-			line: row.line,
-			name: row.name,
-			email: row.email,
-			username: row.username,
-			role: row.role,
-			kind: row.kind,
-			status: "valid",
-			reason: null,
-		};
-		if (typeof shape === "string") {
-			return { preview: { ...preview, status: "invalid", reason: shape }, valid: null };
-		}
-		const email = shape.body.email;
-		const username = shape.body.username?.toLowerCase();
-		const duplicate = (reason: string): ClassifiedRow => ({
-			preview: { ...preview, status: "duplicate", reason },
-			valid: null,
-		});
-		const earlier =
-			seenEmail.get(email) ?? (username ? seenUsername.get(username) : undefined);
-		if (!seenEmail.has(email)) seenEmail.set(email, row.line);
-		if (username && !seenUsername.has(username)) seenUsername.set(username, row.line);
-		if (earlier !== undefined) return duplicate(`Repeats row ${earlier}.`);
-		if (takenEmails.has(email))
-			return duplicate("An account with this email already exists.");
-		if (invitedEmails.has(email)) {
-			return duplicate("An invitation for this email is already waiting.");
-		}
-		if (shape.kind === "password" && username && takenDexUsernames.has(username)) {
-			return duplicate("An account with this username already exists.");
-		}
-		if (shape.kind === "invite" && username && invitedUsernames.has(username)) {
-			return duplicate("An invitation for this sign-in name is already waiting.");
-		}
-		return { preview, valid: shape };
-	});
+/** Why a row duplicates an existing account or waiting invitation, or null. */
+function clashReason(
+	clashes: Clashes,
+	kind: ValidImport["kind"],
+	email: string,
+	username: string | undefined,
+): string | null {
+	if (clashes.takenEmails.has(email))
+		return "An account with this email already exists.";
+	if (clashes.invitedEmails.has(email)) {
+		return "An invitation for this email is already waiting.";
+	}
+	if (kind === "password" && username && clashes.takenDexUsernames.has(username)) {
+		return "An account with this username already exists.";
+	}
+	if (kind === "invite" && username && clashes.invitedUsernames.has(username)) {
+		return "An invitation for this sign-in name is already waiting.";
+	}
+	return null;
 }

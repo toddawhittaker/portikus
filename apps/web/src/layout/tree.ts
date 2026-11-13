@@ -143,6 +143,26 @@ export function addTab(
 	};
 }
 
+/**
+ * The split with its first child that `replace` changes put in that child's
+ * place, or null when `replace` changes none of them.
+ */
+function replaceFirstChild(
+	node: Extract<SplitNode, { type: "split" }>,
+	replace: (child: SplitNode) => SplitNode | null,
+): SplitNode | null {
+	for (let i = 0; i < node.children.length; i++) {
+		const child = node.children[i];
+		if (child === undefined) continue;
+		const replaced = replace(child);
+		if (!replaced) continue;
+		const children = [...node.children];
+		children[i] = replaced;
+		return { ...node, children };
+	}
+	return null;
+}
+
 function splitNode(
 	node: SplitNode,
 	terminalId: string,
@@ -168,16 +188,9 @@ function splitNode(
 		children.splice(index + 1, 0, { type: "leaf", terminalId: newTerminalId });
 		return { ...node, children, sizes: evenSizes(children.length) };
 	}
-	for (let i = 0; i < node.children.length; i++) {
-		const child = node.children[i];
-		if (child === undefined) continue;
-		const replaced = splitNode(child, terminalId, direction, newTerminalId);
-		if (!replaced) continue;
-		const children = [...node.children];
-		children[i] = replaced;
-		return { ...node, children };
-	}
-	return null;
+	return replaceFirstChild(node, (child) =>
+		splitNode(child, terminalId, direction, newTerminalId),
+	);
 }
 
 /**
@@ -388,16 +401,9 @@ function insertBeside(
 		children.splice(before ? index : index + 1, 0, moved);
 		return { ...node, children, sizes: evenSizes(children.length) };
 	}
-	for (let i = 0; i < node.children.length; i++) {
-		const child = node.children[i];
-		if (child === undefined) continue;
-		const replaced = insertBeside(child, targetId, moved, direction, before);
-		if (!replaced) continue;
-		const children = [...node.children];
-		children[i] = replaced;
-		return { ...node, children };
-	}
-	return null;
+	return replaceFirstChild(node, (child) =>
+		insertBeside(child, targetId, moved, direction, before),
+	);
 }
 
 /**

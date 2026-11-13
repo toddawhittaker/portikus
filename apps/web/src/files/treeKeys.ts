@@ -5,7 +5,7 @@
  * the anchor, as Shift-click does; Ctrl moves without selecting, and
  * Ctrl+Space adds or removes the focused row, as Ctrl-click does.
  */
-import type { FocusEvent, KeyboardEvent } from "react";
+import type { FocusEvent, KeyboardEvent, RefObject } from "react";
 import { useCallback, useMemo, useRef } from "react";
 import { baseName, displayName, focusAfterRemoval, parentOf } from "./paths.js";
 import type { RowStateStore } from "./rowState.js";
@@ -180,64 +180,88 @@ export function useTreeKeys(
 ): (event: KeyboardEvent<HTMLElement>) => void {
 	const typed = useRef<TypeAhead>({ text: "", at: 0 });
 
-	return (event) => {
-		const target = event.target;
-		// A key pressed on the row's own button or link belongs to that control.
-		if (!(target instanceof Element) || target.closest("button, a, input")) return;
-		const current = target.closest<HTMLElement>("[role=treeitem]");
-		if (!current) return;
-		const path = pathOf(current);
-		const rows = api.rowElements();
-		if (isMoreRow(current) && (event.key === "Enter" || event.key === " ")) {
-			event.preventDefault();
-			current.click();
-			return;
-		}
-		const context: KeyContext = {
-			api,
-			node: {
-				path,
-				name: baseName(path),
-				isDir: current.getAttribute("data-kind") === "dir",
-			},
-			open: api.expanded.includes(path),
-			rows,
-			index: rows.indexOf(current),
-			moveTo: (row, how) => {
-				if (!row) return;
-				const to = pathOf(row);
-				const mode = isMoreRow(row) ? "focus" : how;
-				if (mode === "select") api.clickRow(to, { toggle: false, range: false });
-				if (mode === "extend") api.extendTo(path, to);
-				api.setFocusedPath(to);
-				row.focus();
-			},
-		};
-		const ctrl = event.ctrlKey || event.metaKey;
-		// The Show more row is no anchor, so Shift from it does not extend.
-		const extend = event.shiftKey && !isMoreRow(current);
-		const how: Move = extend ? "extend" : ctrl ? "focus" : "select";
-		if (navigate(context, event.key, how)) {
-			event.preventDefault();
-			return;
-		}
-		// The Show more row has no menu, selection or delete.
-		if (isMoreRow(current)) return;
-		if (command(context, event)) {
-			event.preventDefault();
-			return;
-		}
+	return (event) => handleTreeKey(api, typed, event);
+}
 
-		// Type-ahead: a printable letter jumps to the next row starting with it.
-		if (event.key.length !== 1 || ctrl || event.altKey) return;
-		typed.current = nextTypeAhead(typed.current, event.key, event.timeStamp);
-		const names = rows.map((row) =>
-			isMoreRow(row) ? "" : displayName(baseName(pathOf(row))),
-		);
-		const found = typeAheadIndex(names, context.index, typed.current.text);
-		if (found === -1) return;
+function handleTreeKey(
+	api: TreeKeysApi,
+	typed: RefObject<TypeAhead>,
+	event: KeyboardEvent<HTMLElement>,
+): void {
+	const current = focusedRow(event.target);
+	if (!current) return;
+	const rows = api.rowElements();
+	if (isMoreRow(current) && (event.key === "Enter" || event.key === " ")) {
 		event.preventDefault();
-		context.moveTo(rows[found], "select");
+		current.click();
+		return;
+	}
+	const context = keyContext(api, current, rows);
+	const ctrl = event.ctrlKey || event.metaKey;
+	if (navigate(context, event.key, moveKind(event, current))) {
+		event.preventDefault();
+		return;
+	}
+	// The Show more row has no menu, selection or delete.
+	if (isMoreRow(current)) return;
+	if (command(context, event)) {
+		event.preventDefault();
+		return;
+	}
+
+	// Type-ahead: a printable letter jumps to the next row starting with it.
+	if (event.key.length !== 1 || ctrl || event.altKey) return;
+	typed.current = nextTypeAhead(typed.current, event.key, event.timeStamp);
+	const found = typeAheadIndex(rowNames(rows), context.index, typed.current.text);
+	if (found === -1) return;
+	event.preventDefault();
+	context.moveTo(rows[found], "select");
+}
+
+/** The tree row a key was pressed in, or null when it belongs to a control on the row. */
+function focusedRow(target: EventTarget): HTMLElement | null {
+	// A key pressed on the row's own button or link belongs to that control.
+	if (!(target instanceof Element) || target.closest("button, a, input")) return null;
+	return target.closest<HTMLElement>("[role=treeitem]");
+}
+
+function moveKind(event: KeyboardEvent<HTMLElement>, current: HTMLElement): Move {
+	// The Show more row is no anchor, so Shift from it does not extend.
+	if (event.shiftKey && !isMoreRow(current)) return "extend";
+	return event.ctrlKey || event.metaKey ? "focus" : "select";
+}
+
+/** The names type-ahead matches against; the Show more row has none. */
+function rowNames(rows: HTMLElement[]): string[] {
+	return rows.map((row) => (isMoreRow(row) ? "" : displayName(baseName(pathOf(row)))));
+}
+
+/** What the key handlers need to know about the focused row and its neighbours. */
+function keyContext(
+	api: TreeKeysApi,
+	current: HTMLElement,
+	rows: HTMLElement[],
+): KeyContext {
+	const path = pathOf(current);
+	return {
+		api,
+		node: {
+			path,
+			name: baseName(path),
+			isDir: current.getAttribute("data-kind") === "dir",
+		},
+		open: api.expanded.includes(path),
+		rows,
+		index: rows.indexOf(current),
+		moveTo: (row, how) => {
+			if (!row) return;
+			const to = pathOf(row);
+			const mode = isMoreRow(row) ? "focus" : how;
+			if (mode === "select") api.clickRow(to, { toggle: false, range: false });
+			if (mode === "extend") api.extendTo(path, to);
+			api.setFocusedPath(to);
+			row.focus();
+		},
 	};
 }
 

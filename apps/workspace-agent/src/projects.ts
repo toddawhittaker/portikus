@@ -551,30 +551,38 @@ export async function checkDownloadSize(paths: readonly string[]): Promise<void>
 	const pending = [...paths];
 	while (pending.length > 0) {
 		const current = pending.pop() as string;
-		try {
-			let info = await lstat(current);
-			// A symlinked file downloads its target's bytes, so count those.
-			if (named.has(current) && info.isSymbolicLink()) {
-				const target = await stat(current);
-				if (target.isFile()) info = target;
-			}
-			if (info.isFile()) {
-				total += info.size;
-				if (total > MAX_DOWNLOAD_BYTES) {
-					throw new AgentFailure(
-						"FILE_TOO_LARGE",
-						"that download is over the size limit",
-					);
-				}
-			} else if (info.isDirectory()) {
-				for (const name of await readdir(current)) pending.push(join(current, name));
-			}
-		} catch (error) {
-			// A file removed mid-walk, or one zip could not read either, adds nothing.
-			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== "ENOENT" && code !== "EACCES") throw error;
+		const { bytes, children } = await downloadEntry(current, named.has(current));
+		total += bytes;
+		if (total > MAX_DOWNLOAD_BYTES) {
+			throw new AgentFailure("FILE_TOO_LARGE", "that download is over the size limit");
 		}
+		pending.push(...children);
 	}
+}
+
+/** A file's bytes, or a directory's children to walk next. */
+async function downloadEntry(
+	path: string,
+	named: boolean,
+): Promise<{ bytes: number; children: string[] }> {
+	try {
+		let info = await lstat(path);
+		// A symlinked file downloads its target's bytes, so count those.
+		if (named && info.isSymbolicLink()) {
+			const target = await stat(path);
+			if (target.isFile()) info = target;
+		}
+		if (info.isFile()) return { bytes: info.size, children: [] };
+		if (info.isDirectory()) {
+			const names = await readdir(path);
+			return { bytes: 0, children: names.map((name) => join(path, name)) };
+		}
+	} catch (error) {
+		// A file removed mid-walk, or one zip could not read either, adds nothing.
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code !== "ENOENT" && code !== "EACCES") throw error;
+	}
+	return { bytes: 0, children: [] };
 }
 
 function runZip(

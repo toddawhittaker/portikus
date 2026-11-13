@@ -134,6 +134,27 @@ interface TabTriggerProps {
 	onMove: (tab: TabItem, direction: -1 | 1) => void;
 }
 
+function tabClassName(tab: TabItem, isDragging: boolean): string {
+	return [
+		"pk-tab",
+		tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
+		tab.kind === "claude" || tab.kind === "codex" ? "pk-tab--agent" : "",
+		tab.ended ? "pk-tab--ended" : "",
+		tab.unread ? "pk-tab--unread" : "",
+		isDragging ? "pk-tab--dragging" : "",
+	]
+		.filter(Boolean)
+		.join(" ");
+}
+
+/** Alt+Shift+ArrowLeft moves a tab back and Alt+Shift+ArrowRight forward; null for any other key. */
+function moveDirection(event: React.KeyboardEvent): -1 | 1 | null {
+	if (!event.altKey || !event.shiftKey) return null;
+	if (event.key === "ArrowLeft") return -1;
+	if (event.key === "ArrowRight") return 1;
+	return null;
+}
+
 function TabTrigger({
 	tab,
 	hintId,
@@ -153,16 +174,7 @@ function TabTrigger({
 			// learns about closing and moving from these.
 			aria-keyshortcuts="Delete Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
 			aria-describedby={hintId}
-			className={[
-				"pk-tab",
-				tab.kind === "terminal" && !tab.ended ? "pk-tab--terminal" : "",
-				tab.kind === "claude" || tab.kind === "codex" ? "pk-tab--agent" : "",
-				tab.ended ? "pk-tab--ended" : "",
-				tab.unread ? "pk-tab--unread" : "",
-				sortable.isDragging ? "pk-tab--dragging" : "",
-			]
-				.filter(Boolean)
-				.join(" ")}
+			className={tabClassName(tab, sortable.isDragging)}
 			style={{
 				transform: CSS.Transform.toString(sortable.transform),
 				transition: sortable.transition,
@@ -182,13 +194,10 @@ function TabTrigger({
 			}}
 			onKeyDown={(event) => {
 				delete event.currentTarget.dataset.pointer;
-				if (
-					event.altKey &&
-					event.shiftKey &&
-					(event.key === "ArrowLeft" || event.key === "ArrowRight")
-				) {
+				const direction = moveDirection(event);
+				if (direction !== null) {
 					event.preventDefault();
-					onMove(tab, event.key === "ArrowLeft" ? -1 : 1);
+					onMove(tab, direction);
 					return;
 				}
 				if (event.key === "Delete") {

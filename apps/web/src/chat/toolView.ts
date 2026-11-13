@@ -60,66 +60,64 @@ export function toolView(name: string, input: unknown, title: string): ToolView 
 	return knownView(name, input) ?? { summary: title, literal: false, detail: null };
 }
 
+function literalView(summary: string, detail: ToolDetail | null = null): ToolView {
+	return { summary, literal: true, detail };
+}
+
+/** A search pattern, and where it looked when the input says. */
+function patternView(pattern: string | null, where: string | null): ToolView | null {
+	if (!pattern) return null;
+	return literalView(where ? `${pattern} in ${where}` : pattern);
+}
+
+function commandView(input: Record<string, unknown>): ToolView | null {
+	const command = text(input, "command");
+	return command ? literalView(firstLine(command), { kind: "command", command }) : null;
+}
+
+function editView(
+	input: Record<string, unknown>,
+	path: string | null,
+): ToolView | null {
+	if (!path) return null;
+	const changes = editChanges(input);
+	return literalView(path, changes ? { kind: "edit", path, changes } : null);
+}
+
+function writeView(
+	input: Record<string, unknown>,
+	path: string | null,
+): ToolView | null {
+	if (!path) return null;
+	const content = typeof input.content === "string" ? input.content : null;
+	return literalView(path, content === null ? null : { kind: "write", path, content });
+}
+
 /** The view of a tool this file knows, or null when its input lacks what that needs. */
 function knownView(name: string, input: unknown): ToolView | null {
 	if (!isRecord(input)) return null;
 	const path = text(input, "file_path") ?? text(input, "notebook_path");
 	switch (name) {
-		case "Bash": {
-			const command = text(input, "command");
-			return command
-				? {
-						summary: firstLine(command),
-						literal: true,
-						detail: { kind: "command", command },
-					}
-				: null;
-		}
+		case "Bash":
+			return commandView(input);
 		case "Read":
 		case "NotebookEdit":
-			return path ? { summary: path, literal: true, detail: null } : null;
+			return path ? literalView(path) : null;
 		case "Edit":
-		case "MultiEdit": {
-			const changes = editChanges(input);
-			if (!path) return null;
-			return {
-				summary: path,
-				literal: true,
-				detail: changes ? { kind: "edit", path, changes } : null,
-			};
-		}
-		case "Write": {
-			const content = typeof input.content === "string" ? input.content : null;
-			if (!path) return null;
-			return {
-				summary: path,
-				literal: true,
-				detail: content === null ? null : { kind: "write", path, content },
-			};
-		}
-		case "Grep": {
-			const pattern = text(input, "pattern");
-			if (!pattern) return null;
-			const where = text(input, "path") ?? text(input, "glob");
-			return {
-				summary: where ? `${pattern} in ${where}` : pattern,
-				literal: true,
-				detail: null,
-			};
-		}
-		case "Glob": {
-			const pattern = text(input, "pattern");
-			if (!pattern) return null;
-			const where = text(input, "path");
-			return {
-				summary: where ? `${pattern} in ${where}` : pattern,
-				literal: true,
-				detail: null,
-			};
-		}
+		case "MultiEdit":
+			return editView(input, path);
+		case "Write":
+			return writeView(input, path);
+		case "Grep":
+			return patternView(
+				text(input, "pattern"),
+				text(input, "path") ?? text(input, "glob"),
+			);
+		case "Glob":
+			return patternView(text(input, "pattern"), text(input, "path"));
 		case "WebFetch": {
 			const url = text(input, "url");
-			return url ? { summary: url, literal: true, detail: null } : null;
+			return url ? literalView(url) : null;
 		}
 		case "WebSearch": {
 			const query = text(input, "query");
@@ -218,15 +216,17 @@ export function toolLine(name: string, input: unknown, title: string): ToolLine 
 		line.target = baseName(path);
 		line.path = line.target === path ? null : path;
 	}
-	if (detail?.kind === "edit") {
-		for (const change of detail.changes) {
-			for (const diff of diffLines(change.before, change.after)) {
-				if (diff.kind === "added") line.added++;
-				if (diff.kind === "removed") line.removed++;
-			}
+	if (detail?.kind === "edit") countEditLines(line, detail.changes);
+	return line;
+}
+
+function countEditLines(line: ToolLine, changes: EditChange[]): void {
+	for (const change of changes) {
+		for (const diff of diffLines(change.before, change.after)) {
+			if (diff.kind === "added") line.added++;
+			if (diff.kind === "removed") line.removed++;
 		}
 	}
-	return line;
 }
 
 export type DiffLine = { kind: "same" | "removed" | "added"; text: string };

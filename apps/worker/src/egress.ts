@@ -7,7 +7,7 @@ import {
 import { type Database, recordAudit } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { type ControllerClient, controllerErrorCode } from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a policy an administrator changed. */
@@ -97,8 +97,7 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 		try {
 			await controller.applyEgressPolicy({ version, ...expanded });
 		} catch (e) {
-			const errorCode =
-				e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+			const errorCode = controllerErrorCode(e);
 			const message = errorMessage(e);
 			const firstForVersion = failed?.version !== version;
 			failed = { version, at: now().getTime() };

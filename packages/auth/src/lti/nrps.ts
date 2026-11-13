@@ -201,6 +201,33 @@ function toMember(raw: z.infer<typeof memberSchema>): NrpsMember {
 	};
 }
 
+/** One memberships page: its members and its `Link` header. */
+async function fetchPage(
+	outbound: OutboundFetch,
+	url: string,
+	accessToken: string,
+): Promise<{ members: z.infer<typeof memberSchema>[]; link: string | null }> {
+	const response = await send(outbound, url, {
+		method: "GET",
+		headers: {
+			authorization: `Bearer ${accessToken}`,
+			accept: "application/vnd.ims.lti-nrps.v2.membershipcontainer+json",
+		},
+	});
+	if (!response) throw new NrpsError("http_error", "memberships did not answer");
+	if (response.status !== 200) {
+		await response.body?.cancel();
+		throw new NrpsError("http_error", "memberships refused", response.status);
+	}
+	const parsed = pageSchema.safeParse(
+		parseJson(await readCapped(response, MAX_PAGE_BODY_BYTES)),
+	);
+	if (!parsed.success) {
+		throw new NrpsError("bad_shape", "memberships page is not a member list");
+	}
+	return { members: parsed.data.members, link: response.headers.get("link") };
+}
+
 /**
  * Every member of the course, following `Link: rel="next"` pages on the
  * memberships URL's own origin. Throws {@link NrpsError} on any failure, so
@@ -222,35 +249,22 @@ export async function fetchNrpsMembers(
 				`roster has more than ${NRPS_MAX_PAGES} pages`,
 			);
 		}
-		const response = await send(outbound, url, {
-			method: "GET",
-			headers: {
-				authorization: `Bearer ${input.accessToken}`,
-				accept: "application/vnd.ims.lti-nrps.v2.membershipcontainer+json",
-			},
-		});
-		if (!response) throw new NrpsError("http_error", "memberships did not answer");
-		if (response.status !== 200) {
-			await response.body?.cancel();
-			throw new NrpsError("http_error", "memberships refused", response.status);
-		}
-		const parsed = pageSchema.safeParse(
-			parseJson(await readCapped(response, MAX_PAGE_BODY_BYTES)),
+		const { members: pageMembers, link } = await fetchPage(
+			outbound,
+			url,
+			input.accessToken,
 		);
-		if (!parsed.success) {
-			throw new NrpsError("bad_shape", "memberships page is not a member list");
-		}
-		seen += parsed.data.members.length;
+		seen += pageMembers.length;
 		if (seen > NRPS_MAX_MEMBERS) {
 			throw new NrpsError(
 				"cap_exceeded",
 				`roster has more than ${NRPS_MAX_MEMBERS} members`,
 			);
 		}
-		for (const raw of parsed.data.members) {
+		for (const raw of pageMembers) {
 			if (!members.has(raw.user_id)) members.set(raw.user_id, toMember(raw));
 		}
-		url = nextLink(response.headers.get("link"), url);
+		url = nextLink(link, url);
 		// The bearer token must never be sent to another host.
 		if (url !== null && new URL(url).origin !== origin) {
 			throw new NrpsError("bad_shape", "next page link leaves the memberships host");

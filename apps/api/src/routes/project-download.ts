@@ -4,7 +4,7 @@ import {
 	MAX_DOWNLOAD_PATHS,
 	ProjectPath,
 } from "@portikus/contracts";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import {
 	AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
 	type AgentClient,
@@ -18,21 +18,17 @@ import {
 	releaseLongOperation,
 } from "../workspaces/long-operation.js";
 import {
-	type ProjectRow,
+	type OwnedProject,
+	type OwnedScope,
 	requireAgent,
-	type Scope,
 	sendAgentError,
 } from "../workspaces/project-scope.js";
 
 /** The project's zip download and its size check (SPEC.md §11.2). */
 export function registerProjectDownloadRoute(
 	app: FastifyInstance,
-	owned: (request: FastifyRequest, reply: FastifyReply) => Promise<Scope | null>,
-	ownedProject: (
-		workspaceId: string,
-		projectId: string,
-		reply: FastifyReply,
-	) => Promise<ProjectRow | null>,
+	owned: OwnedScope,
+	ownedProject: OwnedProject,
 ): void {
 	/** Answers 204 when the download would be under the size cap. */
 	async function checkDownloadSize(

@@ -25,12 +25,47 @@ import { SettingsTab } from "./SettingsTab.js";
 import { SignInTab } from "./signin/SignInTab.js";
 import {
 	ADMIN_HELP_TAB,
+	type AdminTab,
 	DEFAULT_ADMIN_TAB,
 	isAdminTab,
 	ADMIN_TAB_LABEL as TAB_LABEL,
 } from "./tabs.js";
 import { OperationEndToasts } from "./users/operationEnd.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
+
+/** The open tab's content; the Root shell tab stays mounted on its own. */
+function tabContent(view: AdminTab | null, currentUserId: string) {
+	switch (view) {
+		case "users":
+			return <WorkspacesTab currentUserId={currentUserId} />;
+		case "health":
+			return <HealthTab />;
+		case "logs":
+			return <LogsTab />;
+		case "audit":
+			return <AuditTab />;
+		case "agents":
+			return <AgentUsageTab />;
+		case "network":
+			return <NetworkTab />;
+		case "backups":
+			return <BackupsTab />;
+		case "image":
+			return <ImageTab />;
+		case "certificate":
+			return <CertificateTab />;
+		case "docker":
+			return <DockerTab />;
+		case "signin":
+			return <SignInTab />;
+		case "address":
+			return <AddressTab />;
+		case "settings":
+			return <SettingsTab />;
+		default:
+			return null;
+	}
+}
 
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
@@ -107,19 +142,7 @@ export function AdminPage() {
 									Administration
 								</h1>
 							) : null}
-							{view === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
-							{view === "health" ? <HealthTab /> : null}
-							{view === "logs" ? <LogsTab /> : null}
-							{view === "audit" ? <AuditTab /> : null}
-							{view === "agents" ? <AgentUsageTab /> : null}
-							{view === "network" ? <NetworkTab /> : null}
-							{view === "backups" ? <BackupsTab /> : null}
-							{view === "image" ? <ImageTab /> : null}
-							{view === "certificate" ? <CertificateTab /> : null}
-							{view === "docker" ? <DockerTab /> : null}
-							{view === "signin" ? <SignInTab /> : null}
-							{view === "address" ? <AddressTab /> : null}
-							{view === "settings" ? <SettingsTab /> : null}
+							{tabContent(view, me.user.id)}
 							<RootShellTab shown={shellTab} status={rootShell} />
 						</div>
 					</main>

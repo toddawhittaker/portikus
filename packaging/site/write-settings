@@ -60,33 +60,33 @@ def write(path, data, mode, header):
     os.replace(tmp, path)
 
 
-def write_answers(etc, public_port=None, out=sys.stdout):
-    config_file = etc + "/portikus.yaml"
-    secrets_file = etc + "/secrets.yaml"
-    tls = answer("tls") or "internal"
-    # After the first setup the admin page owns the certificate, and setup no
-    # longer reads the TLS answers, so none of them is missing.  Any file the
-    # root job writes counts, as setup and the job itself check, except while
-    # the local administrator waits for the public certificate (SPEC.md 24.10).
-    certificate_seeded = any(os.path.lexists(etc + "/certificate/" + name)
-                             for name in ("settings.json", "tls.caddy", "secrets")) \
-        and not os.path.lexists(etc + "/certificate/admin-pending")
-    provider = answer("provider") or "dex"
-    storage = answer("storage")
+IDENTITY_PROVIDERS = ("entra", "google", "oidc")
+LDAP_SETTINGS = ("host", "schema", "bind_dn", "user_base_dn", "user_filter", "group_base_dn", "root_ca")
+ROLES = ("student", "instructor", "admin")
+DEFAULT_PUBLIC_PORT = 443
 
-    settings = {
-        "portikus_public_host": answer("public_host"),
-        "portikus_admin_email": answer("admin_email"),
-        "portikus_tls": tls,
-        "portikus_dex_upstream": "none" if provider == "dex" else provider,
-        "portikus_storage": storage,
-    }
-    if tls == "letsencrypt":
-        settings["portikus_acme_email"] = answer("acme_email")
-    if tls == "files":
-        settings["portikus_tls_cert"] = answer("tls_cert")
-        settings["portikus_tls_key"] = answer("tls_key")
-    if provider in ("entra", "google", "oidc"):
+SECRET_NAMES = {
+    "portikus_cloudflare_api_token": "the Cloudflare API token (cloudflare_api_token)",
+    "portikus_dex_upstream_client_secret": "the client secret (client_secret)",
+    "portikus_ldap_bind_password": "the service account password (ldap_bind_password)",
+}
+
+
+def certificate_is_seeded(etc):
+    """After the first setup the admin page owns the certificate, and setup no
+    longer reads the TLS answers, so none of them is missing.  Any file the
+    root job writes counts, as setup and the job itself check, except while
+    the local administrator waits for the public certificate (SPEC.md 24.10).
+    """
+    return any(os.path.lexists(etc + "/certificate/" + name)
+               for name in ("settings.json", "tls.caddy", "secrets")) \
+        and not os.path.lexists(etc + "/certificate/admin-pending")
+
+
+def provider_settings(provider):
+    """The sign-in settings for one provider, and whether its roles come from groups."""
+    settings = {}
+    if provider in IDENTITY_PROVIDERS:
         settings["portikus_dex_upstream_client_id"] = answer("client_id")
     entra_groups = provider == "entra" and answer("entra_role_source") == "groups"
     google_groups = provider == "google" and bool(answer("google_admin_email"))
@@ -103,25 +103,58 @@ def write_answers(etc, public_port=None, out=sys.stdout):
         settings["portikus_dex_upstream_issuer"] = answer("oidc_issuer")
         settings["portikus_oidc_upstream_groups_claim"] = answer("oidc_groups_claim") or "groups"
     if provider == "ldap":
-        for name in ("host", "schema", "bind_dn", "user_base_dn", "user_filter",
-                     "group_base_dn", "root_ca"):
+        for name in LDAP_SETTINGS:
             settings["portikus_ldap_" + name] = answer("ldap_" + name)
         settings["portikus_ldap_ip_allow"] = words("ldap_ip_allow")
-    if provider == "oidc" or (provider == "ldap" and answer("ldap_group_base_dn")) or entra_groups \
-            or google_groups:
-        # A blank group leaves the play's default: the API refuses an empty one and stops.
-        for role in ("student", "instructor", "admin"):
-            if answer(role + "_group"):
-                name = answer(role + "_group")
-                # Google returns group emails in lowercase, and Dex matches them exactly.
-                settings["portikus_oidc_%s_group" % role] = name.lower() if google_groups else name
+    uses_groups = provider == "oidc" or (provider == "ldap" and answer("ldap_group_base_dn")) \
+        or entra_groups or google_groups
+    return settings, uses_groups, google_groups
+
+
+def group_settings(lowercase):
+    settings = {}
+    # A blank group leaves the play's default: the API refuses an empty one and stops.
+    for role in ROLES:
+        if answer(role + "_group"):
+            name = answer(role + "_group")
+            # Google returns group emails in lowercase, and Dex matches them exactly.
+            settings["portikus_oidc_%s_group" % role] = name.lower() if lowercase else name
+    return settings
+
+
+def storage_settings(storage):
+    settings = {}
     if storage.startswith("/dev/"):
         settings["portikus_storage_confirm"] = answer("storage_confirm") == "true"
     if storage == "file" and answer("storage_size").isdigit():
         settings["portikus_storage_size"] = int(answer("storage_size"))
     if answer("registry_cache_gib").isdigit() and int(answer("registry_cache_gib")) >= 1:
         settings["portikus_registry_cache_gib"] = int(answer("registry_cache_gib"))
+    return settings
 
+
+def settings_from_answers(tls, provider, storage):
+    settings = {
+        "portikus_public_host": answer("public_host"),
+        "portikus_admin_email": answer("admin_email"),
+        "portikus_tls": tls,
+        "portikus_dex_upstream": "none" if provider == "dex" else provider,
+        "portikus_storage": storage,
+    }
+    if tls == "letsencrypt":
+        settings["portikus_acme_email"] = answer("acme_email")
+    if tls == "files":
+        settings["portikus_tls_cert"] = answer("tls_cert")
+        settings["portikus_tls_key"] = answer("tls_key")
+    sign_in, uses_groups, google_groups = provider_settings(provider)
+    settings.update(sign_in)
+    if uses_groups:
+        settings.update(group_settings(google_groups))
+    settings.update(storage_settings(storage))
+    return settings
+
+
+def merged_config(config_file, settings, public_port):
     # Keys that follow from the answers; a key here that no longer applies is
     # removed, so switching providers leaves no stale settings behind.
     owned = os.environ["PK_OWNED"].split()
@@ -129,21 +162,28 @@ def write_answers(etc, public_port=None, out=sys.stdout):
     for key in owned:
         config.pop(key, None)
     config.update(settings)
-    if public_port == 443:
+    if public_port == DEFAULT_PUBLIC_PORT:
         config.pop("portikus_public_port", None)
     elif public_port is not None:
         config["portikus_public_port"] = public_port
+    return config
 
-    # A blank password keeps the stored secret.  Once setup has seeded the
-    # certificate, the root job keeps the Cloudflare token, so none stays here.
-    current = load(secrets_file)
+
+def wanted_secrets(tls, provider, certificate_seeded):
+    # Once setup has seeded the certificate, the root job keeps the Cloudflare
+    # token, so none stays here.
     wanted = {}
     if tls == "letsencrypt" and not certificate_seeded:
         wanted["portikus_cloudflare_api_token"] = answer("cloudflare_api_token")
-    if provider in ("entra", "google", "oidc"):
+    if provider in IDENTITY_PROVIDERS:
         wanted["portikus_dex_upstream_client_secret"] = answer("client_secret")
     if provider == "ldap":
         wanted["portikus_ldap_bind_password"] = answer("ldap_bind_password")
+    return wanted
+
+
+def merged_secrets(current, wanted):
+    # A blank password keeps the stored secret.
     secret_keys = os.environ["PK_SECRET_KEYS"].split()
     secrets = {k: v for k, v in current.items() if k not in secret_keys}
     for key, value in wanted.items():
@@ -151,14 +191,11 @@ def write_answers(etc, public_port=None, out=sys.stdout):
             secrets[key] = value
         elif current.get(key):
             secrets[key] = current[key]
+    return secrets
 
-    os.makedirs(etc, mode=0o755, exist_ok=True)
-    write(config_file, config, 0o644,
-          "# Portikus settings: Ansible variables for `portikus setup`.\n"
-          "# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\n")
-    write(secrets_file, secrets, 0o600,
-          "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\n")
 
+def needed_settings(tls, provider, storage, certificate_seeded):
+    """Each setting setup cannot run without, and how to describe it when missing."""
     needed = {
         "portikus_public_host": "the web address (public_host)",
         "portikus_admin_email": "the administrator's email (admin_email)",
@@ -168,7 +205,7 @@ def write_answers(etc, public_port=None, out=sys.stdout):
     if tls == "files" and not certificate_seeded:
         needed["portikus_tls_cert"] = "the certificate file (tls_cert)"
         needed["portikus_tls_key"] = "the private key file (tls_key)"
-    if provider in ("entra", "google", "oidc"):
+    if provider in IDENTITY_PROVIDERS:
         needed["portikus_dex_upstream_client_id"] = "the client ID (client_id)"
     if provider == "entra":
         needed["portikus_entra_tenant_id"] = "the Entra tenant ID (entra_tenant_id)"
@@ -184,21 +221,43 @@ def write_answers(etc, public_port=None, out=sys.stdout):
         needed["portikus_ldap_user_filter"] = "who may sign in (ldap_user_filter)"
     if storage == "file":
         needed["portikus_storage_size"] = "the size of the storage file (storage_size)"
-    for key, text in needed.items():
-        if not config.get(key):
-            print("- " + text, file=out)
+    return needed
+
+
+def missing_items(config, secrets, wanted, needed, storage):
+    items = [text for key, text in needed.items() if not config.get(key)]
     if not storage:
-        print("- where to keep student files (storage)", file=out)
+        items.append("where to keep student files (storage)")
     elif storage.startswith("/dev/") and config.get("portikus_storage_confirm") is not True:
-        print("- confirmation that everything on %s may be erased (storage_confirm)" % storage, file=out)
-    names = {
-        "portikus_cloudflare_api_token": "the Cloudflare API token (cloudflare_api_token)",
-        "portikus_dex_upstream_client_secret": "the client secret (client_secret)",
-        "portikus_ldap_bind_password": "the service account password (ldap_bind_password)",
-    }
-    for key in wanted:
-        if not secrets.get(key):
-            print("- " + names[key], file=out)
+        items.append("confirmation that everything on %s may be erased (storage_confirm)" % storage)
+    items.extend(SECRET_NAMES[key] for key in wanted if not secrets.get(key))
+    return items
+
+
+def write_answers(etc, public_port=None, out=sys.stdout):
+    config_file = etc + "/portikus.yaml"
+    secrets_file = etc + "/secrets.yaml"
+    tls = answer("tls") or "internal"
+    certificate_seeded = certificate_is_seeded(etc)
+    provider = answer("provider") or "dex"
+    storage = answer("storage")
+
+    settings = settings_from_answers(tls, provider, storage)
+    config = merged_config(config_file, settings, public_port)
+    current = load(secrets_file)
+    wanted = wanted_secrets(tls, provider, certificate_seeded)
+    secrets = merged_secrets(current, wanted)
+
+    os.makedirs(etc, mode=0o755, exist_ok=True)
+    write(config_file, config, 0o644,
+          "# Portikus settings: Ansible variables for `portikus setup`.\n"
+          "# Written by `dpkg-reconfigure portikus`, which keeps keys it does not own.\n")
+    write(secrets_file, secrets, 0o600,
+          "# Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.\n")
+
+    needed = needed_settings(tls, provider, storage, certificate_seeded)
+    for item in missing_items(config, secrets, wanted, needed, storage):
+        print("- " + item, file=out)
 
 
 def read_keys(path):

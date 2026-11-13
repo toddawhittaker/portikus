@@ -57,7 +57,6 @@ function send(socket: WebSocket, message: TerminalServerMessage): void {
 	if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
 }
 
-/** Send a terminal's attachments whatever changed since the last poll. */
 /** Tell one helper attachment the window's size. */
 function sendSize(socket: WebSocket, onSize: OnSize, state: PaneState): void {
 	if (state.cols < 1 || state.rows < 1) return;
@@ -65,27 +64,35 @@ function sendSize(socket: WebSocket, onSize: OnSize, state: PaneState): void {
 	send(socket, { type: "size", cols: state.cols, rows: state.rows });
 }
 
+function sendAll(sockets: Iterable<WebSocket>, message: TerminalServerMessage): void {
+	for (const socket of sockets) send(socket, message);
+}
+
+/** Send a terminal's attachments whatever changed since the last poll. */
 function announceChanges(entry: Watched, state: PaneState): void {
 	const last = entry.last;
 	if (last === null || state.cols !== last.cols || state.rows !== last.rows) {
 		for (const [socket, onSize] of entry.helpers) sendSize(socket, onSize, state);
 	}
 	if (state.path !== null && state.path !== last?.path) {
-		for (const socket of entry.sockets) {
-			send(socket, { type: "cwd", path: state.path });
-		}
+		sendAll(entry.sockets, { type: "cwd", path: state.path });
 	}
 	if (last === null || state.alternate !== last.alternate) {
-		for (const socket of entry.sockets) {
-			send(socket, { type: "screen", alternate: state.alternate });
-		}
+		sendAll(entry.sockets, { type: "screen", alternate: state.alternate });
 	}
 	// tmux empties its history on `clear` but does not pass the
 	// erase-scrollback on. The pane pipes usually say so first; this catches
 	// a pane whose pipe a student replaced (SPEC.md §9.7).
 	if (last !== null && last.history > 0 && state.history === 0) {
-		for (const socket of entry.sockets) send(socket, { type: "clear" });
+		sendAll(entry.sockets, { type: "clear" });
 	}
+}
+
+/** What a new attachment would have heard from earlier polls. */
+function catchUp(socket: WebSocket, onSize: OnSize | undefined, last: PaneState): void {
+	if (last.path != null) send(socket, { type: "cwd", path: last.path });
+	send(socket, { type: "screen", alternate: last.alternate });
+	if (onSize) sendSize(socket, onSize, last);
 }
 
 /** One poll for the whole agent, shared by every attachment it serves. */
@@ -148,11 +155,7 @@ export function watchPanes(server: TmuxServer): PaneWatcher {
 			watched.set(terminalId, entry);
 			// A browser that arrives between polls should not have to wait for
 			// the next one to learn where it is.
-			if (entry.last?.path != null) {
-				send(socket, { type: "cwd", path: entry.last.path });
-			}
-			if (entry.last) send(socket, { type: "screen", alternate: entry.last.alternate });
-			if (entry.last && onSize) sendSize(socket, onSize, entry.last);
+			if (entry.last) catchUp(socket, onSize, entry.last);
 			ensureRunning();
 		},
 		remove: (terminalId, socket) => {
@@ -167,7 +170,7 @@ export function watchPanes(server: TmuxServer): PaneWatcher {
 		clear: (terminalId) => {
 			const entry = watched.get(terminalId);
 			if (!entry) return;
-			for (const socket of entry.sockets) send(socket, { type: "clear" });
+			sendAll(entry.sockets, { type: "clear" });
 			// The poll would otherwise send a second clear for the same erase,
 			// wiping output printed since.
 			if (entry.last) entry.last = { ...entry.last, history: 0 };

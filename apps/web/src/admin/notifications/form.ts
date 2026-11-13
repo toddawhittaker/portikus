@@ -207,25 +207,30 @@ export function changedFields(form: NotifyForm, baseline: NotifyForm): string[] 
 	return out;
 }
 
-/** The update to send. Only call it once `validate` found nothing. */
-export function toUpdate(form: NotifyForm): NotificationSettingsUpdate {
-	const { email, pushover, ntfy, teams, webhook } = form;
-	const typed = (value: string) => (value === "" ? {} : { value });
+/** The mail server part of the update, for a form that sets one. */
+function smtpUpdate(
+	email: NotifyForm["email"],
+): NonNullable<NotificationSettingsUpdate["smtp"]> {
 	const username = email.username.trim();
 	// With no user name nothing is signed in, so any stored password goes.
 	const password =
 		email.password !== "" ? email.password : username === "" ? "" : undefined;
+	return {
+		host: email.host.trim(),
+		port: email.port === "465" ? 465 : 587,
+		username,
+		...(password === undefined ? {} : { password }),
+		from: email.from.trim(),
+	};
+}
+
+/** The update to send. Only call it once `validate` found nothing. */
+export function toUpdate(form: NotifyForm): NotificationSettingsUpdate {
+	const { email, pushover, ntfy, teams, webhook } = form;
+	const typed = (value: string) => (value === "" ? {} : { value });
 	const ntfyToken = ntfy.token !== "" ? ntfy.token : ntfy.removeToken ? "" : undefined;
 	return {
-		smtp: mailServerSet(form)
-			? {
-					host: email.host.trim(),
-					port: email.port === "465" ? 465 : 587,
-					username,
-					...(password === undefined ? {} : { password }),
-					from: email.from.trim(),
-				}
-			: null,
+		smtp: mailServerSet(form) ? smtpUpdate(email) : null,
 		alerts: {
 			email: email.on ? { to: recipients(email.to) } : null,
 			pushover: pushover.on
@@ -328,9 +333,26 @@ export function validate(form: NotifyForm, view: NotificationSettingsView): Form
 	const need = (id: FieldId, text: string) => {
 		found[id] ??= text;
 	};
+	mailServerErrors(form, view, need);
+	alertErrors(form, view, need);
+	const parsed = UpdateSchema.safeParse(toUpdate(form));
+	if (!parsed.success) {
+		for (const issue of parsed.error.issues) {
+			const field = fieldFor(issue.path.join("."));
+			if (field) need(field.id, field.text);
+		}
+	}
+	return ordered(found);
+}
+
+/** What each alert channel that is on still needs, with nothing stored for it. */
+function alertErrors(
+	form: NotifyForm,
+	view: NotificationSettingsView,
+	need: (id: FieldId, text: string) => void,
+) {
 	const { email, pushover, ntfy, teams, webhook } = form;
 	const { alerts } = view;
-	mailServerErrors(form, view, need);
 	if (email.on) {
 		const to = recipients(email.to);
 		if (to.length === 0)
@@ -356,14 +378,6 @@ export function validate(form: NotifyForm, view: NotificationSettingsView): Form
 	if (webhook.on && webhook.url.trim() === "" && !alerts.webhook?.urlSet) {
 		need(FIELD_ID.webhookUrl, "Enter the webhook URL.");
 	}
-	const parsed = UpdateSchema.safeParse(toUpdate(form));
-	if (!parsed.success) {
-		for (const issue of parsed.error.issues) {
-			const field = fieldFor(issue.path.join("."));
-			if (field) need(field.id, field.text);
-		}
-	}
-	return ordered(found);
 }
 
 const FIELD_ORDER = Object.values(FIELD_ID);

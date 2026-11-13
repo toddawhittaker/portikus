@@ -97,6 +97,33 @@ async function syncAgentAddress(
 	}
 }
 
+/**
+ * Move a row whose instance is stopped to stopped: end its terminals, clear
+ * its guard state and audit it. Nothing happens if the row moved on.
+ */
+async function markObservedStopped(
+	ctx: SweepContext,
+	id: string,
+	fromState: "running" | "stopping",
+	recordText: string,
+	audit: { action: string; metadata?: Record<string, unknown> },
+): Promise<void> {
+	const { db, now, record } = ctx;
+	const updated = await casUpdate(
+		db,
+		id,
+		fromState,
+		{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
+		now,
+	);
+	if (!updated) return;
+	ctx.transitions++;
+	await endOpenTerminals(db, id, now);
+	await clearGuardAtStop(db, id);
+	record(id, recordText);
+	await recordAudit(db, { actor: "worker", target: id, ...audit, result: "ok" });
+}
+
 /** Step 4: a running or stopped row whose instance says otherwise. */
 async function resolveDrift(
 	ctx: SweepContext,
@@ -106,25 +133,9 @@ async function resolveDrift(
 	const { db, now, record } = ctx;
 	// Drift: row says running but instance is Stopped.
 	if (ws.state === "running" && inst.status === "Stopped") {
-		const updated = await casUpdate(
-			db,
-			ws.id,
-			"running",
-			{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
-			now,
-		);
-		if (updated) {
-			ctx.transitions++;
-			await endOpenTerminals(db, ws.id, now);
-			await clearGuardAtStop(db, ws.id);
-			record(ws.id, "observed stopped");
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.observed_stopped",
-				result: "ok",
-			});
-		}
+		await markObservedStopped(ctx, ws.id, "running", "observed stopped", {
+			action: "workspace.observed_stopped",
+		});
 	}
 
 	// Drift: row says stopped but instance is Running.
@@ -243,28 +254,12 @@ async function resolveStopping(
 ): Promise<void> {
 	const { db, now, record } = ctx;
 	if (inst.status === "Stopped") {
-		const updated = await casUpdate(
-			db,
-			ws.id,
-			"stopping",
-			{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
-			now,
-		);
-		if (updated) {
-			ctx.transitions++;
-			await endOpenTerminals(db, ws.id, now);
-			await clearGuardAtStop(db, ws.id);
-			record(ws.id, "stop resolved as stopped");
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.stop",
-				result: "ok",
-				metadata: {
-					resolvedFromList: true,
-				},
-			});
-		}
+		await markObservedStopped(ctx, ws.id, "stopping", "stop resolved as stopped", {
+			action: "workspace.stop",
+			metadata: {
+				resolvedFromList: true,
+			},
+		});
 	} else if (inst.status === "Running") {
 		const updated = await casUpdate(db, ws.id, "stopping", { state: "running" }, now);
 		if (updated) {

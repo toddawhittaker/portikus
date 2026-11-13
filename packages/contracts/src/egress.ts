@@ -321,43 +321,40 @@ function covers(entry: string, host: string): boolean {
 	return host === entry || host.endsWith(`.${entry}`);
 }
 
-/**
- * Whether the policy lets a workspace reach `input`, and why. Shared by the
- * admin route, the Network tab and the enforcement renderers' tests, so the
- * explanation and the enforcement cannot disagree.
- */
-export function explainHost(policy: EgressPolicy, input: string): EgressExplanation {
-	const value = normalize(input);
-	const address = parseIpv4(value);
-	if (address !== null) {
-		const denied = deniedOverlap({ first: address, last: address });
-		if (denied) return { allowed: false, reason: "denied", range: denied };
-		if (policy.mode === "open") return { allowed: true, reason: "open" };
-		for (const e of policy.entries) {
-			if (e.kind !== "range") continue;
-			const r = parseIpv4Cidr(e.value);
-			if (r && r.first <= address && address <= r.last) {
-				return { allowed: true, reason: "range", range: e.value, label: e.label };
-			}
+/** How the policy treats a literal IPv4 address. */
+function explainAddress(policy: EgressPolicy, address: number): EgressExplanation {
+	const denied = deniedOverlap({ first: address, last: address });
+	if (denied) return { allowed: false, reason: "denied", range: denied };
+	if (policy.mode === "open") return { allowed: true, reason: "open" };
+	for (const e of policy.entries) {
+		if (e.kind !== "range") continue;
+		const r = parseIpv4Cidr(e.value);
+		if (r && r.first <= address && address <= r.last) {
+			return { allowed: true, reason: "range", range: e.value, label: e.label };
 		}
-		return { allowed: false, reason: "address" };
 	}
-	if (!isEgressHostName(value)) return { allowed: false, reason: "invalid" };
-	if (policy.mode === "open") {
-		const block = policy.blockedSites.find((b) => covers(b.value, value));
-		if (block) {
-			return {
-				allowed: false,
-				reason: "blocked",
-				entry: block.value,
-				label: block.label,
-			};
-		}
-		return { allowed: true, reason: "open" };
+	return { allowed: false, reason: "address" };
+}
+
+/** Open mode allows a host name unless a blocked site covers it. */
+function explainOpenName(policy: EgressPolicy, name: string): EgressExplanation {
+	const block = policy.blockedSites.find((b) => covers(b.value, name));
+	if (block) {
+		return {
+			allowed: false,
+			reason: "blocked",
+			entry: block.value,
+			label: block.label,
+		};
 	}
+	return { allowed: true, reason: "open" };
+}
+
+/** Allow-list mode allows a host name only when a chosen preset or a host entry covers it. */
+function explainListedName(policy: EgressPolicy, name: string): EgressExplanation {
 	for (const preset of EGRESS_PRESETS) {
 		if (!policy.presets.includes(preset.id)) continue;
-		const hit = preset.hosts.find((h) => covers(h, value));
+		const hit = preset.hosts.find((h) => covers(h, name));
 		if (hit) {
 			return {
 				allowed: true,
@@ -369,11 +366,25 @@ export function explainHost(policy: EgressPolicy, input: string): EgressExplanat
 		}
 	}
 	for (const e of policy.entries) {
-		if (e.kind === "host" && covers(e.value, value)) {
+		if (e.kind === "host" && covers(e.value, name)) {
 			return { allowed: true, reason: "entry", entry: e.value, label: e.label };
 		}
 	}
 	return { allowed: false, reason: "not-listed" };
+}
+
+/**
+ * Whether the policy lets a workspace reach `input`, and why. Shared by the
+ * admin route, the Network tab and the enforcement renderers' tests, so the
+ * explanation and the enforcement cannot disagree.
+ */
+export function explainHost(policy: EgressPolicy, input: string): EgressExplanation {
+	const value = normalize(input);
+	const address = parseIpv4(value);
+	if (address !== null) return explainAddress(policy, address);
+	if (!isEgressHostName(value)) return { allowed: false, reason: "invalid" };
+	if (policy.mode === "open") return explainOpenName(policy, value);
+	return explainListedName(policy, value);
 }
 
 /**

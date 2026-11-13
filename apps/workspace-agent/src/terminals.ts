@@ -424,74 +424,79 @@ export class TerminalRegistry {
 	}
 
 	private onMessage(attachment: Attachment, raw: Buffer | string): void {
-		const { socket, pty } = attachment;
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(raw.toString());
-		} catch {
-			this.rejectFrame(socket);
-			return;
-		}
-
-		const message = TerminalClientMessage.safeParse(parsed);
-		if (!message.success) {
-			this.rejectFrame(socket);
+		const message = parseClientMessage(raw);
+		if (!message) {
+			this.rejectFrame(attachment.socket);
 			return;
 		}
 
 		// A second layer behind the API's own rules: a helper never resizes,
 		// and a viewer never types (SPEC.md §9.7).
-		if (attachment.mode && message.data.type === "resize") return;
+		if (attachment.mode && message.type === "resize") return;
 		if (attachment.mode === "view") return;
 
-		if (message.data.type === "input") {
-			if (Buffer.byteLength(message.data.data, "utf8") > MAX_INPUT_FRAME_BYTES) {
-				socket.close(1009, "input frame too large");
-				return;
-			}
-			// tmux sizes the window to whoever typed last, so typing takes the
-			// claim without one. A helper's client ignores size (SPEC.md §9.7).
-			if (attachment.sized && !attachment.mode) {
-				this.claimers.set(attachment.terminalId, attachment);
-			}
-			if (attachment.pendingInput) {
-				const size = Buffer.byteLength(message.data.data, "utf8");
-				if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
-					// One line per attachment, not one per frame: a browser that
-					// keeps typing would otherwise fill the journal.
-					if (attachment.warnedQueueFull) return;
-					attachment.warnedQueueFull = true;
-					this.log.warn(
-						{
-							terminalId: attachment.terminalId,
-							pendingBytes: attachment.pendingBytes,
-						},
-						"dropping early terminal input: queue full",
-					);
-					return;
-				}
-				attachment.pendingInput.push(message.data.data);
-				attachment.pendingBytes += size;
-				return;
-			}
-			pty?.write(message.data.data);
+		if (message.type === "input") {
+			this.onInput(attachment, message.data);
 			return;
 		}
+		this.onResize(attachment, message.cols, message.rows);
+	}
 
+	private onInput(attachment: Attachment, data: string): void {
+		const size = Buffer.byteLength(data, "utf8");
+		if (size > MAX_INPUT_FRAME_BYTES) {
+			attachment.socket.close(1009, "input frame too large");
+			return;
+		}
+		// tmux sizes the window to whoever typed last, so typing takes the
+		// claim without one. A helper's client ignores size (SPEC.md §9.7).
+		if (attachment.sized && !attachment.mode) {
+			this.claimers.set(attachment.terminalId, attachment);
+		}
+		if (attachment.pendingInput) {
+			this.queueInput(attachment, attachment.pendingInput, data, size);
+			return;
+		}
+		attachment.pty?.write(data);
+	}
+
+	private queueInput(
+		attachment: Attachment,
+		queue: string[],
+		data: string,
+		size: number,
+	): void {
+		if (attachment.pendingBytes + size > INPUT_QUEUE_MAX_BYTES) {
+			// One line per attachment, not one per frame: a browser that
+			// keeps typing would otherwise fill the journal.
+			if (attachment.warnedQueueFull) return;
+			attachment.warnedQueueFull = true;
+			this.log.warn(
+				{
+					terminalId: attachment.terminalId,
+					pendingBytes: attachment.pendingBytes,
+				},
+				"dropping early terminal input: queue full",
+			);
+			return;
+		}
+		queue.push(data);
+		attachment.pendingBytes += size;
+	}
+
+	private onResize(attachment: Attachment, cols: number, rows: number): void {
+		const pty = attachment.pty;
 		// No PTY yet: remember the size so it is spawned with it.
 		if (!pty) {
-			attachment.pendingResize = { cols: message.data.cols, rows: message.data.rows };
+			attachment.pendingResize = { cols, rows };
 			return;
 		}
 
-		const changed = pty.cols !== message.data.cols || pty.rows !== message.data.rows;
+		const changed = pty.cols !== cols || pty.rows !== rows;
 		if (changed) {
 			try {
-				pty.resize(message.data.cols, message.data.rows);
-				this.log.debug(
-					{ pid: pty.pid, cols: message.data.cols, rows: message.data.rows },
-					"terminal resized",
-				);
+				pty.resize(cols, rows);
+				this.log.debug({ pid: pty.pid, cols, rows }, "terminal resized");
 			} catch (error) {
 				this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
 			}
@@ -541,4 +546,15 @@ export class TerminalRegistry {
 		sendText(socket, { type: "error", code: "BAD_FRAME" });
 		socket.close(1008, "malformed frame");
 	}
+}
+
+function parseClientMessage(raw: Buffer | string): TerminalClientMessage | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw.toString());
+	} catch {
+		return null;
+	}
+	const message = TerminalClientMessage.safeParse(parsed);
+	return message.success ? message.data : null;
 }

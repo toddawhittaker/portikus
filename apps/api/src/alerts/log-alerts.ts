@@ -40,6 +40,8 @@ export type ParsedEntry =
 	| { kind: "error"; service: LogService; at: Date }
 	| null;
 
+type LimitEntry = Extract<ParsedEntry, { kind: "limit" }>;
+
 /** Classify one entry; only its code, address, level and unit are kept. */
 export function classifyEntry(entry: JournalEntry): ParsedEntry {
 	if (entry.message === null) return null;
@@ -117,8 +119,8 @@ export function createLogAlerts(options: LogAlertOptions): () => Promise<void> {
 	let errors: { at: Date; service: LogService }[] = [];
 	let spikeRaised = false;
 
-	return async function tick(): Promise<void> {
-		const at = now();
+	/** The error and warn lines since the last read, or null to skip this tick. */
+	async function readNew(at: Date): Promise<ParsedEntry[] | null> {
 		const entries: ParsedEntry[] = [];
 		try {
 			// The first read starts now, so a restart does not replay old lines.
@@ -134,40 +136,52 @@ export function createLogAlerts(options: LogAlertOptions): () => Promise<void> {
 		} catch (e) {
 			// A busy or missing journal skips this tick.
 			logger.debug({ error: errorMessage(e) }, "log alert read skipped");
-			return;
+			return null;
 		}
+		return entries;
+	}
+
+	async function alertLimit(limit: LimitEntry, at: Date): Promise<void> {
+		const instance = await instanceAt(limit.address);
+		if (!instance) return;
+		const key = `${instance}/${limit.code}`;
+		const last = lastLimitAlert.get(key);
+		if (last !== undefined && at.getTime() - last < LIMIT_ALERT_INTERVAL_MS) return;
+		lastLimitAlert.set(key, at.getTime());
+		await notify(limitNotice(instance, limit.code));
+		logger.info({ instance, code: limit.code }, "outbound limit alert raised");
+	}
+
+	async function checkErrorSpike(at: Date): Promise<void> {
+		const since = at.getTime() - ERROR_SPIKE_WINDOW_MINUTES * 60_000;
+		errors = errors.filter((e) => e.at.getTime() > since);
+		const spike = errors.length >= ERROR_SPIKE_THRESHOLD;
+		if (spike && !spikeRaised) {
+			await notify(
+				errorSpikeNotice(
+					errors.length,
+					errors.map((e) => e.service),
+				),
+			);
+			logger.info({ errors: errors.length }, "error spike alert raised");
+		}
+		spikeRaised = spike;
+	}
+
+	return async function tick(): Promise<void> {
+		const at = now();
+		const entries = await readNew(at);
+		if (!entries) return;
 
 		try {
 			for (const parsed of entries) {
 				if (parsed?.kind === "error") errors.push(parsed);
-				if (parsed?.kind !== "limit") continue;
-				const instance = await instanceAt(parsed.address);
-				if (!instance) continue;
-				const key = `${instance}/${parsed.code}`;
-				const last = lastLimitAlert.get(key);
-				if (last !== undefined && at.getTime() - last < LIMIT_ALERT_INTERVAL_MS)
-					continue;
-				lastLimitAlert.set(key, at.getTime());
-				await notify(limitNotice(instance, parsed.code));
-				logger.info({ instance, code: parsed.code }, "outbound limit alert raised");
+				if (parsed?.kind === "limit") await alertLimit(parsed, at);
 			}
 			for (const [key, last] of lastLimitAlert) {
 				if (at.getTime() - last >= LIMIT_ALERT_INTERVAL_MS) lastLimitAlert.delete(key);
 			}
-
-			const since = at.getTime() - ERROR_SPIKE_WINDOW_MINUTES * 60_000;
-			errors = errors.filter((e) => e.at.getTime() > since);
-			const spike = errors.length >= ERROR_SPIKE_THRESHOLD;
-			if (spike && !spikeRaised) {
-				await notify(
-					errorSpikeNotice(
-						errors.length,
-						errors.map((e) => e.service),
-					),
-				);
-				logger.info({ errors: errors.length }, "error spike alert raised");
-			}
-			spikeRaised = spike;
+			await checkErrorSpike(at);
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "log alert check failed");
 		}

@@ -46,6 +46,25 @@ async function readLayout(
 	return { layout: ProjectLayout.parse(await response.json()), version };
 }
 
+/** Saves the layout over version `basedOn` and returns the version the server gave it. */
+async function sendLayout(
+	url: string,
+	layout: ProjectLayout,
+	basedOn: number | null | undefined,
+): Promise<number | null> {
+	const response = await fetch(url, {
+		method: "PUT",
+		credentials: "same-origin",
+		headers: {
+			"content-type": "application/json",
+			"if-match": `"${basedOn ?? 0}"`,
+		},
+		body: JSON.stringify(layout),
+	});
+	if (!response.ok) throw await toApiError(response);
+	return versionOf(response);
+}
+
 /**
  * Returns true once the saved layout has been read (or found to be missing),
  * so the caller does not reconcile an empty layout over a saved one.
@@ -152,17 +171,7 @@ export function useLayoutPersistence(
 			const basedOn = base ?? state.version;
 			state.clearDirty();
 			try {
-				const response = await fetch(url, {
-					method: "PUT",
-					credentials: "same-origin",
-					headers: {
-						"content-type": "application/json",
-						"if-match": `"${basedOn ?? 0}"`,
-					},
-					body: JSON.stringify(state.layout),
-				});
-				if (!response.ok) throw await toApiError(response);
-				const version = versionOf(response);
+				const version = await sendLayout(url, state.layout, basedOn);
 				// After a remount the store holds the layout the new mount read, so
 				// this version would mark that tree as current when it is not. Left
 				// alone, the announcement or the next save's 412 loads the server's
@@ -172,21 +181,25 @@ export function useLayoutPersistence(
 				}
 				return version;
 			} catch (error) {
-				if (error instanceof ApiError && error.code === "LAYOUT_CHANGED") {
-					// Another browser saved first; its layout wins (SPEC.md §7.5).
-					if (!cancelled) await loadRemote();
-					return null;
-				}
-				// Other failures are retried by the next change; the layout is a
-				// convenience, not the user's work. Only the size limit needs
-				// the student to act.
-				if (error instanceof ApiError && error.code === "LAYOUT_LIMIT" && !limitShown) {
-					limitShown = true;
-					toast.show({ tone: "warning", title: error.message });
-				}
-				failed(error);
+				await saveFailed(error);
 				return null;
 			}
+		}
+
+		async function saveFailed(error: unknown) {
+			if (error instanceof ApiError && error.code === "LAYOUT_CHANGED") {
+				// Another browser saved first; its layout wins (SPEC.md §7.5).
+				if (!cancelled) await loadRemote();
+				return;
+			}
+			// Other failures are retried by the next change; the layout is a
+			// convenience, not the user's work. Only the size limit needs
+			// the student to act.
+			if (error instanceof ApiError && error.code === "LAYOUT_LIMIT" && !limitShown) {
+				limitShown = true;
+				toast.show({ tone: "warning", title: error.message });
+			}
+			failed(error);
 		}
 
 		function save() {

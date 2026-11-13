@@ -68,6 +68,55 @@ export function registerCourseLiveHelpRoutes(
 	const { track, drain } = createPendingWork();
 	const limitSockets = liveHelpSocketLimit();
 
+	/** Whether the route's terminal is a live terminal of the session's own project. */
+	async function isLiveTerminal(
+		scope: LiveHelpScope,
+		params: unknown,
+	): Promise<boolean> {
+		const parsed = TerminalParam.safeParse(params);
+		if (!parsed.success) return false;
+		const terminal = await db
+			.selectFrom("terminals")
+			.select("id")
+			.where("id", "=", parsed.data.tid)
+			.where("workspace_id", "=", scope.workspaceId)
+			.where("project_id", "=", scope.projectId)
+			.where("ended_at", "is", null)
+			.where("kind", "=", "terminal")
+			.executeTakeFirst();
+		return terminal !== undefined;
+	}
+
+	/**
+	 * Record a helper's attach. When the row could not be written, call
+	 * `release`, log, and return false.
+	 */
+	async function auditedAttach(
+		request: FastifyRequest,
+		scope: LiveHelpScope,
+		attach: { terminalId: string; mode: TerminalAttachMode },
+		release: () => void,
+	): Promise<boolean> {
+		const { terminalId, mode } = attach;
+		try {
+			await recordAudit(db, {
+				actor: `user:${scope.helperId}`,
+				target: scope.projectId,
+				action: "project.live_help_terminal_opened",
+				result: "ok",
+				metadata: { sessionId: scope.sessionId, terminalId, mode },
+			});
+			return true;
+		} catch (error) {
+			release();
+			request.log.error(
+				{ err: error, sessionId: scope.sessionId },
+				"live help audit failed",
+			);
+			return false;
+		}
+	}
+
 	app.register(async (instance) => {
 		// Synchronous, like every onSend hook here: see registerRequestLogging.
 		instance.addHook("onSend", (_request, reply, payload, done) => {
@@ -196,20 +245,9 @@ export function registerCourseLiveHelpRoutes(
 						bridge,
 					);
 					if (!scope) return;
-					// Only a live terminal of the session's own project.
-					const params = TerminalParam.safeParse(request.params);
-					const terminal = params.success
-						? await db
-								.selectFrom("terminals")
-								.select("id")
-								.where("id", "=", params.data.tid)
-								.where("workspace_id", "=", scope.workspaceId)
-								.where("project_id", "=", scope.projectId)
-								.where("ended_at", "is", null)
-								.where("kind", "=", "terminal")
-								.executeTakeFirst()
-						: undefined;
-					if (!terminal) return sendError(reply, 404, "NOT_FOUND", "Not found.");
+					if (!(await isLiveTerminal(scope, request.params))) {
+						return sendError(reply, 404, "NOT_FOUND", "Not found.");
+					}
 					request.liveHelpScope = scope;
 				},
 			},
@@ -249,21 +287,8 @@ export function registerCourseLiveHelpRoutes(
 					unregister();
 					terminalSockets.release(scope.helperId);
 				};
-				try {
-					// Written before the pipe opens: no attach goes unrecorded (ADR 0063).
-					await recordAudit(db, {
-						actor: `user:${scope.helperId}`,
-						target: scope.projectId,
-						action: "project.live_help_terminal_opened",
-						result: "ok",
-						metadata: { sessionId: scope.sessionId, terminalId, mode },
-					});
-				} catch (error) {
-					release();
-					request.log.error(
-						{ err: error, sessionId: scope.sessionId },
-						"live help audit failed",
-					);
+				// Written before the pipe opens: no attach goes unrecorded (ADR 0063).
+				if (!(await auditedAttach(request, scope, { terminalId, mode }, release))) {
 					socket.close(CloseCode.SERVER_ERROR, "could not record the attach");
 					socket.resume();
 					return;

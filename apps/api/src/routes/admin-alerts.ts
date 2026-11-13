@@ -23,7 +23,7 @@ import {
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { allJobs, changeSummary, channelsLeaving, queuedView } from "../alerts/jobs.js";
 import type { ServerDeps } from "../deps.js";
-import { parseFieldsOr400, sendError, sendNoStoreError } from "../http.js";
+import { parseFieldsOr400, parseOr400, sendError, sendNoStoreError } from "../http.js";
 import {
 	currentJob,
 	removeStaleRequests,
@@ -199,14 +199,17 @@ export function registerAdminAlertRoutes(
 		{ preHandler: [requireRole("administrator"), testLimit] },
 		async (request, reply) => {
 			const admin = requireUser(request);
-			const body = TestAlertRequest.safeParse(request.body ?? {});
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "Unknown alert channel.");
-			}
+			const body = parseOr400(
+				TestAlertRequest,
+				request.body ?? {},
+				reply,
+				"Unknown alert channel.",
+			);
+			if (!body) return reply;
 			const file = await readSettings(reply);
 			if (!file) return;
 			const all = alertChannelsFromNotifyFile(file, config.OUTBOUND_PROXY_URL);
-			const channels = body.data.channel ? onlyChannels(all, [body.data.channel]) : all;
+			const channels = body.channel ? onlyChannels(all, [body.channel]) : all;
 			const results = await sendAlert(channels, {
 				title: "Test alert from Portikus",
 				text: "An administrator sent this from the admin page to check alert delivery.",
@@ -220,7 +223,7 @@ export function registerAdminAlertRoutes(
 				);
 			await recordAudit(db, {
 				actor: `user:${admin.id}`,
-				target: body.data.channel ?? "all",
+				target: body.channel ?? "all",
 				action: "settings.alert_tested",
 				result: results.every((r) => r.ok) ? "ok" : "failed",
 				metadata: { results: results.map((r) => ({ channel: r.channel, ok: r.ok })) },

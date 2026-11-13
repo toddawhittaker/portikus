@@ -179,6 +179,13 @@ function EditStat({ line }: { line: ToolLine }) {
 	);
 }
 
+/** The verb in the tense the call is in, or the tool's own name when it has none. */
+function verbText(tool: ChatToolItem, line: ToolLine): string {
+	if (!line.verb) return tool.name;
+	if (tool.status === "done") return line.verb.done;
+	return tool.status === "running" ? line.verb.doing : line.verb.pending;
+}
+
 export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem }) {
 	const failed = tool.status === "error";
 	const line = toolLine(tool.name, tool.input, tool.title);
@@ -187,6 +194,31 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 	const quiet = detail?.kind === "edit" || detail?.kind === "write";
 	const launch = isBackgroundLaunch(tool);
 	const titleId = useId();
+
+	function outputBody() {
+		if (launch) return <LaunchBody tool={tool} />;
+		if (tool.output.length > 0) {
+			return (
+				<section
+					className="pk-chat-tool-output"
+					aria-label={failed ? "Error" : "Output"}
+				>
+					{tool.output.map((part, at) => (
+						// Parts only ever append, so their order is their identity.
+						// biome-ignore lint/suspicious/noArrayIndexKey: see above
+						<OutputPart key={at} part={part} tool={tool.name} />
+					))}
+				</section>
+			);
+		}
+		if (quiet) return null;
+		return (
+			<p className="pk-chat-muted">
+				{tool.status === "running" ? "No output yet" : "No output"}
+			</p>
+		);
+	}
+
 	return (
 		<details
 			className={`pk-chat-tool${failed ? " is-error" : ""}`}
@@ -196,15 +228,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 			<summary className="pk-chat-tool-summary pk-focus-inset">
 				<Icon name={line.icon} size="sm" className="pk-chat-tool-icon" />
 				<span className="pk-chat-tool-text" id={titleId}>
-					<span className="pk-chat-tool-verb">
-						{line.verb
-							? tool.status === "done"
-								? line.verb.done
-								: tool.status === "running"
-									? line.verb.doing
-									: line.verb.pending
-							: tool.name}
-					</span>
+					<span className="pk-chat-tool-verb">{verbText(tool, line)}</span>
 					{line.target ? (
 						<>
 							{" "}
@@ -227,24 +251,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 				) : null}
 				{detail ? <Detail detail={detail} /> : null}
 				<WatchSubagent tool={tool} titleId={titleId} />
-				{launch ? (
-					<LaunchBody tool={tool} />
-				) : tool.output.length > 0 ? (
-					<section
-						className="pk-chat-tool-output"
-						aria-label={failed ? "Error" : "Output"}
-					>
-						{tool.output.map((part, at) => (
-							// Parts only ever append, so their order is their identity.
-							// biome-ignore lint/suspicious/noArrayIndexKey: see above
-							<OutputPart key={at} part={part} tool={tool.name} />
-						))}
-					</section>
-				) : quiet ? null : (
-					<p className="pk-chat-muted">
-						{tool.status === "running" ? "No output yet" : "No output"}
-					</p>
-				)}
+				{outputBody()}
 				{tool.name === "Agent" ? null : (
 					<details className="pk-chat-raw">
 						<summary className="pk-chat-raw-summary pk-focus-inset">

@@ -49,6 +49,18 @@ export function signatureOf(workspace: Workspace): string {
 	return JSON.stringify(rest);
 }
 
+/** A browser frame as a client message, or null for one to ignore. */
+function parseFrame(raw: Buffer | string): ClientMessage | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw.toString());
+	} catch {
+		return null;
+	}
+	const message = ClientMessage.safeParse(parsed);
+	return message.success ? message.data : null;
+}
+
 /**
  * The authenticated workspace WebSocket. It is both the live view of the
  * workspace and the presence signal the worker uses (SPEC.md §5.3, §5.4, §6.4).
@@ -157,6 +169,41 @@ export function registerWorkspaceSocket(
 		}
 	}
 
+	/**
+	 * The live lists only the owner gets: command lines, pids and container
+	 * names can carry secrets an administrator must not see (SPEC.md §20.2).
+	 * The current list goes first, then every change while the socket lives.
+	 * Answers the function that ends the subscriptions.
+	 */
+	async function subscribeOwner(
+		socket: WebSocket,
+		workspaceId: string,
+	): Promise<() => void> {
+		sendListening(socket, registry.services(workspaceId));
+		const unsubscribeListening = registry.subscribe(workspaceId, (services) => {
+			sendListening(socket, services);
+		});
+		// Agent states go to the owner only, like the layout version.
+		// Until the agent's first frame there is no list to give; that frame
+		// reaches the socket through the subscription.
+		const sendAgents = codingAgentsSender(socket, workspaceId);
+		const unsubscribeAgents = registry.subscribeCodingAgents(workspaceId, sendAgents);
+		if (registry.codingAgents(workspaceId) !== null) sendAgents();
+		// Join before reading, so a save in between is announced, not lost.
+		socket.once("close", workspaceHub.add(workspaceId, socket));
+		await sendLayoutVersions(socket, workspaceId);
+		return (): void => {
+			unsubscribeListening();
+			unsubscribeAgents();
+		};
+	}
+
+	/** Whether the session behind a socket is still signed in and let through. */
+	async function sessionLive(token: string | null): Promise<boolean> {
+		const user = token ? await loadSession(db, token) : null;
+		return user !== null && sessionGate(user) === null;
+	}
+
 	async function dropConnection(connectionId: string): Promise<void> {
 		await dropPresence(db, connectionId);
 	}
@@ -167,10 +214,7 @@ export function registerWorkspaceSocket(
 	 */
 	async function dropRevoked(watcher: Watcher): Promise<void> {
 		for (const subscriber of [...watcher.sockets]) {
-			const user = subscriber.sessionToken
-				? await loadSession(db, subscriber.sessionToken)
-				: null;
-			if (user && !sessionGate(user)) continue;
+			if (await sessionLive(subscriber.sessionToken)) continue;
 			watcher.sockets.delete(subscriber);
 			subscriber.socket.close(CloseCode.SESSION_ENDED, "session revoked");
 			await dropConnection(subscriber.connectionId);
@@ -267,52 +311,26 @@ export function registerWorkspaceSocket(
 				socket.resume();
 			}
 
+			// True, after giving everything back, when the browser gave up while
+			// setup was waiting on the database.
+			function abandoned(): boolean {
+				if (socket.readyState === socket.OPEN) return false;
+				track(dropConnection(connectionId).catch(() => {}));
+				releaseSlots();
+				socket.resume();
+				return true;
+			}
+
 			async function setUp(): Promise<void> {
 				if (present) await openPresence(db, workspaceId, connectionId);
-
-				if (socket.readyState !== socket.OPEN) {
-					// The browser gave up while we were writing presence.
-					track(dropConnection(connectionId).catch(() => {}));
-					releaseSlots();
-					socket.resume();
-					return;
-				}
+				if (abandoned()) return;
 
 				const workspace = await readWorkspace(workspaceId);
-				if (socket.readyState !== socket.OPEN) {
-					// The browser gave up while we were reading the workspace.
-					track(dropConnection(connectionId).catch(() => {}));
-					releaseSlots();
-					socket.resume();
-					return;
-				}
+				if (abandoned()) return;
 				if (workspace) send(socket, workspace);
-				// The current list first, then every change while the socket lives.
-				// Only the owner gets it: command lines, pids and container names can
-				// carry secrets an administrator must not see (SPEC.md §20.2).
-				let unsubscribe = (): void => {};
-				if (present) {
-					sendListening(socket, registry.services(workspaceId));
-					const unsubscribeListening = registry.subscribe(workspaceId, (services) => {
-						sendListening(socket, services);
-					});
-					// Agent states go to the owner only, like the layout version.
-					// Until the agent's first frame there is no list to give; that frame
-					// reaches the socket through the subscription.
-					const sendAgents = codingAgentsSender(socket, workspaceId);
-					const unsubscribeAgents = registry.subscribeCodingAgents(
-						workspaceId,
-						sendAgents,
-					);
-					if (registry.codingAgents(workspaceId) !== null) sendAgents();
-					unsubscribe = (): void => {
-						unsubscribeListening();
-						unsubscribeAgents();
-					};
-					// Join before reading, so a save in between is announced, not lost.
-					socket.once("close", workspaceHub.add(workspaceId, socket));
-					await sendLayoutVersions(socket, workspaceId);
-				}
+				const unsubscribe = present
+					? await subscribeOwner(socket, workspaceId)
+					: (): void => {};
 
 				const subscriber: Subscriber = {
 					socket,
@@ -332,28 +350,20 @@ export function registerWorkspaceSocket(
 				async function onMessage(raw: Buffer | string): Promise<void> {
 					// An unhandled rejection in this listener would end the process.
 					try {
-						let parsed: unknown;
-						try {
-							parsed = JSON.parse(raw.toString());
-						} catch {
-							return; // Malformed frames are ignored.
-						}
-						const message = ClientMessage.safeParse(parsed);
-						if (!message.success) return;
+						// Malformed frames are ignored.
+						const message = parseFrame(raw);
+						if (!message) return;
 
 						// Revocation must take effect at once, so re-check the session
 						// on every heartbeat (SPEC.md §5.3).
-						const user = request.sessionToken
-							? await loadSession(db, request.sessionToken)
-							: null;
-						if (!user || sessionGate(user)) {
+						if (!(await sessionLive(request.sessionToken))) {
 							socket.close(CloseCode.SESSION_ENDED, "session expired");
 							return;
 						}
 
 						if (present) await touchPresence(db, connectionId);
 						// Only the owner's own key presses hold off idle stop (ADR 0032).
-						if (present && message.data.type === "activity") {
+						if (present && message.type === "activity") {
 							await recordActivity(db, workspaceId);
 						}
 					} catch (error) {

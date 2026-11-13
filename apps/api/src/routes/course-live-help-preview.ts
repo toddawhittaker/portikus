@@ -3,7 +3,7 @@ import { type ListeningService, PreviewGrantRequest } from "@portikus/contracts"
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { ServerDeps } from "../deps.js";
-import { sendError } from "../http.js";
+import { parseOr400 } from "../http.js";
 import { liveHelpScope } from "../live-help/gate.js";
 import type { BridgeForwards } from "../preview/bridge.js";
 import {
@@ -66,16 +66,19 @@ export function registerCourseLiveHelpPreviewRoutes(
 				bridge,
 			);
 			if (!scope) return reply;
-			const body = PreviewGrantRequest.safeParse(request.body);
-			if (!body.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "invalid grant request");
-			}
+			const body = parseOr400(
+				PreviewGrantRequest,
+				request.body,
+				reply,
+				"invalid grant request",
+			);
+			if (!body) return reply;
 			// The helper never starts the workspace (ADR 0063).
 			const payload = await issuePreviewGrant(deps, request, reply, {
 				userId: helper.id,
 				workspace: scope.workspace,
-				port: body.data.port,
-				presentation: body.data.presentation,
+				port: body.port,
+				presentation: body.presentation,
 				stoppedMessage: "The workspace is stopped",
 				liveHelpSessionId: scope.sessionId,
 			});
@@ -86,7 +89,7 @@ export function registerCourseLiveHelpPreviewRoutes(
 				target: scope.projectId,
 				action: "project.live_help_preview_opened",
 				result: "ok",
-				metadata: { sessionId: scope.sessionId, port: body.data.port },
+				metadata: { sessionId: scope.sessionId, port: body.port },
 			});
 			return sendPreviewGrant(reply, payload);
 		},

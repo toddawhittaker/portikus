@@ -20,7 +20,7 @@ import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound } from "../http.js";
 import { toEditorSettings } from "../users/editor-settings.js";
 import {
 	createPendingWork,
@@ -249,6 +249,74 @@ async function createRefs(
 	return { ok: true, project };
 }
 
+/**
+ * Insert a new terminal's row, or answer false when the workspace is at its
+ * cap. The early check can race a parallel create; the lock makes the
+ * recount, the name, the position and the insert one step so the cap holds
+ * and parallel creates never share a name (SPEC.md 9.7).
+ */
+async function insertCapped(
+	db: Kysely<Database>,
+	workspaceId: string,
+	body: CreateTerminalRequest,
+	row: { id: string; cwd: string; theme: TerminalTheme; projectId: string | null },
+): Promise<boolean> {
+	return db.transaction().execute(async (trx) => {
+		await sql`select pg_advisory_xact_lock(hashtext('portikus.terminal-create'), hashtext(${workspaceId}))`.execute(
+			trx,
+		);
+		const locked = await listTerminalRows(trx, workspaceId).execute();
+		if (
+			locked.filter((terminal) => terminal.ended_at === null).length >=
+			MAX_TERMINALS_PER_WORKSPACE
+		) {
+			return false;
+		}
+		const position = locked.reduce(
+			(max, terminal) => Math.max(max, terminal.position + 1),
+			0,
+		);
+		const name = body.name ?? chooseTerminalName(locked, row.projectId);
+		await trx
+			.insertInto("terminals")
+			.values({
+				id: row.id,
+				workspace_id: workspaceId,
+				name,
+				cwd: row.cwd,
+				position,
+				project_id: row.projectId,
+				theme: row.theme,
+				agent: body.agent ?? null,
+				kind: body.kind ?? "terminal",
+			})
+			.execute();
+		return true;
+	});
+}
+
+/**
+ * Start a new terminal's tmux session. Its Git baselines are null when the
+ * agent sent none it could vouch for.
+ */
+async function startSession(
+	agent: AgentClient,
+	body: CreateTerminalRequest,
+	session: { id: string; cwd: string; theme: TerminalTheme; timezone: string },
+): Promise<{ objectId: string | null; head: string | null }> {
+	const resumeChatOf = body.resumeChatOf;
+	const created = await agent.createTerminal({
+		...session,
+		...launcherFields(body.agent),
+		...(body.kind === "chat" ? { kind: "chat" as const } : {}),
+		...(resumeChatOf && { resumeChatOf }),
+	});
+	return {
+		objectId: gitObjectOrNull(created.baselineObjectId),
+		head: gitObjectOrNull(created.baselineHead),
+	};
+}
+
 function listTerminalRows(db: Kysely<Database>, workspaceId: string) {
 	return db
 		.selectFrom("terminals")
@@ -276,14 +344,12 @@ export function registerTerminalRoutes(
 		if (!params) return;
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
-		const filter = ListQuery.safeParse(request.query ?? {});
-		if (!filter.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", filter.error.message);
-		}
-		const projectId = filter.data.projectId;
+		const filter = parseOr400(ListQuery, request.query ?? {}, reply);
+		if (!filter) return reply;
+		const projectId = filter.projectId;
 
 		let openQuery = listTerminalRows(db, params.id).where("ended_at", "is", null);
 		if (projectId) openQuery = openQuery.where("project_id", "=", projectId);
@@ -368,14 +434,12 @@ export function registerTerminalRoutes(
 		const user = requireUser(request);
 		const params = parseOr400(WorkspaceParam, request.params, reply);
 		if (!params) return;
-		const body = CreateTerminalRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(CreateTerminalRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		const agent = agentClientFor(workspace, config.AGENT_PORT);
@@ -394,75 +458,41 @@ export function registerTerminalRoutes(
 			return terminalLimit(reply);
 		}
 
-		const refs = await createRefs(db, params.id, body.data, rows);
+		const refs = await createRefs(db, params.id, body, rows);
 		if (!refs.ok) return sendError(reply, 404, refs.code, refs.message);
 		const { project } = refs;
-		const resumeChatOf = body.data.resumeChatOf;
 
 		const id = crypto.randomUUID();
-		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
+		const cwd = body.cwd ?? project?.path ?? DEFAULT_CWD;
 		// A new terminal starts in the scheme the user chose in their settings
 		// unless the caller asked for one outright, and in
 		// the zone they chose.
 		const settings = await userTerminalSettings(db, user.id);
-		const theme = body.data.theme ?? settings.terminalTheme;
+		const theme = body.theme ?? settings.terminalTheme;
 
-		// The early check can race a parallel create; the lock makes the
-		// recount, the name, the position and the insert one step so the cap
-		// holds and parallel creates never share a name (SPEC.md 9.7).
-		const inserted = await db.transaction().execute(async (trx) => {
-			await sql`select pg_advisory_xact_lock(hashtext('portikus.terminal-create'), hashtext(${params.id}))`.execute(
-				trx,
-			);
-			const locked = await listTerminalRows(trx, params.id).execute();
-			if (
-				locked.filter((row) => row.ended_at === null).length >=
-				MAX_TERMINALS_PER_WORKSPACE
-			) {
-				return false;
-			}
-			const position = locked.reduce((max, row) => Math.max(max, row.position + 1), 0);
-			const name =
-				body.data.name ?? chooseTerminalName(locked, project ? project.id : null);
-			await trx
-				.insertInto("terminals")
-				.values({
-					id,
-					workspace_id: params.id,
-					name,
-					cwd,
-					position,
-					project_id: project ? project.id : null,
-					theme,
-					agent: body.data.agent ?? null,
-					kind: body.data.kind ?? "terminal",
-				})
-				.execute();
-			return true;
+		const inserted = await insertCapped(db, params.id, body, {
+			id,
+			cwd,
+			theme,
+			projectId: project ? project.id : null,
 		});
 		if (!inserted) return terminalLimit(reply);
 
 		// Taken only once the capped insert holds, so a refused create leaves
 		// no point behind (SPEC.md 9.7), and still before the session starts.
 		const recoveryPointId =
-			body.data.agent !== undefined && project
+			body.agent !== undefined && project
 				? await agentSessionPoint(request, agent, params.id, project, user.id)
 				: null;
 
-		let baselineObjectId: string | null = null;
-		let baselineHead: string | null = null;
+		let baseline: { objectId: string | null; head: string | null };
 		try {
-			const created = await agent.createTerminal({
+			baseline = await startSession(agent, body, {
 				id,
 				cwd,
 				theme,
 				timezone: settings.timezone,
-				...launcherFields(body.data.agent),
-				...(body.data.kind === "chat" ? { kind: "chat" as const } : {}),
-				...(resumeChatOf && { resumeChatOf }),
 			});
-			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
-			baselineHead = gitObjectOrNull(created.baselineHead);
 		} catch (error) {
 			// The row only means something if the agent has the tmux session.
 			await db.deleteFrom("terminals").where("id", "=", id).execute();
@@ -472,8 +502,8 @@ export function registerTerminalRoutes(
 		const saved = await db
 			.updateTable("terminals")
 			.set({
-				baseline_object_id: baselineObjectId,
-				baseline_head: baselineHead,
+				baseline_object_id: baseline.objectId,
+				baseline_head: baseline.head,
 				recovery_point_id: recoveryPointId,
 			})
 			.where("id", "=", id)
@@ -497,21 +527,19 @@ export function registerTerminalRoutes(
 		const user = requireUser(request);
 		const params = parseOr400(TerminalParam, request.params, reply);
 		if (!params) return;
-		const body = UpdateTerminalRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
+		const body = parseOr400(UpdateTerminalRequest, request.body ?? {}, reply);
+		if (!body) return reply;
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		const updated = await db
 			.updateTable("terminals")
 			.set({
-				...(body.data.name === undefined ? {} : { name: body.data.name }),
-				...(body.data.theme === undefined ? {} : { theme: body.data.theme }),
+				...(body.name === undefined ? {} : { name: body.name }),
+				...(body.theme === undefined ? {} : { theme: body.theme }),
 			})
 			.where("id", "=", params.tid)
 			.where("workspace_id", "=", params.id)
@@ -534,7 +562,7 @@ export function registerTerminalRoutes(
 
 		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return sendWorkspaceNotFound(reply);
 		}
 
 		const row = await db

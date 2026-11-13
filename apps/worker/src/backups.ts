@@ -552,6 +552,22 @@ function replaceNotice(
 	};
 }
 
+interface ReplaceHomeWorkspace {
+	id: string;
+	instance: string;
+	state: WorkspaceState;
+	pendingAt: Date | null;
+	pendingBy: string | null;
+	args: unknown;
+}
+
+interface ReplaceHomeArgs {
+	restoreRequestId?: string;
+	importRequestId?: string;
+}
+
+type ReplaceOutcome = { kept: string } | { error: string; homeTouched: boolean };
+
 /**
  * One step of a pending `replace-home` on a stopped or errored workspace
  * (SPEC.md §17.2, §24.9; ADR 0021, ADR 0040). The first call records an
@@ -561,20 +577,10 @@ function replaceNotice(
 export async function runReplaceHome(
 	db: Kysely<Database>,
 	controller: ControllerClient,
-	ws: {
-		id: string;
-		instance: string;
-		state: WorkspaceState;
-		pendingAt: Date | null;
-		pendingBy: string | null;
-		args: unknown;
-	},
+	ws: ReplaceHomeWorkspace,
 	now: Date,
 ): Promise<number> {
-	const args = (ws.args ?? {}) as {
-		restoreRequestId?: string;
-		importRequestId?: string;
-	};
+	const args = (ws.args ?? {}) as ReplaceHomeArgs;
 	const restore = args.restoreRequestId
 		? await db
 				.selectFrom("backup_requests")
@@ -584,83 +590,15 @@ export async function runReplaceHome(
 				.executeTakeFirst()
 		: undefined;
 	const stamp = (restore?.args as { stamp?: string } | undefined)?.stamp;
-	const base = {
-		restoreRequestId: args.restoreRequestId ?? null,
-		stamp: stamp ?? null,
-	};
-
-	const finish = async (
-		outcome: { kept: string } | { error: string; homeTouched: boolean },
-	): Promise<number> => {
-		const failed = "error" in outcome;
-		// Only a swap that may have begun leaves the workspace in error.
-		const touched = failed && outcome.homeTouched;
-		const nextState = !failed ? "stopped" : touched ? "error" : ws.state;
-		return db.transaction().execute(async (trx) => {
-			const updated = await trx
-				.updateTable("workspaces")
-				.set({
-					pending_operation: null,
-					pending_operation_args: null,
-					pending_operation_at: null,
-					pending_operation_by: null,
-					state: nextState,
-					...replaceErrorFields(failed, touched),
-					updated_at: now.toISOString(),
-				})
-				.where("id", "=", ws.id)
-				.where("pending_operation", "=", "replace-home")
-				.executeTakeFirst();
-			if (updated.numUpdatedRows === 0n) return 0;
-			await recordAudit(trx, {
-				actor: "worker",
-				target: ws.id,
-				action: failed ? "workspace.home_replace_failed" : "workspace.home_replaced",
-				result: failed ? "failed" : "ok",
-				metadata: {
-					...base,
-					requestedBy: ws.pendingBy,
-					...(failed ? { error: outcome.error } : { kept: outcome.kept }),
-				},
-			});
-			const notice = replaceNotice(failed, touched, stamp);
-			await notifyOwner(trx, ws.id, notice);
-			return nextState !== ws.state ? 1 : 0;
-		});
-	};
+	const finish = (outcome: ReplaceOutcome): Promise<number> =>
+		finishReplaceHome(db, ws, args, stamp, outcome, now);
 
 	if (!restore || !stamp) {
 		return finish({ error: "the restore request is missing", homeTouched: false });
 	}
 
 	if (!args.importRequestId) {
-		const importArgs = BackupRequestArgs.import_home.parse({
-			stamp,
-			instance: ws.instance,
-		});
-		await db.transaction().execute(async (trx) => {
-			const inserted = await trx
-				.insertInto("backup_requests")
-				.values({
-					kind: "import_home",
-					args: JSON.stringify(importArgs),
-					requested_by: ws.pendingBy,
-					workspace_id: ws.id,
-				})
-				.returning("id")
-				.executeTakeFirstOrThrow();
-			await trx
-				.updateTable("workspaces")
-				.set({
-					pending_operation_args: JSON.stringify({
-						...args,
-						importRequestId: inserted.id,
-					}),
-				})
-				.where("id", "=", ws.id)
-				.where("pending_operation", "=", "replace-home")
-				.execute();
-		});
+		await requestHomeImport(db, ws, args, stamp);
 		return 0;
 	}
 
@@ -684,26 +622,122 @@ export async function runReplaceHome(
 		const { kept } = await controller.replaceHome(ws.instance);
 		return finish({ kept });
 	} catch (e) {
-		const err =
-			e instanceof ControllerClientError
-				? e
-				: new ControllerClientError("OPERATION_FAILED", String(e));
-		// Unreachable or slow: the next sweep repeats the swap, which is safe.
-		if (err.code === "INCUS_UNAVAILABLE" || err.code === "TIMEOUT") return 0;
-		if (err.code === "NOT_FOUND") {
-			// A retry after a finished swap: the import is gone, the kept home is there.
-			let kept: string | null;
-			try {
-				kept = await keptSince(controller, ws.instance, ws.pendingAt);
-			} catch {
-				return 0;
-			}
-			if (kept) return finish({ kept });
-			// The controller refuses before it touches anything when the import is missing.
-			return finish({ error: err.message.slice(0, 300), homeTouched: false });
-		}
-		return finish({ error: err.message.slice(0, 300), homeTouched: true });
+		const outcome = await outcomeOfFailedSwap(controller, ws, e);
+		return outcome ? finish(outcome) : 0;
 	}
+}
+
+/**
+ * Clear the pending operation, audit and notify the owner. Returns 1 when
+ * the row changed state.
+ */
+async function finishReplaceHome(
+	db: Kysely<Database>,
+	ws: ReplaceHomeWorkspace,
+	args: ReplaceHomeArgs,
+	stamp: string | undefined,
+	outcome: ReplaceOutcome,
+	now: Date,
+): Promise<number> {
+	const failed = "error" in outcome;
+	// Only a swap that may have begun leaves the workspace in error.
+	const touched = failed && outcome.homeTouched;
+	const nextState = !failed ? "stopped" : touched ? "error" : ws.state;
+	return db.transaction().execute(async (trx) => {
+		const updated = await trx
+			.updateTable("workspaces")
+			.set({
+				pending_operation: null,
+				pending_operation_args: null,
+				pending_operation_at: null,
+				pending_operation_by: null,
+				state: nextState,
+				...replaceErrorFields(failed, touched),
+				updated_at: now.toISOString(),
+			})
+			.where("id", "=", ws.id)
+			.where("pending_operation", "=", "replace-home")
+			.executeTakeFirst();
+		if (updated.numUpdatedRows === 0n) return 0;
+		await recordAudit(trx, {
+			actor: "worker",
+			target: ws.id,
+			action: failed ? "workspace.home_replace_failed" : "workspace.home_replaced",
+			result: failed ? "failed" : "ok",
+			metadata: {
+				restoreRequestId: args.restoreRequestId ?? null,
+				stamp: stamp ?? null,
+				requestedBy: ws.pendingBy,
+				...(failed ? { error: outcome.error } : { kept: outcome.kept }),
+			},
+		});
+		const notice = replaceNotice(failed, touched, stamp);
+		await notifyOwner(trx, ws.id, notice);
+		return nextState !== ws.state ? 1 : 0;
+	});
+}
+
+/** Record the host's `import_home` request and remember its id on the pending operation. */
+async function requestHomeImport(
+	db: Kysely<Database>,
+	ws: ReplaceHomeWorkspace,
+	args: ReplaceHomeArgs,
+	stamp: string,
+): Promise<void> {
+	const importArgs = BackupRequestArgs.import_home.parse({
+		stamp,
+		instance: ws.instance,
+	});
+	await db.transaction().execute(async (trx) => {
+		const inserted = await trx
+			.insertInto("backup_requests")
+			.values({
+				kind: "import_home",
+				args: JSON.stringify(importArgs),
+				requested_by: ws.pendingBy,
+				workspace_id: ws.id,
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		await trx
+			.updateTable("workspaces")
+			.set({
+				pending_operation_args: JSON.stringify({
+					...args,
+					importRequestId: inserted.id,
+				}),
+			})
+			.where("id", "=", ws.id)
+			.where("pending_operation", "=", "replace-home")
+			.execute();
+	});
+}
+
+/** How a failed swap ends, or null to try again next sweep. */
+async function outcomeOfFailedSwap(
+	controller: ControllerClient,
+	ws: ReplaceHomeWorkspace,
+	e: unknown,
+): Promise<ReplaceOutcome | null> {
+	const err =
+		e instanceof ControllerClientError
+			? e
+			: new ControllerClientError("OPERATION_FAILED", String(e));
+	// Unreachable or slow: the next sweep repeats the swap, which is safe.
+	if (err.code === "INCUS_UNAVAILABLE" || err.code === "TIMEOUT") return null;
+	if (err.code !== "NOT_FOUND") {
+		return { error: err.message.slice(0, 300), homeTouched: true };
+	}
+	// A retry after a finished swap: the import is gone, the kept home is there.
+	let kept: string | null;
+	try {
+		kept = await keptSince(controller, ws.instance, ws.pendingAt);
+	} catch {
+		return null;
+	}
+	if (kept) return { kept };
+	// The controller refuses before it touches anything when the import is missing.
+	return { error: err.message.slice(0, 300), homeTouched: false };
 }
 
 /** The kept home this operation made, named with a time at or after it began. */

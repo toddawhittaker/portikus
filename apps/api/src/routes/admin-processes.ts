@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import { parseStop, stopThroughAgent } from "../workspaces/process-stop.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -48,8 +48,7 @@ export function registerAdminProcessRoutes(
 			);
 			if (!params) return;
 			const row = await loadWorkspace(params.id);
-			if (!row)
-				return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			if (!row) return sendWorkspaceNotFound(reply);
 			if (row.state !== "running") {
 				return sendError(
 					reply,
@@ -84,8 +83,7 @@ export function registerAdminProcessRoutes(
 		const params = parseOr400(UuidParam, request.params, reply, "invalid workspace id");
 		if (!params) return;
 		const row = await loadWorkspace(params.id);
-		if (!row)
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		if (!row) return sendWorkspaceNotFound(reply);
 		const snap = await db
 			.selectFrom("workspace_process_snapshots")
 			.selectAll()
@@ -112,8 +110,7 @@ export function registerAdminProcessRoutes(
 				return sendError(reply, 400, "VALIDATION_FAILED", "invalid process id or body");
 			}
 			const row = await loadWorkspace(params.data.id);
-			if (!row)
-				return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			if (!row) return sendWorkspaceNotFound(reply);
 			if (row.state !== "running") {
 				return sendError(
 					reply,

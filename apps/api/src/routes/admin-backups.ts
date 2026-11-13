@@ -19,7 +19,7 @@ import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Selectable } from "kysely";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError, UuidParam } from "../http.js";
+import { parseOr400, sendError, sendWorkspaceNotFound, UuidParam } from "../http.js";
 import {
 	requestPendingOperation,
 	sendPendingOperationRefusal,
@@ -216,15 +216,18 @@ export function registerAdminBackupRoutes(
 
 	app.delete("/admin/backups/sets/:stamp", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const stamp = BackupStamp.safeParse((request.params as { stamp: string }).stamp);
-		if (!stamp.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid set");
-		}
+		const stamp = parseOr400(
+			BackupStamp,
+			(request.params as { stamp: string }).stamp,
+			reply,
+			"invalid set",
+		);
+		if (stamp === null) return reply;
 		const { host } = await loadStatus();
-		const set = host?.sets.find((s) => s.stamp === stamp.data);
+		const set = host?.sets.find((s) => s.stamp === stamp);
 		if (!host || !set) return sendError(reply, 404, "NOT_FOUND", "No such backup set");
 		// The host enforces the rest of its floor (ADR 0039).
-		if (keptSetStamps(host)[0] === stamp.data) {
+		if (keptSetStamps(host)[0] === stamp) {
 			return sendError(
 				reply,
 				409,
@@ -236,45 +239,46 @@ export function registerAdminBackupRoutes(
 			reply,
 			admin.id,
 			"delete_set",
-			{ stamp: stamp.data },
+			{ stamp },
 			{
 				action: "backup.set_delete_requested",
-				target: stamp.data,
-				metadata: { stamp: stamp.data },
+				target: stamp,
+				metadata: { stamp },
 			},
 		);
 	});
 
 	app.delete("/admin/backups/dumps/:file", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const file = BackupDumpFile.safeParse((request.params as { file: string }).file);
-		if (!file.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid dump");
-		}
+		const file = parseOr400(
+			BackupDumpFile,
+			(request.params as { file: string }).file,
+			reply,
+			"invalid dump",
+		);
+		if (file === null) return reply;
 		const { host } = await loadStatus();
-		if (!host?.dumps.some((d) => d.file === file.data)) {
+		if (!host?.dumps.some((d) => d.file === file)) {
 			return sendError(reply, 404, "NOT_FOUND", "No such dump");
 		}
 		return record(
 			reply,
 			admin.id,
 			"delete_dump",
-			{ file: file.data },
+			{ file },
 			{
 				action: "backup.dump_delete_requested",
-				target: file.data,
-				metadata: { file: file.data },
+				target: file,
+				metadata: { file },
 			},
 		);
 	});
 
 	app.post("/admin/backups/restores", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const body = BackupRestoreRequest.safeParse(request.body ?? {});
-		if (!body.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
-		}
-		const { stamp, workspaceId } = body.data;
+		const body = parseOr400(BackupRestoreRequest, request.body ?? {}, reply);
+		if (!body) return reply;
+		const { stamp, workspaceId } = body;
 		const { host } = await loadStatus();
 		const set = host?.sets.find((s) => s.stamp === stamp);
 		if (!set) return sendError(reply, 404, "NOT_FOUND", "No such backup set");
@@ -283,7 +287,7 @@ export function registerAdminBackupRoutes(
 			.select(["id", "state", "incus_instance_name"])
 			.where("id", "=", workspaceId)
 			.executeTakeFirst();
-		if (!ws) return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		if (!ws) return sendWorkspaceNotFound(reply);
 		const instance = ws.incus_instance_name;
 		if (!instance || !set.instances.includes(instance)) {
 			return sendError(
@@ -386,25 +390,26 @@ export function registerAdminBackupRoutes(
 
 	app.delete("/admin/backups/kept-homes/:volume", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const volume = BackupKeptHome.safeParse(
+		const volume = parseOr400(
+			BackupKeptHome,
 			(request.params as { volume: string }).volume,
+			reply,
+			"invalid kept home",
 		);
-		if (!volume.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid kept home");
-		}
+		if (volume === null) return reply;
 		const { vm } = await loadStatus();
-		if (!vm?.keptHomes.some((k) => k.volume === volume.data)) {
+		if (!vm?.keptHomes.some((k) => k.volume === volume)) {
 			return sendError(reply, 404, "NOT_FOUND", "No such kept home");
 		}
 		return record(
 			reply,
 			admin.id,
 			"delete_kept_home",
-			{ volume: volume.data },
+			{ volume },
 			{
 				action: "backup.kept_home_delete_requested",
-				target: volume.data,
-				metadata: { volume: volume.data },
+				target: volume,
+				metadata: { volume },
 			},
 		);
 	});

@@ -165,6 +165,21 @@ function idleStopText(minutes: number | null): string {
 	return `Stopped after ${minutes} ${minutes === 1 ? "minute" : "minutes"} without activity.`;
 }
 
+/** The heading and line under it: a pending operation first, then waiting for room. */
+function progressCopy(
+	phase: StartingPhase,
+	pending: PendingOperation | null,
+	waitingForRoom: boolean,
+): [string, string] {
+	if (pending) return PENDING_COPY[pending];
+	return waitingForRoom ? POOL_FULL_COPY : COPY[phase];
+}
+
+function stepState(index: number, at: number): "done" | "active" | "pending" {
+	if (index < at) return "done";
+	return index === at ? "active" : "pending";
+}
+
 /**
  * The center of the shell while the workspace is not running yet
  * (SPEC.md §6.3): what is happening, in order.
@@ -186,11 +201,7 @@ export function WorkspaceStarting({
 	const pending = workspace?.pendingOperation ?? null;
 	const waitingForRoom =
 		workspace?.state === "provisioning" && workspace.errorCode === "POOL_FULL";
-	const [heading, sub] = pending
-		? PENDING_COPY[pending]
-		: waitingForRoom
-			? POOL_FULL_COPY
-			: COPY[phase];
+	const [heading, sub] = progressCopy(phase, pending, waitingForRoom);
 	// No spinner while waiting for room: nothing is starting yet.
 	const at = waitingForRoom ? -1 : STEPS.indexOf(phase as (typeof STEPS)[number]);
 	// The agent may still answer while the workspace is in error (SPEC.md §18.3).
@@ -219,6 +230,11 @@ export function WorkspaceStarting({
 	const errorCode = workspace?.errorCode;
 	const storageFull = phase === "error" && errorCode === "STORAGE_FULL";
 	const cleanDocker = phase === "error" && offerDockerCleanup(errorCode, storage);
+
+	function subLine() {
+		if (pending || phase !== "error") return sub;
+		return storageFull ? storageFullText(storage) : errorText(errorCode);
+	}
 
 	return (
 		<>
@@ -263,11 +279,7 @@ export function WorkspaceStarting({
 									{heading}
 								</h1>
 								<p className="pk-text-body pk-muted" data-testid="progress-sub">
-									{pending || phase !== "error"
-										? sub
-										: storageFull
-											? storageFullText(storage)
-											: errorText(errorCode)}
+									{subLine()}
 								</p>
 							</div>
 							{workspace?.state === "provisioning" && workspace.errorMessage && (
@@ -286,7 +298,7 @@ export function WorkspaceStarting({
 					{at >= 0 && (
 						<ol className="pk-steps">
 							{STEP_LABEL.map((label, index) => {
-								const state = index < at ? "done" : index === at ? "active" : "pending";
+								const state = stepState(index, at);
 								return (
 									<li
 										key={label}

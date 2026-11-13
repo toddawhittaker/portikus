@@ -42,40 +42,25 @@ const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 const DNS_NAME_PATTERN =
 	/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
 
+export interface StartOptions {
+	timeoutSeconds: number;
+	agentToken: string;
+	hostname: string;
+	previewHostSuffix: string;
+	timezone: string;
+	dockerGiB?: number;
+	recoveryGiB?: number;
+	cpuAllowance?: string;
+	docker?: WorkspaceDockerConfig;
+}
+
 export async function startInstance(
 	host: ProviderHost,
 	name: string,
-	opts: {
-		timeoutSeconds: number;
-		agentToken: string;
-		hostname: string;
-		previewHostSuffix: string;
-		timezone: string;
-		dockerGiB?: number;
-		recoveryGiB?: number;
-		cpuAllowance?: string;
-		docker?: WorkspaceDockerConfig;
-	},
+	opts: StartOptions,
 	caller?: AbortSignal,
 ): Promise<StartInstanceResponse> {
-	validateName(name);
-	if (!HOSTNAME_PATTERN.test(opts.hostname) || opts.hostname.length > 40) {
-		throw new IncusError("INVALID_NAME", `invalid hostname: ${opts.hostname}`);
-	}
-	if (
-		!DNS_NAME_PATTERN.test(opts.previewHostSuffix) ||
-		opts.previewHostSuffix.length > 253
-	) {
-		throw new IncusError(
-			"INVALID_NAME",
-			`invalid preview host suffix: ${opts.previewHostSuffix}`,
-		);
-	}
-	// The zone name ends up in a path in a command inside the container, so
-	// it has to be one of the names this build knows.
-	if (!isSystemTimezone(opts.timezone)) {
-		throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
-	}
+	validateStartRequest(name, opts);
 
 	// The start keeps its own limit; the caller's deadline is added on top (ADR 0034).
 	const own = AbortSignal.timeout(opts.timeoutSeconds * 1000);
@@ -99,8 +84,92 @@ export async function startInstance(
 		await ensureDockerDevice(host, name, opts.dockerGiB, signal);
 	}
 
+	const ghcr = await writeOptionalStartFiles(host, name, opts.docker, signal);
+
+	await writeStartFiles(
+		host.client,
+		name,
+		{
+			hostname: opts.hostname,
+			timezone: opts.timezone,
+			previewHostSuffix: opts.previewHostSuffix,
+			agentToken: opts.agentToken,
+		},
+		signal,
+	);
+
+	const recoveryAttached =
+		opts.recoveryGiB !== undefined &&
+		(await ensureRecoveryDevice(host, name, opts.recoveryGiB, signal));
+
+	// A throttle ends at a stop unless the worker says it is held; a held
+	// one is set before the instance runs, so it never runs at full speed.
+	if (
+		opts.cpuAllowance !== undefined &&
+		!CpuAllowance.safeParse(opts.cpuAllowance).success
+	) {
+		throw new IncusError("BAD_REQUEST", `invalid cpu allowance: ${opts.cpuAllowance}`);
+	}
+	const status = await writeCpuAllowance(host, name, opts.cpuAllowance ?? null, signal);
+
+	// Once the start request is sent, Incus starts the instance whatever the
+	// caller does, so the setup below runs to the end on its own limits: the
+	// worker's sweep would mark a half-set-up workspace running (ADR 0034).
+	signal.throwIfAborted();
+	try {
+		// Something may have started it since the check above.
+		if (status !== "Running") await sendStart(host, name, opts.timeoutSeconds, own);
+		const ipv4 = await setUpRunningInstance(
+			host,
+			name,
+			opts,
+			{ ghcr, recoveryAttached },
+			own,
+		);
+		if (caller?.aborted) {
+			host.log.info({ instance: name }, "start finished after the caller left");
+		}
+		return { ipv4 };
+	} catch (err) {
+		// A half-set-up instance must not stay running for the sweep to mark it running.
+		await forceStopAfterFailedStart(host, name, opts.timeoutSeconds);
+		throw err;
+	}
+}
+
+/** Refuse a hostname, preview suffix or zone that must never reach the container. */
+function validateStartRequest(name: string, opts: StartOptions): void {
+	validateName(name);
+	if (!HOSTNAME_PATTERN.test(opts.hostname) || opts.hostname.length > 40) {
+		throw new IncusError("INVALID_NAME", `invalid hostname: ${opts.hostname}`);
+	}
+	if (
+		!DNS_NAME_PATTERN.test(opts.previewHostSuffix) ||
+		opts.previewHostSuffix.length > 253
+	) {
+		throw new IncusError(
+			"INVALID_NAME",
+			`invalid preview host suffix: ${opts.previewHostSuffix}`,
+		);
+	}
+	// The zone name ends up in a path in a command inside the container, so
+	// it has to be one of the names this build knows.
+	if (!isSystemTimezone(opts.timezone)) {
+		throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
+	}
+}
+
+/**
+ * Write the start files whose failure only costs a feature. Returns the
+ * ghcr.io hosts choice from the Docker settings, or null when there are none.
+ */
+async function writeOptionalStartFiles(
+	host: ProviderHost,
+	name: string,
+	docker: WorkspaceDockerConfig | undefined,
+	signal: AbortSignal,
+): Promise<boolean | null> {
 	// Written before the start, so dockerd reads it; never fatal.
-	const docker = opts.docker;
 	let ghcr: boolean | null = null;
 	if (docker !== undefined) {
 		ghcr =
@@ -168,97 +237,79 @@ export async function startInstance(
 			"Claude Code's managed settings template is missing; starting without them",
 		);
 	}
+	return ghcr;
+}
 
-	await writeStartFiles(
+/** Ask Incus to start the instance; a failure is fine if it is running anyway. */
+async function sendStart(
+	host: ProviderHost,
+	name: string,
+	timeoutSeconds: number,
+	signal: AbortSignal,
+): Promise<void> {
+	try {
+		await host.client.request(
+			"PUT",
+			`/1.0/instances/${enc(name)}/state`,
+			{ action: "start" },
+			signal,
+			timeoutSeconds,
+		);
+	} catch (err) {
+		if ((await instanceStatus(host, name, signal).catch(() => null)) !== "Running") {
+			throw err;
+		}
+	}
+}
+
+/** The setup that needs the instance running; returns its address once the agent answers. */
+async function setUpRunningInstance(
+	host: ProviderHost,
+	name: string,
+	opts: StartOptions,
+	setup: { ghcr: boolean | null; recoveryAttached: boolean },
+	signal: AbortSignal,
+): Promise<string> {
+	const deadline = Date.now() + opts.timeoutSeconds * 1000;
+	const ipv4 = await waitForAddress(host.client, name, deadline, signal);
+
+	await setHostname(
 		host.client,
+		host.log,
 		name,
-		{
-			hostname: opts.hostname,
-			timezone: opts.timezone,
-			previewHostSuffix: opts.previewHostSuffix,
-			agentToken: opts.agentToken,
-		},
+		opts.hostname,
+		opts.timeoutSeconds,
 		signal,
 	);
 
-	const recoveryAttached =
-		opts.recoveryGiB !== undefined &&
-		(await ensureRecoveryDevice(host, name, opts.recoveryGiB, signal));
+	await setTimezone(host.client, name, opts.timezone, opts.timeoutSeconds, signal);
 
-	// A throttle ends at a stop unless the worker says it is held; a held
-	// one is set before the instance runs, so it never runs at full speed.
-	if (
-		opts.cpuAllowance !== undefined &&
-		!CpuAllowance.safeParse(opts.cpuAllowance).success
-	) {
-		throw new IncusError("BAD_REQUEST", `invalid cpu allowance: ${opts.cpuAllowance}`);
+	// After the start: a first start after create or copy runs the image's
+	// /etc/hosts template, which would drop the line.
+	const { ghcr } = setup;
+	if (ghcr !== null) {
+		await optionalStep(
+			host,
+			name,
+			signal,
+			"could not write the ghcr.io hosts line",
+			() => writeGhcrHosts(host.client, name, ghcr, signal),
+		);
 	}
-	const status = await writeCpuAllowance(host, name, opts.cpuAllowance ?? null, signal);
 
-	// Once the start request is sent, Incus starts the instance whatever the
-	// caller does, so the setup below runs to the end on its own limits: the
-	// worker's sweep would mark a half-set-up workspace running (ADR 0034).
-	signal.throwIfAborted();
-	try {
-		// Something may have started it since the check above.
-		if (status !== "Running") {
-			try {
-				await host.client.request(
-					"PUT",
-					`/1.0/instances/${enc(name)}/state`,
-					{ action: "start" },
-					own,
-					opts.timeoutSeconds,
-				);
-			} catch (err) {
-				if ((await instanceStatus(host, name, own).catch(() => null)) !== "Running") {
-					throw err;
-				}
-			}
-		}
-
-		const deadline = Date.now() + opts.timeoutSeconds * 1000;
-		const ipv4 = await waitForAddress(host.client, name, deadline, own);
-
-		await setHostname(
+	if (setup.recoveryAttached) {
+		await prepareRecoveryMount(
 			host.client,
 			host.log,
 			name,
-			opts.hostname,
 			opts.timeoutSeconds,
-			own,
+			signal,
 		);
-
-		await setTimezone(host.client, name, opts.timezone, opts.timeoutSeconds, own);
-
-		// After the start: a first start after create or copy runs the image's
-		// /etc/hosts template, which would drop the line.
-		if (ghcr !== null) {
-			await optionalStep(
-				host,
-				name,
-				own,
-				"could not write the ghcr.io hosts line",
-				() => writeGhcrHosts(host.client, name, ghcr, own),
-			);
-		}
-
-		if (recoveryAttached) {
-			await prepareRecoveryMount(host.client, host.log, name, opts.timeoutSeconds, own);
-		}
-
-		// The agent wait has its own 15 s, not the start's timeout.
-		await waitForAgent(host.log, ipv4, host.agentPort, opts.agentToken);
-		if (caller?.aborted) {
-			host.log.info({ instance: name }, "start finished after the caller left");
-		}
-
-		return { ipv4 };
-	} catch (err) {
-		// A half-set-up instance must not stay running for the sweep to mark it running.
-		await forceStopAfterFailedStart(host, name, opts.timeoutSeconds);
-		throw err;
 	}
+
+	// The agent wait has its own 15 s, not the start's timeout.
+	await waitForAgent(host.log, ipv4, host.agentPort, opts.agentToken);
+	return ipv4;
 }
 
 async function forceStopAfterFailedStart(

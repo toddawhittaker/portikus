@@ -109,6 +109,40 @@ function refusalMessage(daily: boolean, passkeys: boolean): string {
 		: `Too many wrong codes. Wait a few minutes, or use ${other}.`;
 }
 
+/**
+ * Audit an account's first refusal in its window. Once a day: the daily
+ * window audits only its first refusal, which also leaves the holder a
+ * kept notice.
+ */
+async function recordRefusal(
+	db: Kysely<Database>,
+	request: FastifyRequest,
+	userId: string,
+	daily: boolean,
+): Promise<void> {
+	await recordAudit(db, {
+		actor: `user:${userId}`,
+		target: userId,
+		action: "auth.throttled",
+		result: "denied",
+		metadata: {
+			ip: request.ip,
+			scope: daily ? "second-factor-daily" : "second-factor",
+		},
+	});
+	if (!daily) return;
+	await recordNotification(
+		db,
+		userId,
+		{
+			tone: "warning",
+			title: "Many wrong two-step sign-in codes",
+			body: "Someone entered many wrong two-step sign-in codes for your account today. If this was not you, they know your password: change it in Settings now, and tell your administrator.",
+		},
+		{ kept: true },
+	);
+}
+
 export type SecondFactorThrottle = ReturnType<typeof createSecondFactorThrottle>;
 
 /** One per server; buildServer hands it to every route that checks a code. */
@@ -118,6 +152,29 @@ export function createSecondFactorThrottle(db: Kysely<Database>, logger: Logger)
 	const counts = createSecondFactorCounts({ db, logger, now });
 	// In memory: losing these on a restart only means a retry (ADR 0053).
 	const bypassTries = createCounter(BYPASS_LIMIT_PER_10_MINUTES, TEN_MINUTES_MS, now);
+
+	async function allowBypass(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		userId: string,
+		sessionId: string,
+	): Promise<SecondFactorAllowance | null> {
+		const tries = check(bypassTries, sessionId);
+		if (tries.allowed) return { kind: "bypass" };
+		if (tries.firstRefusal) {
+			request.log.warn({ userId }, "second-factor bypass limit reached for a session");
+		}
+		const body: ApiError = {
+			code: "RATE_LIMITED",
+			message: "Too many tries. Please wait a few minutes and try again.",
+		};
+		await reply
+			.status(429)
+			.header("retry-after", String(tries.retryAfterSeconds))
+			.send(body);
+		return null;
+	}
+
 	return {
 		/**
 		 * Count one try for this account. On a refusal the 429 is sent, the
@@ -134,50 +191,8 @@ export function createSecondFactorThrottle(db: Kysely<Database>, logger: Logger)
 		): Promise<SecondFactorAllowance | null> {
 			const decision = await counts.attempt(userId);
 			if (decision.receipt) return { kind: "counted", receipt: decision.receipt };
-			if (decision.audit) {
-				await recordAudit(db, {
-					actor: `user:${userId}`,
-					target: userId,
-					action: "auth.throttled",
-					result: "denied",
-					metadata: {
-						ip: request.ip,
-						scope: decision.daily ? "second-factor-daily" : "second-factor",
-					},
-				});
-			}
-			// Once a day: the daily window audits only its first refusal.
-			if (decision.daily && decision.audit) {
-				await recordNotification(
-					db,
-					userId,
-					{
-						tone: "warning",
-						title: "Many wrong two-step sign-in codes",
-						body: "Someone entered many wrong two-step sign-in codes for your account today. If this was not you, they know your password: change it in Settings now, and tell your administrator.",
-					},
-					{ kept: true },
-				);
-			}
-			if (bypass.eligible) {
-				const tries = check(bypassTries, bypass.sessionId);
-				if (tries.allowed) return { kind: "bypass" };
-				if (tries.firstRefusal) {
-					request.log.warn(
-						{ userId },
-						"second-factor bypass limit reached for a session",
-					);
-				}
-				const body: ApiError = {
-					code: "RATE_LIMITED",
-					message: "Too many tries. Please wait a few minutes and try again.",
-				};
-				await reply
-					.status(429)
-					.header("retry-after", String(tries.retryAfterSeconds))
-					.send(body);
-				return null;
-			}
+			if (decision.audit) await recordRefusal(db, request, userId, decision.daily);
+			if (bypass.eligible) return allowBypass(request, reply, userId, bypass.sessionId);
 			const body: ApiError = {
 				code: "RATE_LIMITED",
 				message: refusalMessage(decision.daily, await bypass.passkeys()),
