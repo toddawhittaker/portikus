@@ -20,12 +20,10 @@ export function themeData(
 	return {
 		base: half.base,
 		inherit: true,
-		rules: Object.entries(half.tokens).map(([token, foreground]) =>
-			// Comments are set in italic as well, so they read as asides without relying on colour.
-			token.startsWith("comment")
-				? { token, foreground, fontStyle: "italic" }
-				: { token, foreground },
-		),
+		rules: Object.entries(half.tokens).map(([token, foreground]) => {
+			const fontStyle = half.fontStyles?.[token];
+			return fontStyle ? { token, foreground, fontStyle } : { token, foreground };
+		}),
 		colors: { ...half.colors, ...OVERVIEW_RULER_COLOURS[mode] },
 	};
 }

@@ -1,12 +1,13 @@
 import { EDITOR_SCHEMES } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { EDITOR_SCHEME_LIST } from "./index.js";
+import { EDITOR_SCHEME_LIST, schemeById } from "./index.js";
 import { OVERVIEW_RULER_COLOURS } from "./overviewRuler.js";
 import { themeData, themeName } from "./theme.js";
 
 test("a theme is named for its scheme and its half", () => {
 	expect(themeName("portikus", "light")).toBe("portikus-portikus-light");
 	expect(themeName("vscode", "dark")).toBe("portikus-vscode-dark");
+	expect(themeName("high-contrast", "light")).toBe("portikus-high-contrast-light");
 });
 
 test("every scheme and half has its own theme name", () => {
@@ -39,7 +40,7 @@ test("the overview-ruler colours are the Git and status colours of theme.css", (
 	);
 });
 
-test("a theme inherits its base and gives each token its colour, comments in italic", () => {
+test("a theme inherits its base and gives each token its colour and its font style", () => {
 	const scheme = EDITOR_SCHEME_LIST[0];
 	if (!scheme) throw new Error("no schemes");
 	const data = themeData(scheme, "dark");
@@ -51,4 +52,16 @@ test("a theme inherits its base and gives each token its colour, comments in ita
 	});
 	expect(data.rules.find((rule) => rule.token === "comment")?.fontStyle).toBe("italic");
 	expect(data.rules.find((rule) => rule.token === "string")?.fontStyle).toBeUndefined();
+});
+
+test("a token takes the font style its scheme gives it, and none otherwise", () => {
+	const scheme = schemeById("solarized");
+	const rules = themeData(scheme, "dark").rules;
+	expect(rules.find((rule) => rule.token === "comment")?.fontStyle).toBe("italic");
+	expect(rules.find((rule) => rule.token === "annotation")?.fontStyle).toBe("bold");
+	expect(rules.find((rule) => rule.token === "keyword")?.fontStyle).toBeUndefined();
+	// VS Code Modern styles no token, so none of its rules carries a font style.
+	for (const rule of themeData(schemeById("vscode"), "light").rules) {
+		expect(rule.fontStyle).toBeUndefined();
+	}
 });

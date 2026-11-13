@@ -84,9 +84,16 @@ function brackets(c: typeof LIGHT): Record<string, string> {
 	};
 }
 
+/** Comments are set in italic as well, so they read as asides without relying on colour. */
+const FONT_STYLES: SchemeMode["fontStyles"] = {
+	comment: "italic",
+	"comment.doc": "italic",
+};
+
 const light: SchemeMode = {
 	base: "vs",
 	tokens: tokens(LIGHT),
+	fontStyles: FONT_STYLES,
 	colors: {
 		"editor.background": "#fffdf8",
 		"editor.foreground": "#221f1a",
@@ -114,6 +121,7 @@ const light: SchemeMode = {
 const dark: SchemeMode = {
 	base: "vs-dark",
 	tokens: tokens(DARK),
+	fontStyles: FONT_STYLES,
 	colors: {
 		"editor.background": "#171614",
 		"editor.foreground": "#f0ebe1",

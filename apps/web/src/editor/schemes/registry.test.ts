@@ -18,6 +18,18 @@ test("every scheme has a label, and Portikus is first and plain", () => {
 	expect(schemeById("vscode").label).toBe("VS Code");
 });
 
+test("Settings lists the seven schemes in the agreed order, with their labels", () => {
+	expect(EDITOR_SCHEME_LIST.map((scheme) => scheme.label)).toEqual([
+		"Portikus",
+		"VS Code",
+		"IntelliJ",
+		"GitHub",
+		"Solarized",
+		"Catppuccin",
+		"High contrast",
+	]);
+});
+
 test("a scheme that is not Portikus's own names its source and licence", () => {
 	for (const scheme of EDITOR_SCHEME_LIST) {
 		if (scheme.id === "portikus") continue;
@@ -36,27 +48,60 @@ test.each(MODES)("every scheme defines all the Portikus token ids in %s", (mode)
 	}
 });
 
-test.each(MODES)("every scheme defines the core editor colours in %s", (mode) => {
-	for (const scheme of EDITOR_SCHEME_LIST) {
-		const colors = scheme[mode].colors;
-		for (const key of [
-			"editor.background",
-			"editor.foreground",
-			"editorLineNumber.foreground",
-			"editorLineNumber.activeForeground",
-			"editorIndentGuide.background1",
-			"editorWidget.background",
-			"textLink.foreground",
-		]) {
-			expect(colors[key], `${scheme.id} ${key}`).toMatch(COLOUR);
+/**
+ * A reference scheme copies what its source publishes and leaves the rest to
+ * Monaco's base theme, so only the two colours every source can be expected to
+ * hold are required, and a scheme whose source leaves even those to its base
+ * says so here.
+ */
+const LEFT_TO_BASE = new Set(["high-contrast light"]);
+
+test.each(MODES)(
+	"every scheme defines the editor ground and text colours in %s",
+	(mode) => {
+		for (const scheme of EDITOR_SCHEME_LIST) {
+			if (LEFT_TO_BASE.has(`${scheme.id} ${mode}`)) continue;
+			const colors = scheme[mode].colors;
+			for (const key of ["editor.background", "editor.foreground"]) {
+				expect(colors[key], `${scheme.id} ${key}`).toMatch(COLOUR);
+			}
 		}
+	},
+);
+
+test.each(MODES)("every editor colour a scheme sets is a hex colour in %s", (mode) => {
+	for (const scheme of EDITOR_SCHEME_LIST) {
+		for (const [key, colour] of Object.entries(scheme[mode].colors)) {
+			expect(colour, `${scheme.id} ${key}`).toMatch(COLOUR);
+		}
+	}
+});
+
+test.each(MODES)("a scheme's font styles name token ids it defines, in %s", (mode) => {
+	for (const scheme of EDITOR_SCHEME_LIST) {
+		const half = scheme[mode];
+		for (const [token, style] of Object.entries(half.fontStyles ?? {})) {
+			expect(Object.keys(half.tokens), `${scheme.id} ${token}`).toContain(token);
+			expect(["italic", "bold", "italic bold"]).toContain(style);
+		}
+	}
+});
+
+/** Portikus keeps its italic comments; VS Code's source has none. */
+test("comments are italic in Portikus and carry no style in VS Code Modern", () => {
+	for (const mode of MODES) {
+		expect(PORTIKUS[mode].fontStyles?.comment).toBe("italic");
+		expect(PORTIKUS[mode].fontStyles?.["comment.doc"]).toBe("italic");
+		expect(schemeById("vscode")[mode].fontStyles).toBeUndefined();
 	}
 });
 
 test("each mode inherits the Monaco base that matches its appearance", () => {
 	for (const scheme of EDITOR_SCHEME_LIST) {
-		expect(scheme.light.base, scheme.id).toBe("vs");
-		expect(scheme.dark.base, scheme.id).toBe("vs-dark");
+		// High contrast is the one scheme that takes Monaco's high contrast bases.
+		const high = scheme.id === "high-contrast";
+		expect(scheme.light.base, scheme.id).toBe(high ? "hc-light" : "vs");
+		expect(scheme.dark.base, scheme.id).toBe(high ? "hc-black" : "vs-dark");
 	}
 });
 

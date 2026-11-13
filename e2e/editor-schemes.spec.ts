@@ -23,6 +23,42 @@ test.describe("editor colour scheme", () => {
 		light: { background: "rgb(255, 255, 255)", keyword: "rgb(0, 0, 255)" },
 	};
 
+	// The other five, from the same files the schemes are copied from: the
+	// background is the TEXT or editor.background colour, the keyword the
+	// scheme's keyword colour. High contrast leaves its background to Monaco's
+	// own high contrast themes, which are black and white.
+	const REFERENCE: {
+		label: string;
+		dark: { background: string; keyword: string };
+		light: { background: string; keyword: string };
+	}[] = [
+		{
+			label: "IntelliJ",
+			dark: { background: "rgb(43, 43, 43)", keyword: "rgb(204, 120, 50)" },
+			light: { background: "rgb(255, 255, 255)", keyword: "rgb(0, 51, 179)" },
+		},
+		{
+			label: "GitHub",
+			dark: { background: "rgb(13, 17, 23)", keyword: "rgb(255, 123, 114)" },
+			light: { background: "rgb(255, 255, 255)", keyword: "rgb(207, 34, 46)" },
+		},
+		{
+			label: "Solarized",
+			dark: { background: "rgb(0, 43, 54)", keyword: "rgb(133, 153, 0)" },
+			light: { background: "rgb(253, 246, 227)", keyword: "rgb(133, 153, 0)" },
+		},
+		{
+			label: "Catppuccin",
+			dark: { background: "rgb(30, 30, 46)", keyword: "rgb(203, 166, 247)" },
+			light: { background: "rgb(239, 241, 245)", keyword: "rgb(136, 57, 239)" },
+		},
+		{
+			label: "High contrast",
+			dark: { background: "rgb(0, 0, 0)", keyword: "rgb(86, 156, 214)" },
+			light: { background: "rgb(255, 255, 255)", keyword: "rgb(15, 74, 133)" },
+		},
+	];
+
 	/** The editor's painted background and the colour of the `def` keyword. */
 	async function editorColours(page: Page) {
 		const editor = page.getByTestId(`editor-${PATH}`);
@@ -58,7 +94,7 @@ test.describe("editor colour scheme", () => {
 		await closeSettings(page);
 	}
 
-	async function chooseScheme(page: Page, label: "Portikus" | "VS Code") {
+	async function chooseScheme(page: Page, label: string) {
 		await openSettings(page);
 		const saved = page.waitForResponse(
 			(response) =>
@@ -111,5 +147,40 @@ test.describe("editor colour scheme", () => {
 		await expect.poll(() => editorColours(page)).toEqual(VSCODE.light);
 		await openSettings(page);
 		await expect(page.getByLabel("Editor colour scheme")).toContainText("VS Code");
+	});
+
+	test("each reference scheme paints its published background and keyword colour, dark then light", async ({
+		page,
+		context,
+	}) => {
+		test.setTimeout(240_000);
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Schemes", PATH, CONTENT);
+		await expect(
+			page.getByTestId(`editor-${PATH}`).locator(".view-lines"),
+		).toContainText("def total", { timeout: 60_000 });
+
+		for (const mode of ["dark", "light"] as const) {
+			await chooseAppearance(page, mode === "dark" ? "Dark" : "Light");
+			for (const scheme of REFERENCE) {
+				await chooseScheme(page, scheme.label);
+				await expect
+					.poll(() => editorColours(page), { message: `${scheme.label} ${mode}` })
+					.toEqual(scheme[mode]);
+			}
+		}
+
+		// The select lists all seven schemes, Portikus first.
+		await openSettings(page);
+		await page.getByLabel("Editor colour scheme").click();
+		await expect(page.getByRole("option")).toHaveText([
+			"Portikus",
+			"VS Code",
+			"IntelliJ",
+			"GitHub",
+			"Solarized",
+			"Catppuccin",
+			"High contrast",
+		]);
 	});
 });
