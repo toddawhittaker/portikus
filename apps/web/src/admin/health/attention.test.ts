@@ -72,6 +72,28 @@ test("the count is every row the Needs attention list shows, guard rows and prob
 	expect(attention.count).toBe(4);
 });
 
+test("with no sample the controller is unknown: one Worker not reporting item that opens the worker's logs (SPEC.md section 25.6)", () => {
+	const attention = attentionOf(report({ controller: null, sampledAt: null }));
+	expect(attention.problems).toEqual([
+		{
+			text: "Worker not reporting",
+			action: "Open Logs",
+			tab: "logs",
+			search: { service: "worker", since: "24h" },
+		},
+	]);
+	expect(attention.count).toBe(1);
+});
+
+test("a sample that says the controller is down still names the controller", () => {
+	const attention = attentionOf(
+		report({ controller: { reachable: false, errorCode: null } }),
+	);
+	expect(attention.problems.map((problem) => problem.text)).toEqual([
+		"Controller not reachable",
+	]);
+});
+
 test("a full pool names metadata only when metadata is the fuller of the two", () => {
 	expect(
 		poolWarning({ usedBytes: 50 * GIB, totalBytes: 100 * GIB, metadataPercent: 95 }),
