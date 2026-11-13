@@ -22,6 +22,7 @@ import {
 	MenuTrigger,
 } from "@portikus/ui";
 import { createContext, type ReactNode, useContext, useEffect, useRef } from "react";
+import { SchemeSubmenu } from "../editor/SchemeSubmenu.js";
 import { baseName, displayName, parentOf } from "../files/paths.js";
 import { type DropEdge, fileTabId } from "../layout/tree.js";
 import { fromEmptySpace } from "./barDrag.js";
@@ -52,8 +53,8 @@ export interface FilePaneProps {
 interface FilePaneChromeValue {
 	/** The file's name. */
 	handle: ReactNode;
-	/** The pane's actions menu. */
-	actions: ReactNode;
+	/** The pane's actions menu; `withScheme` adds the editor's color scheme submenu. */
+	actions: (withScheme: boolean) => ReactNode;
 	/** Makes the header the pane's drag handle. */
 	dragRef: (node: HTMLElement | null) => void;
 	/** The drag listeners, which leave a press on a control in the bar alone. */
@@ -106,7 +107,7 @@ export function FilePane({
 		</span>
 	);
 
-	const actionsMenu = (
+	const actionsMenu = (withScheme: boolean) => (
 		<MenuRoot onOpenChange={menu.onOpenChange}>
 			<MenuTrigger asChild={true}>
 				<IconButton
@@ -136,6 +137,7 @@ export function FilePane({
 						</MenuItem>
 					))}
 				</MenuSub>
+				{withScheme ? <SchemeSubmenu /> : null}
 				<MenuItem disabled={alone} onSelect={onResetSizes}>
 					<span data-testid="file-frame-reset-sizes">Reset pane sizes</span>
 				</MenuItem>
@@ -187,7 +189,16 @@ export function FilePane({
  * the name, muted, so two files of one name can be told apart.
  * Outside a FilePane the name is plain text and there is no menu.
  */
-export function FileHeader({ path, children }: { path: string; children?: ReactNode }) {
+export function FileHeader({
+	path,
+	editorScheme = false,
+	children,
+}: {
+	path: string;
+	/** True while the pane shows the code editor, so its menu offers the color scheme. */
+	editorScheme?: boolean;
+	children?: ReactNode;
+}) {
 	const chrome = useContext(FilePaneChrome);
 	const folder = parentOf(path);
 	return (
@@ -213,7 +224,7 @@ export function FileHeader({ path, children }: { path: string; children?: ReactN
 				) : null}
 			</span>
 			<div className="pk-file-tools">{children}</div>
-			{chrome?.actions}
+			{chrome?.actions(editorScheme)}
 		</header>
 	);
 }

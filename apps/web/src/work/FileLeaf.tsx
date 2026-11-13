@@ -519,7 +519,7 @@ function FileTab({
 				    The status sits before the toggle so its changing width
 				    never moves the buttons. */}
 				{inDiff ? null : (
-					<FileHeader path={path}>
+					<FileHeader path={path} editorScheme={editing}>
 						{showStatus ? <StatusPill path={path} status={status} /> : null}
 						{toggle}
 						{editing ? (
