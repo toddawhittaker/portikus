@@ -7,7 +7,7 @@ import {
 
 /**
  * What the chat says when an MCP server asks the student for input. The
- * chat has no form for it, so the request is declined (EPIC-66 ruling 13).
+ * chat has no form for it, so the request is declined (SPEC.md §10.8).
  */
 export const ELICITATION_NOTICE =
 	"An MCP server asked for input. Use a terminal tab to answer it.";
