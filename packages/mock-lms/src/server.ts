@@ -47,6 +47,32 @@ interface PendingLaunch {
 
 const MAX_PENDING = 1000;
 
+const PLAIN_TEXT = "text/plain; charset=utf-8";
+
+/** The seed person and course a launch form names, or the message for whichever is missing. */
+function chosenPersonAndCourse(
+	params: URLSearchParams,
+): { person: Person; course: Course } | { problem: string } {
+	const person = findPerson(params.get("person") ?? "");
+	const course = findCourse(params.get("course") ?? "");
+	if (!person) return { problem: "Choose a person from the list." };
+	if (!course) return { problem: "Choose a course from the list." };
+	return { person, course };
+}
+
+/** Authorize parameters from the form body when posted, with query parameters filling any gaps. */
+async function authorizeParams(
+	req: IncomingMessage,
+	url: URL,
+	method: string,
+): Promise<URLSearchParams> {
+	const params = method === "POST" ? await readForm(req) : new URLSearchParams();
+	for (const [key, value] of url.searchParams) {
+		if (!params.has(key)) params.set(key, value);
+	}
+	return params;
+}
+
 export function registration(issuer: string) {
 	return {
 		name: "mock-lms",
@@ -102,12 +128,11 @@ export function createHandler(options: MockLmsOptions) {
 				errorPage("Start the launch from this mock's launch page."),
 			);
 		}
-		const person = findPerson(params.get("person") ?? "");
-		const course = findCourse(params.get("course") ?? "");
+		const chosen = chosenPersonAndCourse(params);
 		const roleParam = params.get("role") ?? "";
 		const defectParam = params.get("defect") ?? "";
-		if (!person) return html(res, 400, errorPage("Choose a person from the list."));
-		if (!course) return html(res, 400, errorPage("Choose a course from the list."));
+		if ("problem" in chosen) return html(res, 400, errorPage(chosen.problem));
+		const { person, course } = chosen;
 		if (roleParam !== "" && !isRoleName(roleParam)) {
 			return html(res, 400, errorPage("Choose a role from the list."));
 		}
@@ -142,10 +167,9 @@ export function createHandler(options: MockLmsOptions) {
 		if (!formTokenOk(params.get("form_token"))) {
 			return html(res, 403, errorPage("Start from this mock's launch page."));
 		}
-		const person = findPerson(params.get("person") ?? "");
-		const course = findCourse(params.get("course") ?? "");
-		if (!person) return html(res, 400, errorPage("Choose a person from the list."));
-		if (!course) return html(res, 400, errorPage("Choose a course from the list."));
+		const chosen = chosenPersonAndCourse(params);
+		if ("problem" in chosen) return html(res, 400, errorPage(chosen.problem));
+		const { person, course } = chosen;
 		return begin(
 			{
 				person,
@@ -181,25 +205,37 @@ export function createHandler(options: MockLmsOptions) {
 		const action = params.get("action");
 		if (action === "reset") {
 			rosters.reset();
-			return send(res, 204, "text/plain; charset=utf-8", "");
+			return send(res, 204, PLAIN_TEXT, "");
 		}
 		const courseKey = params.get("course") ?? "";
 		const personKey = params.get("person") ?? "";
 		const roleParam = params.get("role") ?? "";
-		const person = findRosterPerson(personKey);
 		if (roleParam !== "" && !isRoleName(roleParam)) {
 			return html(res, 400, errorPage("Choose a role from the list."));
 		}
-		let done = false;
-		if (action === "add" && person) {
-			done = rosters.add(courseKey, person, roleParam === "" ? person.role : roleParam);
-		} else if (action === "drop") {
-			done = rosters.drop(courseKey, personKey);
-		} else if (action === "role" && roleParam !== "") {
-			done = rosters.setRole(courseKey, personKey, roleParam);
-		}
+		const done = applyRosterChange(action, courseKey, personKey, roleParam);
 		if (!done) return html(res, 400, errorPage("That roster change names no one."));
-		return send(res, 204, "text/plain; charset=utf-8", "");
+		return send(res, 204, PLAIN_TEXT, "");
+	}
+
+	/** Applies one roster action; false when it names no one or no known action. */
+	function applyRosterChange(
+		action: string | null,
+		courseKey: string,
+		personKey: string,
+		roleParam: RoleName | "",
+	): boolean {
+		if (action === "add") {
+			const person = findRosterPerson(personKey);
+			return person
+				? rosters.add(courseKey, person, roleParam === "" ? person.role : roleParam)
+				: false;
+		}
+		if (action === "drop") return rosters.drop(courseKey, personKey);
+		if (action === "role" && roleParam !== "") {
+			return rosters.setRole(courseKey, personKey, roleParam);
+		}
+		return false;
 	}
 
 	function frame(params: URLSearchParams, res: ServerResponse) {
@@ -232,6 +268,49 @@ export function createHandler(options: MockLmsOptions) {
 		return null;
 	}
 
+	/** The last good launch's token, or why it cannot be replayed. */
+	function replayableToken(): { idToken: string } | { problem: string } {
+		if (previousToken === undefined) {
+			return {
+				problem: "replayed_nonce needs an earlier launch to replay. Launch once first.",
+			};
+		}
+		// An expired replay would fail on exp as well as on its nonce.
+		if (now() >= previousExp) {
+			return {
+				problem:
+					"The last good launch's token has expired. Launch once more without a defect, then replay.",
+			};
+		}
+		return { idToken: previousToken };
+	}
+
+	async function signFreshLaunch(
+		launch: PendingLaunch,
+		nonce: string,
+		defect: Defect | undefined,
+	): Promise<string> {
+		const claims = launchClaims({
+			issuer,
+			toolUrl,
+			person: launch.person,
+			course: launch.course,
+			role: launch.role,
+			deepLink: launch.deepLink,
+			link: launch.link,
+			nonce,
+			now: now(),
+			defect,
+		});
+		const idToken = await signLaunch(signer, claims, defect);
+		// Replay only a good token, so the replay fails on its nonce and nothing else.
+		if (defect === undefined) {
+			previousToken = idToken;
+			previousExp = Number(claims.exp);
+		}
+		return idToken;
+	}
+
 	async function authorize(params: URLSearchParams, res: ServerResponse) {
 		const refuse = (message: string) => html(res, 400, errorPage(message));
 		const requestProblem = authorizeRequestProblem(params);
@@ -252,37 +331,11 @@ export function createHandler(options: MockLmsOptions) {
 
 		let idToken: string;
 		if (defect === "replayed_nonce") {
-			if (previousToken === undefined) {
-				return refuse(
-					"replayed_nonce needs an earlier launch to replay. Launch once first.",
-				);
-			}
-			// An expired replay would fail on exp as well as on its nonce.
-			if (now() >= previousExp) {
-				return refuse(
-					"The last good launch's token has expired. Launch once more without a defect, then replay.",
-				);
-			}
-			idToken = previousToken;
+			const replay = replayableToken();
+			if ("problem" in replay) return refuse(replay.problem);
+			idToken = replay.idToken;
 		} else {
-			const claims = launchClaims({
-				issuer,
-				toolUrl,
-				person: launch.person,
-				course: launch.course,
-				role: launch.role,
-				deepLink: launch.deepLink,
-				link: launch.link,
-				nonce,
-				now: now(),
-				defect,
-			});
-			idToken = await signLaunch(signer, claims, defect);
-			// Replay only a good token, so the replay fails on its nonce and nothing else.
-			if (defect === undefined) {
-				previousToken = idToken;
-				previousExp = Number(claims.exp);
-			}
+			idToken = await signFreshLaunch(launch, nonce, defect);
 		}
 		// Never the token, and nothing about the person beyond the seed key.
 		log(`launch person=${launch.person.key} defect=${defect ?? "none"}`);
@@ -332,15 +385,11 @@ export function createHandler(options: MockLmsOptions) {
 				return services.memberships(req, url, res);
 			}
 			if (url.pathname === "/authorize" && (method === "GET" || method === "POST")) {
-				const params = method === "POST" ? await readForm(req) : new URLSearchParams();
-				for (const [key, value] of url.searchParams) {
-					if (!params.has(key)) params.set(key, value);
-				}
-				return await authorize(params, res);
+				return await authorize(await authorizeParams(req, url, method), res);
 			}
-			return send(res, 404, "text/plain; charset=utf-8", "Not found\n");
+			return send(res, 404, PLAIN_TEXT, "Not found\n");
 		} catch {
-			return send(res, 400, "text/plain; charset=utf-8", "Bad request\n");
+			return send(res, 400, PLAIN_TEXT, "Bad request\n");
 		}
 	};
 }
