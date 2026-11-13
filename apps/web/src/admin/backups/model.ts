@@ -153,6 +153,17 @@ export function failedBackupTimes(
 		.map((request) => request.finishedAt ?? request.requestedAt);
 }
 
+/** One night's mark: its set if it left one, else a failure, else whether it is the next run. */
+function nightKind(
+	set: boolean | undefined,
+	failed: boolean,
+	scheduled: boolean,
+): NightKind {
+	if (set !== undefined) return set ? "complete" : "incomplete";
+	if (failed) return "failed";
+	return scheduled ? "scheduled" : "none";
+}
+
 /**
  * The last `count` nights, oldest first, ending on the night of the next
  * scheduled run when there is one: what each night left behind, from the
@@ -187,18 +198,10 @@ export function nights(
 	const out: Night[] = [];
 	for (let i = count - 1; i >= 0; i--) {
 		const day = dayOf(end - i * DAY_MS);
-		const set = byDay.get(day);
-		const kind: NightKind =
-			set === true
-				? "complete"
-				: set === false
-					? "incomplete"
-					: failedDays.has(day)
-						? "failed"
-						: day === scheduledDay
-							? "scheduled"
-							: "none";
-		out.push({ day, kind });
+		out.push({
+			day,
+			kind: nightKind(byDay.get(day), failedDays.has(day), day === scheduledDay),
+		});
 	}
 	return out;
 }
