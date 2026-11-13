@@ -228,6 +228,9 @@ export class ChatHost {
 			.sessionExists(sessionId, projectDir)
 			.catch(() => false);
 		const input = new InputQueue();
+		// Leave CLAUDE_CODE_ENTRYPOINT at the SDK's own value: Claude Code treats
+		// an unrecognized label as a print (-p) session, which bills a classifier
+		// call on every auto-mode tool use and rejects Console API credits.
 		const session = this.sdk.query({
 			prompt: input,
 			options: {
