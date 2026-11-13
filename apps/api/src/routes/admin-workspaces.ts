@@ -141,6 +141,19 @@ async function recentAudit(
 	}));
 }
 
+function workspaceNotFound(reply: FastifyReply) {
+	return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+}
+
+async function workspaceExists(trx: Kysely<Database>, id: string): Promise<boolean> {
+	const row = await trx
+		.selectFrom("workspaces")
+		.select("id")
+		.where("id", "=", id)
+		.executeTakeFirst();
+	return row !== undefined;
+}
+
 /**
  * The admin workspace detail, archive and storage routes (SPEC.md §20.1).
  * An administrator sees aggregates and port facts, never contents
@@ -170,7 +183,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		const ownerId = row.owner_user_id as string;
 		const owner = await db
@@ -267,7 +280,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		const already = (row.archived_at !== null) === archive;
 		if (!already) {
@@ -313,7 +326,7 @@ export function registerAdminWorkspaceRoutes(
 		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		if (row.state === "provisioning") {
 			return sendError(
@@ -415,7 +428,7 @@ export function registerAdminWorkspaceRoutes(
 			return true;
 		});
 		if (!found) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		return reply.status(204).send();
 	});
@@ -443,12 +456,7 @@ export function registerAdminWorkspaceRoutes(
 				.returning("owner_user_id")
 				.executeTakeFirst();
 			if (!cleared) {
-				const exists = await trx
-					.selectFrom("workspaces")
-					.select("id")
-					.where("id", "=", id)
-					.executeTakeFirst();
-				return exists ? "not_set" : "not_found";
+				return (await workspaceExists(trx, id)) ? "not_set" : "not_found";
 			}
 			await trx
 				.deleteFrom("workspace_usage_samples")
@@ -475,7 +483,7 @@ export function registerAdminWorkspaceRoutes(
 			return "cleared";
 		});
 		if (outcome === "not_found") {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		if (outcome === "not_set") {
 			return mark === "cpu_throttle"
@@ -558,7 +566,7 @@ export function registerAdminWorkspaceRoutes(
 			return true;
 		});
 		if (!found) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		return reply.status(204).send();
 	});
@@ -588,12 +596,7 @@ export function registerAdminWorkspaceRoutes(
 				.where("state", "=", "error")
 				.executeTakeFirst();
 			if (Number(moved.numUpdatedRows) === 0) {
-				const exists = await trx
-					.selectFrom("workspaces")
-					.select("id")
-					.where("id", "=", id)
-					.executeTakeFirst();
-				return exists ? "not_in_error" : "not_found";
+				return (await workspaceExists(trx, id)) ? "not_in_error" : "not_found";
 			}
 			await recordAudit(trx, {
 				actor: `user:${actor.id}`,
@@ -604,7 +607,7 @@ export function registerAdminWorkspaceRoutes(
 			return "moved";
 		});
 		if (outcome === "not_found") {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		if (outcome === "not_in_error") {
 			return sendError(
@@ -628,7 +631,7 @@ export function registerAdminWorkspaceRoutes(
 		if (!params) return;
 		const row = await loadRow(params.id);
 		if (!row) {
-			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+			return workspaceNotFound(reply);
 		}
 		if (row.state !== "running") {
 			return sendError(
