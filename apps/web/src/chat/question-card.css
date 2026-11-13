@@ -150,6 +150,12 @@
 	overflow-wrap: normal;
 }
 
+/* A question with nothing to pick is this one field, the full width of the card. */
+.pk-chat-input.pk-chat-answer-input {
+	inline-size: 100%;
+	box-sizing: border-box;
+}
+
 .pk-chat-input.pk-chat-other-input {
 	min-block-size: var(--size-control-sm);
 	padding-block: var(--space-1);

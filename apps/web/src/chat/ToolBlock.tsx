@@ -17,7 +17,13 @@ import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import type { ChatToolItem } from "./chatStore.js";
 import { useChatImages } from "./ImageViewer.js";
 import { SubagentOpenerContext } from "./subagentView.js";
-import { type ToolDetail, type ToolLine, toolLine } from "./toolView.js";
+import {
+	collabReceivers,
+	type FileChangeView,
+	type ToolDetail,
+	type ToolLine,
+	toolLine,
+} from "./toolView.js";
 
 /** A tool's image opens large in the viewer, like an image in a reply. */
 function ToolImage({ src, tool }: { src: string; tool: string }) {
@@ -52,6 +58,25 @@ function OutputPart({ part, tool }: { part: ChatToolOutputPart; tool: string }) 
 	}
 }
 
+const FILE_CHANGE_WORD = {
+	add: "Created",
+	delete: "Deleted",
+	update: "Edited",
+	move: "Moved",
+} as const;
+
+/** A file a call changed, headed by its name and drawn as its diff. */
+function FileChange({ file }: { file: FileChangeView }) {
+	return (
+		<section aria-label={`${FILE_CHANGE_WORD[file.kind]} ${file.path}`}>
+			<p className="pk-chat-tool-path pk-mono-body">
+				{file.movePath ? `${file.path} \u2192 ${file.movePath}` : file.path}
+			</p>
+			<DiffBlock lines={file.lines} path={file.movePath ?? file.path} />
+		</section>
+	);
+}
+
 function Detail({ detail }: { detail: ToolDetail }) {
 	switch (detail.kind) {
 		case "command":
@@ -60,6 +85,14 @@ function Detail({ detail }: { detail: ToolDetail }) {
 			return <DiffBlock changes={detail.changes} path={detail.path} />;
 		case "write":
 			return <CodeBlock text={detail.content} />;
+		case "files":
+			return detail.files.map((file) => <FileChange key={file.path} file={file} />);
+		case "arguments":
+			return (
+				<CodeBlock text={JSON.stringify(detail.value, null, 2) ?? ""} limit={40} />
+			);
+		case "text":
+			return <CodeBlock text={detail.text} />;
 	}
 }
 
@@ -131,11 +164,49 @@ function agentPrompt(input: unknown): string | null {
 
 /**
  * The way into a subagent's own conversation, on any Agent call, foreground
- * or background, except one that failed before a subagent started.
+ * or background, except one that failed before a subagent started. A Codex
+ * subagent tool names its children by thread id, and each opens by that id.
  */
 function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string }) {
 	const openSubagent = useContext(SubagentOpenerContext);
-	if (!openSubagent || tool.name !== "Agent" || tool.status === "error") return null;
+	if (!openSubagent || tool.status === "error") return null;
+	if (tool.name === "Agent") {
+		return (
+			<OpenButton
+				label="Show its conversation"
+				titleId={titleId}
+				onOpen={() => openSubagent({ toolUseId: tool.id, title: tool.title })}
+			/>
+		);
+	}
+	if (tool.name !== "collabAgentToolCall") return null;
+	const children = collabReceivers(tool.input);
+	return children.map((child, at) => (
+		<OpenButton
+			key={child}
+			label={
+				children.length === 1
+					? "Show its conversation"
+					: `Show subagent ${at + 1}'s conversation`
+			}
+			titleId={titleId}
+			onOpen={() => openSubagent({ toolUseId: child, title: SUBAGENT_TITLE })}
+		/>
+	));
+}
+
+/** A Codex subagent has no description, so its view is named by what it is. */
+const SUBAGENT_TITLE = "Subagent";
+
+function OpenButton({
+	label,
+	titleId,
+	onOpen,
+}: {
+	label: string;
+	titleId: string;
+	onOpen: () => void;
+}) {
 	return (
 		<button
 			type="button"
@@ -143,9 +214,9 @@ function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string 
 			data-testid="chat-agent-open"
 			// Every card's button reads the same; its card's title tells them apart.
 			aria-describedby={titleId}
-			onClick={() => openSubagent({ toolUseId: tool.id, title: tool.title })}
+			onClick={onOpen}
 		>
-			Show its conversation
+			{label}
 		</button>
 	);
 }
@@ -190,8 +261,14 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 	const failed = tool.status === "error";
 	const line = toolLine(tool.name, tool.input, tool.title);
 	const detail = line.detail;
-	// An edit or a write says nothing back; its diff or content is the result.
-	const quiet = detail?.kind === "edit" || detail?.kind === "write";
+	// What the opened row shows already is the tool's input.
+	const showsInput = detail?.kind === "arguments" || tool.name === "Agent";
+	// An edit, a write or a file change says nothing back; its diff or content is the result.
+	const quiet =
+		detail?.kind === "edit" ||
+		detail?.kind === "write" ||
+		detail?.kind === "files" ||
+		detail?.kind === "text";
 	const launch = isBackgroundLaunch(tool);
 	const titleId = useId();
 
@@ -229,7 +306,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 				<Icon name={line.icon} size="sm" className="pk-chat-tool-icon" />
 				<span className="pk-chat-tool-text" id={titleId}>
 					<span className="pk-chat-tool-verb">{verbText(tool, line)}</span>
-					{line.target ? (
+					{line.target && line.target !== verbText(tool, line) ? (
 						<>
 							{" "}
 							<span
@@ -252,7 +329,7 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 				{detail ? <Detail detail={detail} /> : null}
 				<WatchSubagent tool={tool} titleId={titleId} />
 				{outputBody()}
-				{tool.name === "Agent" ? null : (
+				{showsInput ? null : (
 					<details className="pk-chat-raw">
 						<summary className="pk-chat-raw-summary pk-focus-inset">
 							<Icon name="chevron-right" size="sm" className="pk-chat-chevron" />
