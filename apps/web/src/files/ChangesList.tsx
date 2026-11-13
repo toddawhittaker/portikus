@@ -67,6 +67,64 @@ export function ChangesList({
 		openFile(row.path, { diff: true });
 	}
 
+	function listBody() {
+		if (error) {
+			return (
+				<p className="pk-changes-empty" data-testid="changes-error">
+					Could not read Git status
+				</p>
+			);
+		}
+		if (unknown) return null;
+		if (notARepo) {
+			return (
+				<p className="pk-changes-empty" data-testid="changes-no-repo">
+					This project is not a Git repository.
+				</p>
+			);
+		}
+		if (rows.length === 0) {
+			return (
+				<p className="pk-changes-empty" data-testid="changes-empty">
+					{sessionLabel
+						? "No changes since this session started"
+						: "No changes since the last commit"}
+				</p>
+			);
+		}
+		return (
+			<ul className="pk-changes-list" data-testid="changes-list">
+				{rows.map((row) => {
+					// The row whose file is the tab on show is the selected one.
+					const current =
+						activeTabId === `file:${row.path}` || activeTabId === `diff:${row.path}`;
+					return (
+						<li key={row.path}>
+							<button
+								type="button"
+								className={`pk-changes-row${current ? " is-current" : ""}`}
+								data-selected={current ? "true" : undefined}
+								aria-current={current ? "true" : undefined}
+								data-testid={`change-row-${row.path}`}
+								data-git={row.decoration.kind}
+								title={row.decoration.title}
+								onClick={() => show(row)}
+							>
+								<GitLetter decoration={row.decoration} />
+								{row.decoration.kind === "conflict" ? (
+									<Icon name="alert" size="sm" />
+								) : null}
+								<span className="pk-changes-path" title={row.path}>
+									{row.label}
+								</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
+		);
+	}
+
 	return (
 		<section className="pk-changes" data-testid="changes-section">
 			<button
@@ -121,54 +179,7 @@ export function ChangesList({
 				</button>
 			) : null}
 			{sessionLabel && sessionRestore ? <SessionRestore {...sessionRestore} /> : null}
-			{open ? (
-				error ? (
-					<p className="pk-changes-empty" data-testid="changes-error">
-						Could not read Git status
-					</p>
-				) : unknown ? null : notARepo ? (
-					<p className="pk-changes-empty" data-testid="changes-no-repo">
-						This project is not a Git repository.
-					</p>
-				) : rows.length === 0 ? (
-					<p className="pk-changes-empty" data-testid="changes-empty">
-						{sessionLabel
-							? "No changes since this session started"
-							: "No changes since the last commit"}
-					</p>
-				) : (
-					<ul className="pk-changes-list" data-testid="changes-list">
-						{rows.map((row) => {
-							// The row whose file is the tab on show is the selected one.
-							const current =
-								activeTabId === `file:${row.path}` ||
-								activeTabId === `diff:${row.path}`;
-							return (
-								<li key={row.path}>
-									<button
-										type="button"
-										className={`pk-changes-row${current ? " is-current" : ""}`}
-										data-selected={current ? "true" : undefined}
-										aria-current={current ? "true" : undefined}
-										data-testid={`change-row-${row.path}`}
-										data-git={row.decoration.kind}
-										title={row.decoration.title}
-										onClick={() => show(row)}
-									>
-										<GitLetter decoration={row.decoration} />
-										{row.decoration.kind === "conflict" ? (
-											<Icon name="alert" size="sm" />
-										) : null}
-										<span className="pk-changes-path" title={row.path}>
-											{row.label}
-										</span>
-									</button>
-								</li>
-							);
-						})}
-					</ul>
-				)
-			) : null}
+			{open ? listBody() : null}
 		</section>
 	);
 }
