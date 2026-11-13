@@ -464,6 +464,14 @@ def split_certificates(pem):
     return [block + "\n" for block in PEM_BLOCK_RE.findall(pem)]
 
 
+def caddy_failure(log):
+    """The last few errors in a throwaway Caddy's log, for the admin."""
+    errors = [e["message"] for e in parse_caddy_events(log) if not e["ok"]]
+    # Caddy prints "Error: ..." on stderr when it cannot start at all.
+    errors = errors or [line for line in log.splitlines() if line.startswith("Error: ")]
+    return " | ".join(errors[-3:])[:1500] or "nothing; the log has its output"
+
+
 def storage_name(name):
     """The folder Caddy keeps a name's certificate in."""
     return name.replace("*", "wildcard_").lower()
@@ -1438,23 +1446,26 @@ class Runner:
         """
         work = tempfile.mkdtemp(prefix=".throwaway-", dir=self.state_dir)
         try:
-            return self.run_throwaway(job, settings, names, base, seed, work)
+            storage = os.path.join(work, "storage")
+            os.mkdir(storage, 0o700)
+            if seed:
+                self.seed_acme_accounts(storage)
+            return self.run_throwaway(job, settings, names, base, work)
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def run_throwaway(self, job, settings, names, base, seed, work):
-        storage = os.path.join(work, "storage")
-        os.mkdir(storage, 0o700)
-        if seed:
-            try:
-                acme_fd = open_nofollow(os.path.join(self.caddy_data, "acme"), directory=True)
-            except OSError:
-                acme_fd = None
-            if acme_fd is not None:
-                try:
-                    copy_tree_at(acme_fd, os.path.join(storage, "acme"))
-                finally:
-                    os.close(acme_fd)
+    def seed_acme_accounts(self, storage):
+        """Copy the live Caddy's ACME accounts into the throwaway's storage, when it has any."""
+        try:
+            acme_fd = open_nofollow(os.path.join(self.caddy_data, "acme"), directory=True)
+        except OSError:
+            return
+        try:
+            copy_tree_at(acme_fd, os.path.join(storage, "acme"))
+        finally:
+            os.close(acme_fd)
+
+    def throwaway_caddyfile(self, settings, names, base, storage):
         http01 = settings["challenge"]["mode"] == "http01"
         # No server of the throwaway's own listens on the challenge port: Caddy's solver binds it
         # itself, before it tells the authority the challenge is ready, so validation cannot arrive
@@ -1462,7 +1473,7 @@ class Runner:
         challenge_port = self.test_http_port or CHALLENGE_PORT
         http_port, https_port = free_ports(2, avoid=(challenge_port,))
         tls = snippets(settings, base, alt_http_port=challenge_port if http01 else None)
-        config = (
+        return (
             "{\n\tadmin off\n\tpersist_config off\n\tskip_install_trust\n"
             f"\tstorage file_system {{\n\t\troot {storage}\n\t}}\n"
             f"\thttp_port {http_port}\n\thttps_port {https_port}\n"
@@ -1471,17 +1482,46 @@ class Runner:
             + f"\n{', '.join(f'https://{n}' for n in names)} {{\n"
             "\timport portikus_tls_site\n\trespond \"portikus certificate test\"\n}\n"
         )
-        with open(os.path.join(work, "Caddyfile"), "w", encoding="utf-8") as f:
-            f.write(config)
-        user = {}
+
+    def throwaway_account(self, work):
+        """The Popen account options for the throwaway, handing work to the caddy account as root."""
         if self.host.root and self.host.caddy_uid < 0:
             raise JobFailed("There is no caddy account to run the test Caddy as.")
-        if self.host.root:
-            # The caddy account, not root, talks to the ACME service, as the live Caddy does.
-            for dirpath, dirnames, filenames in os.walk(work):
-                for path in [dirpath, *(os.path.join(dirpath, n) for n in filenames)]:
-                    os.chown(path, self.host.caddy_uid, self.host.caddy_gid, follow_symlinks=False)
-            user = {"user": "caddy", "group": "caddy"}
+        if not self.host.root:
+            return {}
+        # The caddy account, not root, talks to the ACME service, as the live Caddy does.
+        for dirpath, dirnames, filenames in os.walk(work):
+            for path in [dirpath, *(os.path.join(dirpath, n) for n in filenames)]:
+                os.chown(path, self.host.caddy_uid, self.host.caddy_gid, follow_symlinks=False)
+        return {"user": "caddy", "group": "caddy"}
+
+    def wait_for_certificates(self, proc, caddy_log, wanted, started):
+        """Poll until every wanted file exists, Caddy exits, the deadline passes or Caddy is refused."""
+        while not all(glob.glob(pattern) for pattern in wanted):
+            if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
+                return
+            # Caddy retries a refusal forever; a definitive one ends the wait at once.
+            so_far = os.pread(caddy_log.fileno(), 4 * 1024 * 1024, 0).decode("utf-8", "replace")
+            if any(definitive_refusal(e["message"]) for e in parse_caddy_events(so_far) if not e["ok"]):
+                return
+            self.sleep(POLL_SECONDS)
+
+    def reclaim_work(self, work):
+        """Take the folder back before reading anything in it."""
+        work_fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if self.host.root:
+                os.fchown(work_fd, 0, 0)
+            os.fchmod(work_fd, 0o700)
+        finally:
+            os.close(work_fd)
+
+    def run_throwaway(self, job, settings, names, base, work):
+        storage = os.path.join(work, "storage")
+        config = self.throwaway_caddyfile(settings, names, base, storage)
+        with open(os.path.join(work, "Caddyfile"), "w", encoding="utf-8") as f:
+            f.write(config)
+        user = self.throwaway_account(work)
         env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": work, "XDG_DATA_HOME": work,
                "XDG_CONFIG_HOME": work, **self.test_env}
         # Caddy writes a certificate's .json last, so its presence means the files are complete.
@@ -1494,14 +1534,7 @@ class Runner:
                 [self.caddy, "run", "--config", os.path.join(work, "Caddyfile"), "--adapter", "caddyfile"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=caddy_log, env=env, cwd=work, **user)
             try:
-                while not all(glob.glob(pattern) for pattern in wanted):
-                    if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
-                        break
-                    # Caddy retries a refusal forever; a definitive one ends the wait at once.
-                    so_far = os.pread(caddy_log.fileno(), 4 * 1024 * 1024, 0).decode("utf-8", "replace")
-                    if any(definitive_refusal(e["message"]) for e in parse_caddy_events(so_far) if not e["ok"]):
-                        break
-                    self.sleep(POLL_SECONDS)
+                self.wait_for_certificates(proc, caddy_log, wanted, started)
             finally:
                 proc.terminate()
                 try:
@@ -1509,14 +1542,7 @@ class Runner:
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait()
-            # Take the folder back before reading anything in it.
-            work_fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            try:
-                if self.host.root:
-                    os.fchown(work_fd, 0, 0)
-                os.fchmod(work_fd, 0o700)
-            finally:
-                os.close(work_fd)
+            self.reclaim_work(work)
             caddy_log.seek(0)
             log = caddy_log.read()[-200000:].decode("utf-8", "replace")
         job.write(log[-20000:])
@@ -1524,11 +1550,8 @@ class Runner:
         found = {folder for (_, folder), files in certificates.items()
                  if f"{folder}.crt" in files and f"{folder}.json" in files}
         if not {storage_name(n) for n in names} <= found:
-            errors = [e["message"] for e in parse_caddy_events(log) if not e["ok"]]
-            # Caddy prints "Error: ..." on stderr when it cannot start at all.
-            errors = errors or [line for line in log.splitlines() if line.startswith("Error: ")]
-            said = " | ".join(errors[-3:])[:1500] or "nothing; the log has its output"
-            raise JobFailed(f"No certificate was obtained, and the live site is unchanged. Caddy said: {said}")
+            raise JobFailed("No certificate was obtained, and the live site is unchanged. Caddy said: "
+                            + caddy_failure(log))
         return certificates
 
     def system_trusts(self, blocks, name=None):
