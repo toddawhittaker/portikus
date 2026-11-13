@@ -11,6 +11,8 @@ import {
 	createStudent,
 	expectConnected,
 	expectNoViolations,
+	newTerminal,
+	openFileTab,
 	routeApi,
 	terminalIds,
 	toast,
@@ -93,6 +95,47 @@ async function openTerminal(page: Page, context: Parameters<typeof createStudent
 	if (!terminalId) throw new Error("the terminal row was not created");
 	await expectConnected(page, terminalId);
 	return { workspaceId: student.workspaceId, terminalId, path };
+}
+
+const FILE = "src/app.ts";
+
+/** A terminal and an open file side by side in one tab, so both are on screen. */
+async function openTerminalBesideFile(
+	page: Page,
+	context: Parameters<typeof createStudent>[0],
+) {
+	const student = await createStudent(context);
+	const project = await openFileTab(
+		page,
+		student,
+		"Beside",
+		FILE,
+		"const answer = 42;\n",
+	);
+	const lines = page.getByTestId(`editor-${FILE}`).locator(".view-lines");
+	await expect(lines).toContainText("const answer = 42;", { timeout: 60_000 });
+	await newTerminal(page);
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(1);
+	const [terminalId] = await terminalIds(student.workspaceId, project.id);
+	if (!terminalId) throw new Error("the terminal row was not created");
+	await expectConnected(page, terminalId);
+	// "Move into" the terminal's tab puts the file in a split beside it.
+	await page.getByTestId(`tab-file:${FILE}`).click();
+	await page.getByTestId(`file-frame-actions-${FILE}`).focus();
+	await page.keyboard.press("Enter");
+	const moveInto = page.getByRole("menuitem", { name: "Move into" });
+	await expect(moveInto).toBeVisible();
+	await moveInto.focus();
+	await page.keyboard.press("ArrowRight");
+	await page
+		.getByRole("menu", { name: "Move into" })
+		.getByTestId(`file-frame-move-into-${terminalId}`)
+		.press("Enter");
+	await expect(page.getByTestId(`file-frame-${FILE}`)).toBeVisible();
+	await expect(page.getByTestId(`terminal-leaf-${terminalId}`)).toBeVisible();
+	return { workspaceId: student.workspaceId, terminalId, lines };
 }
 
 const card = (page: Page) => page.getByRole("region", { name: "Claude's question" });
@@ -204,6 +247,42 @@ test("an answer that cannot be sent says so and keeps the question", async ({
 	await expect(page.getByRole("radio", { name: "SQLite" })).toBeChecked();
 	await expect(note).toHaveValue("one file is enough");
 	expect(await forwarded(workspaceId)).toEqual([]);
+});
+
+test("a question announces itself when the keyboard is in the editor beside it", async ({
+	page,
+	context,
+}) => {
+	const { workspaceId, terminalId, lines } = await openTerminalBesideFile(
+		page,
+		context,
+	);
+	await lines.click();
+	const live = page.getByTestId(`terminal-question-live-${terminalId}`);
+	await expect(live).toHaveAttribute("aria-live", "polite");
+	await expect(live).toHaveText("");
+
+	await setQuestion(workspaceId, terminalId, QUESTION);
+	await expect(card(page)).toBeVisible();
+	await expect(live).toHaveText(`Claude Code in Terminal 1 is asking a question`);
+	// The card did not take the keyboard from the editor.
+	await expect(page.getByRole("radio", { name: "PostgreSQL" })).not.toBeFocused();
+
+	// Answering clears the announcement.
+	await page.getByRole("button", { name: "Answer in the terminal" }).click();
+	await expect(card(page)).toHaveCount(0);
+	await expect(live).toHaveText("");
+});
+
+test("no announcement when the keyboard is already in the terminal", async ({
+	page,
+	context,
+}) => {
+	const { workspaceId, terminalId } = await openTerminalBesideFile(page, context);
+	await shell(page, terminalId).focus();
+	await setQuestion(workspaceId, terminalId, QUESTION);
+	await expect(page.getByRole("radio", { name: "PostgreSQL" })).toBeFocused();
+	await expect(page.getByTestId(`terminal-question-live-${terminalId}`)).toHaveText("");
 });
 
 test("a short pane keeps terminal lines in view above the card", async ({
