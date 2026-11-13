@@ -48,6 +48,32 @@ function restartedBetweenRows(prev: RunSample, cur: RunSample): boolean {
 	);
 }
 
+/**
+ * The samples since the latest restart: what restartedBetween says, or a gap
+ * of more than two sample intervals, which is where a stop left no samples.
+ */
+function latestRun<T extends RunSample>(samples: T[]): T[] {
+	let runStart = 0;
+	for (let i = 1; i < samples.length; i++) {
+		const prev = samples[i - 1];
+		const cur = samples[i];
+		if (!prev || !cur) continue;
+		const gapMs = cur.observed_at.getTime() - prev.observed_at.getTime();
+		if (restartedBetweenRows(prev, cur) || gapMs > 2 * GUARD_SAMPLE_SECONDS * 1000)
+			runStart = i;
+	}
+	return samples.slice(runStart);
+}
+
+/** The mean of each sample's memory use as a percentage of its limit. */
+function averageMemoryPercent(
+	samples: { memory_bytes: string; memory_limit_bytes: string }[],
+): number {
+	let sum = 0;
+	for (const s of samples) sum += Number(s.memory_bytes) / Number(s.memory_limit_bytes);
+	return (sum / samples.length) * 100;
+}
+
 /** Round to one decimal place for the stored average. */
 function round1(value: number): number {
 	return Math.round(value * 10) / 10;
@@ -428,21 +454,9 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			.orderBy("observed_at", "asc")
 			.orderBy("id", "asc")
 			.execute();
-		let runStart = 0;
-		for (let i = 1; i < all.length; i++) {
-			const prev = all[i - 1];
-			const cur = all[i];
-			if (!prev || !cur) continue;
-			const gapMs = cur.observed_at.getTime() - prev.observed_at.getTime();
-			if (restartedBetweenRows(prev, cur) || gapMs > 2 * GUARD_SAMPLE_SECONDS * 1000)
-				runStart = i;
-		}
-		const samples = all.slice(runStart);
+		const samples = latestRun(all);
 		if (samples.length === 0 || samples.length < effective.windowMinutes / 2) return;
-		let sum = 0;
-		for (const s of samples)
-			sum += Number(s.memory_bytes) / Number(s.memory_limit_bytes);
-		const average = (sum / samples.length) * 100;
+		const average = averageMemoryPercent(samples);
 		if (!(average > effective.memoryThresholdPercent)) return;
 
 		const flag = {
