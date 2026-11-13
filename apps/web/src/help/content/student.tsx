@@ -669,9 +669,10 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>
 							<strong>Preferences</strong> covers the color scheme (you can also change
-							it from the editor pane's three-dots menu under Color scheme), editor
-							auto-save and word wrap, terminal colors, screen reader mode, desktop
-							notifications for coding agents and your workspace's timezone.
+							it from a file pane's three-dots menu under Color scheme, in Edit or
+							Diff), editor auto-save and word wrap, terminal colors, screen reader
+							mode, desktop notifications for coding agents and your workspace's
+							timezone.
 						</li>
 						<li>
 							<strong>Password</strong> appears when your account has a Portikus

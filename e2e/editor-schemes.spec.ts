@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, openFileTab } from "./helpers";
+import { createStudent, openFileTab, seedGit } from "./helpers";
 
 /**
  * The editor colour scheme (SPEC.md §13.1, §25.8): a student picks a scheme in
@@ -306,5 +306,62 @@ test.describe("editor colour scheme", () => {
 		// The menu closes after a choice and the keyboard comes back to the pane.
 		await expect(page.getByRole("menu")).toHaveCount(0);
 		await expect(page.getByTestId(`file-frame-actions-${PATH}`)).toBeFocused();
+	});
+
+	test("the pane menu offers the schemes in Diff mode too, and the choice carries between Diff and Edit", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openFileTab(page, student, "Scheme diff", PATH, CONTENT);
+		await seedGit(student.workspaceId, project.slug, {
+			diffs: {
+				[PATH]: {
+					status: "M",
+					before: "def total(a, b):\n    return a\n",
+					after: CONTENT,
+					binary: false,
+					tooLarge: false,
+				},
+			},
+		});
+		await expect(
+			page.getByTestId(`editor-${PATH}`).locator(".view-lines"),
+		).toContainText("def total", { timeout: 60_000 });
+		await chooseAppearance(page, "Dark");
+		await expect.poll(() => editorColours(page)).toEqual(PORTIKUS.dark);
+
+		const diff = page.getByTestId(`diff-editor-${PATH}`);
+		const diffBackground = () =>
+			diff
+				.locator(".monaco-editor-background")
+				.first()
+				.evaluate((node) => getComputedStyle(node).backgroundColor);
+		await page.getByTestId(`file-view-diff-${PATH}`).click();
+		await expect(diff.locator(".monaco-diff-editor")).toBeVisible({ timeout: 60_000 });
+		await expect.poll(diffBackground).toBe(PORTIKUS.dark.background);
+		await page.evaluate(() => {
+			(window as unknown as { kept: boolean }).kept = true;
+		});
+
+		await openSchemeMenu(page);
+		// Moved in small steps, as in the Edit test above.
+		const target = await page
+			.getByRole("menuitemradio", { name: "VS Code" })
+			.boundingBox();
+		if (!target) throw new Error("the VS Code item has no box");
+		await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
+			steps: 15,
+		});
+		await page.mouse.down();
+		await page.mouse.up();
+		await expect.poll(diffBackground).toBe(VSCODE.dark.background);
+		expect(
+			await page.evaluate(() => (window as unknown as { kept?: boolean }).kept),
+		).toBe(true);
+
+		// Edit shows the same scheme.
+		await page.getByTestId(`file-view-edit-${PATH}`).click();
+		await expect.poll(() => editorColours(page)).toEqual(VSCODE.dark);
 	});
 });
