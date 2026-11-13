@@ -111,53 +111,70 @@ export function createAlertSources(options: AlertSourceOptions): () => Promise<v
 			.execute();
 	}
 
+	/** Raise the alert when its condition starts, and store the condition whenever it changes. */
+	async function track(
+		flag: AlertFlag,
+		active: boolean,
+		wasRaised: boolean,
+		raise: () => Promise<void>,
+	): Promise<void> {
+		if (active && !wasRaised) await raise();
+		if (active !== wasRaised) await saveFlag(flag, active);
+	}
+
 	return async function tick(): Promise<void> {
 		try {
 			const raised = await raisedFlags();
 
 			const reboot = await fileExists(rebootFile);
-			if (reboot && !raised.alert_reboot_raised) {
-				await notifyAdministrators(db, {
-					tone: "warning",
-					title: "The server needs a reboot to finish a security update",
-					body: "Reboot the VM at a quiet time; running workspaces stop while it restarts.",
-				});
-				logger.info("reboot-required alert raised");
-			}
-			if (reboot !== raised.alert_reboot_raised) {
-				await saveFlag("alert_reboot_raised", reboot);
-			}
+			await track(
+				"alert_reboot_raised",
+				reboot,
+				raised.alert_reboot_raised,
+				async () => {
+					await notifyAdministrators(db, {
+						tone: "warning",
+						title: "The server needs a reboot to finish a security update",
+						body: "Reboot the VM at a quiet time; running workspaces stop while it restarts.",
+					});
+					logger.info("reboot-required alert raised");
+				},
+			);
 
 			const failures = await countSignInFailures(db, now());
 			const spike = failures >= SIGNIN_FAILURE_THRESHOLD;
-			if (spike && !raised.alert_signin_raised) {
-				await notifyAdministrators(db, {
-					tone: "warning",
-					title: `${failures} failed sign-ins in the last ${SIGNIN_WINDOW_MINUTES} minutes`,
-					body: "The Audit tab on the admin page lists them.",
-				});
-				logger.info({ failures }, "sign-in failure alert raised");
-			}
-			if (spike !== raised.alert_signin_raised) {
-				await saveFlag("alert_signin_raised", spike);
-			}
+			await track(
+				"alert_signin_raised",
+				spike,
+				raised.alert_signin_raised,
+				async () => {
+					await notifyAdministrators(db, {
+						tone: "warning",
+						title: `${failures} failed sign-ins in the last ${SIGNIN_WINDOW_MINUTES} minutes`,
+						body: "The Audit tab on the admin page lists them.",
+					});
+					logger.info({ failures }, "sign-in failure alert raised");
+				},
+			);
 
 			const rootFill = await rootFsPercent();
 			const rootFull = rootFill >= ROOT_FS_ALERT_PERCENT;
-			if (rootFull && !raised.alert_root_fs_raised) {
-				await notifyAdministrators(db, {
-					tone: "danger",
-					title: `The server's system disk is ${Math.floor(rootFill)}% full`,
-					body: "Free space on the VM's root filesystem before the database or logs stop writing.",
-				});
-				logger.info(
-					{ fillPercent: Math.floor(rootFill) },
-					"root filesystem alert raised",
-				);
-			}
-			if (rootFull !== raised.alert_root_fs_raised) {
-				await saveFlag("alert_root_fs_raised", rootFull);
-			}
+			await track(
+				"alert_root_fs_raised",
+				rootFull,
+				raised.alert_root_fs_raised,
+				async () => {
+					await notifyAdministrators(db, {
+						tone: "danger",
+						title: `The server's system disk is ${Math.floor(rootFill)}% full`,
+						body: "Free space on the VM's root filesystem before the database or logs stop writing.",
+					});
+					logger.info(
+						{ fillPercent: Math.floor(rootFill) },
+						"root filesystem alert raised",
+					);
+				},
+			);
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "alert source check failed");
 		}
