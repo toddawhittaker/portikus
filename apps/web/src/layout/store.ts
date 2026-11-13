@@ -751,22 +751,26 @@ export function useEditorViewState(path: string): {
  * The editor zoom of one open file. It is held in the layout
  * store, beside the cursor and scroll position, so there is one place that
  * remembers what a tab looked like; unlike those it is never written to this
- * browser's storage, so a reload starts at 100% again. A file tab rendered
- * outside a workspace has no store and simply keeps its own zoom.
+ * browser's storage, so a reload starts at 100% again. The editor and the
+ * diff of one file both read it, so a change in either shows in the other. A
+ * file tab rendered outside a workspace has no store and keeps its own zoom.
  */
 export function useEditorZoom(path: string): [number, (percent: number) => void] {
 	const store = useContext(LayoutStoreContext);
-	const [zoom, setLocal] = useState(
-		() => store?.getState().zooms[path] ?? DEFAULT_ZOOM,
+	const [own, setOwn] = useState(DEFAULT_ZOOM);
+	const subscribe = useCallback(
+		(listener: () => void) => store?.subscribe(listener) ?? (() => {}),
+		[store],
 	);
+	const held = useSyncExternalStore(subscribe, () => store?.getState().zooms[path]);
 	const set = useCallback(
 		(percent: number) => {
-			setLocal(percent);
-			store?.getState().setZoom(path, percent);
+			if (store) store.getState().setZoom(path, percent);
+			else setOwn(percent);
 		},
 		[store, path],
 	);
-	return [zoom, set];
+	return [store ? (held ?? DEFAULT_ZOOM) : own, set];
 }
 
 /**

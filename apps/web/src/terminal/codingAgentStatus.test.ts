@@ -5,6 +5,7 @@ import {
 	createAgentStatusStore,
 	marksByProject,
 	mostUrgent,
+	questionAnnouncement,
 	urgency,
 } from "./codingAgentStatus.js";
 
@@ -62,6 +63,15 @@ describe("urgency", () => {
 	it("words the alert title", () => {
 		expect(alertTitle("claude", "needs-input")).toBe("Claude Code needs your input");
 		expect(alertTitle("codex", "finished")).toBe("Codex finished");
+	});
+
+	it("words the announcement of a question", () => {
+		expect(questionAnnouncement("claude", "Terminal 2")).toBe(
+			"Claude Code in Terminal 2 is asking a question",
+		);
+		expect(questionAnnouncement("codex", "build")).toBe(
+			"Codex in build is asking a question",
+		);
 	});
 });
 

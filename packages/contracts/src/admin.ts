@@ -349,10 +349,13 @@ export const HealthReport = z.object({
 	workerStale: z.boolean(),
 	/** A newer portikus package in the apt repository; null when none or unknown. */
 	packageUpdate: z.object({ installed: z.string(), available: z.string() }).nullable(),
-	controller: z.object({
-		reachable: z.boolean(),
-		errorCode: z.string().nullable(),
-	}),
+	/** The controller as the newest sample saw it; null when no sample says. */
+	controller: z
+		.object({
+			reachable: z.boolean(),
+			errorCode: z.string().nullable(),
+		})
+		.nullable(),
 	host: z
 		.object({
 			loadAverage: z.tuple([z.number(), z.number(), z.number()]),

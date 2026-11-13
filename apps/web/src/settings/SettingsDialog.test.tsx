@@ -67,6 +67,7 @@ test("it shows the settings the server holds", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		agentNotifications: "ask",
+		editorScheme: "portikus",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 
@@ -357,6 +358,7 @@ test("the stored terminal theme is shown and a switch saves it", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		agentNotifications: "ask",
+		editorScheme: "portikus",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	const terminal = () => screen.getByRole("region", { name: "Terminal" });
@@ -376,6 +378,28 @@ test("the stored terminal theme is shown and a switch saves it", async () => {
 });
 
 /**
+ * The editor colour scheme sits in Appearance and shows the stored choice.
+ * Picking from the Radix list needs a real browser, so that is covered in
+ * e2e/editor-schemes.spec.ts.
+ */
+test("the stored editor colour scheme is shown in Appearance and found by search", async () => {
+	stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, editorScheme: "vscode" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const appearance = screen.getByRole("region", { name: "Appearance" });
+	await waitFor(() =>
+		expect(
+			within(appearance).getByLabelText("Editor color scheme").textContent,
+		).toContain("VS Code"),
+	);
+	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "syntax" } });
+	expect(
+		within(screen.getByRole("navigation")).getByRole("button", {
+			name: "Editor color scheme",
+		}),
+	).toBeTruthy();
+});
+
+/**
  * The dialog shows the stored zone. Choosing a different zone
  * from the Radix list needs a real browser, so that is covered in
  * e2e/timezone.spec.ts.
@@ -390,6 +414,7 @@ test("the stored timezone is shown", async () => {
 		appearance: "system",
 		screenReaderMode: false,
 		agentNotifications: "ask",
+		editorScheme: "portikus",
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() =>

@@ -49,6 +49,10 @@ const FILES = [
 	["report.pdf", "file-pdf"],
 	["styles.css", "file-style"],
 	["work.zip", "file-archive"],
+	["app.db", "file-database"],
+	["a.out", "file-binary"],
+	["talk.pptx", "file-slides"],
+	["server.log", "file-log"],
 ] as const;
 
 /** Folders too: lib stays closed and src is opened. */
@@ -132,6 +136,8 @@ for (const colorScheme of ["dark", "light"] as const) {
 			}
 			// A source file's page carries its language as a word.
 			await expect(icon(page, "src/main.py").locator("text")).toHaveText("py");
+			// A database is a drum, not the sql script's tagged page.
+			await expect(icon(page, "app.db").locator("text")).toHaveCount(0);
 			// Colour on every icon: none is left in the plain muted ink.
 			const muted = await page.evaluate(() => {
 				const probe = document.createElement("span");

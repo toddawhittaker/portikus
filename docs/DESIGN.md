@@ -313,11 +313,12 @@ warnings and errors (the status colours) and find matches (the accent),
 on a transparent ground with no border. It gives the same whole-file
 overview in a few pixels instead of a second, unreadable copy of the code.
 
-**Editor zoom is per editor and per session.** Ctrl with the mouse wheel over
+**Editor zoom is per file and per session.** Ctrl with the mouse wheel over
 the editor, Ctrl+Shift+Plus and Ctrl+Shift+Minus step it by ten percentage
 points, Ctrl+0 returns to 100%, and a thin bar under the editor shows the
-percentage with minus, plus and Reset. It changes the editor font only, never
-the browser's page zoom, and nothing is saved: every file opens at 100%.
+percentage with minus, plus and Reset. A file has one zoom shared by Edit and
+Diff, and the diff view has the same bar. It changes the editor font only,
+never the browser's page zoom, and nothing is saved: every file opens at 100%.
 
 **Language is guessed from the first line when the name says nothing.** A file
 such as `.git/hooks/pre-applypatch.sample` is highlighted as shell because of
@@ -360,6 +361,11 @@ whether something is theirs to do or an agent's doing. Text and status
 colours meet 4.5:1, and control borders 3:1, on the chrome, work and
 raised surfaces in both themes (SPEC 25.8). Muted and faint text sit close
 to the body ink in both themes, so secondary text stays easy to read.
+
+The violet rule covers the app's own interface, not an editor colour
+scheme a student picks. Reference schemes (VS Code, and the others added
+later) keep the hues they were published with, purple keywords included;
+only the default Portikus scheme avoids violet and is held to 4.5:1.
 
 **Type.** Public Sans for the interface, JetBrains Mono for code. The
 interface uses five sizes: 12 px for metadata, badges and the status bar;

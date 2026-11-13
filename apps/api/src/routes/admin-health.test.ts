@@ -140,13 +140,17 @@ test.skipIf(skip)("only an administrator may read health", async () => {
 	expect((await getHealth(alice)).statusCode).toBe(403);
 });
 
-test.skipIf(skip)("with no sample the worker is stale and host is null", async () => {
-	const report = HealthReport.parse((await getHealth()).json());
-	expect(report.sampledAt).toBeNull();
-	expect(report.workerStale).toBe(true);
-	expect(report.host).toBeNull();
-	expect(report.controller.reachable).toBe(false);
-});
+test.skipIf(skip)(
+	"with no sample the worker is stale and the controller unknown",
+	async () => {
+		const report = HealthReport.parse((await getHealth()).json());
+		expect(report.sampledAt).toBeNull();
+		expect(report.workerStale).toBe(true);
+		expect(report.host).toBeNull();
+		// No sample means the controller's state is unknown, not down (SPEC.md §25.6).
+		expect(report.controller).toBeNull();
+	},
+);
 
 test.skipIf(skip)("reports the newest sample and no series", async () => {
 	await seedSample(sample(300, 20, 3), 181);
