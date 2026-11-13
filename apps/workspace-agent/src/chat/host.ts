@@ -45,6 +45,7 @@ import { ModelList } from "./model-list.js";
 import { OpenCards } from "./open-cards.js";
 import { PlanUsage } from "./plan-usage.js";
 import { type ChatSdk, realSdk } from "./sdk.js";
+import { toSdkEffort, toSdkPermissionMode } from "./sdk-settings.js";
 import { writeChatSession } from "./session-record.js";
 import { SessionRules } from "./session-rules.js";
 import {
@@ -242,8 +243,8 @@ export class ChatHost {
 				includePartialMessages: true,
 				// A subagent's whole conversation, for its read-only view.
 				forwardSubagentText: true,
-				effort: this.settings.effort,
-				permissionMode: this.settings.mode,
+				effort: toSdkEffort(this.settings.effort),
+				permissionMode: toSdkPermissionMode(this.settings.mode),
 				// The picker offers bypass, so the SDK must allow switching to it.
 				allowDangerouslySkipPermissions: true,
 				...(this.settings.model === "default" ? {} : { model: this.settings.model }),
@@ -278,7 +279,8 @@ export class ChatHost {
 		if (!models || this.settings.mode !== CHAT_START_SETTINGS.mode) return;
 		const mode = chatStartMode(models, this.settings.model);
 		if (mode === this.settings.mode) return;
-		await session.setPermissionMode(mode).catch(() => undefined);
+		const sdkMode = toSdkPermissionMode(mode);
+		if (sdkMode) await session.setPermissionMode(sdkMode).catch(() => undefined);
 		this.settings.mode = mode;
 		this.broadcastSettings();
 	}
@@ -775,7 +777,7 @@ export class ChatHost {
 			if (session) void this.refreshWindow(session, undefined);
 		}
 		if (change.effort !== undefined) {
-			await session?.applyFlagSettings({ effortLevel: change.effort });
+			await session?.applyFlagSettings({ effortLevel: toSdkEffort(change.effort) });
 			this.settings.effort = change.effort;
 		}
 		// A model without Auto takes the chat to Ask, as a new chat on it starts.
@@ -785,7 +787,8 @@ export class ChatHost {
 				? chatStartMode(this.modelList.current ?? [], change.model)
 				: undefined);
 		if (mode !== undefined) {
-			await session?.setPermissionMode(mode);
+			const sdkMode = toSdkPermissionMode(mode);
+			if (sdkMode) await session?.setPermissionMode(sdkMode);
 			this.settings.mode = mode;
 		}
 		this.broadcastSettings();
