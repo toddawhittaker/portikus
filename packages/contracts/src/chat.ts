@@ -27,17 +27,27 @@ export const MAX_CHAT_QUESTION_OPTIONS = 4;
 /** The model is asked for 12 characters but does not always obey. */
 export const MAX_CHAT_QUESTION_HEADER_CHARS = 40;
 
-/** The SDK's permission modes, less `dontAsk`, which the picker does not offer. */
-export const ChatPermissionMode = z.enum([
-	"default",
-	"acceptEdits",
-	"plan",
-	"auto",
-	"bypassPermissions",
-]);
+/**
+ * A permission mode's id. Each host names its own modes and lists them in a
+ * `modes` event, so the contract bounds the string instead of listing ids
+ * (Claude's are `default`, `acceptEdits`, `plan`, `auto` and
+ * `bypassPermissions`).
+ */
+export const ChatPermissionMode = z
+	.string()
+	.max(40)
+	.regex(/^[A-Za-z][A-Za-z0-9_-]*$/);
 export type ChatPermissionMode = z.infer<typeof ChatPermissionMode>;
 
-export const ChatEffort = z.enum(["low", "medium", "high", "xhigh", "max"]);
+/**
+ * A reasoning effort's id. Each model lists its own `efforts`, because an
+ * agent adds levels without notice; the web words the ones it knows and shows
+ * an unknown one as written.
+ */
+export const ChatEffort = z
+	.string()
+	.max(32)
+	.regex(/^[a-z][a-z0-9_-]*$/);
 export type ChatEffort = z.infer<typeof ChatEffort>;
 
 /**
@@ -61,7 +71,10 @@ export const CHAT_START_SETTINGS: {
 /** Most models one `models` event lists. */
 export const MAX_CHAT_MODELS = 50;
 
-/** One model Claude Code offers the account, as `supportedModels()` lists it. */
+/** Most efforts one model lists. */
+export const MAX_CHAT_EFFORTS = 10;
+
+/** One model the agent offers the account, as its host lists it. */
 export const ChatModelInfo = z.object({
 	value: ChatModel,
 	/** The full ID the value means today; a short name's current version. */
@@ -69,6 +82,12 @@ export const ChatModelInfo = z.object({
 	displayName: z.string().max(100),
 	description: z.string().max(300),
 	supportsAutoMode: z.boolean(),
+	/**
+	 * The efforts this model accepts, lowest first, and the one it uses when
+	 * none is chosen. A host from before these fields leaves them out.
+	 */
+	efforts: z.array(ChatEffort).max(MAX_CHAT_EFFORTS).optional(),
+	defaultEffort: ChatEffort.optional(),
 });
 export type ChatModelInfo = z.infer<typeof ChatModelInfo>;
 
@@ -85,9 +104,16 @@ export function chatStartMode(
 	return unsupported ? "default" : CHAT_START_SETTINGS.mode;
 }
 
+/** The three picker values one agent keeps. */
+export const ChatAgentSettings = z
+	.object({ model: ChatModel, effort: ChatEffort, mode: ChatPermissionMode })
+	.strict();
+export type ChatAgentSettings = z.infer<typeof ChatAgentSettings>;
+
 /**
  * The picker values a student last used in one project, which a new chat
  * there starts with (SPEC.md §10.8). Only these values, never content.
+ * Claude's keep their flat keys; Codex's sit beside them.
  */
 export const ChatLastSettings = z
 	.object({
@@ -96,6 +122,9 @@ export const ChatLastSettings = z
 		mode: ChatPermissionMode,
 		/** Read each reply aloud; optional so a client from before it still saves. */
 		readAloud: z.boolean().optional(),
+		/** The agent the student used last; absent means Claude. */
+		agent: CodingAgent.optional(),
+		codex: ChatAgentSettings.optional(),
 	})
 	.strict();
 export type ChatLastSettings = z.infer<typeof ChatLastSettings>;
@@ -111,10 +140,12 @@ export const StoredChatSettings = z
 		effort: ChatEffort.catch(CHAT_START_SETTINGS.effort),
 		mode: ChatPermissionMode.catch(CHAT_START_SETTINGS.mode),
 		readAloud: z.boolean().catch(false),
+		agent: CodingAgent.catch("claude"),
+		codex: ChatAgentSettings.optional().catch(undefined),
 	})
 	.transform((value) => ({
 		...value,
-		mode: value.mode === "bypassPermissions" ? ("auto" as const) : value.mode,
+		mode: value.mode === "bypassPermissions" ? "auto" : value.mode,
 	}));
 
 /** SVG is refused because it can carry script. */
@@ -163,25 +194,44 @@ export const ChatMessage = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
-/** One question, shaped like Claude's `AskUserQuestionInput`. */
-export const ChatQuestion = z.object({
+const QuestionFields = {
 	question: z.string().min(1),
 	header: z.string().max(MAX_CHAT_QUESTION_HEADER_CHARS),
 	multiSelect: z.boolean(),
+};
+
+const QuestionOption = z.object({
+	label: z.string().min(1),
+	description: z.string(),
+	preview: z.string().optional(),
+});
+
+/**
+ * One question, shaped like Claude's `AskUserQuestionInput`. The terminal
+ * question hook keeps this strict shape (ADR 0075).
+ */
+export const ChatQuestion = z.object({
+	...QuestionFields,
 	options: z
-		.array(
-			z.object({
-				label: z.string().min(1),
-				description: z.string(),
-				preview: z.string().optional(),
-			}),
-		)
+		.array(QuestionOption)
 		.min(MIN_CHAT_QUESTION_OPTIONS)
 		.max(MAX_CHAT_QUESTION_OPTIONS),
 });
 export type ChatQuestion = z.infer<typeof ChatQuestion>;
 
-const Questions = z.array(ChatQuestion).min(1).max(MAX_CHAT_QUESTIONS);
+/**
+ * A question on a chat card, from either agent: it may have no options (the
+ * student types the answer) and may ask for a secret, which the browser
+ * masks. Every `ChatQuestion` is also one of these.
+ */
+export const ChatCardQuestion = z.object({
+	...QuestionFields,
+	options: z.array(QuestionOption).max(MAX_CHAT_QUESTION_OPTIONS),
+	secret: z.boolean().optional(),
+});
+export type ChatCardQuestion = z.infer<typeof ChatCardQuestion>;
+
+const Questions = z.array(ChatCardQuestion).min(1).max(MAX_CHAT_QUESTIONS);
 
 /** Longest permission rule the host reports or the browser may revoke. */
 export const MAX_CHAT_RULE_CHARS = 4096;
@@ -197,14 +247,34 @@ export const ChatSessionRule = z.object({
 });
 export type ChatSessionRule = z.infer<typeof ChatSessionRule>;
 
+/**
+ * How the student answered a permission card, in words that do not depend on
+ * the host's own option ids. Approving a plan is "allowed" and keeping
+ * planning is "denied"; a card's `plan` field tells a plan card apart.
+ */
+export const ChatCardDecision = z.enum(["allowed", "allowedAlways", "denied"]);
+export type ChatCardDecision = z.infer<typeof ChatCardDecision>;
+
+/** Longest plan text a permission card carries. */
+export const MAX_CHAT_PLAN_CHARS = 100_000;
+
 const PermissionCardFields = {
 	id: z.string().min(1),
 	toolName: z.string().min(1),
 	title: z.string(),
 	input: z.json(),
 	options: z
-		.array(z.object({ id: z.string().min(1), label: z.string().min(1) }))
+		.array(
+			z.object({
+				id: z.string().min(1),
+				label: z.string().min(1),
+				/** What choosing this button means; a host from before it omits it. */
+				decision: ChatCardDecision.optional(),
+			}),
+		)
 		.min(1),
+	/** The plan the student is asked to approve, when the card asks for that. */
+	plan: z.string().max(MAX_CHAT_PLAN_CHARS).optional(),
 };
 
 const QuestionCardFields = {
@@ -243,11 +313,50 @@ export const ChatCommand = z.object({
 	argumentHint: z.string().max(100).optional(),
 	/** Only the terminal Claude Code can run it; the chat shows it as unavailable. */
 	terminalOnly: z.boolean(),
+	/** What the student types before the name; absent means `/`. Codex skills use `$`. */
+	prefix: z.enum(["/", "$"]).optional(),
 });
 export type ChatCommand = z.infer<typeof ChatCommand>;
 
 /** Most slash commands one `commands` event lists. */
 export const MAX_CHAT_COMMANDS = 200;
+
+/** How one MCP server stands; never its address, tools or error text (ADR 0012). */
+export const ChatMcpStatus = z.enum([
+	"connected",
+	"starting",
+	"failed",
+	"needsAuth",
+	"disabled",
+]);
+export type ChatMcpStatus = z.infer<typeof ChatMcpStatus>;
+
+export const ChatMcpServer = z.object({
+	name: z.string().min(1).max(64),
+	status: ChatMcpStatus,
+});
+export type ChatMcpServer = z.infer<typeof ChatMcpServer>;
+
+/** Most MCP servers one `mcp` event lists. */
+export const MAX_CHAT_MCP_SERVERS = 50;
+
+/** One permission mode a host offers, as the picker draws it. */
+export const ChatModeInfo = z.object({
+	id: ChatPermissionMode,
+	label: z.string().min(1).max(40),
+	description: z.string().max(300),
+	/**
+	 * The mode switches safety checks off: the picker warns, and a new chat
+	 * never starts in it (SPEC.md §10.8).
+	 */
+	warning: z.boolean(),
+	/** The mode plans before acting. */
+	plan: z.boolean(),
+});
+export type ChatModeInfo = z.infer<typeof ChatModeInfo>;
+
+/** Most modes one `modes` event lists. */
+export const MAX_CHAT_MODES = 10;
 
 /** Longest command, and most output, a `!` shell command item keeps. */
 export const MAX_CHAT_SHELL_COMMAND_CHARS = 4000;
@@ -367,14 +476,6 @@ export const ChatSubagentEvent = z.discriminatedUnion("type", [
 ]);
 export type ChatSubagentEvent = z.infer<typeof ChatSubagentEvent>;
 
-/**
- * How the student answered a permission card, in words that do not depend on
- * the host's own option ids. Approving a plan is "allowed" and keeping
- * planning is "denied"; the card's tool (ExitPlanMode) tells them apart.
- */
-export const ChatCardDecision = z.enum(["allowed", "allowedAlways", "denied"]);
-export type ChatCardDecision = z.infer<typeof ChatCardDecision>;
-
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	SnapshotEvent,
 	TurnStartedEvent,
@@ -427,6 +528,34 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		type: z.literal("rename.result"),
 		ok: z.boolean(),
 		message: z.string().max(MAX_CHAT_RENAME_MESSAGE_CHARS).optional(),
+	}),
+	/**
+	 * The permission modes on offer, in picker order; sent on attach before
+	 * the settings, as `models` is. A separate event, like each other list
+	 * the host sends, so a host can change one without resending the rest.
+	 */
+	z.object({
+		type: z.literal("modes"),
+		...Envelope,
+		modes: z.array(ChatModeInfo).max(MAX_CHAT_MODES),
+	}),
+	/** The student's MCP servers and how each stands; sent on attach after `commands`. */
+	z.object({
+		type: z.literal("mcp"),
+		...Envelope,
+		servers: z.array(ChatMcpServer).max(MAX_CHAT_MCP_SERVERS),
+	}),
+	/**
+	 * The chat changed agents here: a divider in the conversation.
+	 * `droppedTurns` counts the oldest turns that did not fit the new
+	 * agent's context window and were left out of the handoff.
+	 */
+	z.object({
+		type: z.literal("handoff"),
+		...Envelope,
+		from: CodingAgent,
+		to: CodingAgent,
+		droppedTurns: z.number().int().nonnegative(),
 	}),
 	z.object({
 		type: z.literal("settings"),
@@ -533,6 +662,8 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 	 */
 	z.object({ type: z.literal("subagent.watch"), toolUseId: ToolUseId }).strict(),
 	z.object({ type: z.literal("subagent.unwatch"), toolUseId: ToolUseId }).strict(),
+	/** Swap in the other agent, handing it this conversation. */
+	z.object({ type: z.literal("agent.switch"), agent: CodingAgent }).strict(),
 	/** Retitle the conversation; the host cleans the title (ADR 0074). */
 	z
 		.object({

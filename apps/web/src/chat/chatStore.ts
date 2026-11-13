@@ -365,6 +365,11 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return { ...state, commands: event.commands };
 		case "context":
 			return { ...state, context: contextUsage(event, now) };
+		// Events the web does not draw yet.
+		case "modes":
+		case "mcp":
+		case "handoff":
+			return state;
 	}
 }
 
