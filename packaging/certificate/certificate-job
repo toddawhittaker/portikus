@@ -250,6 +250,68 @@ def _service_account(text):
             and doc.get("universe_domain", GOOGLE_UNIVERSE) == GOOGLE_UNIVERSE)
 
 
+def _validate_dns_secret(provider, name, value):
+    if (provider, name) in PATH_SECRET_FIELDS:
+        if not isinstance(value, str) or not 1 <= len(value) <= MAX_SERVICE_ACCOUNT_JSON \
+                or not _service_account(value):
+            raise Refused(f"the {provider} secret {name} is not a service account key")
+    elif not isinstance(value, str) or not 1 <= len(value) <= MAX_SECRET_LENGTH \
+            or "\n" in value or "\r" in value:
+        raise Refused(f"the {provider} secret {name} is not one line of at most "
+                      f"{MAX_SECRET_LENGTH} characters")
+
+
+def _validate_dns(dns):
+    _keys(dns, ["provider", "fields"], what="the DNS provider")
+    provider = dns["provider"]
+    if not isinstance(provider, str) or provider not in DNS_PROVIDER_FIELDS:
+        raise Refused("unknown DNS provider")
+    plain = DNS_PROVIDER_FIELDS[provider]["plain"]
+    secret = DNS_PROVIDER_FIELDS[provider]["secret"]
+    _keys(dns["fields"], plain, secret, f"the {provider} fields")
+    for name in plain:
+        _string(dns["fields"][name], PLAIN_RE, f"the {provider} field {name}")
+    if provider == "ovh" and dns["fields"]["endpoint"] not in OVH_ENDPOINTS:
+        raise Refused("the ovh field endpoint must be one of " + ", ".join(sorted(OVH_ENDPOINTS)))
+    for name in secret:
+        value = dns["fields"].get(name)
+        if value is not None:
+            _validate_dns_secret(provider, name, value)
+
+
+def _validate_challenge(challenge):
+    _keys(challenge, ["mode"], ["dns"], "the challenge")
+    if challenge["mode"] == "http01":
+        _keys(challenge, ["mode"], what="the HTTP-01 challenge")
+    elif challenge["mode"] == "dns01":
+        _keys(challenge, ["mode", "dns"], what="the DNS-01 challenge")
+        _validate_dns(challenge["dns"])
+    else:
+        raise Refused("unknown challenge mode")
+
+
+def _validate_acme(settings):
+    _keys(settings, ["source", "directory", "email", "challenge"], ["eab"], "ACME settings")
+    _string(settings["directory"], HTTPS_URL_RE, "the ACME directory URL", 500)
+    _string(settings["email"], EMAIL_RE, "the email", 200)
+    if "eab" in settings:
+        _keys(settings["eab"], ["keyId"], ["hmacKey"], "the external account binding")
+        _string(settings["eab"]["keyId"], EAB_KEY_ID_RE, "the EAB key ID")
+        if "hmacKey" in settings["eab"]:
+            _string(settings["eab"]["hmacKey"], EAB_HMAC_RE, "the EAB HMAC key")
+    _validate_challenge(settings["challenge"])
+
+
+def _validate_files(settings):
+    _keys(settings, ["source", "site"], ["preview"], "uploaded-files settings")
+    for part in ("site", "preview"):
+        if part in settings:
+            _keys(settings[part], ["certificate"], ["privateKey"], f"the {part} upload")
+            _pem(settings[part]["certificate"], f"the {part} certificate")
+            if "privateKey" in settings[part]:
+                _pem(settings[part]["privateKey"], f"the {part} private key")
+
+
 def validate_settings(settings, acme_only=False):
     if not isinstance(settings, dict):
         raise Refused("the settings are not an object")
@@ -259,54 +321,9 @@ def validate_settings(settings, acme_only=False):
     if source == "internal":
         _keys(settings, ["source"], what="internal settings")
     elif source == "acme":
-        _keys(settings, ["source", "directory", "email", "challenge"], ["eab"], "ACME settings")
-        _string(settings["directory"], HTTPS_URL_RE, "the ACME directory URL", 500)
-        _string(settings["email"], EMAIL_RE, "the email", 200)
-        if "eab" in settings:
-            _keys(settings["eab"], ["keyId"], ["hmacKey"], "the external account binding")
-            _string(settings["eab"]["keyId"], EAB_KEY_ID_RE, "the EAB key ID")
-            if "hmacKey" in settings["eab"]:
-                _string(settings["eab"]["hmacKey"], EAB_HMAC_RE, "the EAB HMAC key")
-        challenge = settings["challenge"]
-        _keys(challenge, ["mode"], ["dns"], "the challenge")
-        if challenge["mode"] == "http01":
-            _keys(challenge, ["mode"], what="the HTTP-01 challenge")
-        elif challenge["mode"] == "dns01":
-            _keys(challenge, ["mode", "dns"], what="the DNS-01 challenge")
-            dns = challenge["dns"]
-            _keys(dns, ["provider", "fields"], what="the DNS provider")
-            provider = dns["provider"]
-            if not isinstance(provider, str) or provider not in DNS_PROVIDER_FIELDS:
-                raise Refused("unknown DNS provider")
-            plain = DNS_PROVIDER_FIELDS[provider]["plain"]
-            secret = DNS_PROVIDER_FIELDS[provider]["secret"]
-            _keys(dns["fields"], plain, secret, f"the {provider} fields")
-            for name in plain:
-                _string(dns["fields"][name], PLAIN_RE, f"the {provider} field {name}")
-            if provider == "ovh" and dns["fields"]["endpoint"] not in OVH_ENDPOINTS:
-                raise Refused("the ovh field endpoint must be one of " + ", ".join(sorted(OVH_ENDPOINTS)))
-            for name in secret:
-                value = dns["fields"].get(name)
-                if value is None:
-                    continue
-                if (provider, name) in PATH_SECRET_FIELDS:
-                    if not isinstance(value, str) or not 1 <= len(value) <= MAX_SERVICE_ACCOUNT_JSON \
-                            or not _service_account(value):
-                        raise Refused(f"the {provider} secret {name} is not a service account key")
-                elif not isinstance(value, str) or not 1 <= len(value) <= MAX_SECRET_LENGTH \
-                        or "\n" in value or "\r" in value:
-                    raise Refused(f"the {provider} secret {name} is not one line of at most "
-                                  f"{MAX_SECRET_LENGTH} characters")
-        else:
-            raise Refused("unknown challenge mode")
+        _validate_acme(settings)
     elif source == "files":
-        _keys(settings, ["source", "site"], ["preview"], "uploaded-files settings")
-        for part in ("site", "preview"):
-            if part in settings:
-                _keys(settings[part], ["certificate"], ["privateKey"], f"the {part} upload")
-                _pem(settings[part]["certificate"], f"the {part} certificate")
-                if "privateKey" in settings[part]:
-                    _pem(settings[part]["privateKey"], f"the {part} private key")
+        _validate_files(settings)
     else:
         raise Refused("unknown certificate source")
     return settings
@@ -387,6 +404,16 @@ def iso(stamp):
     return stamp.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _dns_names(san_line):
+    """The DNS names in openssl's subjectAltName line, lowercased."""
+    names = []
+    for part in san_line.split(","):
+        part = part.strip()
+        if part.startswith("DNS:"):
+            names.append(part[4:].lower()[:253])
+    return names
+
+
 def certificate_info(run_, pem):
     """{issuer, names, notBefore, notAfter, fingerprint} of the first certificate in pem, or None."""
     code, out = run_(["openssl", "x509", "-noout", "-issuer", "-startdate", "-enddate",
@@ -407,10 +434,7 @@ def certificate_info(run_, pem):
             elif "Fingerprint=" in line:
                 info["fingerprint"] = line.split("=", 1)[1].strip().replace(":", "").lower()
             elif "Subject Alternative Name" in line and index + 1 < len(lines):
-                for part in lines[index + 1].split(","):
-                    part = part.strip()
-                    if part.startswith("DNS:"):
-                        info["names"].append(part[4:].lower()[:253])
+                info["names"] += _dns_names(lines[index + 1])
     except ValueError:
         return None
     if info["notBefore"] is None or info["notAfter"] is None:
