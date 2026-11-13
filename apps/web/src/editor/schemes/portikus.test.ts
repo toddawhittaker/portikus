@@ -79,3 +79,22 @@ test("Portikus sets comments, doc comments included, in italic in both modes", (
 		expect(mode.fontStyles).toEqual({ comment: "italic", "comment.doc": "italic" });
 	}
 });
+
+test.each(["light", "dark"] as const)(
+	"Portikus defines the core editor colours in %s",
+	(mode) => {
+		for (const key of [
+			"editor.background",
+			"editor.foreground",
+			"editorLineNumber.foreground",
+			"editorLineNumber.activeForeground",
+			"editorIndentGuide.background1",
+			"editorWidget.background",
+			"textLink.foreground",
+		]) {
+			expect(PORTIKUS[mode].colors[key], key).toMatch(
+				/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/,
+			);
+		}
+	},
+);
