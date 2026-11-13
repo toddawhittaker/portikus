@@ -293,6 +293,51 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 		return false;
 	}
 
+	// Frames that arrive while the agent socket is still connecting are held.
+	function sendToAgent(text: string): void {
+		if (upstream.readyState === WebSocketClient.OPEN) {
+			upstream.send(text);
+			inbound.apply();
+			return;
+		}
+		if (upstream.readyState !== WebSocketClient.CONNECTING) return;
+		queuedBytes += Buffer.byteLength(text);
+		if (queuedBytes > MAX_QUEUED_BYTES) {
+			endBrowser(1009, "too much input before the terminal was ready");
+			return;
+		}
+		queued.push(text);
+	}
+
+	function sendToBrowser(data: RawData, isBinary: boolean): void {
+		if (socket.readyState !== socket.OPEN) return;
+		if (ending) {
+			// Nothing follows the end of a terminal; the agent is told to stop.
+			upstream.close(1000, "terminal ended");
+			return;
+		}
+		const kind = isBinary ? null : endingFrame(data.toString());
+		if (kind) {
+			endTerminal(kind);
+			return;
+		}
+		socket.send(isBinary ? toBuffer(data) : data.toString(), { binary: isBinary });
+		backpressure.apply();
+	}
+
+	function endTerminal(kind: "gone" | "exit" | "server-gone"): void {
+		ending = true;
+		if (kind === "exit") {
+			// An ordinary exit closes the pane at once, with no lookup.
+			socket.send(JSON.stringify({ type: "exit" }));
+			return;
+		}
+		const waitMs = kind === "server-gone" ? EXIT_RECORD_WAIT_MS : 0;
+		explaining = explainedFrame(db, agent, terminalId, kind, waitMs).then((frame) => {
+			if (socket.readyState === socket.OPEN) socket.send(frame);
+		});
+	}
+
 	const sessionTimer = setInterval(() => {
 		void sessionStillValid().catch(() => {});
 	}, SESSION_CHECK_INTERVAL_MS);
@@ -318,17 +363,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 				void sessionStillValid().catch(() => {});
 			}
 			if (!acceptsClientFrame(mode, text)) return;
-			if (upstream.readyState === WebSocketClient.OPEN) {
-				upstream.send(text);
-				inbound.apply();
-			} else if (upstream.readyState === WebSocketClient.CONNECTING) {
-				queuedBytes += Buffer.byteLength(text);
-				if (queuedBytes > MAX_QUEUED_BYTES) {
-					endBrowser(1009, "too much input before the terminal was ready");
-					return;
-				}
-				queued.push(text);
-			}
+			sendToAgent(text);
 		});
 
 		socket.on("close", (code: number, reason: Buffer) => {
@@ -348,33 +383,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 			queuedBytes = 0;
 		});
 
-		upstream.on("message", (data: RawData, isBinary: boolean) => {
-			if (socket.readyState !== socket.OPEN) return;
-			if (ending) {
-				// Nothing follows the end of a terminal; the agent is told to stop.
-				upstream.close(1000, "terminal ended");
-				return;
-			}
-			const kind = isBinary ? null : endingFrame(data.toString());
-			if (kind === "exit") {
-				// An ordinary exit closes the pane at once, with no lookup.
-				ending = true;
-				socket.send(JSON.stringify({ type: "exit" }));
-				return;
-			}
-			if (kind) {
-				ending = true;
-				const waitMs = kind === "server-gone" ? EXIT_RECORD_WAIT_MS : 0;
-				explaining = explainedFrame(db, agent, terminalId, kind, waitMs).then(
-					(frame) => {
-						if (socket.readyState === socket.OPEN) socket.send(frame);
-					},
-				);
-				return;
-			}
-			socket.send(isBinary ? toBuffer(data) : data.toString(), { binary: isBinary });
-			backpressure.apply();
-		});
+		upstream.on("message", sendToBrowser);
 
 		upstream.on("close", (code: number, reason: Buffer) => {
 			// The agent closes straight after saying the session is gone, so
