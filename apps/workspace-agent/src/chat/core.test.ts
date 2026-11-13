@@ -198,7 +198,9 @@ describe("attach order", () => {
 				supportsAutoMode: true,
 			},
 		]);
-		agent.sink.commands([{ name: "help", description: "", argumentHint: "" }]);
+		agent.sink.commands([
+			{ name: "help", description: "", argumentHint: "", terminalOnly: false },
+		]);
 		agent.sink.rules([{ rule: "Bash(ls)", label: "ls" }] as never);
 		agent.sink.emit({ type: "turn.started", at: 1 });
 		agent.sink.emit({ type: "text.delta", messageId: "m1", text: "Hel" });
@@ -239,7 +241,7 @@ describe("attach order", () => {
 		expect(held).toMatchObject({ text: "!" });
 		// Every numbered frame follows the snapshot with no gap.
 		const seqs = client.events.slice(1).map((event) => (event as { seq: number }).seq);
-		expect(seqs).toEqual(seqs.map((_, i) => seqs[0] + i));
+		expect(seqs).toEqual(seqs.map((_, i) => (seqs[0] ?? 0) + i));
 	});
 
 	test("models or context that arrived during the read are not sent twice", async () => {
