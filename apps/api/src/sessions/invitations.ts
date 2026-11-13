@@ -1,6 +1,6 @@
 import { dexConnectorId, type Role, type upsertUser } from "@portikus/auth";
 import { type Database, recordAudit } from "@portikus/db";
-import { type Kysely, sql } from "kysely";
+import { type Kysely, sql, type Transaction } from "kysely";
 
 const RANK: Record<Role, number> = { student: 0, instructor: 1, administrator: 2 };
 
@@ -15,6 +15,44 @@ export interface NewAccountSignIn {
 	providerRole: Role;
 	/** The ID token's `email_verified` claim was true. */
 	emailVerified: boolean;
+}
+
+/**
+ * The oldest active invitation the sign-in's claims match, by the rule for
+ * its connector described on claimInvitation, or null.
+ */
+async function oldestMatchingInvitation(
+	trx: Transaction<Database>,
+	connector: string | null,
+	username: string | null,
+	email: string | null,
+): Promise<string | null> {
+	let candidates = trx
+		.selectFrom("account_invitations")
+		.select("id")
+		.where("claimed_at", "is", null)
+		.where("revoked_at", "is", null);
+	if (connector === "entra") {
+		if (!username) return null;
+		candidates = candidates.where(
+			sql<string>`coalesce(username, email)`,
+			"=",
+			username,
+		);
+	} else if (connector === "ldap") {
+		if (!username && !email) return null;
+		candidates = candidates.where((eb) =>
+			eb.or([
+				...(username ? [eb("username", "=", username)] : []),
+				...(email ? [eb("email", "=", email)] : []),
+			]),
+		);
+	} else {
+		if (!email) return null;
+		candidates = candidates.where("email", "=", email);
+	}
+	const candidate = await candidates.orderBy("created_at").executeTakeFirst();
+	return candidate?.id ?? null;
 }
 
 /**
@@ -42,39 +80,15 @@ export async function claimInvitation(
 	const email = emailVerified ? identity.email?.trim().toLowerCase() || null : null;
 
 	return db.transaction().execute(async (trx) => {
-		let candidates = trx
-			.selectFrom("account_invitations")
-			.select("id")
-			.where("claimed_at", "is", null)
-			.where("revoked_at", "is", null);
-		if (connector === "entra") {
-			if (!username) return null;
-			candidates = candidates.where(
-				sql<string>`coalesce(username, email)`,
-				"=",
-				username,
-			);
-		} else if (connector === "ldap") {
-			if (!username && !email) return null;
-			candidates = candidates.where((eb) =>
-				eb.or([
-					...(username ? [eb("username", "=", username)] : []),
-					...(email ? [eb("email", "=", email)] : []),
-				]),
-			);
-		} else {
-			if (!email) return null;
-			candidates = candidates.where("email", "=", email);
-		}
-		const candidate = await candidates.orderBy("created_at").executeTakeFirst();
-		if (!candidate) return null;
+		const candidateId = await oldestMatchingInvitation(trx, connector, username, email);
+		if (!candidateId) return null;
 
 		const now = new Date().toISOString();
 		// Rechecked under the row lock, so two sign-ins cannot both claim it.
 		const invitation = await trx
 			.updateTable("account_invitations")
 			.set({ claimed_at: now })
-			.where("id", "=", candidate.id)
+			.where("id", "=", candidateId)
 			.where("claimed_at", "is", null)
 			.where("revoked_at", "is", null)
 			.returning(["id", "role"])
