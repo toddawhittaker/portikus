@@ -6,7 +6,11 @@ import {
 import { type Database, recordAudit } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import {
+	type ControllerClient,
+	ControllerClientError,
+	controllerErrorCode,
+} from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often a running seed build is polled. */
@@ -63,7 +67,7 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 		try {
 			seed = await controller.seed();
 		} catch (e) {
-			logger.warn({ errorCode: codeOf(e) }, "seed check failed");
+			logger.warn({ errorCode: controllerErrorCode(e) }, "seed check failed");
 			return;
 		}
 		if (seed) await writeSeed(seed);
@@ -123,7 +127,10 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 				await finish(id, "failed", "Stopped", "The build was lost; start it again.");
 				return;
 			}
-			logger.warn({ jobId: id, errorCode: codeOf(e) }, "seed build poll failed");
+			logger.warn(
+				{ jobId: id, errorCode: controllerErrorCode(e) },
+				"seed build poll failed",
+			);
 			return;
 		}
 		await record(id, status);
@@ -152,7 +159,10 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 				await finish(job.id, "failed", "Refused", e.message.slice(0, 1000));
 				return;
 			}
-			logger.warn({ jobId: job.id, errorCode: codeOf(e) }, "seed build start failed");
+			logger.warn(
+				{ jobId: job.id, errorCode: controllerErrorCode(e) },
+				"seed build start failed",
+			);
 			// The start may have reached the controller before the answer was lost.
 			try {
 				await record(job.id, await controller.seedBuild(job.id));
@@ -180,10 +190,6 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 			logger.warn({ error: errorMessage(e) }, "seed jobs failed");
 		}
 	};
-}
-
-function codeOf(e: unknown): string {
-	return e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
 }
 
 /** Run the seed job tick every SEED_JOB_POLL_SECONDS; returns a stop function. */

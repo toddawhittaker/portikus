@@ -19,7 +19,7 @@ import {
 } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { type ControllerClient, controllerErrorCode } from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How long one usage listing may take before the tick gives up. */
@@ -100,8 +100,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			try {
 				usage = await controller.usage(AbortSignal.timeout(USAGE_TIMEOUT_MS));
 			} catch (e) {
-				const errorCode =
-					e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+				const errorCode = controllerErrorCode(e);
 				logger.warn({ errorCode }, "guard usage read failed");
 				return;
 			}
@@ -509,8 +508,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			await controller.setCpuAllowance(inst.name, wanted);
 			failures.delete(id);
 		} catch (e) {
-			const errorCode =
-				e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+			const errorCode = controllerErrorCode(e);
 			logger.warn({ workspaceId: id, errorCode }, "cpu allowance write failed");
 			if (!(failures.has(id) && failures.get(id) === wanted)) {
 				failures.set(id, wanted);

@@ -59,6 +59,11 @@ export class ControllerClientError extends Error {
 	}
 }
 
+/** The code of anything thrown by the controller client; anything else is OPERATION_FAILED. */
+export function controllerErrorCode(e: unknown): ControllerErrorCode {
+	return e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+}
+
 /** Operations the worker needs from the workspace controller. */
 export interface ControllerClient {
 	create(req: CreateInstanceRequest): Promise<CreateInstanceResponse>;

@@ -2,7 +2,7 @@ import { type GrowVolumesRequest, QuotaConfig } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { type ControllerClient, controllerErrorCode } from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a quota an administrator changed. */
@@ -88,8 +88,7 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 		try {
 			await controller.growVolumes(instance, wanted);
 		} catch (e) {
-			const errorCode =
-				e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+			const errorCode = controllerErrorCode(e);
 			const previous = failures.get(id);
 			failures.set(id, { wanted: key, at: now().getTime() });
 			logger.warn({ workspaceId: id, errorCode }, "quota apply failed");

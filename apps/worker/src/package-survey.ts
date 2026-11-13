@@ -5,7 +5,11 @@ import {
 import type { Database } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import {
+	type ControllerClient,
+	ControllerClientError,
+	controllerErrorCode,
+} from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a running workspace not yet surveyed today. */
@@ -146,7 +150,7 @@ async function readAddedPackages(
 			return { list: null };
 		}
 		return {
-			errorCode: e instanceof ControllerClientError ? e.code : "OPERATION_FAILED",
+			errorCode: controllerErrorCode(e),
 		};
 	}
 }

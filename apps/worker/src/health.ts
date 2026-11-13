@@ -7,7 +7,7 @@ import {
 import { type Database, notifyAdministrators } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
-import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { type ControllerClient, controllerErrorCode } from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
 /** How often the worker samples the host. */
@@ -119,7 +119,7 @@ async function takeSample(
 			runningWorkspaces,
 		};
 	} catch (e) {
-		const errorCode = e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
+		const errorCode = controllerErrorCode(e);
 		logger.debug({ errorCode }, "host snapshot failed");
 		return {
 			controller: { reachable: false, errorCode },
