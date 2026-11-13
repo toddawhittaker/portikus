@@ -1,17 +1,23 @@
 import { readFileSync } from "node:fs";
 import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
+	ChatModeInfo,
+	ChatOpenCard,
 	ChatServerEvent,
 	MAX_CHAT_COMMANDS,
 	MAX_CHAT_IMAGE_BYTES,
+	MAX_CHAT_MODES,
+	MAX_CHAT_PLAN_CHARS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
 import {
 	type ChatEventBody,
+	CLAUDE_MODES,
 	ClaudeMessageMapper,
 	cardForTool,
 	chatCommands,
+	decisionForOption,
 	imagePart,
 	limitsFromUsage,
 	MAX_CARD_INPUT_BYTES,
@@ -234,9 +240,21 @@ describe("chatCommands", () => {
 				description: "Shrink",
 				argumentHint: "[focus]",
 				terminalOnly: false,
+				prefix: "/",
 			},
-			{ name: "model", description: "Pick a model", terminalOnly: true },
-			{ name: "statusline", description: "Set up", terminalOnly: true },
+			{ name: "model", description: "Pick a model", terminalOnly: true, prefix: "/" },
+			{ name: "statusline", description: "Set up", terminalOnly: true, prefix: "/" },
+		]);
+	});
+
+	test("/mcp runs in the chat now; every command, skills included, says its prefix", () => {
+		const listed = chatCommands([
+			{ name: "mcp", description: "MCP servers", argumentHint: "" },
+			{ name: "my-skill", description: "A skill", argumentHint: "" },
+		]);
+		expect(listed).toEqual([
+			{ name: "mcp", description: "MCP servers", terminalOnly: false, prefix: "/" },
+			{ name: "my-skill", description: "A skill", terminalOnly: false, prefix: "/" },
 		]);
 	});
 
@@ -344,12 +362,61 @@ describe("cards", () => {
 			type: "permission",
 			toolName: "ExitPlanMode",
 			input: { plan: "1. do it" },
+			plan: "1. do it",
 		});
-		expect(card.type === "permission" && card.options.map((o) => o.label)).toEqual([
-			"Yes, and accept edits",
-			"Yes, and ask before edits",
-			"No, keep planning",
+		expect(card.type === "permission" && card.options).toEqual([
+			{ id: "allow-accept-edits", label: "Yes, and accept edits", decision: "allowed" },
+			{
+				id: "allow-ask-edits",
+				label: "Yes, and ask before edits",
+				decision: "allowed",
+			},
+			{ id: "deny", label: "No, keep planning", decision: "denied" },
 		]);
+	});
+
+	test("a plan too long for the contract is cut, and no plan means no plan field", () => {
+		const long = cardForTool(
+			"ExitPlanMode",
+			{ plan: "p".repeat(MAX_CHAT_PLAN_CHARS + 5) },
+			{ toolUseID: "t" },
+		);
+		expect(long.type === "permission" && long.plan).toHaveLength(MAX_CHAT_PLAN_CHARS);
+		const none = cardForTool("ExitPlanMode", {}, { toolUseID: "t" });
+		expect(none).not.toHaveProperty("plan");
+		expect(ChatOpenCard.safeParse(long).success).toBe(true);
+	});
+
+	test("each button of an ordinary card says which decision it is", () => {
+		const card = cardForTool(
+			"Bash",
+			{ command: "ls" },
+			{
+				toolUseID: "t",
+				suggestions: [
+					{
+						type: "addRules",
+						rules: [{ toolName: "Bash", ruleContent: "ls" }],
+						behavior: "allow",
+						destination: "session",
+					},
+				],
+			},
+		);
+		expect(card.type === "permission" && card.options.map((o) => o.decision)).toEqual([
+			"allowed",
+			"allowedAlways",
+			"denied",
+		]);
+		expect(ChatOpenCard.safeParse(card).success).toBe(true);
+	});
+
+	test("each permission option maps to a fixed word", () => {
+		expect(decisionForOption(PERMISSION_OPTION.allowOnce)).toBe("allowed");
+		expect(decisionForOption(PERMISSION_OPTION.allowAlways)).toBe("allowedAlways");
+		expect(decisionForOption(PERMISSION_OPTION.deny)).toBe("denied");
+		expect(decisionForOption(PERMISSION_OPTION.planAcceptEdits)).toBe("allowed");
+		expect(decisionForOption(PERMISSION_OPTION.planAskEdits)).toBe("allowed");
 	});
 
 	test("approving a plan sets the session's mode to the one chosen", () => {
@@ -521,5 +588,37 @@ describe("subagent messages", () => {
 		]);
 		expect(mapper.map(message(null, "msg_top"))).toEqual([]);
 		expect(mapper.map(message("toolu_nested", "msg_nested"))).toEqual([]);
+	});
+});
+
+describe("CLAUDE_MODES", () => {
+	test("are Claude's five modes, in the picker's order, with ids the SDK knows", () => {
+		expect(CLAUDE_MODES.map((mode) => mode.id)).toEqual([
+			"default",
+			"acceptEdits",
+			"plan",
+			"auto",
+			"bypassPermissions",
+		]);
+		expect(CLAUDE_MODES.map((mode) => mode.label)).toEqual([
+			"Ask",
+			"Accept edits",
+			"Plan",
+			"Auto",
+			"Bypass permissions",
+		]);
+	});
+
+	test("only Bypass warns and only Plan plans", () => {
+		expect(CLAUDE_MODES.filter((mode) => mode.warning).map((m) => m.id)).toEqual([
+			"bypassPermissions",
+		]);
+		expect(CLAUDE_MODES.filter((mode) => mode.plan).map((m) => m.id)).toEqual(["plan"]);
+	});
+
+	test("fit the contract", () => {
+		expect(CLAUDE_MODES.length).toBeLessThanOrEqual(MAX_CHAT_MODES);
+		for (const mode of CLAUDE_MODES)
+			expect(ChatModeInfo.safeParse(mode).success).toBe(true);
 	});
 });
