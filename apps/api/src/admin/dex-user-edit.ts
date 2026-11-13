@@ -71,6 +71,71 @@ async function moveDexPassword(
 	return password;
 }
 
+/** Record the new email and username on the Portikus account and audit which changed. */
+async function saveDexUserEdit(
+	db: Kysely<Database>,
+	edit: {
+		id: string;
+		actorId: string;
+		email: string;
+		username: string;
+		emailChanged: boolean;
+		usernameChanged: boolean;
+		metadata: Record<string, unknown>;
+	},
+): Promise<void> {
+	const { id, email, username, emailChanged, usernameChanged } = edit;
+	await db.transaction().execute(async (trx) => {
+		await trx
+			.updateTable("users")
+			.set({
+				email,
+				preferred_username: username,
+				...(emailChanged ? { must_change_password: true } : {}),
+			})
+			.where("id", "=", id)
+			.execute();
+		// The account holder hears of the new password even with account email off.
+		if (emailChanged) await notifyCredentialReset(trx, id, "password");
+		// Which fields changed, never the addresses or names (SPEC.md section 24.8).
+		await recordAudit(trx, {
+			actor: `user:${edit.actorId}`,
+			target: id,
+			action: "dex_user.updated",
+			result: "ok",
+			metadata: {
+				fields: [
+					...(emailChanged ? ["email"] : []),
+					...(usernameChanged ? ["username"] : []),
+				],
+				...edit.metadata,
+			},
+		});
+	});
+}
+
+/**
+ * Send a set-password link to the new address and a notice to the old one,
+ * returning how the link send went. `previous` is Portikus's record, not
+ * Dex's: after a half-done change Dex may hold only the new one.
+ */
+async function sendEmailChangeMail(
+	ctx: { sender: AdminSender; publicUrl: string },
+	mail: { id: string; actorId: string; email: string; previous: string },
+) {
+	const sent = await ctx.sender.setPasswordLink({
+		userId: mail.id,
+		actorId: mail.actorId,
+		purpose: "invite",
+		to: mail.email,
+	});
+	if (mail.previous && mail.previous !== mail.email) {
+		// Best effort: the change has happened whether or not the old address hears of it.
+		await ctx.sender.notice(mail.previous, emailChangedMessage(ctx.publicUrl));
+	}
+	return sent;
+}
+
 /**
  * Give a Dex user a new email, username, or both, keeping the user ID and
  * so the Portikus account and workspace (SPEC.md section 5.1). A username
@@ -95,7 +160,7 @@ export async function editDexUser(
 	| "exists"
 	| { password: string | null; emailed: boolean }
 > {
-	const { db, dex, sender } = ctx;
+	const { db, dex } = ctx;
 	const { id, body } = input;
 	const found = await findDexPasswords(db, dex, id);
 	if (found.found !== "yes") return found.found;
@@ -131,49 +196,25 @@ export async function editDexUser(
 		await viaDex(dex.updateUsername(current.email, username));
 	}
 
-	await db.transaction().execute(async (trx) => {
-		await trx
-			.updateTable("users")
-			.set({
-				email,
-				preferred_username: username,
-				...(emailChanged ? { must_change_password: true } : {}),
-			})
-			.where("id", "=", id)
-			.execute();
-		// The account holder hears of the new password even with account email off.
-		if (emailChanged) await notifyCredentialReset(trx, id, "password");
-		// Which fields changed, never the addresses or names (SPEC.md section 24.8).
-		await recordAudit(trx, {
-			actor: `user:${input.actorId}`,
-			target: id,
-			action: "dex_user.updated",
-			result: "ok",
-			metadata: {
-				fields: [
-					...(emailChanged ? ["email"] : []),
-					...(usernameChanged ? ["username"] : []),
-				],
-				...input.metadata,
-			},
-		});
+	await saveDexUserEdit(db, {
+		id,
+		actorId: input.actorId,
+		email,
+		username,
+		emailChanged,
+		usernameChanged,
+		metadata: input.metadata,
 	});
 
 	if (!emailChanged || !(await accountEmailEnabled(db))) {
 		return { password, emailed: false };
 	}
-	const sent = await sender.setPasswordLink({
-		userId: id,
+	const sent = await sendEmailChangeMail(ctx, {
+		id,
 		actorId: input.actorId,
-		purpose: "invite",
-		to: email,
+		email,
+		previous: account.email ?? "",
 	});
-	// Portikus's record, not Dex's: after a half-done change Dex may hold only the new one.
-	const previous = account.email ?? "";
-	if (previous && previous !== email) {
-		// Best effort: the change has happened whether or not the old address hears of it.
-		await sender.notice(previous, emailChangedMessage(ctx.publicUrl));
-	}
 	// A failed send still shows the password, so the person is not left without one.
 	return sent === "sent"
 		? { password: null, emailed: true }
