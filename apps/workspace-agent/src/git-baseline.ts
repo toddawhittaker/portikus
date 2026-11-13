@@ -154,6 +154,19 @@ interface ExtraBlob {
 
 /** Write one extra file or symlink as a blob; null when it cannot be read. */
 async function hashExtraFile(dir: string, path: string): Promise<ExtraBlob | null> {
+	const hashed = await hashPath(dir, path, true);
+	return hashed && { path, ...hashed };
+}
+
+/**
+ * Hash one file or symlink the way Git stores it. `write` stores the blob
+ * in the repository. Null when it is neither, or cannot be read.
+ */
+async function hashPath(
+	dir: string,
+	path: string,
+	write: boolean,
+): Promise<{ oid: string; mode: string } | null> {
 	const full = join(dir, path);
 	const info = await lstat(full).catch(() => null);
 	if (!info) return null;
@@ -161,16 +174,16 @@ async function hashExtraFile(dir: string, path: string): Promise<ExtraBlob | nul
 		// The blob is the link text. Hashing the path would follow it.
 		const target = await readlink(full).catch(() => null);
 		if (target === null) return null;
-		const oid = await hashStdin(dir, target, true);
-		return oid === null ? null : { path, oid, mode: "120000" };
+		const oid = await hashStdin(dir, target, write);
+		return oid === null ? null : { oid, mode: "120000" };
 	}
 	if (!info.isFile()) return null;
-	const oid = await objectIdFrom(
-		["hash-object", "-w", "--no-filters", "--", path],
-		dir,
-	);
+	const args = write
+		? ["hash-object", "-w", "--no-filters", "--", path]
+		: ["hash-object", "--no-filters", "--", path];
+	const oid = await objectIdFrom(args, dir);
 	if (oid === null) return null;
-	return { path, oid, mode: info.mode & 0o111 ? "100755" : "100644" };
+	return { oid, mode: info.mode & 0o111 ? "100755" : "100644" };
 }
 
 /**
@@ -302,16 +315,7 @@ async function hashStdin(
 }
 
 async function hashWorktree(dir: string, path: string): Promise<string | null> {
-	const full = join(dir, path);
-	const info = await lstat(full).catch(() => null);
-	if (!info) return null;
-	if (info.isSymbolicLink()) {
-		const target = await readlink(full).catch(() => null);
-		if (target === null) return null;
-		return hashStdin(dir, target, false);
-	}
-	if (!info.isFile()) return null;
-	return objectIdFrom(["hash-object", "--no-filters", "--", path], dir);
+	return (await hashPath(dir, path, false))?.oid ?? null;
 }
 
 /** One name-status record from `git diff -z`, plus untracked paths. */
