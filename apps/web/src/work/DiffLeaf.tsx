@@ -375,6 +375,49 @@ export function DiffLeaf({
 
 	const data = diff.data;
 
+	function binaryState(deleted: boolean) {
+		return (
+			<EmptyState
+				icon="file"
+				title={deleted ? "Binary file deleted" : "Binary file changed"}
+				actions={
+					deleted ? undefined : (
+						<DownloadFileButton
+							workspaceId={workspaceId}
+							projectId={projectId}
+							path={path}
+							testId={`diff-download-${path}`}
+						/>
+					)
+				}
+			>
+				{deleted
+					? `${displayName(path)} is not text, and it was deleted from the working tree, so there is nothing to show or download.`
+					: `${displayName(path)} is not text, so its changes cannot be shown side by side.`}
+			</EmptyState>
+		);
+	}
+
+	function tooLargeState() {
+		return (
+			<EmptyState
+				icon="file"
+				title="This diff is too large to show here"
+				actions={
+					<DownloadFileButton
+						workspaceId={workspaceId}
+						projectId={projectId}
+						path={path}
+						testId={`diff-download-${path}`}
+					/>
+				}
+			>
+				{displayName(path)} has more changes than the diff view can hold. Switch to Edit
+				above to open it, or download it.
+			</EmptyState>
+		);
+	}
+
 	function body() {
 		// A failed refresh of a diff already on screen is a banner, not a
 		// replacement: the last good diff is still worth reading.
@@ -397,49 +440,9 @@ export function DiffLeaf({
 			if (pointBase !== null) return null;
 			return <p className="pk-file-note">Loading…</p>;
 		}
-		if (data.binary) {
-			// A deleted binary has nothing left on disk to download.
-			const deleted = data.status === "D";
-			return (
-				<EmptyState
-					icon="file"
-					title={deleted ? "Binary file deleted" : "Binary file changed"}
-					actions={
-						deleted ? undefined : (
-							<DownloadFileButton
-								workspaceId={workspaceId}
-								projectId={projectId}
-								path={path}
-								testId={`diff-download-${path}`}
-							/>
-						)
-					}
-				>
-					{deleted
-						? `${displayName(path)} is not text, and it was deleted from the working tree, so there is nothing to show or download.`
-						: `${displayName(path)} is not text, so its changes cannot be shown side by side.`}
-				</EmptyState>
-			);
-		}
-		if (data.tooLarge) {
-			return (
-				<EmptyState
-					icon="file"
-					title="This diff is too large to show here"
-					actions={
-						<DownloadFileButton
-							workspaceId={workspaceId}
-							projectId={projectId}
-							path={path}
-							testId={`diff-download-${path}`}
-						/>
-					}
-				>
-					{displayName(path)} has more changes than the diff view can hold. Switch to
-					Edit above to open it, or download it.
-				</EmptyState>
-			);
-		}
+		// A deleted binary has nothing left on disk to download.
+		if (data.binary) return binaryState(data.status === "D");
+		if (data.tooLarge) return tooLargeState();
 		return (
 			<>
 				{/* Monaco's two columns carry no names, so say which side is which. */}
