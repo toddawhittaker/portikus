@@ -104,8 +104,35 @@ export async function recordRegistryEvents(
 	now: Date,
 	seen: TaggedDigests = new Map(),
 ): Promise<number> {
-	const nowMs = now.getTime();
-	const counted: { image: string; ip: string }[] = [];
+	const counted = countedPulls(envelope, registry, seen, now.getTime());
+	if (counted.length === 0) return 0;
+	const pulls = await pullsByWorkspace(db, counted);
+	if (pulls.length === 0) return 0;
+	return storePulls(db, pulls, now);
+}
+
+interface CountedPull {
+	image: string;
+	ip: string;
+}
+
+interface WorkspacePulls {
+	image: string;
+	workspaceId: string;
+	n: number;
+}
+
+/**
+ * The pulls in an envelope that count: a pull by digest alone right after
+ * the same workspace pulled it by tag is the second half of one pull.
+ */
+function countedPulls(
+	envelope: RegistryEventEnvelope,
+	registry: string,
+	seen: TaggedDigests,
+	nowMs: number,
+): CountedPull[] {
+	const counted: CountedPull[] = [];
 	for (const event of envelope.events) {
 		const image = pulledImage(event, registry);
 		const ip = registryEventWorkspaceIp(event.request.addr);
@@ -121,8 +148,14 @@ export async function recordRegistryEvents(
 		}
 		counted.push({ image, ip });
 	}
-	if (counted.length === 0) return 0;
+	return counted;
+}
 
+/** Match pulls to running workspaces by bridge address and total them per image and workspace. */
+async function pullsByWorkspace(
+	db: Kysely<Database>,
+	counted: CountedPull[],
+): Promise<WorkspacePulls[]> {
 	const running = await db
 		.selectFrom("workspaces")
 		.select(["id", "agent_address"])
@@ -130,7 +163,7 @@ export async function recordRegistryEvents(
 		.where("agent_address", "in", [...new Set(counted.map((c) => c.ip))])
 		.execute();
 	const byIp = new Map(running.map((w) => [w.agent_address, w.id]));
-	const pulls = new Map<string, { image: string; workspaceId: string; n: number }>();
+	const pulls = new Map<string, WorkspacePulls>();
 	for (const c of counted) {
 		const workspaceId = byIp.get(c.ip);
 		if (!workspaceId) continue;
@@ -139,8 +172,15 @@ export async function recordRegistryEvents(
 		entry.n++;
 		pulls.set(key, entry);
 	}
-	if (pulls.size === 0) return 0;
+	return [...pulls.values()];
+}
 
+/** Add the pulls to today's rollup under the daily name cap; returns how many were stored. */
+async function storePulls(
+	db: Kysely<Database>,
+	pulls: WorkspacePulls[],
+	now: Date,
+): Promise<number> {
 	const at = now.toISOString();
 	const day = at.slice(0, 10);
 	let stored = 0;
@@ -160,7 +200,7 @@ export async function recordRegistryEvents(
 			).map((r) => r.image),
 		);
 		known.delete(OTHER_IMAGES_LABEL);
-		for (const p of pulls.values()) {
+		for (const p of pulls) {
 			let image = p.image;
 			if (!known.has(image)) {
 				if (known.size >= REGISTRY_NAMES_PER_DAY_MAX) image = OTHER_IMAGES_LABEL;
@@ -200,6 +240,16 @@ async function readBody(req: IncomingMessage): Promise<Buffer | null> {
 	return Buffer.concat(chunks);
 }
 
+/** The body as an event envelope, or null when it is not JSON or fails the schema. */
+function parseEnvelope(body: Buffer): RegistryEventEnvelope | null {
+	try {
+		const parsed = RegistryEventEnvelope.safeParse(JSON.parse(body.toString("utf8")));
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
 /**
  * The registry notification webhook on 127.0.0.1. A wrong or
  * missing token header is 401; a body that fails the schema is 400 and
@@ -228,16 +278,8 @@ export function createRegistryEventsServer(options: RegistryEventsOptions): Serv
 			if (registry !== "docker.io" && registry !== "ghcr.io") return answer(400);
 			const body = await readBody(req);
 			if (!body) return answer(413);
-			let envelope: RegistryEventEnvelope;
-			try {
-				const parsed = RegistryEventEnvelope.safeParse(
-					JSON.parse(body.toString("utf8")),
-				);
-				if (!parsed.success) return answer(400);
-				envelope = parsed.data;
-			} catch {
-				return answer(400);
-			}
+			const envelope = parseEnvelope(body);
+			if (!envelope) return answer(400);
 			await recordRegistryEvents(db, envelope, registry, now(), seen);
 			answer(200);
 		})().catch((e: unknown) => {
