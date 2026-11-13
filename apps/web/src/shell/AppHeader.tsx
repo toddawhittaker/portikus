@@ -104,6 +104,20 @@ function AccountPicture({
 	);
 }
 
+function notificationsLabel(unread: number) {
+	if (unread === 0) return "Notifications";
+	return (
+		<>
+			{/* One spoken name: browsers put spaces around a hidden comma. */}
+			<span className="sr-only">Notifications, {unread} unread</span>
+			<span aria-hidden="true">Notifications</span>
+			<span aria-hidden="true" className="text-xs text-ink-muted">
+				{unread} unread
+			</span>
+		</>
+	);
+}
+
 /**
  * The top bar: the mark, the project in view, and the account menu.
  * The workspace dialog lives on the status bar (SPEC.md §6).
@@ -150,6 +164,44 @@ export function AppHeader({
 					children: errorText(error, "Something went wrong opening it. Try again."),
 				}),
 		});
+	}
+
+	/** An administrator in a workspace gets Administration. */
+	function adminLinkItems() {
+		if (user.role !== "administrator" || !workspaceId) return null;
+		return (
+			<>
+				{/* A new tab, so this tab keeps its sockets open and the
+			    disconnect grace timer never starts (SPEC.md §6.4). */}
+				<MenuItem
+					icon="external"
+					href="/admin"
+					target="_blank"
+					rel="noopener"
+					testId="admin-link"
+				>
+					Administration
+				</MenuItem>
+				<MenuSeparator />
+			</>
+		);
+	}
+
+	/** An administrator on administration gets the way into their own workspace. */
+	function openMyWorkspaceItems() {
+		if (user.role !== "administrator" || workspaceId) return null;
+		return (
+			<>
+				<MenuItem
+					onSelect={openMyWorkspace}
+					disabled={open.isPending}
+					testId="open-my-workspace"
+				>
+					{open.isPending ? "Opening your workspace…" : "Open my workspace"}
+				</MenuItem>
+				<MenuSeparator />
+			</>
+		);
 	}
 
 	return (
@@ -247,51 +299,14 @@ export function AppHeader({
 							) : null}
 						</MenuLabel>
 						<MenuSeparator />
-						{user.role === "administrator" && workspaceId ? (
-							<>
-								{/* A new tab, so this tab keeps its sockets open and the
-							    disconnect grace timer never starts (SPEC.md §6.4). */}
-								<MenuItem
-									icon="external"
-									href="/admin"
-									target="_blank"
-									rel="noopener"
-									testId="admin-link"
-								>
-									Administration
-								</MenuItem>
-								<MenuSeparator />
-							</>
-						) : null}
-						{user.role === "administrator" && !workspaceId ? (
-							<>
-								<MenuItem
-									onSelect={openMyWorkspace}
-									disabled={open.isPending}
-									testId="open-my-workspace"
-								>
-									{open.isPending ? "Opening your workspace…" : "Open my workspace"}
-								</MenuItem>
-								<MenuSeparator />
-							</>
-						) : null}
+						{adminLinkItems()}
+						{openMyWorkspaceItems()}
 						<MenuItem
 							onSelect={() => setNotificationsOpen(true)}
 							testId="notifications-item"
 						>
 							<span className="flex items-baseline justify-between gap-4">
-								{unread > 0 ? (
-									<>
-										{/* One spoken name: browsers put spaces around a hidden comma. */}
-										<span className="sr-only">Notifications, {unread} unread</span>
-										<span aria-hidden="true">Notifications</span>
-										<span aria-hidden="true" className="text-xs text-ink-muted">
-											{unread} unread
-										</span>
-									</>
-								) : (
-									"Notifications"
-								)}
+								{notificationsLabel(unread)}
 							</span>
 						</MenuItem>
 						<MenuItem onSelect={() => setSettingsOpen(true)}>
