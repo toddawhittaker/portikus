@@ -327,15 +327,7 @@ export function registerLtiRoutes(
 
 		// Neither the frame case nor a missing cookie touches the state row.
 		if (isFramed(request)) return refuseLaunch(request, reply, "framed", null);
-		const form = (request.body ?? {}) as Record<string, unknown>;
-		const formState = typeof form.state === "string" ? form.state : undefined;
-		const idToken = typeof form.id_token === "string" ? form.id_token : "";
-		// Each login has its own cookie; read and clear only this one.
-		const cookieState = formState
-			? readLtiStateCookie(request.cookies, formState)
-			: undefined;
-		if (formState)
-			reply.clearCookie(ltiStateCookieName(formState), ltiStateCookieOptions());
+		const { formState, idToken, cookieState } = readLaunchForm(request, reply);
 		const stateProblem = checkLaunchState(formState, cookieState);
 		if (stateProblem) return refuseLaunch(request, reply, stateProblem, null);
 
@@ -374,6 +366,32 @@ export function registerLtiRoutes(
 				identity.courseUserId,
 			);
 
+		return courseLaunch(request, reply, launch);
+	});
+
+	/**
+	 * The launch form's state and token, and the state cookie of that one
+	 * login, which is cleared as it is read.
+	 */
+	function readLaunchForm(request: FastifyRequest, reply: FastifyReply) {
+		const form = (request.body ?? {}) as Record<string, unknown>;
+		const formState = typeof form.state === "string" ? form.state : undefined;
+		const idToken = typeof form.id_token === "string" ? form.id_token : "";
+		// Each login has its own cookie; read and clear only this one.
+		const cookieState = formState
+			? readLtiStateCookie(request.cookies, formState)
+			: undefined;
+		if (formState)
+			reply.clearCookie(ltiStateCookieName(formState), ltiStateCookieOptions());
+		return { formState, idToken, cookieState };
+	}
+
+	/** A launch from a course identity with no linked SSO account signs in as the course account. */
+	async function courseLaunch(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		launch: LtiLaunch,
+	) {
 		const signedIn = await completeSignIn(db, auth, reply, {
 			identity: {
 				issuer: `lti:${launch.platform.issuer}`,
@@ -398,7 +416,7 @@ export function registerLtiRoutes(
 		}
 		await recordMembership(launch, signedIn.userId, new Date().toISOString());
 		return reply.redirect(await landing(request, launch, signedIn.userId), 303);
-	});
+	}
 
 	/**
 	 * A launch from a linked course identity signs into the SSO account and
