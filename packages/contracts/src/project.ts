@@ -493,6 +493,54 @@ export function documentTabId(node: SplitNode): string | null {
  */
 export const MAX_LAYOUT_BYTES_PER_USER = 8 * 1024 * 1024;
 
+/** Checks a tab id against its root: a terminal tab's length, or a document tab's path. */
+function checkTabId(
+	id: string,
+	document: string | null,
+	issue: (message: string) => void,
+): void {
+	if (document === null) {
+		// A terminal tab id is a terminal id or a made-up name.
+		if (id.length > 64) issue("a terminal tab id may be at most 64 characters");
+		return;
+	}
+	// A document tab is found by its id, so it must match its path.
+	if (id !== document) issue(`a document tab id must be "${document}"`);
+}
+
+function checkLayoutTabs(
+	tabs: readonly { id: string; root: SplitNode }[],
+	ctx: z.RefinementCtx,
+): void {
+	const seen = new Set<string>();
+	const documents = new Set<string>();
+	const files = new Set<string>();
+	tabs.forEach((tab, index) => {
+		const idIssue = (message: string) =>
+			ctx.addIssue({ code: "custom", path: [index, "id"], message });
+		const rootIssue = (message: string) =>
+			ctx.addIssue({ code: "custom", path: [index, "root"], message });
+		// Two tabs with one id render on top of each other in the browser.
+		if (seen.has(tab.id)) idIssue("tab ids must be unique");
+		seen.add(tab.id);
+		if (hasNestedWholeTab(tab.root)) rootIssue("only terminals and files may be split");
+		// One pane per file, whether it is a tab or sits in a split; two
+		// would edit the same file twice.
+		for (const path of filePaths(tab.root)) {
+			if (files.has(path)) rootIssue("a file may only be open once in a layout");
+			files.add(path);
+		}
+		const document = documentTabId(tab.root);
+		checkTabId(tab.id, document, idIssue);
+		if (document === null) return;
+		// One tab per path per kind; two would edit the same file twice.
+		if (documents.has(document)) {
+			rootIssue("a path or port may only be open once per tab kind");
+		}
+		documents.add(document);
+	});
+}
+
 /**
  * The saved layout of one project (SPEC.md §7.5). There is no cap on the
  * number of tabs: the strip shrinks and then scrolls instead.
@@ -511,69 +559,6 @@ export const ProjectLayout = z.object({
 				root: TabRoot,
 			}),
 		)
-		.superRefine((tabs, ctx) => {
-			const seen = new Set<string>();
-			const documents = new Set<string>();
-			const files = new Set<string>();
-			tabs.forEach((tab, index) => {
-				// Two tabs with one id render on top of each other in the browser.
-				if (seen.has(tab.id)) {
-					ctx.addIssue({
-						code: "custom",
-						path: [index, "id"],
-						message: "tab ids must be unique",
-					});
-				}
-				seen.add(tab.id);
-				if (hasNestedWholeTab(tab.root)) {
-					ctx.addIssue({
-						code: "custom",
-						path: [index, "root"],
-						message: "only terminals and files may be split",
-					});
-				}
-				// One pane per file, whether it is a tab or sits in a split; two
-				// would edit the same file twice.
-				for (const path of filePaths(tab.root)) {
-					if (files.has(path)) {
-						ctx.addIssue({
-							code: "custom",
-							path: [index, "root"],
-							message: "a file may only be open once in a layout",
-						});
-					}
-					files.add(path);
-				}
-				const document = documentTabId(tab.root);
-				if (document === null) {
-					// A terminal tab id is a terminal id or a made-up name.
-					if (tab.id.length > 64) {
-						ctx.addIssue({
-							code: "custom",
-							path: [index, "id"],
-							message: "a terminal tab id may be at most 64 characters",
-						});
-					}
-				} else {
-					// A document tab is found by its id, so it must match its path.
-					if (tab.id !== document) {
-						ctx.addIssue({
-							code: "custom",
-							path: [index, "id"],
-							message: `a document tab id must be "${document}"`,
-						});
-					}
-					// One tab per path per kind; two would edit the same file twice.
-					if (documents.has(document)) {
-						ctx.addIssue({
-							code: "custom",
-							path: [index, "root"],
-							message: "a path or port may only be open once per tab kind",
-						});
-					}
-					documents.add(document);
-				}
-			});
-		}),
+		.superRefine(checkLayoutTabs),
 });
 export type ProjectLayout = z.infer<typeof ProjectLayout>;
