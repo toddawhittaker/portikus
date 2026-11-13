@@ -10,7 +10,12 @@ import {
 	UpdateProjectRequest,
 } from "@portikus/contracts";
 import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type {
+	FastifyBaseLogger,
+	FastifyInstance,
+	FastifyReply,
+	FastifyRequest,
+} from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
@@ -155,6 +160,76 @@ async function relocateMovedProjects(
 }
 
 /**
+ * The directories under `~/projects` by slug, at most
+ * `MAX_DISCOVERED_PROJECTS` of them, or null when the agent did not answer.
+ */
+async function listDirectories(
+	agent: AgentClient,
+	log: FastifyBaseLogger,
+	workspaceId: string,
+): Promise<{ directories: Map<string, AgentDirectory> | null; truncated: boolean }> {
+	let truncated = false;
+	try {
+		const listed = await agent.listProjects();
+		let entries = [...listed.projects].sort((a, b) => a.slug.localeCompare(b.slug));
+		if (entries.length > MAX_DISCOVERED_PROJECTS) {
+			log.warn({ workspaceId, count: entries.length }, "project listing truncated");
+			entries = entries.slice(0, MAX_DISCOVERED_PROJECTS);
+			truncated = true;
+		}
+		const directories = new Map(
+			entries.map((p) => [
+				p.slug,
+				{ isGitRepo: p.isGitRepo, directoryId: p.directoryId ?? null },
+			]),
+		);
+		return { directories, truncated };
+	} catch {
+		// A workspace whose agent is down still has projects to show.
+		return { directories: null, truncated };
+	}
+}
+
+/**
+ * Anything Git-enabled under ~/projects is a project (ADR 0010, Discovery).
+ * The pane polls every ten seconds, so this reads first and writes only when
+ * a directory is genuinely new (rows of any state count as known).
+ */
+async function discoverProjects(
+	db: Kysely<Database>,
+	workspaceId: string,
+	directories: Map<string, AgentDirectory>,
+): Promise<void> {
+	const known = await db
+		.selectFrom("projects")
+		.select("slug")
+		.where("workspace_id", "=", workspaceId)
+		.execute();
+	const knownSlugs = new Set(known.map((row) => row.slug));
+	const discovered = [...directories]
+		.filter(([slug, dir]) => dir.isGitRepo && !knownSlugs.has(slug))
+		.map(([slug, dir]) => ({
+			workspace_id: workspaceId,
+			slug,
+			// The folder name, read as a title, so a discovered project and
+			// one whose folder was renamed are named the same way.
+			name: displayNameFromDirectory(slug),
+			path: projectPath(slug),
+			source: "discovered",
+			directory_id: dir.directoryId,
+		}));
+	if (discovered.length === 0) return;
+	// One statement, and it ignores every conflict, so neither a racing
+	// listing nor a directory whose identity some row already holds can
+	// turn a page load into a failure.
+	await db
+		.insertInto("projects")
+		.values(discovered)
+		.onConflict((oc) => oc.doNothing())
+		.execute();
+}
+
+/**
  * Point a project row at a directory that has a new name, and bring its
  * terminals' working directories along (SPEC.md §7.1, "Rename"). The display
  * name follows the new folder, because the folder is the project:
@@ -175,20 +250,33 @@ async function moveProjectRow(
 			.set({ slug, name, path: newPath })
 			.where("id", "=", row.id)
 			.execute();
-		const terminals = await trx
-			.selectFrom("terminals")
-			.selectAll()
-			.where("project_id", "=", row.id)
-			.execute();
-		for (const terminal of terminals) {
-			if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) continue;
-			await trx
-				.updateTable("terminals")
-				.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
-				.where("id", "=", terminal.id)
-				.execute();
-		}
+		await moveTerminalCwds(trx, row.id, oldPath, newPath);
 	});
+}
+
+/**
+ * Point each terminal of a project whose working directory is under
+ * `oldPath` at the same place under `newPath`.
+ */
+async function moveTerminalCwds(
+	trx: Kysely<Database>,
+	projectId: string,
+	oldPath: string,
+	newPath: string,
+): Promise<void> {
+	const terminals = await trx
+		.selectFrom("terminals")
+		.selectAll()
+		.where("project_id", "=", projectId)
+		.execute();
+	for (const terminal of terminals) {
+		if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) continue;
+		await trx
+			.updateTable("terminals")
+			.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
+			.where("id", "=", terminal.id)
+			.execute();
+	}
 }
 
 /**
@@ -228,35 +316,13 @@ export function registerProjectRoutes(
 		const query = parseOr400(ListQuery, request.query ?? {}, reply);
 		if (!query) return reply;
 
-		let directories: Map<string, AgentDirectory> | null = null;
-		let truncated = false;
-		if (scope.agent) {
-			try {
-				const listed = await scope.agent.listProjects();
-				let entries = [...listed.projects].sort((a, b) => a.slug.localeCompare(b.slug));
-				if (entries.length > MAX_DISCOVERED_PROJECTS) {
-					request.log.warn(
-						{ workspaceId: scope.workspaceId, count: entries.length },
-						"project listing truncated",
-					);
-					entries = entries.slice(0, MAX_DISCOVERED_PROJECTS);
-					truncated = true;
-				}
-				directories = new Map(
-					entries.map((p) => [
-						p.slug,
-						{ isGitRepo: p.isGitRepo, directoryId: p.directoryId ?? null },
-					]),
-				);
-			} catch {
-				// A workspace whose agent is down still has projects to show.
-				directories = null;
-			}
-		}
+		const { directories, truncated } = scope.agent
+			? await listDirectories(scope.agent, request.log, scope.workspaceId)
+			: { directories: null, truncated: false };
 
-		// A project the student renamed with `mv` follows its directory to the
-		// new slug, keeping its id, tabs and layout.
 		if (directories && query.state === "active") {
+			// A project the student renamed with `mv` follows its directory to the
+			// new slug, keeping its id, tabs and layout.
 			const relocated = await relocateMovedProjects(db, scope.workspaceId, directories);
 			for (const move of relocated) {
 				request.log.info(
@@ -264,42 +330,9 @@ export function registerProjectRoutes(
 					"project followed its directory",
 				);
 			}
-		}
-
-		// Anything Git-enabled under ~/projects is a project (ADR 0010,
-		// Discovery). Archiving does not remove the row, so an archived slug is
-		// never re-added; that also means an archived listing discovers nothing.
-		if (directories && query.state === "active") {
-			// The pane polls every ten seconds, so read first and write only when
-			// a directory is genuinely new (rows of any state count as known).
-			const known = await db
-				.selectFrom("projects")
-				.select("slug")
-				.where("workspace_id", "=", scope.workspaceId)
-				.execute();
-			const knownSlugs = new Set(known.map((row) => row.slug));
-			const discovered = [...directories]
-				.filter(([slug, dir]) => dir.isGitRepo && !knownSlugs.has(slug))
-				.map(([slug, dir]) => ({
-					workspace_id: scope.workspaceId,
-					slug,
-					// The folder name, read as a title, so a discovered project and
-					// one whose folder was renamed are named the same way.
-					name: displayNameFromDirectory(slug),
-					path: projectPath(slug),
-					source: "discovered",
-					directory_id: dir.directoryId,
-				}));
-			if (discovered.length > 0) {
-				// One statement, and it ignores every conflict, so neither a racing
-				// listing nor a directory whose identity some row already holds can
-				// turn a page load into a failure.
-				await db
-					.insertInto("projects")
-					.values(discovered)
-					.onConflict((oc) => oc.doNothing())
-					.execute();
-			}
+			// Archiving does not remove the row, so an archived slug is never
+			// re-added; that also means an archived listing discovers nothing.
+			await discoverProjects(db, scope.workspaceId, directories);
 		}
 
 		const rows = await listRows(db, scope.workspaceId)
@@ -366,6 +399,56 @@ export function registerProjectRoutes(
 	);
 
 	/**
+	 * Moves a project's folder to `slug`. False after answering a refusal.
+	 */
+	async function moveFolder(
+		scope: Scope,
+		row: ProjectRow,
+		slug: string,
+		reply: FastifyReply,
+	): Promise<boolean> {
+		const agent = requireAgent(scope, reply);
+		if (!agent) return false;
+		const taken = await db
+			.selectFrom("projects")
+			.select("id")
+			.where("workspace_id", "=", scope.workspaceId)
+			.where("slug", "=", slug)
+			.executeTakeFirst();
+		if (taken) {
+			sendError(
+				reply,
+				409,
+				"PROJECT_EXISTS",
+				`A project called ${slug} already exists.`,
+			);
+			return false;
+		}
+		// Record the folder's identity before moving it, so a crash between
+		// the move and the row update is healed by the next listing instead
+		// of the moved folder being discovered as a new project.
+		if (row.directory_id === null) {
+			try {
+				const listed = await agent.listProjects();
+				const here = listed.projects.find((p) => p.slug === row.slug);
+				if (here?.directoryId) {
+					await recordDirectoryId(db, row.id, here.directoryId);
+				}
+			} catch (error) {
+				sendAgentError(reply, error);
+				return false;
+			}
+		}
+		try {
+			await agent.renameProject(row.slug, slug);
+		} catch (error) {
+			sendAgentError(reply, error);
+			return false;
+		}
+		return true;
+	}
+
+	/**
 	 * Renames a project's folder and row, moving its terminals' working
 	 * directories along. Null after answering a refusal.
 	 */
@@ -385,46 +468,7 @@ export function registerProjectRoutes(
 			);
 			return null;
 		}
-		if (slug !== row.slug) {
-			const agent = requireAgent(scope, reply);
-			if (!agent) return null;
-			const taken = await db
-				.selectFrom("projects")
-				.select("id")
-				.where("workspace_id", "=", scope.workspaceId)
-				.where("slug", "=", slug)
-				.executeTakeFirst();
-			if (taken) {
-				sendError(
-					reply,
-					409,
-					"PROJECT_EXISTS",
-					`A project called ${slug} already exists.`,
-				);
-				return null;
-			}
-			// Record the folder's identity before moving it, so a crash between
-			// the move and the row update is healed by the next listing instead
-			// of the moved folder being discovered as a new project.
-			if (row.directory_id === null) {
-				try {
-					const listed = await agent.listProjects();
-					const here = listed.projects.find((p) => p.slug === row.slug);
-					if (here?.directoryId) {
-						await recordDirectoryId(db, row.id, here.directoryId);
-					}
-				} catch (error) {
-					sendAgentError(reply, error);
-					return null;
-				}
-			}
-			try {
-				await agent.renameProject(row.slug, slug);
-			} catch (error) {
-				sendAgentError(reply, error);
-				return null;
-			}
-		}
+		if (slug !== row.slug && !(await moveFolder(scope, row, slug, reply))) return null;
 
 		const oldPath = row.path;
 		const newPath = projectPath(slug);
@@ -436,21 +480,7 @@ export function registerProjectRoutes(
 				.returningAll()
 				.executeTakeFirstOrThrow();
 			// A terminal's cwd is a path under the project that just moved.
-			const terminals = await trx
-				.selectFrom("terminals")
-				.selectAll()
-				.where("project_id", "=", row.id)
-				.execute();
-			for (const terminal of terminals) {
-				if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) {
-					continue;
-				}
-				await trx
-					.updateTable("terminals")
-					.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
-					.where("id", "=", terminal.id)
-					.execute();
-			}
+			await moveTerminalCwds(trx, row.id, oldPath, newPath);
 			return updated;
 		});
 	}
@@ -485,6 +515,62 @@ export function registerProjectRoutes(
 		}
 	}
 
+	/** Archive or unarchive a project, with its audit row (SPEC.md §7.3). */
+	async function changeState(
+		request: FastifyRequest,
+		scope: Scope,
+		project: ProjectRow,
+		state: ProjectRow["state"],
+		userId: string,
+	): Promise<ProjectRow> {
+		const archiving = state === "archived";
+		if (archiving && scope.agent) {
+			await recoveryPointBeforeArchive(
+				request,
+				scope.workspaceId,
+				scope.agent,
+				project,
+				userId,
+			);
+		}
+		const projectId = project.id;
+		let endedHelp: EndedLiveHelp | null = null;
+		const saved = await db.transaction().execute(async (trx) => {
+			const updated = await trx
+				.updateTable("projects")
+				.set({
+					state,
+					archived_at: archiving ? new Date().toISOString() : null,
+				})
+				.where("id", "=", projectId)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			await recordAudit(trx, {
+				actor: `user:${userId}`,
+				target: projectId,
+				action: archiving ? "project.archived" : "project.unarchived",
+				result: "ok",
+			});
+			// Archiving ends the share for good; unarchiving never reopens it
+			// (SPEC.md §5.2, ADR 0057).
+			if (archiving) {
+				await stopShare(trx, {
+					projectId,
+					actor: `user:${userId}`,
+					reason: "archived",
+				});
+				endedHelp = await endProjectLiveHelp(trx, {
+					projectId,
+					actor: `user:${userId}`,
+				});
+			}
+			return updated;
+		});
+		// Sockets close only once the archive is committed.
+		if (endedHelp) await closeEndedLiveHelp(endedHelp, bridge);
+		return saved;
+	}
+
 	// Rename, archive, or unarchive.
 	app.patch(
 		"/workspaces/:id/projects/:pid",
@@ -509,52 +595,7 @@ export function registerProjectRoutes(
 			}
 
 			if (body.state !== undefined && body.state !== current.state) {
-				const archiving = body.state === "archived";
-				if (archiving && scope.agent) {
-					await recoveryPointBeforeArchive(
-						request,
-						scope.workspaceId,
-						scope.agent,
-						current,
-						user.id,
-					);
-				}
-				const state = body.state;
-				const projectId = current.id;
-				let endedHelp: EndedLiveHelp | null = null;
-				current = await db.transaction().execute(async (trx) => {
-					const updated = await trx
-						.updateTable("projects")
-						.set({
-							state,
-							archived_at: archiving ? new Date().toISOString() : null,
-						})
-						.where("id", "=", projectId)
-						.returningAll()
-						.executeTakeFirstOrThrow();
-					await recordAudit(trx, {
-						actor: `user:${user.id}`,
-						target: projectId,
-						action: archiving ? "project.archived" : "project.unarchived",
-						result: "ok",
-					});
-					// Archiving ends the share for good; unarchiving never reopens it
-					// (SPEC.md §5.2, ADR 0057).
-					if (archiving) {
-						await stopShare(trx, {
-							projectId,
-							actor: `user:${user.id}`,
-							reason: "archived",
-						});
-						endedHelp = await endProjectLiveHelp(trx, {
-							projectId,
-							actor: `user:${user.id}`,
-						});
-					}
-					return updated;
-				});
-				// Sockets close only once the archive is committed.
-				if (endedHelp) await closeEndedLiveHelp(endedHelp, bridge);
+				current = await changeState(request, scope, current, body.state, user.id);
 			}
 
 			return toProject(current, null, null);
