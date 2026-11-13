@@ -28,6 +28,28 @@ DispatcherClass.prototype.connect ??= requireUndici("undici/lib/api/api-connect.
 // Statuses whose Response must have no body.
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
+/** Request headers as the plain object undici's `request` takes. */
+function plainHeaders(init: RequestInit["headers"]): Record<string, string> {
+	const headers: Record<string, string> = {};
+	new Headers(init).forEach((value, name) => {
+		headers[name] = value;
+	});
+	return headers;
+}
+
+/** Response headers from undici's `request` as a fetch `Headers`, keeping repeated values. */
+function webHeaders(raw: Dispatcher.ResponseData["headers"]): Headers {
+	const headers = new Headers();
+	for (const [name, value] of Object.entries(raw)) {
+		if (Array.isArray(value)) {
+			for (const item of value) headers.append(name, item);
+		} else if (value !== undefined) {
+			headers.set(name, value);
+		}
+	}
+	return headers;
+}
+
 /**
  * The fetch for requests that leave the site: OIDC discovery, token and
  * userinfo requests, LMS keysets (ADR 0027) and administrator alerts. With a
@@ -43,10 +65,7 @@ export function createOutboundFetch(
 	const agent = new ProxyAgent(proxyUrl);
 	return async (url, init) => {
 		const target = new URL(url);
-		const headers: Record<string, string> = {};
-		new Headers(init.headers).forEach((value, name) => {
-			headers[name] = value;
-		});
+		const headers = plainHeaders(init.headers);
 		// The libraries send only strings or form parameters as bodies.
 		const body =
 			init.body === undefined || init.body === null ? undefined : String(init.body);
@@ -58,14 +77,7 @@ export function createOutboundFetch(
 			body,
 			signal: init.signal ?? undefined,
 		});
-		const responseHeaders = new Headers();
-		for (const [name, value] of Object.entries(answer.headers)) {
-			if (Array.isArray(value)) {
-				for (const item of value) responseHeaders.append(name, item);
-			} else if (value !== undefined) {
-				responseHeaders.set(name, value);
-			}
-		}
+		const responseHeaders = webHeaders(answer.headers);
 		if (NULL_BODY_STATUSES.has(answer.statusCode)) {
 			answer.body.resume();
 			return new Response(null, {
