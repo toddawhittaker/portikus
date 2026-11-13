@@ -315,7 +315,9 @@ export const STUDENT_HELP: HelpPart = {
 						The editor zooms like a terminal: hold{" "}
 						<kbd className="pk-mono-body">Ctrl</kbd> (
 						<kbd className="pk-mono-body">Cmd</kbd> on a Mac) and turn the wheel over
-						it, pinch, or use the zoom buttons beside the bar under the file.
+						it, pinch, or use the zoom buttons beside the bar under the file. A file
+						keeps one zoom for both Edit and Diff, so the diff opens at the zoom you set
+						in the editor.
 					</li>
 				</ul>
 			),
@@ -666,9 +668,10 @@ export const STUDENT_HELP: HelpPart = {
 							lets you add a picture and links.
 						</li>
 						<li>
-							<strong>Preferences</strong> covers the color scheme, editor auto-save and
-							word wrap, terminal colors, screen reader mode, desktop notifications for
-							coding agents and your workspace's timezone.
+							<strong>Preferences</strong> covers the color scheme (you can also change
+							it from the editor pane's three-dots menu under Color scheme), editor
+							auto-save and word wrap, terminal colors, screen reader mode, desktop
+							notifications for coding agents and your workspace's timezone.
 						</li>
 						<li>
 							<strong>Password</strong> appears when your account has a Portikus
