@@ -9,6 +9,7 @@ import type {
 	ChatModeInfo,
 	ChatModelInfo,
 	ChatOpenCard,
+	ChatSignIn,
 } from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -71,8 +72,17 @@ function defaultHandlers(): Handlers {
 		"review/start": () => ({}),
 		"thread/unsubscribe": () => ({ status: "unsubscribed" }),
 		"thread/inject_items": () => ({}),
+		"account/read": () => SIGNED_IN,
 	};
 }
+
+/** `account/read` as Codex 0.162.1 and 0.167.1 answer it, the email left out. */
+const SIGNED_IN = {
+	account: { type: "chatgpt", email: "student@example.edu", planType: "plus" },
+	requiresOpenaiAuth: true,
+	workspaceRouting: null,
+};
+const SIGNED_OUT = { account: null, requiresOpenaiAuth: true, workspaceRouting: null };
 
 interface OpenCard {
 	card: ChatOpenCard;
@@ -88,6 +98,7 @@ function recordingSink() {
 		contexts: [] as ContextFigures[],
 		modes: [] as ChatModeInfo[][],
 		mcp: [] as ChatMcpServer[][],
+		signIns: [] as ChatSignIn[],
 		cards: new Map<string, OpenCard>(),
 		resets: 0,
 	};
@@ -100,6 +111,7 @@ function recordingSink() {
 		rules: () => undefined,
 		modes: (list: ChatModeInfo[]) => got.modes.push(list),
 		mcp: (list: ChatMcpServer[]) => got.mcp.push(list),
+		signIn: (state: ChatSignIn) => got.signIns.push(state),
 		openCard: (card: ChatOpenCard, settle: CardSettle, signal?: AbortSignal) => {
 			got.cards.set(card.id, { card, settle });
 			signal?.addEventListener("abort", () => {
@@ -187,6 +199,62 @@ function types(events: ChatEventBody[]): string[] {
 	return events.map((event) => event.type);
 }
 
+describe("sign-in", () => {
+	test("asks app-server at start whether the student is signed in", async () => {
+		const { got, server } = await setup();
+		await vi.waitFor(() => expect(got.signIns).toEqual(["signedIn"]));
+		expect(server().requests("account/read")).toHaveLength(1);
+	});
+
+	test("reports signed out when Codex has no account", async () => {
+		const { got } = await setup({ handlers: { "account/read": () => SIGNED_OUT } });
+		await vi.waitFor(() => expect(got.signIns).toEqual(["signedOut"]));
+	});
+
+	test("an app-server without account/read reports unknown, not an error", async () => {
+		const { got } = await setup({
+			handlers: { "account/read": () => new Refuse("method not found") },
+		});
+		await vi.waitFor(() => expect(got.signIns).toEqual(["unknown"]));
+		expect(got.events.some((event) => event.type === "error")).toBe(false);
+	});
+
+	test("Check again asks app-server once more", async () => {
+		let answer: unknown = SIGNED_OUT;
+		const { agent, got, server } = await setup({
+			handlers: { "account/read": () => answer },
+		});
+		await vi.waitFor(() => expect(got.signIns).toEqual(["signedOut"]));
+		answer = SIGNED_IN;
+		await agent.checkSignIn();
+		expect(got.signIns).toEqual(["signedOut", "signedIn"]);
+		expect(server().requests("account/read")).toHaveLength(2);
+	});
+
+	test("follows account/updated", async () => {
+		const { got, server } = await setup();
+		await vi.waitFor(() => expect(got.signIns).toEqual(["signedIn"]));
+		server().push({
+			method: "account/updated",
+			params: { authMode: null, planType: null },
+		});
+		server().push({
+			method: "account/updated",
+			params: { authMode: "chatgpt", planType: "plus" },
+		});
+		server().push({ method: "account/updated", params: { planType: "plus" } });
+		await vi.waitFor(() =>
+			expect(got.signIns).toEqual(["signedIn", "signedOut", "signedIn"]),
+		);
+	});
+
+	test("never logs the account's email", async () => {
+		const { got, lines } = await setup();
+		await vi.waitFor(() => expect(got.signIns).toEqual(["signedIn"]));
+		expect(JSON.stringify(lines)).not.toContain("student@example.edu");
+	});
+});
+
 describe("starting", () => {
 	test("starts app-server with the experimental API and a saved thread in the project", async () => {
 		const { server, got, terminalId, projectDir, lines } = await setup();
@@ -238,7 +306,7 @@ describe("starting", () => {
 			expect(got.mcp.at(-1)).toEqual([{ name: "echo", status: "connected" }]);
 		});
 		const methods = server().sent.map((message) => message.method);
-		for (const never of ["account/read", "plugin/list", "app/list"]) {
+		for (const never of ["plugin/list", "app/list"]) {
 			expect(methods).not.toContain(never);
 		}
 		const params = JSON.stringify(server().sent);
@@ -425,6 +493,8 @@ describe("a turn", () => {
 		await vi.waitFor(() => expect(types(got.events).at(-1)).toBe("turn.finished"));
 		const errors = got.events.filter((event) => event.type === "error");
 		expect(errors).toEqual([{ type: "error", message: SIGN_IN_MESSAGE }]);
+		// The banner shows too, so the student need not read the error to find out.
+		expect(got.signIns.at(-1)).toBe("signedOut");
 	});
 
 	test("a failed turn with no error event still shows its error; a retry shows none", async () => {
@@ -1469,6 +1539,7 @@ describe("through the chat core", () => {
 				"rules",
 				"commands",
 				"mcp",
+				"signIn",
 			]);
 			expect(frames.find((frame) => frame.type === "settings")).toMatchObject({
 				agent: "codex",

@@ -3,8 +3,9 @@
  * (composerEditor.ts), attached files, the settings pickers, the microphone
  * and Send. Enter sends, Shift+Enter starts a line; while a turn runs, Stop
  * sits beside Send, a message sent then reaches the agent at its next step, and
- * Escape stops the turn. Up in an empty box brings back the last message
- * sent, held in memory only. A paste of more than LONG_PASTE_LINES lines is
+ * Escape stops the turn. Up on the box's first line and Down on its last go
+ * back and forward through the messages sent in this chat, as a shell does
+ * (composerHistory.ts). A paste of more than LONG_PASTE_LINES lines is
  * attached as a text file instead of filling the box. Dictation is typed
  * into the box and never sent on its own (SPEC.md §25.10). The draft is
  * cleared only when the host echoes the message back, so a send it refuses
@@ -24,7 +25,7 @@ import {
 	MAX_CHAT_TEXT_CHARS,
 } from "@portikus/contracts";
 import { Icon, IconButton } from "@portikus/ui";
-import type { Editor, JSONContent } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import {
 	type DragEvent,
 	type FormEvent,
@@ -71,6 +72,7 @@ import {
 	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
+import { useComposerHistory } from "./composerHistory.js";
 import { modeOf } from "./models.js";
 import type { ReadAloud } from "./readAloud.js";
 import { isShellCommand } from "./shellCommand.js";
@@ -91,7 +93,7 @@ const tips = (agent: CodingAgent) =>
 		? "Type / for commands, $ for skills or @ for files. Paste or drop images to attach them."
 		: "Type / for commands or @ for files. Paste or drop images to attach them.";
 const KEY_HINT =
-	"Enter sends, Shift+Enter adds a line, Up brings back your last message.";
+	"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.";
 const runningHint = (name: string) =>
 	`Enter sends without stopping ${name}. Esc stops it.`;
 const SHELL_RUNNING_HINT = "The command is running. Esc stops it.";
@@ -200,8 +202,7 @@ export function Composer({
 	const host = useRef<HTMLDivElement | null>(null);
 	const editor = useRef<Editor | null>(null);
 	const picker = useRef<HTMLInputElement | null>(null);
-	/** The last message sent, for Up to bring back; never stored (SPEC.md §25.10). */
-	const lastSent = useRef<JSONContent | null>(null);
+	const history = useComposerHistory(store);
 	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
 	const stopFocused = useRef(false);
 	const [optionsOpen, setOptionsOpen] = useState(false);
@@ -326,8 +327,7 @@ export function Composer({
 		if (editor.current) forgetLongPaste(editor.current);
 		lastLongPaste.current = null;
 		setError("");
-		if (text.trim() !== "" && editor.current)
-			lastSent.current = editor.current.getJSON();
+		if (editor.current) history.sent(editor.current, text);
 		setSending({
 			seq,
 			text,
@@ -382,6 +382,7 @@ export function Composer({
 
 	/** A menu opened or changed, or the menu of kind `closed` shut. */
 	function onMenu(next: ComposerMenu | null, closed?: ComposerMenuKind) {
+		if (history.recalling.current && next) return;
 		setMenu((now) => next ?? (now?.kind === closed ? null : now));
 	}
 
@@ -473,10 +474,14 @@ export function Composer({
 			return true;
 		}
 		const box = editor.current;
-		if (plain && event.key === "ArrowUp" && box?.isEmpty && lastSent.current) {
-			event.preventDefault();
-			box.chain().setContent(lastSent.current).focus("end").run();
-			return true;
+		const arrow =
+			event.key === "ArrowUp" ? "up" : event.key === "ArrowDown" ? "down" : null;
+		// An open menu keeps the arrows: its list moves, the history stays.
+		if (plain && arrow && box && !event.isComposing && menu === null && !menuOpen()) {
+			if (history.recall(box, arrow, sending?.text ?? null)) {
+				event.preventDefault();
+				return true;
+			}
 		}
 		if (!isVoiceShortcut(event)) return false;
 		event.preventDefault();

@@ -11,6 +11,7 @@ import {
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
+	type ChatSignIn,
 	type CodingAgent,
 	chatStartMode,
 	isShellCommand,
@@ -64,6 +65,10 @@ interface FakeChat {
 	models: ChatModelInfo[];
 	modes: ChatModeInfo[];
 	mcp: ChatMcpServer[];
+	/** What the host says of the student's sign-in; null sends nothing, as an older host. */
+	signIn: ChatSignIn | null;
+	/** What a Check again finds, as a test set it; null finds the same again. */
+	signInAfterCheck: ChatSignIn | null;
 	/** The last `context` event body a test set; sent on attach. */
 	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
@@ -125,6 +130,8 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				received: [],
 				...agentLists(codex ? "codex" : "claude"),
 				mcp: DEFAULT_MCP,
+				signIn: null,
+				signInAfterCheck: null,
 				context: null,
 				sockets: new Set(),
 				swap: { droppedTurns: 0, delayMs: 0, refuse: false },
@@ -540,6 +547,10 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				});
 				return;
 			}
+			case "signIn.check":
+				chat.signIn = chat.signInAfterCheck ?? chat.signIn ?? "unknown";
+				emit(id, chat.sockets, { type: "signIn", state: chat.signIn });
+				return;
 			case "rename":
 				setCodingAgentTitle(s, key, id, message.title);
 				// The answer goes to the asker alone, with no seq, as the host sends it.
@@ -603,6 +614,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			emit(id, [socket], { type: "models", models: chat.models });
 			emit(id, [socket], { type: "modes", modes: chat.modes });
 			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
+			if (chat.signIn) emit(id, [socket], { type: "signIn", state: chat.signIn });
 			emit(id, [socket], { type: "settings", agent: chat.agent, ...chat.settings });
 		},
 	);
@@ -637,7 +649,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 		const from = chat.agent;
 		chat.history.push({ type: "handoff", from, to, droppedTurns });
-		Object.assign(chat, { agent: to, started: false, ...agentLists(to) });
+		// The new agent's host asks about its own sign-in.
+		Object.assign(chat, {
+			agent: to,
+			started: false,
+			signIn: null,
+			signInAfterCheck: null,
+			...agentLists(to),
+		});
 		// The key the swap brought replaces the old agent's, as on the agent.
 		const { institutionalEnv: _old, ...rest } = terminal;
 		terminals.set(id, {
@@ -675,6 +694,19 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		chat.mcp = (request.body as { servers: ChatMcpServer[] }).servers;
 		emit(id, chat.sockets, { type: "mcp", servers: chat.mcp });
+		return reply.status(204).send();
+	});
+
+	// Set what the host says of the student's sign-in (body: state, and
+	// afterCheck for what a Check again finds) and send it to every
+	// attachment, as the host does after it asks the agent.
+	app.post("/__test/chats/:id/sign-in", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		const body = request.body as { state: ChatSignIn; afterCheck?: ChatSignIn };
+		chat.signIn = body.state;
+		chat.signInAfterCheck = body.afterCheck ?? null;
+		emit(id, chat.sockets, { type: "signIn", state: chat.signIn });
 		return reply.status(204).send();
 	});
 

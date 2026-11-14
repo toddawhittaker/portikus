@@ -22,7 +22,6 @@ import type { Handoff } from "../handoff.js";
 import { writeChatSession } from "../session-record.js";
 import { shellRefusal } from "../shell-command.js";
 import { ChatTitle } from "../titles.js";
-import { REPLAY_TURNS } from "../wire.js";
 import {
 	AppServerClient,
 	type AppServerProcess,
@@ -31,7 +30,7 @@ import {
 } from "./app-server.js";
 import { codexCommands, slashCommand } from "./commands.js";
 import { CodexHandoff, codexTranscript } from "./handoff.js";
-import { replayTurns, turnStatus, userShell } from "./history.js";
+import { recentTurns, replayTurns, turnStatus, userShell } from "./history.js";
 import { type CodexInput, codexInput } from "./input.js";
 import { CodexItemMapper } from "./mapper.js";
 import { CodexMcp } from "./mcp.js";
@@ -49,11 +48,9 @@ import {
 	TextItem,
 	ThreadResult,
 	TokenUsageNotification,
-	type Turn,
 	type TurnError,
 	TurnNotification,
 	TurnStartResult,
-	TurnsList,
 } from "./protocol.js";
 import { CodexRequests, type PostedState } from "./requests.js";
 import {
@@ -65,6 +62,7 @@ import {
 	turnStartParams,
 } from "./settings.js";
 import { CodexShell } from "./shell.js";
+import { codexSignInUpdate, readCodexSignIn } from "./sign-in.js";
 import { CodexSubagents } from "./subagents.js";
 
 export type { PostedState };
@@ -169,7 +167,8 @@ export class CodexAgent implements ChatAgent {
 		this.shell = new CodexShell(() => this.sink);
 		this.subagents = new CodexSubagents({
 			terminalId: options.terminalId,
-			turns: (threadId) => this.recentTurns(threadId).then((page) => page.turns),
+			turns: (threadId) =>
+				recentTurns(this.client, threadId).then((page) => page.turns),
 		});
 		this.title = new ChatTitle(
 			{
@@ -263,6 +262,13 @@ export class CodexAgent implements ChatAgent {
 		this.broadcastSettings();
 		void this.readSkills(client, false);
 		void this.mcp.read(client);
+		void this.checkSignIn();
+	}
+
+	/** A send never waits on it; an app-server that cannot start gives unknown. */
+	async checkSignIn(): Promise<void> {
+		const client = await this.ready().catch(() => null);
+		this.sink.signIn(client ? await readCodexSignIn(client) : "unknown");
 	}
 
 	/** Resume the tab's thread, or start one when it has none Codex can find. */
@@ -375,6 +381,11 @@ export class CodexAgent implements ChatAgent {
 			case "serverRequest/resolved":
 				this.requests.resolved(params);
 				return;
+			case "account/updated": {
+				const state = codexSignInUpdate(params);
+				if (state) this.sink.signIn(state);
+				return;
+			}
 		}
 		const threadId = (params as { threadId?: unknown } | null)?.threadId;
 		if (typeof threadId !== "string") return;
@@ -433,7 +444,7 @@ export class CodexAgent implements ChatAgent {
 				const error = parsed(ErrorNotification, params);
 				if (!error || error.willRetry) return;
 				this.turnErrorShown = true;
-				this.sink.emit({ type: "error", message: errorText(error.error) });
+				this.turnFailed(error.error);
 			}
 		}
 	}
@@ -490,9 +501,7 @@ export class CodexAgent implements ChatAgent {
 		this.turnRunning = false;
 		this.turnId = null;
 		this.turnStart = null;
-		if (error && !this.turnErrorShown) {
-			this.sink.emit({ type: "error", message: errorText(error) });
-		}
+		if (error && !this.turnErrorShown) this.turnFailed(error);
 		this.sink.emit({ type: "turn.finished", status, at: Date.now() });
 		const plan = this.plan;
 		this.plan = null;
@@ -500,6 +509,12 @@ export class CodexAgent implements ChatAgent {
 		for (const message of this.afterTurn.splice(0)) {
 			void this.send(message, []).catch(() => undefined);
 		}
+	}
+
+	/** Show a turn's error; one that says the student is signed out also shows the warning. */
+	private turnFailed(error: TurnError | null | undefined): void {
+		if (error?.codexErrorInfo === "unauthorized") this.sink.signIn("signedOut");
+		this.sink.emit({ type: "error", message: errorText(error) });
 	}
 
 	/** The item mapper of the thread a request is about. */
@@ -531,31 +546,12 @@ export class CodexAgent implements ChatAgent {
 			return { events: [], truncated: false, context: this.context };
 		}
 		try {
-			const { turns, truncated } = await this.recentTurns(this.threadId);
+			const { turns, truncated } = await recentTurns(this.client, this.threadId);
 			return { events: replayTurns(turns), truncated, context: this.context };
 		} catch {
 			this.options.log.warn("could not read the chat history");
 			return { events: [], truncated: false, context: this.context };
 		}
-	}
-
-	/** A thread's last turns, oldest first, and whether older ones exist. */
-	private async recentTurns(
-		threadId: string,
-	): Promise<{ turns: Turn[]; truncated: boolean }> {
-		const client = this.client;
-		if (!client) return { turns: [], truncated: false };
-		const page = parsed(
-			TurnsList,
-			await client.request("thread/turns/list", {
-				threadId,
-				limit: REPLAY_TURNS,
-				sortDirection: "desc",
-				itemsView: "full",
-			}),
-		);
-		if (!page) return { turns: [], truncated: false };
-		return { turns: [...page.data].reverse(), truncated: Boolean(page.nextCursor) };
 	}
 
 	inProgress(): ChatEventBody[] {

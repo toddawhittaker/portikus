@@ -10,6 +10,7 @@ import {
 	type ChatOpenCard,
 	type ChatServerEvent,
 	type ChatSessionRule,
+	type ChatSignIn,
 	type CodingAgent,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
@@ -92,6 +93,8 @@ export class ChatCore {
 	private commands: ChatCommand[] | null = null;
 	private modes: ChatModeInfo[] | null = null;
 	private mcp: ChatMcpServer[] | null = null;
+	/** What the agent last said about the student's sign-in; null until it has. */
+	private signIn: ChatSignIn | null = null;
 	private rules: ChatSessionRule[] = [];
 	/** The tab's swaps so far; null until the first. */
 	private swap: ChatSwapState | null;
@@ -130,6 +133,10 @@ export class ChatCore {
 			this.broadcast({ type: "mcp", servers });
 		},
 		context: (figures) => this.broadcast(this.contextEvent(figures)),
+		signIn: (state) => {
+			this.signIn = state;
+			this.broadcast({ type: "signIn", state });
+		},
 		rules: (rules) => {
 			this.rules = rules;
 			this.broadcast({ type: "rules", rules });
@@ -363,6 +370,8 @@ export class ChatCore {
 			if (this.settings)
 				writeLine(client.socket, this.frame(this.settingsEvent(this.settings)));
 			writeLine(client.socket, this.frame({ type: "rules", rules: this.rules }));
+			if (this.signIn)
+				writeLine(client.socket, this.frame({ type: "signIn", state: this.signIn }));
 			if (context) writeLine(client.socket, this.frame(this.contextEvent(context)));
 		}
 	}
@@ -419,6 +428,10 @@ export class ChatCore {
 		const servers = this.mcp;
 		if (servers && !held.some((event) => event.type === "mcp")) {
 			writeLine(socket, this.frame({ type: "mcp", servers }));
+		}
+		const signIn = this.signIn;
+		if (signIn && !held.some((event) => event.type === "signIn")) {
+			writeLine(socket, this.frame({ type: "signIn", state: signIn }));
 		}
 		// A figure that arrived during the read was already sent, held.
 		const context = history.context;
@@ -528,6 +541,8 @@ export class ChatCore {
 			}
 			case "agent.switch":
 				return this.prepareSwitch(client, message.agent);
+			case "signIn.check":
+				return this.agent.checkSignIn();
 			default:
 				return assertHandled(message);
 		}
