@@ -119,6 +119,21 @@ class FakeQuery {
 		if (this.modelRows === null) throw new Error("unsupported");
 		return this.modelRows;
 	}
+	/** What `mcpServerStatus()` answers; null makes it fail. */
+	mcpRows: Record<string, unknown>[] | null = [];
+	mcpCalls = 0;
+	async mcpServerStatus() {
+		this.mcpCalls += 1;
+		if (this.mcpRows === null) throw new Error("unsupported");
+		return this.mcpRows;
+	}
+	/** A server asks the student for input, as the SDK's callback hears it. */
+	elicit(request: Record<string, unknown> = {}) {
+		return this.options.onElicitation?.(
+			{ serverName: "docs", message: "Your token?", ...request } as never,
+			{ signal: new AbortController().signal, requestId: "r1" },
+		);
+	}
 	close() {
 		this.ended = true;
 		this.wake?.();
@@ -393,7 +408,7 @@ describe("starting", () => {
 describe("attaching", () => {
 	test("the snapshot comes first, then history replayed as events, then the settings", async () => {
 		const client = await attach();
-		await vi.waitFor(() => expect(client.events.length).toBeGreaterThanOrEqual(5));
+		await vi.waitFor(() => expect(client.events.length).toBeGreaterThanOrEqual(7));
 		expect(client.events[0]).toEqual({
 			type: "snapshot",
 			sessionId: ID,
@@ -410,14 +425,15 @@ describe("attaching", () => {
 		]);
 		const seqs = client.events.map((event) => (event as { seq: number }).seq);
 		expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
-		expect(client.events[4]).toMatchObject({
+		expect(client.events[4]).toMatchObject({ type: "modes" });
+		expect(client.events[5]).toMatchObject({
 			type: "settings",
 			agent: "claude",
 			model: "opus",
 			effort: "medium",
 			mode: "auto",
 		});
-		expect(client.events[5]).toMatchObject({ type: "rules", rules: [] });
+		expect(client.events[6]).toMatchObject({ type: "rules", rules: [] });
 	});
 
 	test("events during the transcript read come after the replay, numbered in order, without doubling the partial reply", async () => {
@@ -1154,9 +1170,10 @@ describe("slash commands", () => {
 				description: "Shrink the conversation",
 				argumentHint: "[focus]",
 				terminalOnly: false,
+				prefix: "/",
 			},
-			{ name: "config", description: "Open settings", terminalOnly: true },
-			{ name: "deploy", description: "Ship it", terminalOnly: true },
+			{ name: "config", description: "Open settings", terminalOnly: true, prefix: "/" },
+			{ name: "deploy", description: "Ship it", terminalOnly: true, prefix: "/" },
 		]);
 	});
 
@@ -1195,6 +1212,7 @@ describe("slash commands", () => {
 				description: "Review a PR",
 				argumentHint: "<pr>",
 				terminalOnly: false,
+				prefix: "/",
 			},
 		]);
 		fake.emit({
@@ -2213,5 +2231,211 @@ describe("subagents", () => {
 				status: "error",
 			}),
 		);
+	});
+});
+
+describe("modes", () => {
+	test("a browser gets Claude's five modes before the settings", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const [modes] = ofType(a, "modes");
+		expect(modes?.modes.map((mode) => mode.id)).toEqual([
+			"default",
+			"acceptEdits",
+			"plan",
+			"auto",
+			"bypassPermissions",
+		]);
+		const types = a.events.map((event) => event.type);
+		expect(types.indexOf("modes")).toBeLessThan(types.indexOf("settings"));
+		expect(modes?.modes.find((mode) => mode.id === "bypassPermissions")?.warning).toBe(
+			true,
+		);
+		expect(modes?.modes.find((mode) => mode.id === "plan")?.plan).toBe(true);
+	});
+
+	test("the model list carries each model's efforts and default", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.modelRows = [
+			{
+				value: "opus",
+				displayName: "Opus",
+				description: "",
+				supportedEffortLevels: ["low", "medium", "high"],
+			},
+		];
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		expect(ofType(a, "models")[0]?.models[0]).toMatchObject({
+			efforts: ["low", "medium", "high"],
+			defaultEffort: "medium",
+		});
+	});
+});
+
+describe("permission cards", () => {
+	test("each button carries its decision and a plan card carries the plan", async () => {
+		const SUGGESTION: PermissionUpdate[] = [
+			{
+				type: "addRules",
+				rules: [{ toolName: "Bash", ruleContent: "ls:*" }],
+				behavior: "allow",
+				destination: "session",
+			},
+		];
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		void fake.ask("Bash", { command: "ls" }, "toolu_b", SUGGESTION).result;
+		void fake.ask("ExitPlanMode", { plan: "1. Do it" }, "toolu_p").result;
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(2));
+		const [bash, plan] = ofType(a, "permission.requested");
+		expect(bash?.options.map((o) => o.decision)).toEqual([
+			"allowed",
+			"allowedAlways",
+			"denied",
+		]);
+		expect(plan?.plan).toBe("1. Do it");
+		expect(plan?.options.map((o) => o.decision)).toEqual([
+			"allowed",
+			"allowed",
+			"denied",
+		]);
+		const late = await attach();
+		await vi.waitFor(() => expect(ofType(late, "snapshot")).toHaveLength(1));
+		const open = ofType(late, "snapshot")[0]?.cards ?? [];
+		expect(open.find((card) => card.id === "toolu_p")).toMatchObject({
+			plan: "1. Do it",
+		});
+	});
+});
+
+describe("MCP servers", () => {
+	const ROWS = [
+		{
+			name: "docs",
+			status: "connected",
+			config: { type: "http", url: "https://secret.example/mcp" },
+			error: "token abc",
+			tools: [{ name: "search" }],
+		},
+		{ name: "db", status: "pending" },
+		{ name: "git", status: "failed", error: "spawn ENOENT" },
+		{ name: "cloud", status: "needs-auth" },
+		{ name: "old", status: "disabled" },
+	];
+
+	test("the list is sent at start as names and statuses only", async () => {
+		await host.stop();
+		queries = [];
+		const rows = ROWS;
+		const starting = makeHost();
+		host = starting;
+		// The stand-in query answers from its own field, set before the first read.
+		const original = sdkOf(starting).query;
+		sdkOf(starting).query = ((params) => {
+			const query = original(params) as unknown as FakeQuery;
+			query.mcpRows = rows;
+			return query as unknown as Query;
+		}) as ChatSdk["query"];
+		await starting.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "mcp")).toHaveLength(1));
+		expect(ofType(a, "mcp")[0]?.servers).toEqual([
+			{ name: "docs", status: "connected" },
+			{ name: "db", status: "starting" },
+			{ name: "git", status: "failed" },
+			{ name: "cloud", status: "needsAuth" },
+			{ name: "old", status: "disabled" },
+		]);
+		const wire = JSON.stringify(a.events);
+		expect(wire).not.toContain("secret.example");
+		expect(wire).not.toContain("ENOENT");
+		expect(wire).not.toContain("search");
+	});
+
+	test("it is read again after each turn, and a change reaches every browser", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		const b = await attach();
+		const before = fake.mcpCalls;
+		fake.mcpRows = [{ name: "docs", status: "failed" }];
+		fake.emit({ type: "result", subtype: "success", is_error: false, num_turns: 1 });
+		await vi.waitFor(() => expect(fake.mcpCalls).toBeGreaterThan(before));
+		for (const client of [a, b]) {
+			await vi.waitFor(() =>
+				expect(ofType(client, "mcp").at(-1)?.servers).toEqual([
+					{ name: "docs", status: "failed" },
+				]),
+			);
+		}
+	});
+
+	test("/mcp reads the servers and sends the list, with no turn and no message", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		fake.mcpRows = [{ name: "docs", status: "connected" }];
+		a.send({ type: "send", text: "/mcp", attachments: [] });
+		await vi.waitFor(() =>
+			expect(ofType(a, "mcp").at(-1)?.servers).toEqual([
+				{ name: "docs", status: "connected" },
+			]),
+		);
+		const before = a.events.length;
+		expect(fake.sent).toEqual([]);
+		expect(a.events.slice(before - 1).map((event) => event.type)).not.toContain(
+			"turn.started",
+		);
+		expect(ofType(a, "message").map((m) => m.id)).toEqual(["u1"]);
+	});
+
+	test("/mcp works while a turn runs, and with trailing spaces", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		a.send({ type: "send", text: "work", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(1));
+		fake.mcpRows = [{ name: "git", status: "pending" }];
+		a.send({ type: "send", text: "/mcp  ", attachments: [] });
+		await vi.waitFor(() =>
+			expect(ofType(a, "mcp").at(-1)?.servers).toEqual([
+				{ name: "git", status: "starting" },
+			]),
+		);
+		expect(fake.sent).toHaveLength(1);
+	});
+
+	test("a read that fails keeps the last list, and /mcp tells the sender", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		const b = await attach();
+		fake.mcpRows = [{ name: "docs", status: "connected" }];
+		a.send({ type: "send", text: "/mcp", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "mcp")).toHaveLength(1));
+		fake.mcpRows = null;
+		a.send({ type: "send", text: "/mcp", attachments: [] });
+		await vi.waitFor(() =>
+			expect(ofType(a, "error").at(-1)?.message).toBe(
+				"Could not read the MCP servers.",
+			),
+		);
+		expect(ofType(a, "mcp")).toHaveLength(1);
+		expect(ofType(b, "error")).toEqual([]);
+	});
+
+	test("an MCP server asking for input is declined, and the chat is told to use a terminal", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		const b = await attach();
+		await expect(fake.elicit()).resolves.toEqual({ action: "decline" });
+		await expect(fake.elicit({ mode: "url", url: "https://x.test" })).resolves.toEqual({
+			action: "decline",
+		});
+		for (const client of [a, b]) {
+			await vi.waitFor(() => expect(ofType(client, "error")).toHaveLength(2));
+			expect(ofType(client, "error")[0]?.message).toBe(
+				"An MCP server asked for input. Use a terminal tab to answer it.",
+			);
+		}
+		expect(JSON.stringify(a.events)).not.toContain("Your token?");
 	});
 });

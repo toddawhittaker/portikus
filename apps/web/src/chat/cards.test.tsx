@@ -12,6 +12,7 @@ import {
 	AgentStatusContext,
 	createAgentStatusStore,
 } from "../terminal/codingAgentStatus";
+import { ChatAgentContext } from "./chatAgent";
 import { createChatStore } from "./chatStore";
 import { PermissionCard } from "./PermissionCard";
 import { SessionRules } from "./SessionRules";
@@ -640,4 +641,219 @@ test("a background Agent still launching says so", () => {
 	expect(screen.getByTestId("chat-agent-status").textContent).toBe(
 		"Starting in the background",
 	);
+});
+
+type PermissionCardData = typeof PERMISSION;
+
+/** A Codex card's buttons: ids of the host's own, each saying what it decides. */
+const CODEX_OPTIONS: PermissionCardData["options"] = [
+	{ id: "accept", label: "Allow", decision: "allowed" },
+	{ id: "acceptForSession", label: "Allow for this chat", decision: "allowedAlways" },
+	{ id: "decline", label: "Deny", decision: "denied" },
+];
+
+function codexCard(overrides: Partial<PermissionCardData>): PermissionCardData {
+	return { ...PERMISSION, title: "", options: CODEX_OPTIONS, ...overrides };
+}
+
+function renderFor(agent: "claude" | "codex", card: PermissionCardData) {
+	const onAnswer = vi.fn((_id: string, _extras?: object) => true);
+	render(
+		<ChatAgentContext.Provider value={agent}>
+			<PermissionCard
+				card={card}
+				onAnswer={onAnswer}
+				takeFocus={() => true}
+				waiting={0}
+			/>
+		</ChatAgentContext.Provider>,
+	);
+	return onAnswer;
+}
+
+test("a button's decision, not its id, says which one denies and which lasts", () => {
+	const onAnswer = renderFor("codex", codexCard({ toolName: "commandExecution" }));
+	expect(
+		screen.getByRole("heading", { name: "Codex wants to run a command" }),
+	).toBeTruthy();
+	const lasting = screen.getByTestId("chat-permission-acceptForSession");
+	expect(lasting.className).toContain("pk-chat-always");
+	expect(screen.getByTestId("chat-permission-accept").className).not.toContain(
+		"pk-chat-always",
+	);
+	fireEvent.click(lasting);
+	expect(onAnswer).toHaveBeenLastCalledWith("acceptForSession", {});
+	cleanup();
+	const denied = renderFor("codex", codexCard({ toolName: "commandExecution" }));
+	// Denying opens the reason field, in the agent's name, and sends the host's own id.
+	fireEvent.click(screen.getByTestId("chat-permission-decline"));
+	expect(denied).not.toHaveBeenCalled();
+	fireEvent.change(screen.getByLabelText("Tell Codex what to do instead"), {
+		target: { value: "use ripgrep" },
+	});
+	fireEvent.click(screen.getByTestId("chat-deny-send"));
+	expect(denied).toHaveBeenCalledExactlyOnceWith("decline", { message: "use ripgrep" });
+});
+
+test("Back from the reason field puts focus on the host's own deny button", async () => {
+	renderFor("codex", codexCard({}));
+	fireEvent.click(screen.getByTestId("chat-permission-decline"));
+	fireEvent.click(screen.getByTestId("chat-deny-back"));
+	await vi.waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByTestId("chat-permission-decline")),
+	);
+});
+
+test("a card whose buttons carry no decision still reads Claude's ids", () => {
+	const onAnswer = renderCard({
+		...PERMISSION,
+		options: [
+			{ id: "allow", label: "Allow once" },
+			{ id: "always", label: "Always allow" },
+			{ id: "deny", label: "Deny" },
+		],
+	});
+	expect(screen.getByTestId("chat-permission-always").className).toContain(
+		"pk-chat-always",
+	);
+	fireEvent.click(screen.getByTestId("chat-permission-deny"));
+	expect(onAnswer).not.toHaveBeenCalled();
+	expect(screen.getByLabelText("Tell Claude what to do instead")).toBeTruthy();
+});
+
+test("a card that has a plan shows it, whatever its tool is called", () => {
+	renderFor(
+		"codex",
+		codexCard({
+			toolName: "plan",
+			input: {},
+			plan: "## Steps\n\n1. Write a test\n2. Fix it",
+			options: [
+				{ id: "implement", label: "Yes, implement it", decision: "allowed" },
+				{ id: "stay", label: "No, keep planning", decision: "denied" },
+			],
+		}),
+	);
+	expect(
+		screen.getByRole("heading", { name: "Codex has a plan for you to review" }),
+	).toBeTruthy();
+	expect(screen.getByTestId("chat-plan").tabIndex).toBe(0);
+	expect(screen.getByRole("heading", { name: "Steps" })).toBeTruthy();
+	// Keep planning is a denial, so it asks what to do instead.
+	fireEvent.click(screen.getByRole("button", { name: /keep planning/ }));
+	expect(screen.getByLabelText("Tell Codex what to do instead")).toBeTruthy();
+});
+
+test("an MCP tool asks one question, for either agent", () => {
+	const claude = renderFor("claude", {
+		...PERMISSION,
+		toolName: "mcp__github__create_issue",
+		title: "Allow mcp__github__create_issue?",
+		input: { title: "Bug", labels: ["a"] },
+	});
+	expect(
+		screen.getByRole("heading", { name: "Allow github to run create_issue?" }),
+	).toBeTruthy();
+	// The heading says it all; the host's title is not said again.
+	expect(screen.queryByText("Allow mcp__github__create_issue?")).toBeNull();
+	expect(document.querySelector(".pk-chat-fields")?.textContent).toContain("title");
+	expect(claude).not.toHaveBeenCalled();
+	cleanup();
+	renderFor(
+		"codex",
+		codexCard({
+			toolName: "mcpToolCall",
+			title: "Allow github?",
+			input: { server: "github", tool: "create_issue", arguments: { title: "Bug" } },
+		}),
+	);
+	expect(
+		screen.getByRole("heading", { name: "Allow github to run create_issue?" }),
+	).toBeTruthy();
+	expect(document.querySelector(".pk-chat-fields")?.textContent).toContain("Bug");
+	expect(document.querySelector(".pk-chat-fields")?.textContent).not.toContain(
+		"server",
+	);
+	cleanup();
+	renderFor(
+		"codex",
+		codexCard({ toolName: "mcpToolCall", input: { server: "s", tool: "t" } }),
+	);
+	expect(screen.getByText("No arguments")).toBeTruthy();
+});
+
+test("a Codex file change shows each file's diff and says what it would do", () => {
+	renderFor(
+		"codex",
+		codexCard({
+			toolName: "fileChange",
+			input: {
+				changes: [
+					{ path: "/w/src/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-x\n+y\n" },
+				],
+			},
+		}),
+	);
+	expect(
+		screen.getByRole("heading", { name: "Codex wants to edit a file" }),
+	).toBeTruthy();
+	expect(document.querySelector(".pk-chat-card-path")?.textContent).toBe("/w/src/a.ts");
+	expect(screen.getByTestId("chat-diff").textContent).toContain("+ y");
+	cleanup();
+	renderFor(
+		"codex",
+		codexCard({
+			toolName: "fileChange",
+			input: {
+				changes: [
+					{ path: "a", kind: "add", diff: "1\n" },
+					{ path: "b", kind: "update", movePath: "c", diff: "" },
+				],
+			},
+		}),
+	);
+	expect(
+		screen.getByRole("heading", { name: "Codex wants to change 2 files" }),
+	).toBeTruthy();
+	expect(
+		[...document.querySelectorAll(".pk-chat-card-path")].map((one) => one.textContent),
+	).toEqual(["a", "b → c"]);
+	cleanup();
+	for (const [kind, words] of [
+		["add", "create a file"],
+		["delete", "delete a file"],
+		["update", "edit a file"],
+	] as const) {
+		renderFor(
+			"codex",
+			codexCard({
+				toolName: "fileChange",
+				input: { changes: [{ path: "a", kind, diff: "x\n" }] },
+			}),
+		);
+		expect(
+			screen.getByRole("heading", { name: `Codex wants to ${words}` }),
+		).toBeTruthy();
+		cleanup();
+	}
+	renderFor("codex", codexCard({ toolName: "dynamicToolCall", input: {} }));
+	expect(
+		screen.getByRole("heading", { name: "Codex wants to use dynamicToolCall" }),
+	).toBeTruthy();
+});
+
+test("Claude's own headings are unchanged", () => {
+	for (const [toolName, input, heading] of [
+		[
+			"Edit",
+			{ file_path: "a", old_string: "x", new_string: "y" },
+			"Claude wants to edit a file",
+		],
+		["Write", { file_path: "a", content: "x" }, "Claude wants to write a file"],
+		["WebFetch", { url: "u" }, "Claude wants to use WebFetch"],
+	] as const) {
+		renderFor("claude", { ...PERMISSION, toolName, input });
+		expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
+		cleanup();
+	}
 });

@@ -1,4 +1,4 @@
-import type { ChatQuestion } from "@portikus/contracts";
+import type { ChatCardQuestion } from "@portikus/contracts";
 
 /** What the student has chosen and written for one question. */
 export interface QuestionDraft {
@@ -24,14 +24,16 @@ export const emptyDraft: QuestionDraft = {
  * The answer a draft gives, as Claude reads it: the picked labels and any
  * "Other" text, joined with commas. Empty when the draft gives none.
  */
-export function draftAnswer(question: ChatQuestion, draft: QuestionDraft): string {
+export function draftAnswer(question: ChatCardQuestion, draft: QuestionDraft): string {
+	// With nothing to pick, the student's own words are the whole answer.
+	if (question.options.length === 0) return draft.other.trim();
 	const other = draft.otherPicked ? draft.other.trim() : "";
 	if (!question.multiSelect) return draft.otherPicked ? other : (draft.picked[0] ?? "");
 	return [...draft.picked, other].filter((part) => part !== "").join(", ");
 }
 
 /** The student may move on: the question is answered or skipped. */
-export function isSettled(question: ChatQuestion, draft: QuestionDraft): boolean {
+export function isSettled(question: ChatCardQuestion, draft: QuestionDraft): boolean {
 	return draft.skipped || draftAnswer(question, draft) !== "";
 }
 
@@ -46,7 +48,7 @@ export type QuestionAnswer =
  * unanswered; its note goes with it.
  */
 export function buildQuestionAnswer(
-	questions: readonly ChatQuestion[],
+	questions: readonly ChatCardQuestion[],
 	drafts: readonly QuestionDraft[],
 ): QuestionAnswer {
 	const answers: Record<string, string> = {};
@@ -88,6 +90,20 @@ export function askedQuestions(input: unknown): string[] | null {
 			: null,
 	);
 	return texts.every((text) => text !== null) ? (texts as string[]) : null;
+}
+
+/** The text of each question an AskUserQuestion call marks `secret`; its answer is never shown. */
+export function secretQuestions(input: unknown): Set<string> {
+	const secrets = new Set<string>();
+	if (typeof input !== "object" || input === null) return secrets;
+	const questions = (input as { questions?: unknown }).questions;
+	if (!Array.isArray(questions)) return secrets;
+	for (const one of questions) {
+		if (typeof one === "object" && one !== null && one.secret === true) {
+			if (typeof one.question === "string") secrets.add(one.question);
+		}
+	}
+	return secrets;
 }
 
 /**

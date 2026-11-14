@@ -1,15 +1,16 @@
 /**
- * Claude asking to use a tool (SPEC.md §10.8): what it wants to do, in the
+ * The agent asking to use a tool (SPEC.md §10.8): what it wants to do, in the
  * form a student checks fastest (a command as the command, an edit as a
- * diff), and one button per option the agent offers. `ExitPlanMode` carries
- * a plan, which is shown as Markdown.
+ * diff), and one button per option the agent offers. A card with a `plan`
+ * shows it as Markdown. What a button means comes from its `decision`, not
+ * from its id.
  *
  * With the keyboard inside the card, 1, 2 and 3 choose its options, each
  * button showing its number. The keys act only inside the card, never from
  * the message box, so typing there cannot grant a permission (SPEC.md §25.8).
  *
  * Deny, and "No, keep planning", first open a one-line field for telling
- * Claude what to do instead. Enter sends it (empty keeps the plain denial);
+ * the agent what to do instead. Enter sends it (empty keeps the plain denial);
  * Escape goes back to the buttons. The host reads a plan's mode from the option.
  */
 import type { ChatOpenCard } from "@portikus/contracts";
@@ -17,8 +18,9 @@ import { Button, TextField } from "@portikus/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
+import { type ChatAgentNames, useChatAgent } from "./chatAgent.js";
 import { NeedsInputTag } from "./NeedsInputTag.js";
-import { toolView } from "./toolView.js";
+import { type FileChangeView, mcpCall, toolView } from "./toolView.js";
 import { waitingText } from "./waiting.js";
 import "./permissions.css";
 import "./turn.css";
@@ -29,8 +31,21 @@ export interface PermissionAnswerExtras {
 	message?: string;
 }
 
-/** The option that opens the "what to do instead" field. */
-const DENY = "deny";
+/** An option as the card draws it. */
+type Option = PermissionCardData["options"][number];
+
+/**
+ * Whether choosing the option denies the call. A host from before buttons
+ * carried a decision names it by id.
+ */
+function isDeny(option: Option): boolean {
+	return option.decision ? option.decision === "denied" : option.id === "deny";
+}
+
+/** Whether the option lasts beyond this one call, which the card sets apart. */
+function isLasting(option: Option): boolean {
+	return option.decision ? option.decision === "allowedAlways" : option.id === "always";
+}
 
 export interface PermissionCardProps {
 	card: PermissionCardData;
@@ -45,7 +60,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** The plan a card asks the student to approve; a host from before `plan` put it in the tool's input. */
 function planOf(card: PermissionCardData): string | null {
+	if (card.plan !== undefined) return card.plan;
 	if (card.toolName !== "ExitPlanMode" || !isRecord(card.input)) return null;
 	return typeof card.input.plan === "string" ? card.input.plan : null;
 }
@@ -84,6 +101,9 @@ function Body({ card }: { card: PermissionCardData }) {
 		);
 	}
 	const view = toolView(card.toolName, card.input, card.title);
+	if (mcpCall(card.toolName, card.input) && view.detail === null) {
+		return <p className="pk-chat-muted">No arguments</p>;
+	}
 	switch (view.detail?.kind) {
 		case "command":
 			return (
@@ -107,24 +127,56 @@ function Body({ card }: { card: PermissionCardData }) {
 					<CodeBlock text={view.detail.content} />
 				</>
 			);
+		case "files":
+			return view.detail.files.map((file) => (
+				<div key={file.path}>
+					<p className="pk-chat-card-path pk-mono-body">
+						{file.movePath ? `${file.path} \u2192 ${file.movePath}` : file.path}
+					</p>
+					<DiffBlock lines={file.lines} path={file.movePath ?? file.path} />
+				</div>
+			));
+		case "arguments":
+			return <ToolInput input={view.detail.value} />;
 		default:
 			return <ToolInput input={card.input} />;
 	}
 }
 
-function heading(card: PermissionCardData): string {
-	if (planOf(card) !== null) return "Claude has a plan for you to review";
+function heading(card: PermissionCardData, { name }: ChatAgentNames): string {
+	if (planOf(card) !== null) return `${name} has a plan for you to review`;
+	const mcp = mcpCall(card.toolName, card.input);
+	if (mcp) return `Allow ${mcp.server} to run ${mcp.tool}?`;
+	const view = toolView(card.toolName, card.input, card.title);
+	if (view.detail?.kind === "files")
+		return `${name} wants to ${fileChangeWords(view.detail.files)}`;
 	switch (card.toolName) {
 		case "Bash":
-			return "Claude wants to run a command";
+		case "commandExecution":
+			return `${name} wants to run a command`;
 		case "Edit":
 		case "MultiEdit":
-			return "Claude wants to edit a file";
+			return `${name} wants to edit a file`;
 		case "Write":
-			return "Claude wants to write a file";
+			return `${name} wants to write a file`;
 		default:
-			return `Claude wants to use ${card.toolName}`;
+			return `${name} wants to use ${card.toolName}`;
 	}
+}
+
+const FILE_CHANGE_ACTION = {
+	add: "create a file",
+	delete: "delete a file",
+	update: "edit a file",
+	move: "move a file",
+} as const;
+
+/** What a file-change card asks to do, to one file or to several. */
+function fileChangeWords(files: FileChangeView[]): string {
+	const [first] = files;
+	return files.length === 1 && first
+		? FILE_CHANGE_ACTION[first.kind]
+		: `change ${files.length} files`;
 }
 
 export function PermissionCard({
@@ -140,23 +192,29 @@ export function PermissionCard({
 	const [reasonOpen, setReasonOpen] = useState(false);
 	const [reason, setReason] = useState("");
 	const reasonId = useId();
-	const title = heading(card);
+	const names = useChatAgent();
+	const title = heading(card, names);
+	const denial = card.options.find(isDeny);
 	// The host's title adds something only when the heading does not already say it.
 	const subtitle =
-		card.title && !card.title.startsWith(card.toolName) ? card.title : null;
+		card.title &&
+		!card.title.startsWith(card.toolName) &&
+		mcpCall(card.toolName, card.input) === null
+			? card.title
+			: null;
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the card first appears
 	useEffect(() => {
 		if (takeFocus()) actions.current?.querySelector<HTMLElement>("button")?.focus();
 	}, []);
 
-	function choose(optionId: string) {
+	function choose(option: Option) {
 		if (chosen !== null) return;
-		if (optionId === DENY) {
+		if (isDeny(option)) {
 			setReasonOpen(true);
 			return;
 		}
-		send(optionId, {});
+		send(option.id, {});
 	}
 
 	/** Close the reason field and put focus back on the option that opened it. */
@@ -166,7 +224,7 @@ export function PermissionCard({
 		setReason("");
 		requestAnimationFrame(() =>
 			actions.current
-				?.querySelector<HTMLElement>(`[data-testid="chat-permission-${DENY}"]`)
+				?.querySelector<HTMLElement>(`[data-testid="chat-permission-${denial?.id}"]`)
 				?.focus(),
 		);
 	}
@@ -195,7 +253,7 @@ export function PermissionCard({
 				const option = card.options[at];
 				if (!option) return;
 				event.preventDefault();
-				choose(option.id);
+				choose(option);
 			}}
 		>
 			<header className="pk-chat-card-head">
@@ -220,14 +278,14 @@ export function PermissionCard({
 					}}
 					onSubmit={(event) => {
 						event.preventDefault();
-						if (chosen !== null) return;
+						if (chosen !== null || !denial) return;
 						const text = reason.trim();
-						send(DENY, text ? { message: text } : {});
+						send(denial.id, text ? { message: text } : {});
 					}}
 				>
 					<TextField
 						id={reasonId}
-						label="Tell Claude what to do instead"
+						label={`Tell ${names.name} what to do instead`}
 						hint="Optional. Press Enter to send, Escape to go back."
 						value={reason}
 						maxLength={2000}
@@ -240,7 +298,7 @@ export function PermissionCard({
 						<Button
 							type="submit"
 							variant="primary"
-							loading={chosen === DENY}
+							loading={chosen === denial?.id}
 							data-testid="chat-deny-send"
 						>
 							{reason.trim() ? "Send" : "Deny"}
@@ -265,10 +323,10 @@ export function PermissionCard({
 						variant={at === 0 ? "primary" : "secondary"}
 						loading={chosen === option.id}
 						aria-disabled={chosen !== null && chosen !== option.id ? true : undefined}
-						className={option.id === "always" ? "pk-chat-always" : undefined}
+						className={isLasting(option) ? "pk-chat-always" : undefined}
 						data-testid={`chat-permission-${option.id}`}
 						aria-keyshortcuts={String(at + 1)}
-						onClick={() => choose(option.id)}
+						onClick={() => choose(option)}
 					>
 						{/* The button's aria-keyshortcuts names the key; the cap is for sight only. */}
 						<span className="pk-turn-key" aria-hidden={true}>

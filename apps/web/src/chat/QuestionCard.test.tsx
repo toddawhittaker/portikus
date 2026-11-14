@@ -1,6 +1,7 @@
-import type { ChatOpenCard } from "@portikus/contracts";
+import type { ChatCardQuestion, ChatOpenCard } from "@portikus/contracts";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { ChatAgentContext } from "./chatAgent";
 import { QuestionCard } from "./QuestionCard";
 
 afterEach(cleanup);
@@ -253,4 +254,94 @@ test("an extra action sits first in the footer, before Skip all", () => {
 	).map((button) => button.textContent);
 	expect(buttons[0]).toBe("Elsewhere");
 	expect(buttons[1]).toBe("Skip all");
+});
+
+function drawFor(
+	questions: Extract<ChatOpenCard, { type: "question" }>["questions"],
+	agent: "claude" | "codex" = "codex",
+	onAnswer = vi.fn(
+		(_answers: Record<string, string>, _notes?: Record<string, string>) => true,
+	),
+) {
+	render(
+		<ChatAgentContext.Provider value={agent}>
+			<QuestionCard
+				card={{ type: "question", id: "q9", questions }}
+				onAnswer={onAnswer}
+				takeFocus={() => true}
+				waiting={0}
+			/>
+		</ChatAgentContext.Provider>,
+	);
+	return onAnswer;
+}
+
+const FREE_TEXT = {
+	question: "Which branch should I use?",
+	header: "Branch",
+	multiSelect: false,
+	options: [],
+};
+
+test("a question with no options is one text field, with no list and no note", () => {
+	const onAnswer = drawFor([FREE_TEXT]);
+	expect(screen.getByRole("region", { name: "Codex's question" })).toBeTruthy();
+	const field = screen.getByRole("textbox", { name: "Which branch should I use?" });
+	expect((field as HTMLInputElement).type).toBe("text");
+	expect(document.activeElement).toBe(field);
+	expect(screen.queryAllByRole("radio")).toHaveLength(0);
+	expect(screen.queryByText("Other")).toBeNull();
+	expect(screen.queryByTestId("chat-question-add-note")).toBeNull();
+	// Nothing typed: Submit says what is missing and sends nothing.
+	fireEvent.click(submit());
+	expect(onAnswer).not.toHaveBeenCalled();
+	expect(screen.getByRole("alert").textContent).toContain(
+		"Pick an answer or write your own",
+	);
+	// Enter in the field submits, as it does on an option.
+	fireEvent.change(field, { target: { value: "  main  " } });
+	fireEvent.keyDown(field, { key: "Enter" });
+	expect(onAnswer).toHaveBeenCalledExactlyOnceWith(
+		{ "Which branch should I use?": "main" },
+		undefined,
+	);
+});
+
+test("a secret question is a password field that is not echoed anywhere", () => {
+	const onAnswer = drawFor([{ ...FREE_TEXT, question: "API key?", secret: true }]);
+	const field = screen.getByLabelText("API key?") as HTMLInputElement;
+	expect(field.type).toBe("password");
+	expect(field.autocomplete).toBe("off");
+	expect(field.getAttribute("aria-describedby")).toBeTruthy();
+	expect(
+		screen.getByText(/Hidden as you type\. It goes to Codex and is not shown/),
+	).toBeTruthy();
+	fireEvent.change(field, { target: { value: "sk-top-secret" } });
+	// Typed text is in the field's value only, never in the page's text.
+	expect(document.body.textContent).not.toContain("sk-top-secret");
+	fireEvent.click(submit());
+	expect(onAnswer).toHaveBeenCalledWith({ "API key?": "sk-top-secret" }, undefined);
+});
+
+test("a question with no options can be skipped, and one with options still works", () => {
+	const onAnswer = drawFor([FREE_TEXT]);
+	fireEvent.click(screen.getByTestId("chat-question-skip"));
+	expect(onAnswer).toHaveBeenCalledExactlyOnceWith({}, undefined);
+	cleanup();
+	// A free question after one with options moves the keyboard to its field.
+	drawFor([QUESTION.questions[0] as ChatCardQuestion, FREE_TEXT]);
+	fireEvent.click(screen.getByRole("radio", { name: /Grid/ }));
+	fireEvent.click(next());
+	expect(screen.getByRole("textbox", { name: FREE_TEXT.question })).toBeTruthy();
+	expect(document.activeElement).toBe(
+		screen.getByRole("textbox", { name: FREE_TEXT.question }),
+	);
+});
+
+test("Claude's question card names Claude", () => {
+	drawFor([QUESTION.questions[0] as ChatCardQuestion], "claude");
+	expect(screen.getByRole("region", { name: "Claude's question" })).toBeTruthy();
+	cleanup();
+	drawFor([...QUESTION.questions], "claude");
+	expect(screen.getByRole("region", { name: "Claude's questions" })).toBeTruthy();
 });

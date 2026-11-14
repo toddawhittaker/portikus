@@ -200,3 +200,68 @@ test("reads, commands and other items are not changes", () => {
 		]),
 	).toEqual([{ path: "empty.ts", added: 0, removed: 0 }]);
 });
+
+const change = (path: string, kind: string, diff: string, movePath?: string) => ({
+	path,
+	kind,
+	diff,
+	...(movePath ? { movePath } : {}),
+});
+
+test("a Codex file change counts each file it added, edited, moved and deleted", () => {
+	expect(
+		changedFiles(
+			[
+				call(
+					"fileChange",
+					{
+						changes: [
+							change(
+								"/home/student/projects/demo/src/a.ts",
+								"update",
+								"@@ -1 +1,2 @@\n-x\n+y\n+z\n",
+							),
+							change("/home/student/projects/demo/new.md", "add", "# Hi\n\nthere\n"),
+							change("/home/student/projects/demo/old.md", "delete", "a\nb\n"),
+							change(
+								"/home/student/projects/demo/b.ts",
+								"update",
+								"@@ -1 +1 @@\n-1\n+2\n",
+								"/home/student/projects/demo/c.ts",
+							),
+						],
+					},
+					"done",
+					"fc1",
+				),
+				// The same file again adds to its entry.
+				call(
+					"fileChange",
+					{ changes: [change("src/a.ts", "update", "@@ -1 +1 @@\n-y\n+w\n")] },
+					"done",
+					"fc2",
+				),
+			],
+			"demo",
+		),
+	).toEqual([
+		{ path: "src/a.ts", added: 3, removed: 2 },
+		{ path: "new.md", added: 3, removed: 0 },
+		// A deleted file counts, with every line it had as removed.
+		{ path: "old.md", added: 0, removed: 2 },
+		// A moved file is under its new name.
+		{ path: "c.ts", added: 1, removed: 1 },
+	]);
+});
+
+test("a Codex file change that is unfinished or unreadable changes nothing", () => {
+	const input = { changes: [change("a.ts", "add", "x\n")] };
+	expect(
+		changedFiles([
+			call("fileChange", input, "error", "1"),
+			call("fileChange", input, "running", "2"),
+			call("fileChange", { changes: [] }, "done", "3"),
+			call("fileChange", "nonsense", "done", "4"),
+		]),
+	).toEqual([]);
+});

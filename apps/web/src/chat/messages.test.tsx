@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock } from "./CodeBlocks.js";
 import { COPIED, COPIED_FOR_MS, NOT_COPIED } from "./CopyButton.js";
+import { ChatAgentContext } from "./chatAgent.js";
 import type {
 	ChatItem,
 	ChatMessageItem,
@@ -672,4 +673,172 @@ test("a finished turn folds the decision line into Worked for with its tool call
 	expect(within(worked).getByTestId("chat-decision").textContent).toBe(
 		"Allowed: npm test",
 	);
+});
+
+function codexList(items: ChatItem[], turns = {}) {
+	return render(
+		<ChatAgentContext.Provider value="codex">
+			<MessageList
+				items={items}
+				turns={turns}
+				currentTurnId={null}
+				truncated={false}
+				asking={new Set()}
+			/>
+		</ChatAgentContext.Provider>,
+	);
+}
+
+test("a Codex chat's turns carry Codex's byline, and a sent-while-working note names it", () => {
+	codexList([
+		message("user", "Hello", { whileWorking: true }),
+		message("assistant", "Hi", { turnId: "t1" }),
+	]);
+	expect(
+		screen.getByTestId("chat-turn").querySelector(".pk-chat-author")?.textContent,
+	).toBe("Codex");
+	expect(screen.getByTestId("chat-sent-while-working").textContent).toBe(
+		"Sent while Codex was working",
+	);
+});
+
+test("a run of Codex tools is counted and named in a student's words", () => {
+	codexList([
+		tool(
+			"commandExecution",
+			{ command: "ls", actions: [] },
+			{ key: "1", id: "1", status: "done" },
+		),
+		tool("fileChange", { changes: [] }, { key: "2", id: "2", status: "done" }),
+		tool(
+			"mcpToolCall",
+			{ server: "s", tool: "lookup", arguments: {} },
+			{ key: "3", id: "3", status: "done" },
+		),
+	]);
+	expect(screen.getByTestId("chat-tool-group-what").textContent).toBe(
+		"Bash, File change, lookup",
+	);
+});
+
+test("a running Codex tool is told as it happens, in the Working line", () => {
+	running(
+		[
+			tool(
+				"commandExecution",
+				{ command: "cat a.ts", actions: [{ type: "read", path: "src/a.ts" }] },
+				{ key: "1", id: "1" },
+			),
+		],
+		Date.now() - 5_000,
+	);
+	expect(screen.getByTestId("chat-working").textContent).toContain("Reading a.ts");
+});
+
+test("an answered Codex card leaves its line, in words, for a plan, an MCP call and a file change", () => {
+	codexList([
+		tool(
+			"plan",
+			{ steps: [{ step: "a", status: "pending" }] },
+			{ key: "p", id: "p", status: "done", decision: "allowed" },
+		),
+		tool(
+			"plan",
+			{ steps: [{ step: "a", status: "pending" }] },
+			{ key: "k", id: "k", status: "done", decision: "denied" },
+		),
+		tool(
+			"mcpToolCall",
+			{ server: "github", tool: "create_issue", arguments: { title: "Bug" } },
+			{ key: "m", id: "m", status: "done", decision: "allowedAlways" },
+		),
+		tool(
+			"fileChange",
+			{ changes: [{ path: "/w/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-x\n+y\n" }] },
+			{ key: "f", id: "f", status: "done", decision: "denied" },
+		),
+	]);
+	expect(decisionLines()).toEqual([
+		"Plan approved",
+		"Kept planning",
+		"Allowed for this chat: create_issue · github",
+		"Denied: /w/a.ts",
+	]);
+});
+
+test("a Codex file change is counted under the turn, deletes included", () => {
+	const open = vi.fn();
+	finished(
+		[
+			tool(
+				"fileChange",
+				{
+					changes: [
+						{
+							path: `${ROOT}/src/a.ts`,
+							kind: "update",
+							diff: "@@ -1 +1,2 @@\n-x\n+y\n+z\n",
+						},
+						{ path: `${ROOT}/old.ts`, kind: "delete", diff: "1\n2\n3\n" },
+					],
+				},
+				{ key: "fc", id: "fc", status: "done" },
+			),
+			message("assistant", "Done", { turnId: "t1" }),
+		],
+		{ slug: "demo", open },
+	);
+	const changed = screen.getByTestId("chat-files-changed");
+	expect(changed.querySelector("summary")?.textContent).toBe(
+		"2 files changed+2 −4, 2 lines added, 4 lines removed",
+	);
+	expect(
+		within(changed)
+			.getAllByTestId("chat-changed-file")
+			.map((one) => one.textContent),
+	).toEqual([
+		"src/a.ts+2 −1, 2 lines added, 1 line removed",
+		"old.ts+0 −3, 0 lines added, 3 lines removed",
+	]);
+});
+
+const ASKED_SECRET = {
+	questions: [
+		{
+			question: "API key?",
+			header: "Key",
+			multiSelect: false,
+			options: [],
+			secret: true,
+		},
+		{ question: "Which branch?", header: "Branch", multiSelect: false, options: [] },
+	],
+};
+
+function asked(output: string) {
+	codexList([
+		tool("AskUserQuestion", ASKED_SECRET, {
+			key: "q",
+			id: "q",
+			status: "done",
+			output: [{ type: "text", text: output }],
+		}),
+	]);
+	return screen.getByTestId("chat-asked");
+}
+
+test("a secret answer is never drawn in the conversation, though the branch's is", () => {
+	const answers = asked('"API key?"="sk-top-secret", "Which branch?"="main"');
+	expect(answers.textContent).not.toContain("sk-top-secret");
+	expect(
+		within(answers)
+			.getAllByRole("definition")
+			.map((one) => one.textContent),
+	).toEqual(["Answered (not shown)", "main"]);
+});
+
+test("a result read as one text is not shown at all when any question was secret", () => {
+	const answers = asked("User says: sk-top-secret");
+	expect(answers.textContent).not.toContain("sk-top-secret");
+	expect(answers.textContent).toContain("Answered (not shown)");
 });

@@ -1,23 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { PERMISSION_OPTION } from "./claude-adapter.js";
-import {
-	DecisionMemory,
-	decisionForOption,
-	MAX_REMEMBERED_DECISIONS,
-} from "./decisions.js";
+import { DecisionMemory, MAX_REMEMBERED_DECISIONS } from "./decisions.js";
 
 const started = (id: string) =>
 	({ type: "tool.started", id, name: "Bash", title: "Bash", input: {} }) as const;
-
-describe("decisionForOption", () => {
-	test("each permission option maps to a fixed word", () => {
-		expect(decisionForOption(PERMISSION_OPTION.allowOnce)).toBe("allowed");
-		expect(decisionForOption(PERMISSION_OPTION.allowAlways)).toBe("allowedAlways");
-		expect(decisionForOption(PERMISSION_OPTION.deny)).toBe("denied");
-		expect(decisionForOption(PERMISSION_OPTION.planAcceptEdits)).toBe("allowed");
-		expect(decisionForOption(PERMISSION_OPTION.planAskEdits)).toBe("allowed");
-	});
-});
 
 describe("DecisionMemory", () => {
 	test("replays a decision only for a tool call the history shows", () => {
