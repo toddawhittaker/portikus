@@ -25,7 +25,7 @@ import {
 	MAX_CHAT_TEXT_CHARS,
 } from "@portikus/contracts";
 import { Icon, IconButton } from "@portikus/ui";
-import type { Editor, JSONContent } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import {
 	type DragEvent,
 	type FormEvent,
@@ -72,14 +72,7 @@ import {
 	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
-import {
-	atEdge,
-	type Browsing,
-	plainDoc,
-	type Recall,
-	sentHistory,
-	stepHistory,
-} from "./composerHistory.js";
+import { useComposerHistory } from "./composerHistory.js";
 import { modeOf } from "./models.js";
 import type { ReadAloud } from "./readAloud.js";
 import { isShellCommand } from "./shellCommand.js";
@@ -209,15 +202,7 @@ export function Composer({
 	const host = useRef<HTMLDivElement | null>(null);
 	const editor = useRef<Editor | null>(null);
 	const picker = useRef<HTMLInputElement | null>(null);
-	/**
-	 * Messages sent in this page, by text, to bring back with their formatting;
-	 * one from before a reload comes back as plain text. Never stored (SPEC.md §25.10).
-	 */
-	const formatted = useRef(new Map<string, JSONContent>());
-	/** Where Up and Down have taken the student in the history, or null when not browsing. */
-	const browsing = useRef<Browsing | null>(null);
-	/** A message is being put in the box, which must not open the menu its first word asks for. */
-	const recalling = useRef(false);
+	const history = useComposerHistory(store);
 	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
 	const stopFocused = useRef(false);
 	const [optionsOpen, setOptionsOpen] = useState(false);
@@ -342,9 +327,7 @@ export function Composer({
 		if (editor.current) forgetLongPaste(editor.current);
 		lastLongPaste.current = null;
 		setError("");
-		browsing.current = null;
-		if (text.trim() !== "" && editor.current)
-			formatted.current.set(text, editor.current.getJSON());
+		if (editor.current) history.sent(editor.current, text);
 		setSending({
 			seq,
 			text,
@@ -399,7 +382,7 @@ export function Composer({
 
 	/** A menu opened or changed, or the menu of kind `closed` shut. */
 	function onMenu(next: ComposerMenu | null, closed?: ComposerMenuKind) {
-		if (recalling.current && next) return;
+		if (history.recalling.current && next) return;
 		setMenu((now) => next ?? (now?.kind === closed ? null : now));
 	}
 
@@ -471,39 +454,6 @@ export function Composer({
 		return false;
 	}
 
-	/** Put what the history holds in the box, with the cursor at its end. */
-	function show(box: Editor, what: Recall) {
-		const content =
-			"draft" in what
-				? what.draft
-				: (formatted.current.get(what.text) ?? plainDoc(what.text));
-		recalling.current = true;
-		try {
-			box.chain().setContent(content, { emitUpdate: true }).focus("end").run();
-		} finally {
-			recalling.current = false;
-		}
-	}
-
-	/** Up on the first line, or Down on the last, walks the history; false leaves the key to the box. */
-	function recall(box: Editor, direction: "up" | "down"): boolean {
-		if (!atEdge(box.view, direction)) return false;
-		const step = stepHistory(
-			browsing.current,
-			direction,
-			sentHistory(store.getState().items, sending?.text ?? null),
-			{ text: composerText(box), json: box.getJSON() },
-		);
-		if (!step) return false;
-		if (step.show) show(box, step.show);
-		// What the box reads back is what an edit is told from.
-		browsing.current = step.browsing && {
-			...step.browsing,
-			shown: composerText(box),
-		};
-		return true;
-	}
-
 	function onKeyDown(event: KeyboardEvent): boolean {
 		const plain = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
 		// Escape closes the options panel before it stops the agent.
@@ -528,7 +478,7 @@ export function Composer({
 			event.key === "ArrowUp" ? "up" : event.key === "ArrowDown" ? "down" : null;
 		// An open menu keeps the arrows: its list moves, the history stays.
 		if (plain && arrow && box && !event.isComposing && menu === null && !menuOpen()) {
-			if (recall(box, arrow)) {
+			if (history.recall(box, arrow, sending?.text ?? null)) {
 				event.preventDefault();
 				return true;
 			}

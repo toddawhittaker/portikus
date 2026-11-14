@@ -6,10 +6,12 @@
  * a resumed chat has them; attachments are not recalled. Held in memory only
  * (SPEC.md §25.10, ADR 0012).
  */
-import type { JSONContent } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import { type EditorState, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import type { ChatItem } from "./chatStore.js";
+import { useRef } from "react";
+import type { ChatItem, ChatStore } from "./chatStore.js";
+import { composerText } from "./composerEditor.js";
 
 /** Where the student is in the history, from the oldest message at 0. */
 export interface Browsing {
@@ -149,4 +151,64 @@ export function atEdge(view: EditorView, direction: "up" | "down"): boolean {
 		// No layout to measure (a test document): the block's own edge is the line's.
 		return true;
 	}
+}
+
+/**
+ * The box's history for one chat: what the student has sent, as the
+ * conversation holds it, and where Up and Down have taken them in it.
+ */
+export function useComposerHistory(store: ChatStore) {
+	/**
+	 * Messages sent in this page, by text, to bring back with their formatting;
+	 * one from before a reload comes back as plain text. Never stored (SPEC.md §25.10).
+	 */
+	const formatted = useRef(new Map<string, JSONContent>());
+	/** Where the student is in the history, or null when not browsing. */
+	const browsing = useRef<Browsing | null>(null);
+	/** A message is being put in the box, which must not open the menu its first word asks for. */
+	const recalling = useRef(false);
+
+	/** Put what the history holds in the box, with the cursor at its end. */
+	function show(box: Editor, what: Recall) {
+		const content =
+			"draft" in what
+				? what.draft
+				: (formatted.current.get(what.text) ?? plainDoc(what.text));
+		recalling.current = true;
+		try {
+			box.chain().setContent(content, { emitUpdate: true }).focus("end").run();
+		} finally {
+			recalling.current = false;
+		}
+	}
+
+	return {
+		recalling,
+		/** A message went out: the box starts afresh, and its formatting is kept to bring back. */
+		sent(box: Editor, text: string) {
+			browsing.current = null;
+			if (text.trim() !== "") formatted.current.set(text, box.getJSON());
+		},
+		/**
+		 * Up on the first line, or Down on the last, walks the history; false
+		 * leaves the key to the box. `inFlight` is a message sent and not yet echoed.
+		 */
+		recall(box: Editor, direction: "up" | "down", inFlight: string | null): boolean {
+			if (!atEdge(box.view, direction)) return false;
+			const step = stepHistory(
+				browsing.current,
+				direction,
+				sentHistory(store.getState().items, inFlight),
+				{ text: composerText(box), json: box.getJSON() },
+			);
+			if (!step) return false;
+			if (step.show) show(box, step.show);
+			// What the box reads back is what an edit is told from.
+			browsing.current = step.browsing && {
+				...step.browsing,
+				shown: composerText(box),
+			};
+			return true;
+		},
+	};
 }
