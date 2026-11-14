@@ -10,7 +10,6 @@ import {
 	type ChatOpenCard,
 	type ChatServerEvent,
 	type ChatSessionRule,
-	CODING_AGENT_LABEL,
 	type CodingAgent,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
@@ -24,10 +23,11 @@ import type {
 	ChatSink,
 	ContextFigures,
 } from "./agent.js";
-import { lastTurns, newHandoffId, turnsFromEvents } from "./handoff.js";
+import { capLog, lastTurns, newHandoffId, turnsFromEvents } from "./handoff.js";
 import { OpenCards } from "./open-cards.js";
 import {
 	type ChatSwapState,
+	dropPendingSwitch,
 	readChatSession,
 	writePendingSwitch,
 	writeSwapState,
@@ -44,11 +44,22 @@ export interface ChatCoreOptions {
 	 * whether this start is a swap (SPEC.md §10.8).
 	 */
 	swap?: { state: ChatSwapState | null; switched: boolean };
+	/** How long a host that prepared a swap waits to be replaced; a test shortens it. */
+	replacedWithinMs?: number;
 }
 
 /** Why a chat cannot swap agents now; one sentence the student can act on. */
 export const SWITCH_BUSY_MESSAGE =
 	"Wait for the reply to finish before switching agents.";
+
+/** Why a swap to the agent already running is refused. */
+export const SWITCH_SAME_AGENT_MESSAGE = "This chat already uses that agent.";
+
+/**
+ * Longer than the workspace agent takes to put the next host in place, so
+ * a host still running after it was never replaced and takes the chat back.
+ */
+const REPLACED_WITHIN_MS = 60_000;
 
 interface Client {
 	socket: Socket;
@@ -86,6 +97,11 @@ export class ChatCore {
 	private swap: ChatSwapState | null;
 	/** A swap is prepared, and the host waits to be replaced. */
 	private switching = false;
+	/** Sends, `!` commands among them, that have arrived and not yet returned. */
+	private sends = 0;
+	/** Takes the chat back if no host replaces this one. */
+	private takeBackTimer: NodeJS.Timeout | null = null;
+	private closing: Promise<void> = Promise.resolve();
 
 	private readonly sink: ChatSink = {
 		emit: (event) => this.relay(event),
@@ -140,6 +156,10 @@ export class ChatCore {
 		await unlink(this.socketPath).catch(() => undefined);
 		await this.agent.start(this.sink);
 		await this.adoptHandoff();
+		await this.listen();
+	}
+
+	private async listen(): Promise<void> {
 		const server = createServer((socket) => {
 			void this.attach(socket);
 		});
@@ -154,6 +174,7 @@ export class ChatCore {
 
 	/** Stop the agent and close every attachment. The conversation stays. */
 	async stop(): Promise<void> {
+		if (this.takeBackTimer) clearTimeout(this.takeBackTimer);
 		await this.agent.stop();
 		for (const client of this.clients) client.socket.destroy();
 		this.clients.clear();
@@ -187,6 +208,7 @@ export class ChatCore {
 			: state.handoff;
 		if (!handoff) return;
 		let dropped = 0;
+		let failed = false;
 		try {
 			dropped = await this.agent.adoptHandoff({
 				id: handoff.id,
@@ -194,14 +216,17 @@ export class ChatCore {
 				log: state.log,
 			});
 		} catch {
+			failed = true;
 			this.options.log.warn("could not hand the conversation over");
 		}
 		if (!switched) return;
+		// The divider must not say the agent has the conversation when it does not.
 		const divider: ChatEventBody = {
 			type: "handoff",
 			from: handoff.from,
 			to: this.agentName,
 			droppedTurns: dropped,
+			...(failed ? { failed: true as const } : {}),
 		};
 		this.swap = {
 			...state,
@@ -234,17 +259,8 @@ export class ChatCore {
 	 * is done; the workspace agent then puts the other agent's host here.
 	 */
 	private async prepareSwitch(client: Client, to: CodingAgent): Promise<void> {
-		if (to === this.agentName) {
-			throw new Error(`This chat already uses ${CODING_AGENT_LABEL[to]}.`);
-		}
-		if (
-			this.switching ||
-			this.turnRunning ||
-			this.cards.current.length > 0 ||
-			this.agent.inProgress().length > 0
-		) {
-			throw new Error(SWITCH_BUSY_MESSAGE);
-		}
+		if (to === this.agentName) throw new Error(SWITCH_SAME_AGENT_MESSAGE);
+		if (this.switching || this.busy()) throw new Error(SWITCH_BUSY_MESSAGE);
 		this.switching = true;
 		try {
 			const [own, shown, session] = await Promise.all([
@@ -252,6 +268,8 @@ export class ChatCore {
 				this.agent.history(false),
 				readChatSession(this.options.homeDir, this.options.terminalId),
 			]);
+			// A turn the agent began during the read would be missing from it.
+			if (this.busy()) throw new Error(SWITCH_BUSY_MESSAGE);
 			const state = this.swap;
 			const earlier = lastTurns([...(state?.earlier ?? []), ...shown.events]);
 			await writePendingSwitch(this.options.homeDir, this.options.terminalId, to, {
@@ -261,10 +279,10 @@ export class ChatCore {
 				},
 				earlier: earlier.events,
 				truncated: (state?.truncated ?? false) || shown.truncated || earlier.truncated,
-				log: [
+				log: capLog([
 					...(state?.log ?? []),
 					{ agent: this.agentName, turns: turnsFromEvents(own) },
-				],
+				]),
 				handoff: null,
 			});
 		} catch (error) {
@@ -272,8 +290,40 @@ export class ChatCore {
 			throw error;
 		}
 		this.options.log.info({ to }, "chat agent swap prepared");
-		void this.closeListener();
+		this.closing = this.closeListener();
 		client.socket.end();
+		this.takeBackTimer = setTimeout(
+			() => void this.takeBack(),
+			this.options.replacedWithinMs ?? REPLACED_WITHIN_MS,
+		);
+		this.takeBackTimer.unref();
+	}
+
+	/** Whether anything is under way that a swap now would cut off. */
+	private busy(): boolean {
+		return (
+			this.sends > 0 ||
+			this.turnRunning ||
+			this.cards.current.length > 0 ||
+			this.agent.inProgress().length > 0
+		);
+	}
+
+	/**
+	 * No host replaced this one, as when the workspace agent failed after
+	 * the swap was prepared: forget the swap and serve the chat again.
+	 */
+	private async takeBack(): Promise<void> {
+		this.takeBackTimer = null;
+		await this.closing;
+		await dropPendingSwitch(this.options.homeDir, this.options.terminalId);
+		this.switching = false;
+		try {
+			await this.listen();
+			this.options.log.warn("chat agent swap not taken up; chat resumed");
+		} catch {
+			this.options.log.error("chat agent swap not taken up; could not listen again");
+		}
 	}
 
 	/** Broadcast one event, keeping the turn's state and streaming reply for late attachers. */
@@ -449,7 +499,13 @@ export class ChatCore {
 				return writeLine(client.socket, JSON.stringify(result));
 			}
 			case "send":
-				return this.agent.send(message.text, message.attachments ?? []);
+				// Counted from arrival, so a swap cannot start while a turn is still starting.
+				this.sends += 1;
+				try {
+					return await this.agent.send(message.text, message.attachments ?? []);
+				} finally {
+					this.sends -= 1;
+				}
 			case "permission.answer":
 				return this.cards.answer(message.id, {
 					type: "permission",

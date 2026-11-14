@@ -110,6 +110,7 @@ export function createFakeAgentState(token: string) {
 			timezone: string;
 			agent?: string;
 			institutionalEnv?: Record<string, string>;
+			previousInstitutionalEnv?: Record<string, string>;
 		}
 	>();
 	const creates: Array<Record<string, unknown>> = [];

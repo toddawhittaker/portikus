@@ -71,8 +71,8 @@ export async function writeChatSession(
  * so it stays in this private directory and is never logged (ADR 0012).
  */
 export const ChatSwapState = z.object({
-	/** Each agent's own session or thread, kept while the other one runs. */
-	sessions: z.object({ claude: TerminalId.optional(), codex: TerminalId.optional() }),
+	/** Claude's own session, kept while Codex runs; Codex always starts a fresh thread. */
+	sessions: z.object({ claude: TerminalId.optional() }),
 	/** What the chat shows before the running agent's part, ending in a divider. */
 	earlier: z.array(z.looseObject({ type: z.string() })),
 	/** Older turns than `earlier` holds exist. */
@@ -156,6 +156,12 @@ export async function writePendingSwitch(
 	await writePrivate(dir, switchFile(dir, tab), JSON.stringify({ to, state }));
 }
 
+/** Forget a prepared swap that no host took up. */
+export async function dropPendingSwitch(homeDir: string, tabId: string): Promise<void> {
+	const tab = TerminalId.parse(tabId);
+	await unlink(switchFile(chatSessionsDir(homeDir), tab)).catch(() => undefined);
+}
+
 /**
  * Start a chat host for `agent`: take up a swap prepared for it, making
  * its state the tab's and pointing the session record at this agent's own
@@ -172,7 +178,7 @@ export async function takeSwapState(
 	const tab = TerminalId.parse(tabId);
 	const dir = chatSessionsDir(homeDir);
 	const pending = await readJson(switchFile(dir, tab), PendingSwitch);
-	await unlink(switchFile(dir, tab)).catch(() => undefined);
+	await dropPendingSwitch(homeDir, tab);
 	if (pending && pending.to === agent) {
 		const state = pending.state as ChatSwapState;
 		await writeSwapState(homeDir, tab, state);
