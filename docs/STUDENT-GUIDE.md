@@ -154,7 +154,10 @@ microphone.
 Claude Code and Codex are coding agents: programs that read your code, run
 commands and change files when you ask them in plain language. Sign in to
 each one inside the workspace, as you would on your own computer. Portikus
-never sees your sign-in.
+never sees your sign-in. If a GUI chat finds you are not signed in, a
+warning above its message box says so. Choose **Open Claude Code (TUI)** or
+**Open Codex (TUI)**, sign in in the terminal tab that opens, then choose
+**Check again**. You can still send a message while the warning shows.
 
 - **Claude Code (TUI)** and **Codex (TUI)** run in a terminal tab. Everything
   in [Terminals](#terminals) applies to them, voice input included.
@@ -178,8 +181,11 @@ as you type: stars for bold and italic, backticks for code, and a dash, a
 `#` or three backticks at the start of a line for a list, a heading or a
 code block. You can paste, drop or attach images. Pasting more than 40
 lines attaches them as a text file; paste again straight away to put them
-in the box instead. Up in an empty box brings back your last message, and
-Esc stops Claude.
+in the box instead. Up and Down go back and forward through the messages
+you sent in this chat, like a shell: Up works with the cursor on the box's
+first line (an empty box counts), and Down on its last line. Down past
+your newest message gives back what you were typing, and an open `/` or `@`
+menu keeps the arrow keys. Esc stops Claude.
 
 **Chat options** is the button under the message box that summarises your
 choices, such as "Opus · Medium · Auto". It opens a panel where you choose

@@ -55,7 +55,16 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					working". Some models treat a message sent this way with caution, because they
 					can read it as part of a tool's output. If Claude does not act on it, stop
 					Claude, then send it again; that always works. Esc in the message box stops
-					Claude. Up in an empty box brings back your last message.
+					Claude.
+				</li>
+				<li>
+					Up and Down in the message box go back and forward through the messages you
+					sent in this chat, like a shell. Up works when the cursor is on the box's
+					first line (an empty box counts), and Down when it is on the last line. Down
+					past your newest message gives back what you were typing. Editing a recalled
+					message makes it your new draft. An open{" "}
+					<code className="pk-mono-body">/</code> or{" "}
+					<code className="pk-mono-body">@</code> menu keeps the arrow keys.
 				</li>
 				<li>
 					On a permission card, press 1, 2 or 3 to choose an option. The keys work only
@@ -129,7 +138,10 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				</li>
 				<li>
 					Sign in to Claude in the workspace, as you would in a terminal. Portikus never
-					sees your Claude sign-in. If you are not signed in, the chat says so.
+					sees your Claude sign-in. If you are not signed in, the chat says so above the
+					message box. Choose <strong>Open Claude Code (TUI)</strong>, sign in there,
+					then choose <strong>Check again</strong>. You can still send a message while
+					the warning shows.
 				</li>
 				<li>
 					A chat tab keeps running when you close the browser. When the workspace has

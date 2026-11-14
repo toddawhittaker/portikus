@@ -18,9 +18,11 @@ export const CODEX_CHAT_TOPIC: HelpPart["topics"][number] = {
 			<ul>
 				<li>
 					Sign in to Codex in the workspace, as you would in a terminal. Portikus never
-					sees your Codex sign-in. If you are not signed in, the chat says so; sign in
-					in a Codex (TUI) tab, or run{" "}
-					<code className="pk-mono-body">codex login --device-auth</code> in a terminal.
+					sees your Codex sign-in. If you are not signed in, the chat says so above the
+					message box. Choose <strong>Open Codex (TUI)</strong>, sign in there (or run{" "}
+					<code className="pk-mono-body">codex login --device-auth</code> in a
+					terminal), then choose <strong>Check again</strong>. You can still send a
+					message while the warning shows.
 				</li>
 				<li>
 					Do not run a Codex (GUI) tab and a Codex (TUI) terminal on the same Codex

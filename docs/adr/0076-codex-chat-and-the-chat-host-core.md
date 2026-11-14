@@ -26,8 +26,10 @@ Claude's protocol.
    private stdio pipe, with no network port, no WebSocket listener and no
    shared daemon. There is nothing to authenticate, and the process ends
    with its tab. The host logs lifecycle events and the Codex version only,
-   throws app-server's error output away, never calls `account/read` (it
-   returns the email), `plugin/list` or `app/list` (they fetch a remote
+   throws app-server's error output away, calls `account/read` (it
+   returns the email) only to see whether the student is signed in and
+   keeps only the account type (SPEC.md section 10.2), never calls
+   `plugin/list` or `app/list` (they fetch a remote
    catalogue), and never sets `developerInstructions` on a thread, which
    could displace the platform's instructions. Measured memory is about
    125 MB for an idle server with no thread and 240 MB after a turn; a
