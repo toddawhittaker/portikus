@@ -28,7 +28,7 @@ function message(role: "user" | "assistant", text: string): unknown {
  * then each turn's student message and the other agent's reply, its tool
  * calls as a summary line inside that reply, never as Codex's own calls.
  */
-export function handoffItems(turns: Turns, dropped: number): unknown[] {
+function handoffItems(turns: Turns, dropped: number): unknown[] {
 	const items = [
 		message(
 			"user",

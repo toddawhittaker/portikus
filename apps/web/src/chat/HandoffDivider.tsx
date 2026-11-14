@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { ChatAgentContext } from "./chatAgent.js";
 import type { ChatHandoffItem, ChatItem } from "./chatStore.js";
+import "./handoff.css";
 
 /**
  * Where the chat changed agents (SPEC.md §10.8). It says what the new agent

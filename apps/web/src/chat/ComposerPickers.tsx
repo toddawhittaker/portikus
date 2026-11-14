@@ -82,7 +82,7 @@ const AGENT_DESCRIPTION: Record<CodingAgent, string> = {
 };
 
 /** What swapping agents in a chat with history costs, said before it is chosen (SPEC.md §10.8). */
-export function swapWarning(agent: CodingAgent): string {
+function swapWarning(agent: CodingAgent): string {
 	const name = CODING_AGENT_NAME[agent];
 	return `${name} starts fresh with this conversation as context; the cache is lost. If the conversation is too long for ${name}, its oldest turns are left out.`;
 }
