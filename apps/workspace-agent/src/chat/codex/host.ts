@@ -22,7 +22,6 @@ import type { Handoff } from "../handoff.js";
 import { writeChatSession } from "../session-record.js";
 import { shellRefusal } from "../shell-command.js";
 import { ChatTitle } from "../titles.js";
-import { REPLAY_TURNS } from "../wire.js";
 import {
 	AppServerClient,
 	type AppServerProcess,
@@ -31,7 +30,7 @@ import {
 } from "./app-server.js";
 import { codexCommands, slashCommand } from "./commands.js";
 import { CodexHandoff, codexTranscript } from "./handoff.js";
-import { replayTurns, turnStatus, userShell } from "./history.js";
+import { recentTurns, replayTurns, turnStatus, userShell } from "./history.js";
 import { type CodexInput, codexInput } from "./input.js";
 import { CodexItemMapper } from "./mapper.js";
 import { CodexMcp } from "./mcp.js";
@@ -49,11 +48,9 @@ import {
 	TextItem,
 	ThreadResult,
 	TokenUsageNotification,
-	type Turn,
 	type TurnError,
 	TurnNotification,
 	TurnStartResult,
-	TurnsList,
 } from "./protocol.js";
 import { CodexRequests, type PostedState } from "./requests.js";
 import {
@@ -170,7 +167,8 @@ export class CodexAgent implements ChatAgent {
 		this.shell = new CodexShell(() => this.sink);
 		this.subagents = new CodexSubagents({
 			terminalId: options.terminalId,
-			turns: (threadId) => this.recentTurns(threadId).then((page) => page.turns),
+			turns: (threadId) =>
+				recentTurns(this.client, threadId).then((page) => page.turns),
 		});
 		this.title = new ChatTitle(
 			{
@@ -548,31 +546,12 @@ export class CodexAgent implements ChatAgent {
 			return { events: [], truncated: false, context: this.context };
 		}
 		try {
-			const { turns, truncated } = await this.recentTurns(this.threadId);
+			const { turns, truncated } = await recentTurns(this.client, this.threadId);
 			return { events: replayTurns(turns), truncated, context: this.context };
 		} catch {
 			this.options.log.warn("could not read the chat history");
 			return { events: [], truncated: false, context: this.context };
 		}
-	}
-
-	/** A thread's last turns, oldest first, and whether older ones exist. */
-	private async recentTurns(
-		threadId: string,
-	): Promise<{ turns: Turn[]; truncated: boolean }> {
-		const client = this.client;
-		if (!client) return { turns: [], truncated: false };
-		const page = parsed(
-			TurnsList,
-			await client.request("thread/turns/list", {
-				threadId,
-				limit: REPLAY_TURNS,
-				sortDirection: "desc",
-				itemsView: "full",
-			}),
-		);
-		if (!page) return { turns: [], truncated: false };
-		return { turns: [...page.data].reverse(), truncated: Boolean(page.nextCursor) };
 	}
 
 	inProgress(): ChatEventBody[] {

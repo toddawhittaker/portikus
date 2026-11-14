@@ -27,6 +27,7 @@ import {
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { isWorking, sentWhileWorking, takeInSentMessage } from "./sentWhileWorking.js";
 
 export interface ChatMessageItem {
 	kind: "message";
@@ -614,71 +615,6 @@ function contextUsage(
 		windowTokens: event.windowTokens,
 		cache: event.cache,
 		clockOffsetMs: event.now === undefined ? 0 : now - event.now,
-	};
-}
-
-/** A turn is running and has already shown some work. */
-function isWorking(state: ChatState): boolean {
-	const turnId = state.currentTurnId;
-	if (turnId === null || state.turns[turnId]?.status !== "running") return false;
-	return state.items.some((item) => item.turnId === turnId);
-}
-
-/**
- * A message the student sent while Claude worked (SPEC.md §10.8). It shows at
- * once, but the turn goes on until Claude takes it in at its next step, so a
- * tool still running stays on the Working line.
- */
-function sentWhileWorking(
-	state: ChatState,
-	message: Pick<ChatMessageItem, "id" | "markdown" | "attachments">,
-	seq: number,
-): ChatState {
-	return {
-		...state,
-		lastUserMessageSeq: seq,
-		pendingSplit: state.pendingSplit ?? seq,
-		items: [
-			...state.items,
-			{
-				kind: "message",
-				key: `message:${message.id}`,
-				role: "user",
-				streaming: false,
-				turnId: null,
-				whileWorking: true,
-				...message,
-			},
-		],
-	};
-}
-
-/**
- * Claude's next step after a sent-while-working message: the work so far is
- * done, and what follows is a new turn below the message, as a reload replays
- * it from the transcript. If the turn ends first, `turn.finished` drops the
- * split, so its end state lands on the work it describes.
- */
-function takeInSentMessage(state: ChatState, now: number): ChatState {
-	const before = state.currentTurnId;
-	if (state.pendingSplit === null || before === null) return state;
-	const turn = state.turns[before] as ChatTurn;
-	const next = `turn-${state.pendingSplit}`;
-	return {
-		...state,
-		pendingSplit: null,
-		currentTurnId: next,
-		turns: {
-			...state.turns,
-			[before]: { ...turn, finishedAt: now, status: "done" },
-			[next]: {
-				id: next,
-				startedAt: now,
-				finishedAt: null,
-				status: "running",
-				estimated: false,
-			},
-		},
 	};
 }
 
