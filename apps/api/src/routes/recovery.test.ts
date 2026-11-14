@@ -378,6 +378,7 @@ function createTerminal(payload: Record<string, unknown>) {
 test.skipIf(skip)(
 	"swapping a chat's agent makes an agent-session point before the other agent starts",
 	async () => {
+		const before = agent.requests.length;
 		const created = await createTerminal({ projectId, kind: "chat", agent: "claude" });
 		expect(created.statusCode).toBe(201);
 		const swapped = await app.inject({
@@ -392,7 +393,7 @@ test.skipIf(skip)(
 			"agent-session",
 			"agent-session",
 		]);
-		const urls = agent.requests.map((request) => request.url);
+		const urls = agent.requests.slice(before).map((request) => request.url);
 		const swap = urls.findIndex((url) => url.endsWith("/chat-agent"));
 		const pointsBefore = urls
 			.slice(0, swap)
