@@ -37,17 +37,18 @@ To start working:
 
 ![The New project dialog, with the project name Budget Tracker and the folder it will get](images/student-new-project.png)
 
-### The five New tab choices
+### The six New tab choices
 
-The **+** at the end of the tab bar, named New tab, offers five choices.
-The first four open in the project's folder:
+The **+** at the end of the tab bar, named New tab, offers six choices.
+The first five open in the project's folder:
 
 - **Terminal**: a Linux shell.
 - **Claude Code (TUI)**: Claude Code in a terminal. TUI means text user
   interface: the program draws itself with text.
 - **Claude Code (GUI)**: Claude Code as a chat tab, with formatted replies,
   buttons and pickers. GUI means graphical user interface.
-- **Codex**: OpenAI's coding agent, in a terminal.
+- **Codex (TUI)**: OpenAI's coding agent, in a terminal.
+- **Codex (GUI)**: Codex as a chat tab, like Claude Code (GUI).
 - **Preview**: opens a web app that is running in your project in a tab
   inside Portikus.
 
@@ -155,13 +156,13 @@ commands and change files when you ask them in plain language. Sign in to
 each one inside the workspace, as you would on your own computer. Portikus
 never sees your sign-in.
 
-- **Claude Code (TUI)** and **Codex** run in a terminal tab. Everything in
-  [Terminals](#terminals) applies to them, voice input included.
-- **Claude Code (GUI)** is a chat tab, described next.
+- **Claude Code (TUI)** and **Codex (TUI)** run in a terminal tab. Everything
+  in [Terminals](#terminals) applies to them, voice input included.
+- **Claude Code (GUI)** and **Codex (GUI)** are chat tabs, described next.
 
-Do not run a GUI tab and a TUI terminal on the same Claude session at once.
-After a chat tab is closed, running `claude --resume` in a terminal
-continues it.
+Do not run a GUI tab and a TUI terminal on the same Claude or Codex session
+at once. After a Claude chat tab is closed, running `claude --resume` in a
+terminal continues it.
 
 ### The chat tab
 
@@ -252,6 +253,33 @@ When the workspace has stopped and started again, choose **Resume chat** on
 the ended tab to carry on. A reply still being written when the workspace
 stopped is lost.
 
+### Codex in the chat tab
+
+**Codex (GUI)** works like the Claude Code chat tab: the same rows, cards,
+message box, `!` commands and pickers. The differences:
+
+- The Permissions picker has Codex's own five modes: **Ask**, **Read only**,
+  **Plan**, **Auto** and **Full access**. Full access runs anything without
+  asking, shows a warning, and is never carried into a new chat.
+- Codex's skills start with `$`; type `$` at the start of a message to see
+  them. Claude Code's start with `/`.
+- A permission card offers **Allow once**, **Deny** and sometimes **Allow
+  for this chat**, never "Always allow". The rules list does not show what
+  you allowed for this chat; a new chat clears it.
+- The memory meter shows tokens only, with no cache countdown. A question
+  Codex asks in a **Codex (TUI)** terminal has no card in the browser;
+  answer it in the terminal.
+- Sign in to Codex in a **Codex (TUI)** tab, or run
+  `codex login --device-auth` in a terminal.
+
+**Switching agents.** To change agent in the middle of a chat, open **Chat
+options** and choose the other agent. Portikus warns you first: the new
+agent starts fresh with this conversation as context, and the cache is lost,
+so the next message may use more of your limit. Each tool call is reduced to
+a short summary, and if the conversation would not fit, the oldest turns are
+left out. A line in the conversation marks the switch. You cannot switch
+while a reply, a card or a `!` command is running.
+
 ## Coding agent status, alerts and usage
 
 A tab running Claude Code or Codex shows what the agent is doing, in the
@@ -270,8 +298,9 @@ each agent tab says what it is doing and for how long, such as "Working
 type and state. Select a row to go to its tab; in a chat, selecting a
 subagent opens that step of the conversation. The arrow button beside a
 project hides or shows its agents. Rows appear after the agent's first
-report, and Codex shows no subagents. If you stop Claude Code with Esc in a
-terminal, its tab keeps showing "working" until you type your next prompt.
+report. A Codex subagent shows its type and no description. If you stop
+Claude Code with Esc in a terminal, its tab keeps showing "working" until
+you type your next prompt.
 
 ![The project list with agent and subagent rows and their status marks](images/student-agent-rows.png)
 
@@ -488,8 +517,8 @@ They get a notification.
   the page names them and has **Let them type**. Only you can turn typing
   on, and **Stop typing** turns it off at once.
 - Letting them type gives them a full shell as you. That includes your Git,
-  Claude and SSH credentials, every file in your workspace, and your other
-  terminals. Turn it on only while you are watching.
+  Claude, Codex and SSH credentials, every file in your workspace, and your
+  other terminals. Turn it on only while you are watching.
 - Live help lasts at most 60 minutes. **End live help** in the bar ends it
   at once. It also ends when the instructor leaves or the project is
   archived. One session can be open at a time.
