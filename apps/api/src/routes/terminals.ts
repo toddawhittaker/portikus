@@ -532,7 +532,7 @@ export function registerTerminalRoutes(
 		}
 
 		if (body.agent !== undefined) {
-			// A swap launches an agent, so it gets the same point a launch does (SPEC.md §20).
+			// A swap launches an agent, so it gets the same point a launch does (SPEC.md §15.6, §15.10).
 			const refused = await switchChatAgent(
 				db,
 				config,
