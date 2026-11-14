@@ -832,7 +832,7 @@ test("a Codex chat names Codex in its empty state and announcements", () => {
 });
 
 /** The chat in a work area that can swap it, with the terminal calls it makes. */
-function drawSwappable() {
+function drawSwappable(options: { createFails?: boolean } = {}) {
 	const layout = { replaceLeaf: vi.fn(), setFocused: vi.fn() };
 	const calls: { method: string; url: string; body?: unknown }[] = [];
 	vi.stubGlobal(
@@ -845,6 +845,12 @@ function drawSwappable() {
 				...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
 			});
 			if (method === "POST" && String(url).endsWith("/terminals")) {
+				if (options.createFails) {
+					return Response.json(
+						{ code: "INTERNAL", message: "No room" },
+						{ status: 500 },
+					);
+				}
 				return Response.json({
 					id: "44444444-4444-4444-8444-444444444444",
 					workspaceId: WORKSPACE,
@@ -937,14 +943,31 @@ test("choosing Codex in an empty chat makes a Codex chat in its place and closes
 	expect(latest().sent).toEqual([]);
 });
 
+test("a failed create in an empty chat is told once, by the toast, and the chat stays", async () => {
+	const { layout, calls } = drawSwappable({ createFails: true });
+	snapshot();
+	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
+	chooseAgent("Codex");
+	const toast = "Something went wrong with the terminal. Please try again.";
+	await vi.waitFor(() => expect(screen.queryAllByText(toast)).toHaveLength(1));
+	await vi.waitFor(() =>
+		expect(screen.getByTestId("composer-agent").textContent).toBe("Agent Claude Code"),
+	);
+	// The status line neither says the chat is starting nor tells the failure again.
+	expect(screen.getByTestId("chat-composer-status").textContent).toBe("");
+	expect(layout.replaceLeaf).not.toHaveBeenCalled();
+	expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+});
+
 test("a chat with history swaps its agent in place through the API, and says the new one is starting", async () => {
 	const { layout, calls } = drawSwappable();
 	snapshot();
 	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
 	replayTurn(1_000, 1_000, "hi", "hello");
 	chooseAgent("Codex");
+	// The tab stays, so the status says the agent is switched to.
 	expect(screen.getByTestId("chat-composer-status").textContent).toBe(
-		"Starting a Codex chat\u2026",
+		"Switching to Codex\u2026",
 	);
 	await vi.waitFor(() =>
 		expect(calls.filter((call) => call.method !== "GET")).toEqual([
@@ -967,9 +990,12 @@ test("after a swap the divider says what changed, and each stretch keeps its own
 	emit("handoff", { from: "claude", to: "codex", droppedTurns: 3 });
 	replayTurn(5_000, 1_000, "and now", "from codex");
 	codexSettings();
-	expect(screen.getByTestId("chat-handoff").textContent).toBe(
+	const divider = screen.getByTestId("chat-handoff");
+	expect(divider.textContent).toBe(
 		"Switched from Claude Code to Codex. Codex started fresh with this conversation as context. The 3 oldest turns did not fit Codex\u2019s context window and were left out.",
 	);
+	// Set in the design system's caption type, not a size of its own.
+	expect(divider.querySelector("p")?.classList.contains("pk-text-caption")).toBe(true);
 	const log = screen.getByRole("list", { name: "Conversation" });
 	const bylines = within(log)
 		.getAllByText(/^(Claude|Codex)$/)

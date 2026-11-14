@@ -66,10 +66,11 @@ test("a chat with history swaps to Codex and back in its own tab, with a divider
 	await expect(codex.locator("svg[data-icon='alert']")).toBeVisible();
 	await codex.click();
 
-	// While the swap is pending the picker shows Codex and the composer says it is starting.
+	// While the swap is pending the picker shows Codex, busy, and the composer says it is switching.
 	await expect(view.getByTestId("composer-agent")).toHaveText("Agent Codex");
+	await expect(view.getByTestId("composer-agent")).toHaveAttribute("aria-busy", "true");
 	await expect(view.getByTestId("chat-composer-status")).toHaveText(
-		"Starting a Codex chat…",
+		"Switching to Codex…",
 	);
 
 	const divider = view.getByTestId("chat-handoff");
@@ -83,6 +84,11 @@ test("a chat with history swaps to Codex and back in its own tab, with a divider
 	);
 	await expect(page.getByRole("tab", { name: /Codex \(GUI\)/ })).toBeVisible();
 	await expect.poll(() => rowAgent(id)).toBe("codex");
+	// Once Codex reports its settings the pickers are back, and the status says so.
+	await expect(view.getByTestId("composer-agent")).not.toHaveAttribute("aria-busy");
+	await expect(view.getByTestId("chat-composer-status")).toHaveText(
+		"Now chatting with Codex",
+	);
 	// The earlier turn keeps Claude's byline.
 	const log = view.getByRole("list", { name: "Conversation" });
 	await expect(log.getByText("Claude", { exact: true })).toBeVisible();

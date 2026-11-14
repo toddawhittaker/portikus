@@ -7,8 +7,13 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
-import { beforeEach, expect, test } from "vitest";
-import { ASK_RULES_HINT, ComposerPickers } from "./ComposerPickers.js";
+import { beforeEach, expect, test, vi } from "vitest";
+import {
+	AGENT_START_TIMEOUT_MS,
+	AgentSwitchReported,
+	ASK_RULES_HINT,
+	ComposerPickers,
+} from "./ComposerPickers.js";
 import { type ChatState, type ChatStore, createChatStore } from "./chatStore.js";
 import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
@@ -340,6 +345,8 @@ test("in an empty chat Codex can be chosen, and choosing it asks to swap the age
 	fireEvent.click(codex);
 	expect(agentsAsked).toEqual(["codex"]);
 	expect(asked).toEqual([]);
+	// An empty chat is replaced by a new one, so it says a chat starts.
+	expect(announced).toEqual(["Starting a Codex chat\u2026"]);
 });
 
 const HISTORY: ChatState["items"] = [
@@ -372,16 +379,27 @@ test("in a chat with history the other agent warns before it is chosen, then sho
 	fireEvent.click(codex);
 	expect(agentsAsked).toEqual(["codex"]);
 	expect(asked).toEqual([]);
-	expect(announced).toEqual(["Starting a Codex chat\u2026"]);
+	// The tab stays, so the agent is switched to, not a chat started.
+	expect(announced).toEqual(["Switching to Codex\u2026"]);
 	// The picker shows the agent asked for, and the old agent's pickers wait.
 	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(picker("Agent").getAttribute("aria-busy")).toBe("true");
 	expect(screen.queryByRole("button", { name: /^Model / })).toBeNull();
+	// The agent being left is not unavailable, only switching.
+	const left = within(open("Agent")).getByRole("menuitemradio", {
+		name: "Claude Code",
+	});
+	expect(description(left)).toBe("Switching\u2026");
+	fireEvent.keyDown(left, { key: "Escape" });
 	await act(async () => answer());
 	expect(picker("Agent").textContent).toBe("Agent Codex");
-	// The new host's own settings end the wait.
+	expect(picker("Agent").getAttribute("aria-busy")).toBe("true");
+	// The new host's own settings end the wait, and the status says who answers now.
 	rerender({ agent: "codex", model: "gpt-5.5", effort: "medium", mode: "onRequest" });
 	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
 	expect(picker("Model")).toBeTruthy();
+	expect(announced).toEqual(["Switching to Codex\u2026", "Now chatting with Codex"]);
 });
 
 test("a refused swap goes back to the agent the chat runs and says why", async () => {
@@ -393,9 +411,57 @@ test("a refused swap goes back to the agent the chat runs and says why", async (
 	await act(async () => {});
 	expect(picker("Agent").textContent).toBe("Agent Claude Code");
 	expect(announced).toEqual([
-		"Starting a Codex chat\u2026",
+		"Switching to Codex\u2026",
 		"The agent did not change. Wait for the reply to finish before switching agents.",
 	]);
+	expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
+});
+
+test("a failure told elsewhere, as a toast tells it, is not said again, and the status is cleared", async () => {
+	store.setState({ loaded: true });
+	swapAnswer = () => Promise.reject(new AgentSwitchReported());
+	draw();
+	fireEvent.click(within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }));
+	await act(async () => {});
+	expect(picker("Agent").textContent).toBe("Agent Claude Code");
+	expect(announced).toEqual(["Starting a Codex chat\u2026", ""]);
+});
+
+test("an error from the chat while the new agent starts brings the pickers back and says so", async () => {
+	store.setState({ loaded: true, items: HISTORY });
+	swapAnswer = () => new Promise<void>(() => {});
+	draw();
+	fireEvent.click(within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }));
+	expect(screen.queryByRole("button", { name: /^Model / })).toBeNull();
+	rerender(START, { seq: 7, message: "The chat host stopped." });
+	expect(announced.at(-1)).toBe("Codex did not start. The chat host stopped.");
+	expect(picker("Agent").textContent).toBe("Agent Claude Code");
+	expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
+	expect(picker("Model")).toBeTruthy();
+});
+
+test("a new host that never reports its settings gives the pickers back after a while, and says so", async () => {
+	vi.useFakeTimers();
+	try {
+		store.setState({ loaded: true, items: HISTORY });
+		swapAnswer = () => Promise.resolve();
+		draw();
+		fireEvent.click(
+			within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }),
+		);
+		await act(async () => {});
+		act(() => vi.advanceTimersByTime(AGENT_START_TIMEOUT_MS - 1));
+		expect(picker("Agent").getAttribute("aria-busy")).toBe("true");
+		act(() => vi.advanceTimersByTime(1));
+		expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
+		expect(picker("Model")).toBeTruthy();
+		expect(announced.at(-1)).toMatch(/^Codex has not reported its settings/);
+		// Nothing is left to fire once the wait has ended.
+		act(() => vi.advanceTimersByTime(AGENT_START_TIMEOUT_MS));
+		expect(announced).toHaveLength(2);
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 test("where the chat cannot swap, the other agent stays reachable, cannot be chosen, and says how to use it", () => {
