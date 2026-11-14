@@ -9,7 +9,7 @@ import {
 	MeasuringStrategy,
 	pointerWithin,
 } from "@dnd-kit/core";
-import type { SplitNode, Terminal } from "@portikus/contracts";
+import type { CodingAgent, SplitNode, Terminal } from "@portikus/contracts";
 import {
 	Button,
 	ConfirmDialog,
@@ -291,8 +291,8 @@ export function WorkArea({
 	}
 
 	/**
-	 * An ended chat goes on in a new chat in its place; the ended record is then
-	 * closed, as the new one carries its session (SPEC.md §10.8).
+	 * An ended chat goes on in a new chat of the same agent in its place; the
+	 * ended record is then closed, as the new one carries its session (SPEC.md §10.8).
 	 */
 	async function resume(terminalId: string) {
 		await createAndPlace(
@@ -301,7 +301,7 @@ export function WorkArea({
 				store.getState().setFocused(created.id);
 				closeTerminal(terminalId);
 			},
-			{ kind: "chat", agent: "claude", resumeChatOf: terminalId },
+			{ kind: "chat", agent: chatAgentOf(terminalId), resumeChatOf: terminalId },
 		);
 	}
 
@@ -312,8 +312,13 @@ export function WorkArea({
 				store.getState().replaceLeaf(terminalId, created.id);
 				store.getState().setFocused(created.id);
 			},
-			{ kind: "chat", agent: "claude" },
+			{ kind: "chat", agent: chatAgentOf(terminalId) },
 		);
+	}
+
+	/** The agent an ended chat ran, which its resume or new chat runs too. */
+	function chatAgentOf(terminalId: string): CodingAgent {
+		return byId.get(terminalId)?.agent === "codex" ? "codex" : "claude";
 	}
 
 	async function replace(terminalId: string) {

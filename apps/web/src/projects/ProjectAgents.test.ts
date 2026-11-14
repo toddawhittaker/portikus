@@ -32,7 +32,8 @@ test("a row's time is short: seconds, then minutes, then hours and minutes", () 
 test("a row is named as its tab is, not by the terminal's stored name", () => {
 	expect(agentRowName(row({}))).toBe("Claude Code (TUI)");
 	expect(agentRowName(row({ kind: "chat" }))).toBe("Claude Code (GUI)");
-	expect(agentRowName(row({ agent: "codex" }))).toBe("Codex");
+	expect(agentRowName(row({ agent: "codex" }))).toBe("Codex (TUI)");
+	expect(agentRowName(row({ agent: "codex", kind: "chat" }))).toBe("Codex (GUI)");
 });
 
 test("rows are grouped by project in the order they came", () => {
@@ -44,8 +45,9 @@ test("rows are grouped by project in the order they came", () => {
 	expect(grouped.get("p2")).toEqual([b]);
 });
 
-test("only a Claude Code chat's row can be renamed; a terminal tab has no title to change", () => {
+test("a chat's row of either agent can be renamed; a terminal tab has no title to change", () => {
 	expect(canRename(row({ kind: "chat" }))).toBe(true);
+	expect(canRename(row({ agent: "codex", kind: "chat" }))).toBe(true);
 	expect(canRename(row({}))).toBe(false);
-	expect(canRename(row({ agent: "codex", kind: "chat" }))).toBe(false);
+	expect(canRename(row({ agent: "codex" }))).toBe(false);
 });

@@ -799,3 +799,134 @@ test("a changed file opens in its diff when the project is a Git repository", ()
 test("a changed file opens in the editor when the project is not a Git repository", () => {
 	expect(drawInWorkArea(false)).toHaveBeenCalledWith("src/a.ts", undefined);
 });
+
+function codexSettings() {
+	emit("settings", {
+		agent: "codex",
+		model: "gpt-5.5",
+		effort: "medium",
+		mode: "onRequest",
+	});
+}
+
+test("a Codex chat names Codex in its empty state and announcements", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	expect(screen.getByTestId("chat-empty").textContent).toContain(
+		"Ask Codex about this project below",
+	);
+	const announcer = () => screen.getByTestId("chat-announcer").textContent;
+	emit("turn.started", { at: Date.now() });
+	expect(announcer()).toBe("Codex is working.");
+	emit("question.requested", {
+		id: "q1",
+		questions: [
+			{ question: "Which branch?", header: "Branch", multiSelect: false, options: [] },
+		],
+	});
+	expect(announcer()).toBe("Codex has a question: Which branch?");
+	emit("card.resolved", { id: "q1" });
+	emit("turn.finished", { at: Date.now(), status: "interrupted" });
+	expect(announcer()).toBe("Codex stopped.");
+});
+
+/** The chat in a work area that can swap it, with the terminal calls it makes. */
+function drawSwappable() {
+	const layout = { replaceLeaf: vi.fn(), setFocused: vi.fn() };
+	const calls: { method: string; url: string; body?: unknown }[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (url: string, init?: RequestInit) => {
+			const method = init?.method ?? "GET";
+			calls.push({
+				method,
+				url: String(url),
+				...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+			});
+			if (method === "POST" && String(url).endsWith("/terminals")) {
+				return Response.json({
+					id: "44444444-4444-4444-8444-444444444444",
+					workspaceId: WORKSPACE,
+					name: "Codex",
+					cwd: "/home/student/projects/demo",
+					position: 1,
+					projectId: PROJECT,
+					createdAt: "2026-01-01T00:00:00.000Z",
+					theme: "dark",
+					kind: "chat",
+					agent: "codex",
+					endedAt: null,
+				});
+			}
+			if (method === "DELETE") return new Response(null, { status: 204 });
+			return Response.json({});
+		}),
+	);
+	render(
+		<QueryClientProvider
+			client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+		>
+			<LayoutStoreContext.Provider
+				value={{ getState: () => layout } as unknown as LayoutStore}
+			>
+				<ToastProvider>
+					<ChatView
+						workspaceId={WORKSPACE}
+						projectId={PROJECT}
+						terminalId={TERMINAL}
+						visible={true}
+						focused={false}
+						onLeave={vi.fn()}
+					/>
+				</ToastProvider>
+			</LayoutStoreContext.Provider>
+		</QueryClientProvider>,
+	);
+	open();
+	return { layout, calls };
+}
+
+function chooseAgent(name: string) {
+	fireEvent.click(screen.getByTestId("composer-options"));
+	fireEvent.keyDown(screen.getByTestId("composer-agent"), { key: "Enter" });
+	const menu = screen.getByRole("menu", { name: /^Agent / });
+	fireEvent.click(within(menu).getByRole("menuitemradio", { name }));
+}
+
+test("choosing Codex in an empty chat makes a Codex chat in its place and closes this one, with no warning", async () => {
+	const { layout, calls } = drawSwappable();
+	snapshot();
+	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
+	chooseAgent("Codex");
+	await vi.waitFor(() =>
+		expect(calls.some((call) => call.method === "DELETE")).toBe(true),
+	);
+	const terminals = `/workspaces/${WORKSPACE}/terminals`;
+	expect(calls.filter((call) => call.method !== "GET")).toEqual([
+		{
+			method: "POST",
+			url: terminals,
+			body: { projectId: PROJECT, agent: "codex", kind: "chat" },
+		},
+		{ method: "DELETE", url: `${terminals}/${TERMINAL}` },
+	]);
+	expect(layout.replaceLeaf).toHaveBeenCalledWith(
+		TERMINAL,
+		"44444444-4444-4444-8444-444444444444",
+	);
+	expect(layout.setFocused).toHaveBeenCalledWith(
+		"44444444-4444-4444-8444-444444444444",
+	);
+	// Nothing went to the agent: the swap is the work area's, not the host's.
+	expect(latest().sent).toEqual([]);
+});
+
+test("a chat with history keeps its agent: the other is not offered yet", () => {
+	const { calls } = drawSwappable();
+	snapshot();
+	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
+	replayTurn(1_000, 1_000, "hi", "hello");
+	chooseAgent("Codex");
+	expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
+});

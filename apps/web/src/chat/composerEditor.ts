@@ -14,7 +14,10 @@
  * the box instead. `/` at the very start of the message, and `@` at a word's
  * start outside code, open the composer's menus (ComposerCommandMenu.tsx):
  * the editor reports what follows the character and hands the menu its keys.
- * Neither opens while the message is a shell command (inShellMode).
+ * Where the agent takes skills with a `$` (Codex), `$` at the very start opens
+ * a skills-only list too. None opens while the message is a shell command
+ * (inShellMode). The agent's name in the box's label and placeholder can
+ * change after the editor is made (refreshComposer).
  */
 import {
 	Editor,
@@ -79,9 +82,12 @@ export function lineCount(text: string): number {
 
 export interface ComposerEditorOptions {
 	element: HTMLElement;
-	/** Set on the editable element: its name, role, id and description. */
-	attributes: Record<string, string>;
-	placeholder: string;
+	/** Set on the editable element: its name, role, id and description; read again on refreshComposer. */
+	attributes: () => Record<string, string>;
+	/** Read again on refreshComposer. */
+	placeholder: () => string;
+	/** Whether `$` at the start opens the skills list; read as it is typed. */
+	skills: () => boolean;
 	onSend: () => void;
 	onFiles: (files: File[]) => void;
 	/** Text pasted of more than LONG_PASTE_LINES lines, with its line count. */
@@ -99,8 +105,8 @@ export interface ComposerEditorOptions {
 	onMenuKey: (event: KeyboardEvent) => boolean;
 }
 
-/** `/` lists slash commands; `@` lists the project's files. */
-export type ComposerMenuKind = "command" | "file";
+/** `/` lists slash commands and skills; `$` skills alone; `@` the project's files. */
+export type ComposerMenuKind = "command" | "skill" | "file";
 
 /** An open menu: what was typed after its character, and where the trigger and query sit. */
 export interface ComposerMenu {
@@ -138,6 +144,12 @@ export function chooseFromMenu(
 	const { state, view } = editor;
 	view.dispatch(state.tr.insertText(`${text} `, menu.from, menu.to).scrollIntoView());
 	view.focus();
+}
+
+/** Draw the label and placeholder again, after what they read has changed. */
+export function refreshComposer(editor: EditorType): void {
+	if (editor.isDestroyed) return;
+	editor.view.dispatch(editor.state.tr);
 }
 
 /** Take out what a menu's trigger and query typed, leaving the rest. */
@@ -440,10 +452,11 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 					startOfLine,
 					pluginKey: new PluginKey(`composerMenu-${kind}`),
 					decorationClass: "pk-composer-trigger",
-					// A command only opens the message; a file anywhere outside code. A shell command has neither.
+					// A command or skill only opens the message; a file anywhere outside code. A shell command has none.
 					allow: ({ state, range }) =>
 						!inCodeAt(state) &&
 						(kind === "file" || range.from === 1) &&
+						(kind !== "skill" || options.skills()) &&
 						!shellAt(state),
 					render: () => {
 						const report = (props: {
@@ -460,6 +473,7 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 				});
 			return [
 				trigger("command", "/", true),
+				trigger("skill", "$", true),
 				trigger("file", "@", false),
 				new Plugin<MenuAria>({
 					key: MENU_ARIA,
@@ -530,13 +544,13 @@ export function createComposerEditor(options: ComposerEditorOptions): EditorType
 			}).extend({ addKeyboardShortcuts: () => ({}) }),
 			markdownRules,
 			UndoRedo,
-			Placeholder.configure({ placeholder: options.placeholder }),
+			Placeholder.configure({ placeholder: () => options.placeholder() }),
 			keys,
 			menus,
 			interim,
 		],
 		editorProps: {
-			attributes: options.attributes,
+			attributes: () => options.attributes(),
 			handleKeyDown: (_view, event) => options.onKeyDown(event),
 			handleDOMEvents: {
 				keyup: (_view, event) => {

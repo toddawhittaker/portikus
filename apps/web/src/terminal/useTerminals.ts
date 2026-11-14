@@ -21,7 +21,7 @@ import { sessionEnded } from "../api/sessionEnded.js";
 /** How often an idle tab re-reads the list, so a second browser's terminal shows up. */
 const REFETCH_MS = 15_000;
 
-/** What a launcher may ask for; a chat needs agent claude (SPEC.md §10.8). */
+/** What a launcher may ask for; a chat names its agent, Claude or Codex (SPEC.md §10.8). */
 interface CreateInit {
 	name?: string;
 	agent?: CodingAgent;

@@ -13,7 +13,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Composer } from "./Composer.js";
-import { matchCommands, mention } from "./ComposerCommandMenu.js";
+import { controlFor, matchCommands, mention } from "./ComposerCommandMenu.js";
 import { type ChatStore, createChatStore } from "./chatStore.js";
 import { boxText, typeInto } from "./composerTesting.js";
 
@@ -433,4 +433,148 @@ test("commands that start with the query come before those that only contain it"
 test("a path with a space is quoted, as the CLI reads a mention", () => {
 	expect(mention("src/app.ts")).toBe("@src/app.ts");
 	expect(mention("docs/my notes.md")).toBe('@"docs/my notes.md"');
+});
+
+test("each command shows and inserts its own prefix; the four in Chat options point there whether or not the agent runs them", () => {
+	const listed = matchCommands(
+		[
+			{ name: "pdf", description: "Read PDFs", terminalOnly: false, prefix: "$" },
+			{ name: "pdf-tools", description: "More PDFs", terminalOnly: false, prefix: "/" },
+			{ name: "model", description: "Choose the model", terminalOnly: false },
+			{ name: "mcp", description: "Show your MCP servers", terminalOnly: false },
+			{ name: "permissions", description: "Permissions", terminalOnly: true },
+			{ name: "effort", description: "Effort", terminalOnly: false, prefix: "$" },
+		],
+		"",
+	);
+	expect(listed.map((one) => [one.label, one.insert, one.control ?? null])).toEqual([
+		["$pdf", "$pdf", null],
+		["/pdf-tools", "/pdf-tools", null],
+		["/model", null, "composer-model"],
+		["/mcp", null, "composer-mcp"],
+		["/permissions", null, "composer-mode"],
+		// A skill that shares a name is the student's own skill, not the picker.
+		["$effort", "$effort", null],
+	]);
+	expect(listed[3]?.note).toBe("Shown in Chat options");
+});
+
+test("controlFor knows only the four bare commands", () => {
+	expect(controlFor("/model")).toBe("composer-model");
+	expect(controlFor("/effort")).toBe("composer-effort");
+	expect(controlFor("/permissions")).toBe("composer-mode");
+	expect(controlFor("/mcp")).toBe("composer-mcp");
+	expect(controlFor("/model gpt-5.5")).toBeUndefined();
+	expect(controlFor("$mcp")).toBeUndefined();
+	expect(controlFor("/toString")).toBeUndefined();
+});
+
+const SKILLS: ChatCommand[] = [
+	{ name: "model", description: "Choose the model", terminalOnly: false },
+	{ name: "mcp", description: "Show your MCP servers", terminalOnly: false },
+	{ name: "permissions", description: "Choose what Codex may do", terminalOnly: false },
+	{
+		name: "pdf",
+		description: "Read and fill in PDF files",
+		terminalOnly: false,
+		prefix: "$",
+	},
+	{ name: "deploy", description: "Ship it", terminalOnly: false, prefix: "$" },
+];
+
+function codexChat() {
+	emit("settings", {
+		agent: "codex",
+		model: "gpt-5.5",
+		effort: "medium",
+		mode: "onRequest",
+	});
+	act(() => store.setState({ commands: SKILLS }));
+}
+
+test("$ in a Codex chat lists the skills alone, and a skill goes in with its $", async () => {
+	codexChat();
+	const box = draw();
+	typeInto(box, "$");
+	const list = await screen.findByRole("listbox", { name: "Skills" });
+	expect(
+		within(list)
+			.getAllByRole("option")
+			.map((one) => one.textContent),
+	).toEqual(["$pdfRead and fill in PDF files", "$deployShip it"]);
+	expect(menuStatus()).toBe("2 skills");
+	typeInto(box, "dep");
+	await waitFor(() => expect(options()).toHaveLength(1));
+	key(box, "Enter");
+	expect(boxText(box)).toBe("$deploy ");
+	expect(sent).toEqual([]);
+});
+
+test("$ with no matching skill says so", async () => {
+	codexChat();
+	const box = draw();
+	typeInto(box, "$zz");
+	await waitFor(() => expect(menuStatus()).toBe("No matching skills"));
+});
+
+test("/ in a Codex chat lists commands and skills each with its own prefix", async () => {
+	codexChat();
+	const box = draw();
+	typeInto(box, "/pd");
+	await screen.findByRole("listbox", { name: "Commands" });
+	expect(options().map((one) => one.textContent)).toEqual([
+		"$pdfRead and fill in PDF files",
+	]);
+	key(box, "Enter");
+	expect(boxText(box)).toBe("$pdf ");
+});
+
+test("$ in a Claude chat is only a dollar sign", async () => {
+	act(() => store.setState({ commands: SKILLS }));
+	const box = draw();
+	typeInto(box, "$");
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(screen.queryByRole("listbox")).toBeNull();
+});
+
+test("/mcp opens the MCP server list in Chat options, with the keyboard on it", async () => {
+	act(() =>
+		store.setState({
+			commands: SKILLS,
+			mcp: [{ name: "github", status: "connected" }],
+		}),
+	);
+	const box = draw();
+	typeInto(box, "/mc");
+	await screen.findByRole("listbox");
+	key(box, "Enter");
+	expect(sent).toEqual([]);
+	expect(boxText(box)).toBe("");
+	const field = screen.getByTestId("composer-mcp");
+	expect(document.activeElement).toBe(field);
+	expect(field.getAttribute("aria-expanded")).toBe("true");
+	expect(screen.getByTestId("composer-options").getAttribute("aria-expanded")).toBe(
+		"true",
+	);
+	expect(screen.getByRole("region", { name: "MCP servers" }).textContent).toContain(
+		"github Connected",
+	);
+});
+
+test("/permissions, sent as typed in a Codex chat, opens the Permissions picker instead of reaching the agent", async () => {
+	codexChat();
+	const box = draw();
+	typeInto(box, "/permissions ");
+	key(box, "Enter");
+	expect(sent).toEqual([]);
+	expect(boxText(box)).toBe("");
+	expect(await screen.findByRole("menu", { name: /^Permissions / })).toBeTruthy();
+});
+
+test("/model with an argument is sent to the agent as written", async () => {
+	codexChat();
+	const box = draw();
+	typeInto(box, "/model gpt-5.4");
+	key(box, "Enter");
+	expect(sent).toEqual([{ type: "send", text: "/model gpt-5.4", attachments: [] }]);
 });

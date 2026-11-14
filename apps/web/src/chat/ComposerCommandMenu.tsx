@@ -1,13 +1,15 @@
 /**
- * The composer's two suggestion menus (SPEC.md §10.8,): `/` at the
- * start of the message lists the slash commands the host reports, and `@`
- * lists project files from the file-name search. Both narrow as the student
- * types. The editor is the combobox and this list its listbox (SPEC.md
- * §25.8): the keys stay in the editor, which names the current option with
- * aria-activedescendant, and a polite status says how many matched.
- * A command only the terminal Claude Code can run is shown dimmed and never
- * sent; where a picker below the box does the same thing, choosing the
- * command opens that picker instead.
+ * The composer's suggestion menus (SPEC.md §10.8): `/` at the start of the
+ * message lists the commands and skills the host reports, each with its own
+ * prefix (Claude's skills `/name`, Codex's `$name`); in a Codex chat `$` at
+ * the start lists the skills alone; and `@` lists project files from the
+ * file-name search. Each narrows as the student types. The editor is the
+ * combobox and this list its listbox (SPEC.md §25.8): the keys stay in the
+ * editor, which names the current option with aria-activedescendant, and a
+ * polite status says how many matched. A command only the agent's terminal
+ * can run is shown dimmed and never sent. `/model`, `/effort`,
+ * `/permissions` and `/mcp` open their place in Chat options for either
+ * agent instead of being sent.
  */
 import type { ChatCommand } from "@portikus/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,11 +20,21 @@ import { searchFileNames } from "./fileNameSearch.js";
 /** Typing pauses this long before a file search goes out. */
 const SEARCH_DEBOUNCE_MS = 150;
 
-/** A picker below the box that does what a terminal-only command does there. */
-const CONTROLS: Record<string, { testId: string; label: string }> = {
-	model: { testId: "composer-model", label: "Model" },
-	effort: { testId: "composer-effort", label: "Effort" },
+/** The Chat options control that does a command's job in the web, and the note that says so. */
+const CONTROLS: Record<string, { testId: string; note: string }> = {
+	model: { testId: "composer-model", note: "Use the Model picker" },
+	effort: { testId: "composer-effort", note: "Use the Effort picker" },
+	permissions: { testId: "composer-mode", note: "Use the Permissions picker" },
+	mcp: { testId: "composer-mcp", note: "Shown in Chat options" },
 };
+
+/** The control a bare `/model`, `/effort`, `/permissions` or `/mcp` opens; undefined for any other text. */
+export function controlFor(text: string): string | undefined {
+	if (!text.startsWith("/")) return undefined;
+	return Object.hasOwn(CONTROLS, text.slice(1))
+		? CONTROLS[text.slice(1)]?.testId
+		: undefined;
+}
 
 /** The slash commands the host listed in its `commands` event. */
 export function selectCommands(state: ChatState): readonly ChatCommand[] {
@@ -60,21 +72,28 @@ export function matchCommands(
 			one.name.toLowerCase().includes(typed),
 	);
 	return [...starts, ...inside].map((one) => {
-		const control = one.terminalOnly ? CONTROLS[one.name] : undefined;
-		return {
-			key: `command:${one.name}`,
-			label: `/${one.name}`,
+		const prefix = one.prefix ?? "/";
+		const named = `${prefix}${one.name}`;
+		const control =
+			prefix === "/" && Object.hasOwn(CONTROLS, one.name)
+				? CONTROLS[one.name]
+				: undefined;
+		const base = {
+			key: `command:${named}`,
+			label: named,
 			...(one.argumentHint ? { hint: one.argumentHint } : {}),
 			detail: one.description,
-			insert: one.terminalOnly ? null : `/${one.name}`,
-			...(one.terminalOnly
-				? {
-						note: control ? `Use the ${control.label} picker` : "Use the terminal",
-						...(control ? { control: control.testId } : {}),
-					}
-				: {}),
 		};
+		if (control)
+			return { ...base, insert: null, note: control.note, control: control.testId };
+		if (one.terminalOnly) return { ...base, insert: null, note: "Use the terminal" };
+		return { ...base, insert: named };
 	});
+}
+
+/** The skills alone, for the `$` menu. */
+function skillsOf(commands: readonly ChatCommand[]): ChatCommand[] {
+	return commands.filter((one) => one.prefix === "$");
 }
 
 /** A path as the CLI reads an `@` mention: quoted when it holds a space. */
@@ -156,6 +175,7 @@ export function useComposerMenu(
 	const options = useMemo(() => {
 		if (!menu) return [];
 		if (menu.kind === "command") return matchCommands(commands, menu.query);
+		if (menu.kind === "skill") return matchCommands(skillsOf(commands), menu.query);
 		return current && !current.failed ? current.paths.map(fileOption) : [];
 	}, [menu, commands, current]);
 
@@ -185,6 +205,11 @@ function menuStatus(menu: ComposerMenu | null, model: MenuModel): string {
 		if (count === 0) return "No matching commands";
 		return `${count} ${count === 1 ? "command" : "commands"}`;
 	}
+	if (menu.kind === "skill") {
+		const count = model.options.length;
+		if (count === 0) return "No matching skills";
+		return `${count} ${count === 1 ? "skill" : "skills"}`;
+	}
 	if (model.loading) return "";
 	if (model.failed) return "Files could not be searched just now";
 	const count = model.options.length;
@@ -192,6 +217,12 @@ function menuStatus(menu: ComposerMenu | null, model: MenuModel): string {
 	const files = `${count} ${count === 1 ? "file" : "files"}`;
 	return model.truncated ? `${files}, more not shown; type more to narrow` : files;
 }
+
+const MENU_LABEL: Record<ComposerMenu["kind"], string> = {
+	command: "Commands",
+	skill: "Skills",
+	file: "Files",
+};
 
 export interface ComposerCommandMenuProps {
 	listId: string;
@@ -225,7 +256,7 @@ export function ComposerCommandMenu({
 			?.scrollIntoView({ block: "nearest" });
 	}, [open, listId, model.active]);
 
-	const label = menu?.kind === "file" ? "Files" : "Commands";
+	const label = MENU_LABEL[menu?.kind ?? "command"];
 	const empty = model.options.length === 0;
 	return (
 		<>
@@ -253,7 +284,7 @@ export function ComposerCommandMenu({
 									option.insert === null && !option.control ? true : undefined
 								}
 								aria-label={option.name}
-								className={`pk-composer-option${option.insert === null ? " is-blocked" : ""}`}
+								className={`pk-composer-option${option.insert === null && !option.control ? " is-blocked" : ""}`}
 								data-testid="composer-menu-option"
 								// The editor keeps focus, so the list never takes the keyboard.
 								onMouseDown={(event) => event.preventDefault()}

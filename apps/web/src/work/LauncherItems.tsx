@@ -2,14 +2,23 @@
  * The choices of what a new pane runs, shared by the New tab menu and the
  * pane menu's Split right and Split down (SPEC.md §8.7, §10.8).
  */
-import type { CodingAgent } from "@portikus/contracts";
+import type { CodingAgent, TerminalKind } from "@portikus/contracts";
 import { type Key, MenuItem } from "@portikus/ui";
+import { agentTabName } from "../agents/codingAgentName.js";
 
-/** What a new pane runs: a shell, a coding agent's terminal, or a chat. */
+/** What a new pane runs: a shell, a coding agent's terminal, or a coding agent's chat. */
 export type Launch =
 	| { kind: "terminal" }
 	| { kind: "agent"; agent: CodingAgent }
-	| { kind: "chat" };
+	| { kind: "chat"; agent: CodingAgent };
+
+/** Each agent's GUI then its TUI, with the test id each entry has always had. */
+const AGENT_LAUNCHES: { agent: CodingAgent; kind: TerminalKind; testId: string }[] = [
+	{ agent: "claude", kind: "chat", testId: "claude-gui" },
+	{ agent: "claude", kind: "terminal", testId: "claude" },
+	{ agent: "codex", kind: "chat", testId: "codex-gui" },
+	{ agent: "codex", kind: "terminal", testId: "codex" },
+];
 
 export interface LauncherItemsProps {
 	/** Starts every item's test id, as in `<prefix>-terminal`. */
@@ -35,25 +44,21 @@ export function LauncherItems({
 			>
 				<span data-testid={`${testIdPrefix}-terminal`}>Terminal</span>
 			</MenuItem>
-			{traditional ? null : (
-				<>
-					<MenuItem
-						icon="agent"
-						onSelect={() => onLaunch({ kind: "agent", agent: "claude" })}
-					>
-						<span data-testid={`${testIdPrefix}-claude`}>Claude Code (TUI)</span>
-					</MenuItem>
-					<MenuItem icon="agent" onSelect={() => onLaunch({ kind: "chat" })}>
-						<span data-testid={`${testIdPrefix}-claude-gui`}>Claude Code (GUI)</span>
-					</MenuItem>
-					<MenuItem
-						icon="agent"
-						onSelect={() => onLaunch({ kind: "agent", agent: "codex" })}
-					>
-						<span data-testid={`${testIdPrefix}-codex`}>Codex</span>
-					</MenuItem>
-				</>
-			)}
+			{traditional
+				? null
+				: AGENT_LAUNCHES.map(({ agent, kind, testId }) => (
+						<MenuItem
+							key={testId}
+							icon="agent"
+							onSelect={() =>
+								onLaunch(kind === "chat" ? { kind, agent } : { kind: "agent", agent })
+							}
+						>
+							<span data-testid={`${testIdPrefix}-${testId}`}>
+								{agentTabName(agent, kind)}
+							</span>
+						</MenuItem>
+					))}
 		</>
 	);
 }
@@ -61,8 +66,8 @@ export function LauncherItems({
 /** The terminal-create request that starts what `launch` names. */
 export function launchInit(
 	launch: Launch,
-): { agent: CodingAgent } | { kind: "chat"; agent: "claude" } | undefined {
+): { agent: CodingAgent } | { kind: "chat"; agent: CodingAgent } | undefined {
 	if (launch.kind === "agent") return { agent: launch.agent };
-	if (launch.kind === "chat") return { kind: "chat", agent: "claude" };
+	if (launch.kind === "chat") return { kind: "chat", agent: launch.agent };
 	return undefined;
 }

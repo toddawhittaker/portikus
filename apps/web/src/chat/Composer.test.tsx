@@ -1047,3 +1047,63 @@ test("the bypass warning shows only while Bypass is the host's mode", () => {
 	settings({ mode: "default" });
 	expect(screen.queryByTestId("chat-bypass-warning")).toBeNull();
 });
+
+const CODEX_MODES = [
+	{
+		id: "onRequest",
+		label: "Auto",
+		description: "Works alone.",
+		warning: false,
+		plan: false,
+	},
+	{
+		id: "fullAccess",
+		label: "Full access",
+		description: "Full access lets Codex run every command without asking you first.",
+		warning: true,
+		plan: false,
+	},
+];
+
+function codex(body: Record<string, unknown> = {}) {
+	settings({ agent: "codex", model: "gpt-5.5", mode: "onRequest", ...body });
+}
+
+test("a Codex chat names Codex in the box, its tips and its hints", () => {
+	draw();
+	expect(input().getAttribute("aria-label")).toBe("Message Claude Code");
+	codex();
+	expect(input().getAttribute("aria-label")).toBe("Message Codex");
+	expect(
+		input().querySelector("[data-placeholder]")?.getAttribute("data-placeholder"),
+	).toBe("Message Codex, or paste or drop images");
+	const tips = document.getElementById(
+		(input().getAttribute("aria-describedby") ?? "").split(" ")[0] ?? "",
+	);
+	expect(tips?.textContent).toBe(
+		"Type / for commands, $ for skills or @ for files. Paste or drop images to attach them.",
+	);
+	type("!ls");
+	expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+		"Shell command. Enter runs it in the project folder, and Codex sees the output with your next message.",
+	);
+	type("");
+	emit("turn.started", { at: 1 });
+	expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+		"Enter sends without stopping Codex. Esc stops it.",
+	);
+});
+
+test("a mode the host marks as a warning takes the hint's line with its own words, and is announced", () => {
+	draw();
+	act(() => store.setState({ modes: CODEX_MODES }));
+	codex();
+	expect(screen.queryByTestId("chat-bypass-warning")).toBeNull();
+	codex({ mode: "fullAccess" });
+	expect(screen.getByTestId("chat-bypass-warning").textContent).toBe(
+		"Full access lets Codex run every command without asking you first.",
+	);
+	expect(screen.getByTestId("chat-composer-status").textContent).toBe(
+		"Full access is on. Full access lets Codex run every command without asking you first.",
+	);
+});
