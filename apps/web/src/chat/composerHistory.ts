@@ -139,7 +139,7 @@ function syncCaret(view: EditorView): void {
  * drawn, so a long line that wraps is walked through before history is. A
  * selected range is left to the box.
  */
-export function atEdge(view: EditorView, direction: "up" | "down"): boolean {
+function atEdge(view: EditorView, direction: "up" | "down"): boolean {
 	syncCaret(view);
 	const { selection } = view.state;
 	if (!selection.empty) return false;
