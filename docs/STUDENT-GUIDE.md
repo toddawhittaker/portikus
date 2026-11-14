@@ -44,7 +44,7 @@ The first five open in the project's folder:
 
 - **Terminal**: a Linux shell.
 - **Claude Code (GUI)**: Claude Code as a chat tab, with formatted replies,
-  buttons and pickers. GUI means graphical user interface.
+  buttons and options. GUI means graphical user interface.
 - **Claude Code (TUI)**: Claude Code in a terminal. TUI means text user
   interface: the program draws itself with text.
 - **Codex (GUI)**: OpenAI's coding agent as a chat tab, like Claude Code (GUI).
@@ -181,13 +181,14 @@ lines attaches them as a text file; paste again straight away to put them
 in the box instead. Up in an empty box brings back your last message, and
 Esc stops Claude.
 
-**The pickers**, beside the box, choose the model, the effort and the
-permission mode. A new chat starts with what you last chose in that
+**Chat options** is the button under the message box that summarises your
+choices, such as "Opus · Medium · Auto". It opens a panel where you choose
+the agent, the model, the effort and the permission mode. A new chat starts with what you last chose in that
 project, except that **Bypass permissions**, which lets Claude act without
 asking, is never carried over; a new chat starts in Auto instead. A warning
 shows while Bypass permissions is on.
 
-The Permissions picker has five modes:
+The Permissions choice has five modes:
 
 - **Ask** asks before Claude edits files or runs commands.
 - **Accept edits** lets it edit files on its own but asks before commands.
@@ -199,7 +200,7 @@ The Permissions picker has five modes:
 **The `/` and `@` menus.** Type `/` at the start of a message to see
 Claude's commands, or `@` anywhere to pick a project file. The arrow keys
 move, Enter inserts and Escape closes the list. Commands that only work in
-the terminal are greyed out; `/model` and `/effort` open the pickers
+the terminal are greyed out; `/model` and `/effort` open Chat options
 instead. The `@` list shows files only, and skips files your `.gitignore`
 leaves out.
 
@@ -219,20 +220,20 @@ Esc, ends a command that is still running.
 only on the card, never while you type. **Deny** opens a line, "Tell
 Claude what to do instead": type a reason and press Enter, or press Enter
 with nothing typed to deny without one. Escape goes back to the buttons.
-When you have chosen "Always allow" for something, a line under the pickers
+When you have chosen "Always allow" for something, a line in Chat options
 says so, and the list "Allowed without asking in this session" lets you
 revoke each rule.
 
 **Plan mode.** When Claude offers a plan, choose **Yes, and accept edits**
 to let it change files without asking, **Yes, and ask before edits** to
 approve each change, or **No, keep planning**, which also opens the reason
-line. Your choice sets the Permissions picker.
+line. Your choice sets the Permissions choice.
 
 **Sending while Claude works.** You can still send a message; Claude reads
 it at its next step and it is marked "Sent while Claude was working". If
 Claude does not act on it, stop Claude and send it again.
 
-**Memory and changed files.** Under the pickers, Portikus shows how full
+**Memory and changed files.** Under the Chat options button, Portikus shows how full
 Claude's memory of the chat is once it passes half, and how long until the
 prompt cache goes cold. While the cache is warm, your next message is
 faster and uses less of your limit. When the memory is high, type
@@ -241,7 +242,7 @@ Claude edits files, a line under its reply says how many changed; open it
 to see each file.
 
 **Read aloud.** A speaker button under each reply reads it aloud; press it
-again to stop. Turn on **Read replies aloud** beside the pickers to hear the
+again to stop. Turn on **Read replies aloud** in Chat options to hear the
 last reply of each turn. Escape, sending a message or leaving the tab stops
 the speech, and code blocks are read as "code block". Your browser makes
 the voice. If it has only an online voice for your language, such as
@@ -256,9 +257,9 @@ stopped is lost.
 ### Codex in the chat tab
 
 **Codex (GUI)** works like the Claude Code chat tab: the same rows, cards,
-message box, `!` commands and pickers. The differences:
+message box, `!` commands and Chat options. The differences:
 
-- The Permissions picker has Codex's own five modes: **Ask**, **Read only**,
+- The Permissions choice has Codex's own five modes: **Ask**, **Read only**,
   **Plan**, **Auto** and **Full access**. Full access runs anything without
   asking, shows a warning, and is never carried into a new chat.
 - Codex's skills start with `$`; type `$` at the start of a message to see
