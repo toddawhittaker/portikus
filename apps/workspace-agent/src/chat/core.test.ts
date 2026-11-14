@@ -315,6 +315,49 @@ describe("attach order", () => {
 	});
 });
 
+describe("the frame cap on an attach", () => {
+	const huge = "x".repeat(MAX_CHAT_SERVER_FRAME_BYTES);
+
+	test("an oversized replayed event is dropped and the rest of the replay arrives", async () => {
+		agent.historyEvents = [
+			{ type: "error", message: "before" },
+			{ type: "error", message: huge },
+			{ type: "error", message: "after" },
+		];
+		const client = await attached();
+		expect(
+			client.events.filter((e) => e.type === "error").map((e) => e.message),
+		).toEqual(["before", "after"]);
+		// The next attach is served the same way: nothing killed the relay.
+		const again = await attached();
+		expect(again.events.filter((e) => e.type === "error")).toHaveLength(2);
+	});
+
+	test("an oversized in-progress event or streamed reply is dropped", async () => {
+		agent.sink.emit({ type: "turn.started", at: 1 });
+		agent.sink.emit({ type: "text.delta", messageId: "m1", text: huge });
+		agent.running = [
+			{ type: "error", message: huge },
+			{ type: "error", message: "running" },
+		];
+		const client = await attached();
+		expect(types(client)).not.toContain("text.delta");
+		expect(
+			client.events.filter((e) => e.type === "error").map((e) => e.message),
+		).toEqual(["running"]);
+	});
+
+	test("every frame the attach sends is within the cap", async () => {
+		agent.historyEvents = [{ type: "error", message: huge }];
+		const client = await attached();
+		for (const event of client.events) {
+			expect(Buffer.byteLength(JSON.stringify(event), "utf8")).toBeLessThanOrEqual(
+				MAX_CHAT_SERVER_FRAME_BYTES,
+			);
+		}
+	});
+});
+
 describe("modes and MCP servers", () => {
 	test("each change is broadcast to every browser, and the latest is kept for a later one", async () => {
 		const a = await attached();
@@ -335,16 +378,41 @@ describe("modes and MCP servers", () => {
 		});
 	});
 
-	test("an unchanged list is not broadcast again", async () => {
+	test("an unchanged list is not broadcast again, for any of the four lists", async () => {
 		const a = await attached();
+		const model = {
+			value: "default",
+			displayName: "Default",
+			description: "",
+			supportsAutoMode: true,
+		};
+		const command = {
+			name: "help",
+			description: "",
+			argumentHint: "",
+			terminalOnly: false,
+		};
 		agent.sink.modes([MODE]);
 		agent.sink.modes([{ ...MODE }]);
 		agent.sink.mcp([]);
 		agent.sink.mcp([]);
+		agent.sink.models([model]);
+		agent.sink.models([{ ...model }]);
+		agent.sink.commands([command]);
+		agent.sink.commands([{ ...command }]);
 		agent.sink.emit({ type: "error", message: "marker" });
 		await vi.waitFor(() => expect(types(a)).toContain("error"));
 		expect(types(a).filter((t) => t === "modes")).toHaveLength(1);
 		expect(types(a).filter((t) => t === "mcp")).toHaveLength(1);
+		expect(types(a).filter((t) => t === "models")).toHaveLength(1);
+		expect(types(a).filter((t) => t === "commands")).toHaveLength(1);
+		// A changed list still goes out.
+		agent.sink.models([{ ...model, displayName: "Other" }]);
+		agent.sink.commands([{ ...command, description: "Help" }]);
+		await vi.waitFor(() =>
+			expect(types(a).filter((t) => t === "models")).toHaveLength(2),
+		);
+		expect(types(a).filter((t) => t === "commands")).toHaveLength(2);
 	});
 });
 
@@ -366,6 +434,31 @@ describe("browser messages", () => {
 			["watch", "toolu_1"],
 			["unwatch", "toolu_1"],
 		]);
+	});
+
+	test("a message the core does not handle yet is answered with an error to the sender alone", async () => {
+		const sender = await attached();
+		const other = await attached();
+		sender.send({ type: "agent.switch", agent: "codex" });
+		await vi.waitFor(() =>
+			expect(sender.events.at(-1)).toMatchObject({
+				type: "error",
+				message: "Switching agents is not available yet.",
+			}),
+		);
+		expect(types(other)).not.toContain("error");
+		expect(agent.calls.map((call) => call[0])).not.toContain("set");
+	});
+
+	test("any other message that reaches the core is refused, not dropped", async () => {
+		const onMessage = (
+			core as unknown as {
+				onMessage(client: unknown, message: unknown): Promise<void>;
+			}
+		).onMessage.bind(core);
+		await expect(onMessage({}, { type: "future.message" })).rejects.toThrow(
+			"That message is not supported.",
+		);
 	});
 
 	test("a rename answer goes to the asker alone, unnumbered", async () => {

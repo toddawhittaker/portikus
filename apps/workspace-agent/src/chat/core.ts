@@ -67,6 +67,7 @@ export class ChatCore {
 	private readonly sink: ChatSink = {
 		emit: (event) => this.relay(event),
 		models: (models) => {
+			if (same(models, this.models)) return;
 			this.models = models;
 			this.broadcast({ type: "models", models });
 		},
@@ -75,16 +76,17 @@ export class ChatCore {
 			this.broadcast({ type: "settings", ...settings });
 		},
 		commands: (commands) => {
+			if (same(commands, this.commands)) return;
 			this.commands = commands;
 			this.broadcast({ type: "commands", commands });
 		},
 		modes: (modes) => {
-			if (JSON.stringify(modes) === JSON.stringify(this.modes)) return;
+			if (same(modes, this.modes)) return;
 			this.modes = modes;
 			this.broadcast({ type: "modes", modes });
 		},
 		mcp: (servers) => {
-			if (JSON.stringify(servers) === JSON.stringify(this.mcp)) return;
+			if (same(servers, this.mcp)) return;
 			this.mcp = servers;
 			this.broadcast({ type: "mcp", servers });
 		},
@@ -203,14 +205,11 @@ export class ChatCore {
 			JSON.stringify(this.snapshot(cards, turnRunning, history.truncated)),
 		);
 		const replayed = [...history.events, ...this.cards.replayDecisions(history.events)];
-		for (const event of replayed) writeLine(socket, this.frame(event));
+		for (const event of replayed) this.write(socket, event);
 		this.sendInProgress(socket, partial, history.events);
 		const held = client.held ?? [];
 		client.held = null;
-		for (const event of held) {
-			const line = this.fitted(event);
-			if (line !== null) writeLine(socket, line);
-		}
+		for (const event of held) this.write(socket, event);
 		const models = this.models;
 		if (models && !held.some((event) => event.type === "models")) {
 			writeLine(socket, this.frame({ type: "models", models }));
@@ -245,15 +244,16 @@ export class ChatCore {
 		history: readonly ChatEventBody[],
 	): void {
 		if (partial) {
-			writeLine(
-				socket,
-				this.frame({ type: "text.delta", messageId: partial.id, text: partial.text }),
-			);
+			this.write(socket, {
+				type: "text.delta",
+				messageId: partial.id,
+				text: partial.text,
+			});
 		}
 		const shown = new Set(history.map(keyOf));
 		for (const event of this.agent.inProgress()) {
 			const key = keyOf(event);
-			if (key === null || !shown.has(key)) writeLine(socket, this.frame(event));
+			if (key === null || !shown.has(key)) this.write(socket, event);
 		}
 	}
 
@@ -312,6 +312,10 @@ export class ChatCore {
 				const { type: _, ...change } = message;
 				return this.agent.set(change);
 			}
+			case "agent.switch":
+				throw new Error("Switching agents is not available yet.");
+			default:
+				return assertHandled(message);
 		}
 	}
 
@@ -347,6 +351,12 @@ export class ChatCore {
 		});
 	}
 
+	/** Write one event to one attachment if it fits a frame; the core owns the cap for every driver. */
+	private write(socket: Socket, event: ChatEventBody): void {
+		const line = this.fitted(event);
+		if (line !== null) writeLine(socket, line);
+	}
+
 	private broadcast(event: ChatEventBody): void {
 		let line: string | null | undefined;
 		for (const client of this.clients) {
@@ -369,6 +379,16 @@ export class ChatCore {
 		const line = this.frame(event);
 		return Buffer.byteLength(line, "utf8") <= MAX_CHAT_SERVER_FRAME_BYTES ? line : null;
 	}
+}
+
+/** Whether a driver's list is the one already held, compared by content. */
+function same(list: unknown, held: unknown): boolean {
+	return JSON.stringify(list) === JSON.stringify(held);
+}
+
+/** Compile-time proof that onMessage handles every client message; a new one fails the build here. */
+function assertHandled(_message: never): never {
+	throw new Error("That message is not supported.");
 }
 
 /** An event's type and id, or null for an event with no id. */

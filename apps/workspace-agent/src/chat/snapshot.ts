@@ -1,7 +1,5 @@
 import type { SDKMessage, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
-	type ChatOpenCard,
-	type ChatServerEvent,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	MAX_CHAT_SHELL_COMMAND_CHARS,
 	MAX_CHAT_SHELL_OUTPUT_CHARS,
@@ -250,22 +248,4 @@ export function replaySubagent(
 		});
 	}
 	return { events, truncated };
-}
-
-/** The snapshot sent first on every attach (SPEC.md §10.8). History follows it as replayed events. */
-export function buildSnapshot(input: {
-	sessionId: string;
-	seq: number;
-	cards: readonly ChatOpenCard[];
-	turnRunning: boolean;
-	truncated: boolean;
-}): Extract<ChatServerEvent, { type: "snapshot" }> {
-	return {
-		type: "snapshot",
-		sessionId: input.sessionId,
-		seq: input.seq,
-		cards: [...input.cards],
-		turnRunning: input.turnRunning,
-		truncated: input.truncated,
-	};
 }
