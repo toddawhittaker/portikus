@@ -355,14 +355,205 @@ test("Up in an empty box brings back the last message sent, formatting and all",
 	expect(input().querySelector("strong")?.textContent).toBe("bold");
 });
 
-test("Up in a box with text moves the cursor as usual", () => {
+test("Up on a single-line draft recalls the last message, and Down gives the draft back", () => {
 	draw();
 	type("first");
 	fireEvent.keyDown(input(), { key: "Enter" });
 	echo("first");
 	type("draft");
 	fireEvent.keyDown(input(), { key: "ArrowUp" });
+	expect(value()).toBe("first");
+	fireEvent.keyDown(input(), { key: "ArrowDown" });
 	expect(value()).toBe("draft");
+});
+
+/** The student sends each text in turn, and the host echoes it. */
+function sendEach(...texts: string[]) {
+	for (const text of texts) {
+		type(text);
+		fireEvent.keyDown(input(), { key: "Enter" });
+		echo(text);
+	}
+}
+
+const up = () => fireEvent.keyDown(input(), { key: "ArrowUp" });
+const down = () => fireEvent.keyDown(input(), { key: "ArrowDown" });
+
+test("Up and Down walk this chat's messages from the newest to the oldest and back", () => {
+	draw();
+	sendEach("one", "two", "three");
+	up();
+	expect(value()).toBe("three");
+	up();
+	expect(value()).toBe("two");
+	up();
+	expect(value()).toBe("one");
+	up();
+	expect(value()).toBe("one");
+	down();
+	expect(value()).toBe("two");
+	down();
+	expect(value()).toBe("three");
+	down();
+	expect(value()).toBe("");
+	down();
+	expect(value()).toBe("");
+});
+
+test("history comes from the conversation, so a reloaded chat has it, and replies are not in it", () => {
+	draw();
+	emit("message", { id: "u1", role: "user", markdown: "from before" });
+	emit("message", { id: "a1", role: "assistant", markdown: "a reply" });
+	emit("message", { id: "u2", role: "user", markdown: "**bold** before" });
+	up();
+	expect(value()).toBe("**bold** before");
+	up();
+	expect(value()).toBe("from before");
+});
+
+test("Down past the newest gives back exactly what was being typed, formatting and all", () => {
+	draw();
+	sendEach("one", "two");
+	typeInto(input(), "keep **this**");
+	up();
+	up();
+	expect(value()).toBe("one");
+	down();
+	down();
+	expect(value()).toBe("keep **this**");
+	expect(input().querySelector("strong")?.textContent).toBe("this");
+});
+
+test("after a recall the cursor is at the end of the message", () => {
+	draw();
+	sendEach("one two");
+	up();
+	typeInto(input(), "!");
+	expect(value()).toBe("one two!");
+});
+
+test("Up works only on the first line and Down only on the last", () => {
+	draw();
+	sendEach("older");
+	type("top\nmiddle\nbottom");
+	const editor = editorOf(input());
+	// Up with the cursor on a lower line moves the cursor, so the text stays.
+	act(() => {
+		editor.commands.focus("end");
+	});
+	up();
+	expect(value()).toBe("top\nmiddle\nbottom");
+	// Down from the first line is left to the box too.
+	placeCursor(input(), 1);
+	down();
+	expect(value()).toBe("top\nmiddle\nbottom");
+	// On the first line Up recalls; the draft comes back on the last line's Down.
+	up();
+	expect(value()).toBe("older");
+	down();
+	expect(value()).toBe("top\nmiddle\nbottom");
+});
+
+test("Down on the last line of a recalled multi-line message goes to the next one", () => {
+	draw();
+	sendEach("one\ntwo", "last");
+	up();
+	up();
+	expect(value()).toBe("one\ntwo");
+	// The cursor is at the end, the last line.
+	down();
+	expect(value()).toBe("last");
+});
+
+test("a selected range is left to the box", () => {
+	draw();
+	sendEach("older");
+	type("draft");
+	act(() => {
+		editorOf(input()).commands.selectAll();
+	});
+	up();
+	expect(value()).toBe("draft");
+});
+
+test("Up with modifier keys is the box's own, and so is a key during composition", () => {
+	draw();
+	sendEach("older");
+	for (const modifier of ["shiftKey", "ctrlKey", "altKey", "metaKey"]) {
+		fireEvent.keyDown(input(), { key: "ArrowUp", [modifier]: true });
+	}
+	fireEvent.keyDown(input(), { key: "ArrowUp", isComposing: true, keyCode: 229 });
+	expect(value()).toBe("");
+});
+
+test("editing a recalled message ends browsing: it is the draft and Up starts at the newest", () => {
+	draw();
+	sendEach("one", "two", "three");
+	up();
+	up();
+	expect(value()).toBe("two");
+	typeInto(input(), "!");
+	// Down has nowhere to go from an edit.
+	down();
+	expect(value()).toBe("two!");
+	up();
+	expect(value()).toBe("three");
+	down();
+	expect(value()).toBe("two!");
+});
+
+test("a recalled message is sent as written, and joins the history again", () => {
+	draw();
+	sendEach("run the tests");
+	up();
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(sent.at(-1)).toEqual({ type: "send", text: "run the tests", attachments: [] });
+	echo("run the tests");
+	expect(value()).toBe("");
+	up();
+	expect(value()).toBe("run the tests");
+	up();
+	expect(value()).toBe("run the tests");
+});
+
+test("a message sent and not yet echoed is in the history", () => {
+	draw();
+	sendEach("one");
+	type("two");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	// The host has not echoed "two" yet; the box still holds it.
+	type("");
+	up();
+	expect(value()).toBe("two");
+});
+
+test("a shell command sent is recalled with its bang", () => {
+	draw();
+	type("!ls");
+	fireEvent.keyDown(input(), { key: "Enter" });
+	emit("shell", {
+		id: "s1",
+		command: "ls",
+		output: "",
+		exitCode: 0,
+		truncated: false,
+		state: "done",
+	});
+	up();
+	expect(value()).toBe("!ls");
+});
+
+test("Up works the same in a Codex chat", () => {
+	draw();
+	settings({ agent: "codex", model: "gpt-5" });
+	sendEach("one", "two");
+	up();
+	expect(value()).toBe("two");
+	up();
+	expect(value()).toBe("one");
+	down();
+	down();
+	expect(value()).toBe("");
 });
 
 test("a paste of more than 40 lines is attached as a text file with its line count", async () => {

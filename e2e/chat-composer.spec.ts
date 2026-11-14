@@ -482,7 +482,7 @@ test("Up in an empty box brings back the last message sent", async ({
 	await box.press("ArrowUp");
 	await expect(box).toHaveText("check all files");
 	await expect(box.locator("strong")).toHaveText("all");
-	// With text in the box, Up is left to move the cursor.
+	// With text in the box, Up on its first line recalls the newest message: the same one.
 	await box.press("ArrowUp");
 	await expect(box).toHaveText("check all files");
 });
