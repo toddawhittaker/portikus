@@ -113,6 +113,111 @@ test("the agent status topic describes the left-pane agent rows and the seven-da
 	expect(text).toContain("seven-day plan limit");
 });
 
+test("the agent status topic no longer says Codex has no subagents, and says what its rows and questions show", () => {
+	const text = topicText("student-agent-status").replace(/\s+/g, " ");
+	expect(text).not.toContain("Codex shows no subagents");
+	expect(text).toContain("A Codex subagent's row shows its type but no description");
+	expect(text).toContain("When Codex asks a question in a terminal");
+	expect(text).toContain("the browser has no card for it");
+});
+
+test("the Codex topic covers pickers, the five modes, the plan card, questions and secrets", () => {
+	const text = topicText("student-codex-chat").replace(/\s+/g, " ");
+	for (const phrase of [
+		"Codex (GUI) is a chat tab",
+		"There is no Version",
+		"Ask asks before Codex runs any command",
+		"Read only",
+		"Plan lets it look around",
+		"Auto lets it work in the project on its own",
+		"Full access runs anything without asking",
+		"a new chat never starts in it",
+		"Yes, in Auto",
+		"Yes, and ask first",
+		"No, keep planning",
+		"Allow once, Deny and, when Codex offers it, Allow for this chat",
+		"Allow for this chat",
+		'There is no "Always allow"',
+		"the box hides what you type",
+		"never shown in the conversation",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the Codex topic covers commands, $ skills, subagents, the meter and signing in", () => {
+	const text = topicText("student-codex-chat").replace(/\s+/g, " ");
+	for (const phrase of [
+		"/review",
+		"/mcp run in the chat",
+		"/resume",
+		"/logout, are greyed out",
+		"Type $ at the start of a message to see only your skills",
+		"Used skill",
+		"Codex gives a subagent no description, so its row shows only its type",
+		"so there is no countdown, only the tokens used",
+		"codex login --device-auth",
+		"Do not run a Codex (GUI) tab and a Codex (TUI) terminal on the same Codex session",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the Codex topic explains switching agents and its warning", () => {
+	const text = topicText("student-codex-chat").replace(/\s+/g, " ");
+	for (const phrase of [
+		"switch agents in the middle of a chat",
+		"the new agent starts fresh with this conversation as its context",
+		"the prompt cache is lost",
+		"each tool call reduced to a short summary",
+		"the oldest turns are left out, and the warning says so",
+		"A chat with nothing in it switches with no warning",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the Codex topic lists what Codex cannot do here", () => {
+	const text = topicText("student-codex-chat").replace(/\s+/g, " ");
+	expect(text).toContain("What Codex cannot do here");
+	expect(text).toContain("there is no question card in the browser");
+	expect(text).toContain(
+		"cannot be revoked from Portikus's list; a new chat clears it",
+	);
+	expect(text).toContain("The memory meter counts tokens only");
+	expect(text).toContain("wait for trust in a terminal");
+});
+
+test("the tools topic covers skills, MCP servers, plugins and project trust for both agents", () => {
+	const text = topicText("student-agent-tools").replace(/\s+/g, " ");
+	for (const phrase of [
+		"Claude Code (GUI) chat and a Codex (GUI) chat alike",
+		"Claude Code's as /name and Codex's as $name",
+		"connected, starting, failed, needs you to sign in, or turned off",
+		"The list is read-only",
+		"claude mcp or codex mcp",
+		"Allow server to run tool?",
+		"use a terminal tab for it",
+		"Install and manage plugins in a terminal",
+		"/plugin in Claude Code or /plugins in Codex",
+		"start only after you have trusted the project in a terminal",
+	]) {
+		expect(text).toContain(phrase);
+	}
+});
+
+test("the Claude topic points to the tools and to switching agents", () => {
+	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
+	expect(text).toContain("Skills, MCP servers and plugins");
+	expect(text).toContain("choose Codex in the Agent menu");
+});
+
+test("the live-help terms in Help name Codex credentials beside Git, Claude and SSH", () => {
+	expect(topicText("student-live-help")).toContain(
+		"Git, Claude, Codex and SSH credentials",
+	);
+});
+
 test("the keyboard topic lists the completion and hover keys", () => {
 	const text = topicText("student-keyboard");
 	expect(text).toContain("Ctrl+Space");
@@ -128,17 +233,25 @@ test("the topics that name Claude Code and Codex say a course may hide them", ()
 	);
 });
 
-test("getting started names the five New tab choices", () => {
+test("getting started names the six New tab choices", () => {
 	const text = topicText("student-getting-started");
+	expect(text).toContain("six choices");
 	for (const choice of [
 		"Terminal",
 		"Claude Code (TUI)",
+		"Codex (TUI)",
 		"Claude Code (GUI)",
-		"Codex",
+		"Codex (GUI)",
 		"Preview",
 	]) {
 		expect(text).toContain(choice);
 	}
+});
+
+test("the layout topic names both Codex launchers", () => {
+	expect(topicText("student-layout")).toContain(
+		"Codex (GUI), Codex (TUI) or a preview",
+	);
 });
 
 test("the Claude topic describes the decision line and the terminal question card", () => {
