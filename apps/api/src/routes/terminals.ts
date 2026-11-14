@@ -532,28 +532,45 @@ export function registerTerminalRoutes(
 		}
 
 		if (body.agent !== undefined) {
+			// A swap launches an agent, so it gets the same point a launch does (SPEC.md §15.6, §15.10).
 			const refused = await switchChatAgent(
 				db,
 				config,
 				workspace,
 				params.tid,
 				body.agent,
+				async (agent, projectId) => {
+					const project = projectId
+						? await terminalProject(db, params.id, projectId)
+						: undefined;
+					if (project)
+						await agentSessionPoint(request, agent, params.id, project, user.id);
+				},
 			);
 			if (refused)
 				return sendError(reply, refused.status, refused.code, refused.message);
 		}
 
-		const updated = await db
-			.updateTable("terminals")
-			.set({
-				...(body.name === undefined ? {} : { name: body.name }),
-				...(body.theme === undefined ? {} : { theme: body.theme }),
-				...(body.agent === undefined ? {} : { agent: body.agent }),
-			})
-			.where("id", "=", params.tid)
-			.where("workspace_id", "=", params.id)
-			.returningAll()
-			.executeTakeFirst();
+		// The swap set the agent itself, only if no other swap had.
+		const changes = {
+			...(body.name === undefined ? {} : { name: body.name }),
+			...(body.theme === undefined ? {} : { theme: body.theme }),
+		};
+		const updated =
+			Object.keys(changes).length === 0
+				? await db
+						.selectFrom("terminals")
+						.selectAll()
+						.where("id", "=", params.tid)
+						.where("workspace_id", "=", params.id)
+						.executeTakeFirst()
+				: await db
+						.updateTable("terminals")
+						.set(changes)
+						.where("id", "=", params.tid)
+						.where("workspace_id", "=", params.id)
+						.returningAll()
+						.executeTakeFirst();
 		if (!updated) {
 			return sendError(reply, 404, "TERMINAL_NOT_FOUND", "Terminal not found");
 		}

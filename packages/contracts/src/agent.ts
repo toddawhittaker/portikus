@@ -78,10 +78,16 @@ export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalReque
 /**
  * Body of `POST /terminals/:id/chat-agent`: run the other coding agent in
  * this chat tab, handed the conversation so far (SPEC.md §10.8). The keys
- * are the new agent's only, as at create.
+ * are the new agent's only, as at create. `previousInstitutionalEnv` is
+ * the running agent's own key, used only to start that agent again when
+ * the new one cannot start.
  */
 export const AgentSwitchChatRequest = z
-	.object({ agent: CodingAgent, institutionalEnv: InstitutionalEnv.optional() })
+	.object({
+		agent: CodingAgent,
+		institutionalEnv: InstitutionalEnv.optional(),
+		previousInstitutionalEnv: InstitutionalEnv.optional(),
+	})
 	.strict();
 export type AgentSwitchChatRequest = z.infer<typeof AgentSwitchChatRequest>;
 
@@ -175,6 +181,10 @@ export const AgentErrorCode = z.enum([
 	"ATTACHMENT_LIMIT",
 	// A chat that cannot switch agents now, such as mid-reply (SPEC.md §10.8).
 	"CHAT_BUSY",
+	// A swap to the agent the chat already runs (SPEC.md §10.8).
+	"CHAT_SAME_AGENT",
+	// A chat that did not prepare a swap in time (SPEC.md §10.8).
+	"CHAT_SWITCH_TIMEOUT",
 	"INVALID_CWD",
 	"TMUX_FAILED",
 	"INTERNAL",

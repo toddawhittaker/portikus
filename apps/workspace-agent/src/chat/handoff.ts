@@ -40,6 +40,8 @@ export interface Handoff {
 
 /** Used when the new agent has not said its window yet. */
 export const FALLBACK_WINDOW_TOKENS = 200_000;
+/** The largest context window either agent offers; a stored log never needs more. */
+const LARGEST_WINDOW_TOKENS = 1_000_000;
 /** The share of the window the handoff may fill, leaving room to work. */
 const HANDOFF_SHARE = 0.5;
 /** A rough count, close enough for English and code. */
@@ -176,6 +178,23 @@ export function fitTurns<T extends { turn: HandoffTurn }>(
 		first -= 1;
 	}
 	return { kept: turns.slice(first), dropped: first };
+}
+
+/**
+ * The log kept to what the largest window could take, dropping the
+ * oldest turns, so the swap state cannot grow without bound.
+ */
+export function capLog(log: readonly HandoffSegment[]): HandoffSegment[] {
+	const turns = log.flatMap((segment, index) =>
+		segment.turns.map((turn) => ({ index, turn })),
+	);
+	const { kept } = fitTurns(turns, LARGEST_WINDOW_TOKENS);
+	return log
+		.map((segment, index) => ({
+			agent: segment.agent,
+			turns: kept.filter((each) => each.index === index).map((each) => each.turn),
+		}))
+		.filter((segment) => segment.turns.length > 0);
 }
 
 /** What a tool line says about who ran it, so the new agent never takes it for its own. */
