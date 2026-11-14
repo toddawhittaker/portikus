@@ -151,7 +151,15 @@ test.skipIf(!haveGit)("a new project is created with and without git", async () 
 test.skipIf(!haveGit)("initializing Git writes a default .gitignore", async () => {
 	await create({ slug: "alpha", source: "new", gitInit: true });
 	const created = await readFile(join(projectsRoot, "alpha", ".gitignore"), "utf8");
-	for (const entry of [".env", "node_modules/", "__pycache__/", "*.sqlite"]) {
+	for (const entry of [
+		".env",
+		"node_modules/",
+		"__pycache__/",
+		"*.sqlite",
+		".portikus/*",
+		"!.portikus/checks.json",
+		"!.portikus/README.md",
+	]) {
 		expect(created).toContain(entry);
 	}
 
