@@ -417,7 +417,9 @@ function QuestionFields({
 					data-testid="chat-question-answer"
 					onChange={(event) => onChange({ other: event.target.value })}
 				/>
-				{question.secret ? <SecretHint id={`${id}-secret`} agentName={agentName} /> : null}
+				{question.secret ? (
+					<SecretHint id={`${id}-secret`} agentName={agentName} />
+				) : null}
 			</div>
 		);
 	}

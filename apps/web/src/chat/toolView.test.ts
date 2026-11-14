@@ -465,7 +465,9 @@ test("Codex's web search, image view, dynamic tool and plan read like their Clau
 	expect(toolLine("planSteps", { steps: [] }, "Plan").verb).toBeNull();
 	expect(toolLine("planSteps", {}, "Plan").verb).toBeNull();
 	// A steps input on the plan-card row is not a plan to read.
-	expect(toolLine("plan", { steps: [{ step: "a", status: "pending" }] }, "").verb).toBeNull();
+	expect(
+		toolLine("plan", { steps: [{ step: "a", status: "pending" }] }, "").verb,
+	).toBeNull();
 });
 
 test("a plan card's own row shows the plan text, not a steps list", () => {
