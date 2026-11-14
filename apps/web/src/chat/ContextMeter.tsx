@@ -7,13 +7,15 @@
  * up as the window fills, at 25, 50 and 75%, and turns to the error look from 90%.
  *
  * A third item estimates how many more messages are worth sending before a
- * fresh chat would use less of the student's plan (restartEstimate.ts).
+ * fresh chat would use less of the student's plan (restartEstimate.ts). Once
+ * it would, a button beside it starts fresh with a handoff note, as
+ * `/handoff` does.
  *
  * The ticking digits are hidden from assistive technology; a stable sentence
  * carries the same meaning, and the row's status region announces crossing
  * 75 and 90% once each, the steps worth acting on (SPEC.md §25.8).
  */
-import { Icon, Meter } from "@portikus/ui";
+import { Button, Icon, Meter } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { stopTime } from "../shell/useCountdown.js";
@@ -223,6 +225,7 @@ function CacheClock({
 export const RESTART_EXPLAINED =
 	"An estimate from API prices, assuming your plan's usage tracks them, based on how this chat has grown so far.";
 export const RESTART_NOW = "A fresh chat would now save usage";
+export const HANDOFF_BUTTON = "Start fresh with a handoff";
 
 /** The visible words for this many messages left. */
 export function restartText(messagesLeft: number): string {
@@ -254,9 +257,11 @@ function selectMessagesLeft(state: ChatState): number | null {
 function RestartHint({
 	messagesLeft,
 	onAnnounce,
+	onHandoff,
 }: {
 	messagesLeft: number;
 	onAnnounce: (text: string) => void;
+	onHandoff: () => void;
 }) {
 	const now = messagesLeft === 0;
 	// A chat that opens already past the point is not news.
@@ -268,22 +273,34 @@ function RestartHint({
 		}
 	}, [now, onAnnounce]);
 	return (
-		<span
-			className={`pk-ctx pk-ctx-restart${now ? " is-warning" : ""}`}
-			data-state={now ? "now" : "later"}
-			title={RESTART_EXPLAINED}
-			data-testid="composer-restart"
-		>
-			<span className="pk-ctx-sight" aria-hidden={true}>
-				{now ? <Icon name="alert" size="sm" /> : null}
-				<span>{restartText(messagesLeft)}</span>
+		<>
+			<span
+				className={`pk-ctx pk-ctx-restart${now ? " is-warning" : ""}`}
+				data-state={now ? "now" : "later"}
+				title={RESTART_EXPLAINED}
+				data-testid="composer-restart"
+			>
+				<span className="pk-ctx-sight" aria-hidden={true}>
+					{now ? <Icon name="alert" size="sm" /> : null}
+					<span>{restartText(messagesLeft)}</span>
+				</span>
+				{/* The count changes with each message, so it is left out; the sentence is stable. */}
+				<span className="sr-only">
+					{now ? `${RESTART_NOW}. ` : "Fresh chat estimate. "}
+					{RESTART_EXPLAINED}
+				</span>
 			</span>
-			{/* The count changes with each message, so it is left out; the sentence is stable. */}
-			<span className="sr-only">
-				{now ? `${RESTART_NOW}. ` : "Fresh chat estimate. "}
-				{RESTART_EXPLAINED}
-			</span>
-		</span>
+			{now ? (
+				<Button
+					size="sm"
+					variant="secondary"
+					data-testid="composer-handoff"
+					onClick={onHandoff}
+				>
+					{HANDOFF_BUTTON}
+				</Button>
+			) : null}
+		</>
 	);
 }
 
@@ -320,7 +337,11 @@ export function ContextMeter({ store, onAnnounce }: Props) {
 						/>
 					) : null}
 					{messagesLeft === null ? null : (
-						<RestartHint messagesLeft={messagesLeft} onAnnounce={onAnnounce} />
+						<RestartHint
+							messagesLeft={messagesLeft}
+							onAnnounce={onAnnounce}
+							onHandoff={() => store.getState().startHandoff()}
+						/>
 					)}
 				</>
 			) : null}

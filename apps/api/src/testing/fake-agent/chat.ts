@@ -14,6 +14,7 @@ import {
 	type ChatSignIn,
 	type CodingAgent,
 	chatStartMode,
+	type HandoffReview,
 	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	shellCommandText,
@@ -38,6 +39,7 @@ import {
 	QUESTION_CARD,
 	TINY_PNG,
 } from "./chat-fixtures.js";
+import { fakeHandoff } from "./chat-handoff.js";
 import { setCodingAgentTitle } from "./coding-agents.js";
 import type { FakeAgentState } from "./state.js";
 
@@ -47,7 +49,7 @@ type FakeChatAnswer = Extract<
 	{ type: "permission.answer" | "question.answer" }
 >;
 
-interface FakeChat {
+export interface FakeChat {
 	/** The agent the terminal was created for; it decides the scripted turn and the lists. */
 	agent: CodingAgent;
 	seq: number;
@@ -75,6 +77,8 @@ interface FakeChat {
 	/** How the next agent swap goes, as a test set it. */
 	/** `refuse` true answers CHAT_BUSY; a string answers with that code. */
 	swap: { droppedTurns: number; delayMs: number; refuse: boolean | string };
+	/** The handoff note waiting for review (SPEC.md §10.8). */
+	review: HandoffReview | null;
 }
 
 /** What a chat of each agent starts with and offers. */
@@ -135,6 +139,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				context: null,
 				sockets: new Set(),
 				swap: { droppedTurns: 0, delayMs: 0, refuse: false },
+				review: null,
 			};
 			chats.set(id, chat);
 		}
@@ -425,6 +430,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
+	const handoff = fakeHandoff({
+		chatOf,
+		emit,
+		record,
+		cwdOf: (id) => terminals.get(id)?.cwd,
+		filesForKey: s.filesForKey,
+	});
+
 	function handle(
 		id: string,
 		key: string,
@@ -432,6 +445,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		from: WebSocket,
 	): void {
 		const chat = chatOf(id);
+		if (handoff(id, key, message)) return;
 		switch (message.type) {
 			case "send": {
 				// Claude Code's /rename retitles the session; the host reads it back after the result.
@@ -615,6 +629,8 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			emit(id, [socket], { type: "modes", modes: chat.modes });
 			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
 			if (chat.signIn) emit(id, [socket], { type: "signIn", state: chat.signIn });
+			if (chat.review)
+				emit(id, [socket], { type: "handoff.review", review: chat.review });
 			emit(id, [socket], { type: "settings", agent: chat.agent, ...chat.settings });
 		},
 	);

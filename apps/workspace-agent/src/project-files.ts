@@ -4,10 +4,12 @@
  * `.portikus/README.md` that explains checks. None of this is ever
  * committed (SPEC.md §12.5).
  */
+import { constants } from "node:fs";
 import {
 	appendFile,
 	lstat,
 	mkdir,
+	open,
 	readdir,
 	readFile,
 	rm,
@@ -15,6 +17,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { HANDOFF_NOTES_DIR } from "@portikus/contracts";
 
 /** Everything under `.portikus/` is working data except these two files. */
 export const PORTIKUS_IGNORE_LINES = [
@@ -186,5 +189,87 @@ export async function removeOldPastes(
 		} else if (DROP_FOLDER.test(name) && (await lstat(path)).isDirectory()) {
 			await removeOldDrops(path, now);
 		}
+	}
+}
+
+/** A real directory at `path`, made if missing; a symlink or a file there refuses the write. */
+async function realDirectory(path: string): Promise<void> {
+	try {
+		if (!(await lstat(path)).isDirectory()) throw new Error("not a directory");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		await mkdir(path);
+	}
+}
+
+/** `2026-11-14T10-20-30Z`: the UTC second, with no colons for other systems' file names. */
+function noteStamp(now: Date): string {
+	return now
+		.toISOString()
+		.replace(/\.\d{3}Z$/, "Z")
+		.replaceAll(":", "-");
+}
+
+/**
+ * Save a handoff note as `.portikus/handoffs/<UTC time>.md` and return its
+ * project-relative path (SPEC.md §10.8). Never replaces a file, and never
+ * follows a symlinked `.portikus` or `handoffs` out of the project. The
+ * ignore lines go in first, so the note is never offered to Git.
+ */
+export async function writeHandoffNote(
+	projectPath: string,
+	markdown: string,
+	now = new Date(),
+): Promise<string> {
+	await realDirectory(join(projectPath, ".portikus"));
+	await realDirectory(join(projectPath, HANDOFF_NOTES_DIR));
+	await excludeOnPortikusWrite(projectPath, HANDOFF_NOTES_DIR);
+	const stamp = noteStamp(now);
+	for (let attempt = 0; ; attempt += 1) {
+		const name = attempt === 0 ? `${stamp}.md` : `${stamp}-${attempt}.md`;
+		const relPath = `${HANDOFF_NOTES_DIR}/${name}`;
+		try {
+			await writeFile(join(projectPath, relPath), markdown, { flag: "wx" });
+			return relPath;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 99)
+				throw error;
+		}
+	}
+}
+
+/** Read a saved handoff note, never through a symlink. */
+export async function readHandoffNote(
+	projectPath: string,
+	relPath: string,
+): Promise<string> {
+	const file = await open(
+		join(projectPath, relPath),
+		constants.O_RDONLY | constants.O_NOFOLLOW,
+	);
+	try {
+		return await file.readFile("utf8");
+	} finally {
+		await file.close();
+	}
+}
+
+/** Replace a saved handoff note's text, never through a symlink. */
+export async function rewriteHandoffNote(
+	projectPath: string,
+	relPath: string,
+	markdown: string,
+): Promise<void> {
+	await realDirectory(join(projectPath, ".portikus"));
+	await realDirectory(join(projectPath, HANDOFF_NOTES_DIR));
+	const file = await open(
+		join(projectPath, relPath),
+		constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+		0o644,
+	);
+	try {
+		await file.writeFile(markdown);
+	} finally {
+		await file.close();
 	}
 }

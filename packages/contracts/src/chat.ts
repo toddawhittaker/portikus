@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HandoffNotePath, HandoffNoteText, HandoffReview } from "./handoff-note.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
@@ -582,6 +583,26 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		droppedTurns: z.number().int().nonnegative(),
 		failed: z.literal(true).optional(),
 	}),
+	/**
+	 * The handoff note waiting for review, or null once it is continued or
+	 * cancelled; sent on attach while one waits (SPEC.md §10.8).
+	 */
+	z.object({
+		type: z.literal("handoff.review"),
+		...Envelope,
+		review: HandoffReview.nullable(),
+	}),
+	/**
+	 * A divider where the chat started fresh from a handoff note. Sent again
+	 * with the same id when its first message fails (`failed`) or is resent.
+	 */
+	z.object({
+		type: z.literal("handoff.fresh"),
+		...Envelope,
+		id: z.uuid(),
+		path: HandoffNotePath,
+		failed: z.literal(true).optional(),
+	}),
 	z.object({
 		type: z.literal("settings"),
 		...Envelope,
@@ -705,6 +726,22 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("agent.switch"), agent: CodingAgent }).strict(),
 	/** Ask the agent again whether the student is signed in; a `signIn` event answers. */
 	z.object({ type: z.literal("signIn.check") }).strict(),
+	/** Ask the agent for a handoff note, as `/handoff` does (SPEC.md §10.8). */
+	z.object({ type: z.literal("handoff.start") }).strict(),
+	/** Start the fresh conversation from the note under review. */
+	z.object({ type: z.literal("handoff.continue"), id: z.uuid() }).strict(),
+	/** Replace the note under review, rewriting its file. */
+	z
+		.object({
+			type: z.literal("handoff.edit"),
+			id: z.uuid(),
+			markdown: HandoffNoteText,
+		})
+		.strict(),
+	/** Keep the current conversation; the saved note stays. */
+	z.object({ type: z.literal("handoff.cancel"), id: z.uuid() }).strict(),
+	/** Send a failed fresh start's first message again, naming its divider. */
+	z.object({ type: z.literal("handoff.resend"), id: z.uuid() }).strict(),
 	/** Retitle the conversation; the host cleans the title (ADR 0074). */
 	z
 		.object({

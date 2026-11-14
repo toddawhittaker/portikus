@@ -7,10 +7,8 @@
  * (SPEC.md §10.8). The list is not a live region: streaming text would be
  * read out word by word, so ChatView announces the turn's state instead.
  */
-import { chatImageType } from "@portikus/contracts";
 import { AgentStateMark, Icon } from "@portikus/ui";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { displayName } from "../files/paths.js";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CopyButton } from "./CopyButton.js";
 import { useChatAgent } from "./chatAgent.js";
@@ -31,12 +29,13 @@ import {
 	groupTools,
 	type ToolRun,
 } from "./fold.js";
+import type { ChatFreshStartItem } from "./freshStart.js";
 import { firstSpeaker, HandoffDivider, spokenBy } from "./HandoffDivider.js";
-import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers, secretQuestions } from "./questionAnswer.js";
 import { SpeakButton } from "./SpeakButton.js";
 import { ToolBlock } from "./ToolBlock.js";
 import { projectPath, toolLabel, toolLine } from "./toolView.js";
+import { UserMessage } from "./UserMessage.js";
 import "./messages.css";
 import "./turn.css";
 
@@ -48,7 +47,7 @@ import "./turn.css";
 type Entry =
 	| { kind: "user"; item: ChatMessageItem }
 	| { kind: "shell"; item: ChatShellItem }
-	| { kind: "handoff"; item: ChatHandoffItem }
+	| { kind: "handoff"; item: ChatHandoffItem | ChatFreshStartItem }
 	| { kind: "turn"; turnId: string; items: ChatItem[] }
 	| { kind: "loose"; key: string; items: ChatItem[] };
 
@@ -68,7 +67,7 @@ function groupByTurn(
 			entries.push({ kind: "shell", item });
 			continue;
 		}
-		if (item.kind === "handoff") {
+		if (item.kind === "handoff" || item.kind === "freshStart") {
 			entries.push({ kind: "handoff", item });
 			continue;
 		}
@@ -92,78 +91,6 @@ function groupByTurn(
 		entries.push({ kind: "turn", turnId: currentTurnId, items: [] });
 	}
 	return entries;
-}
-
-/**
- * A file the student sent. A picture shows as a thumbnail that opens large in
- * the viewer; anything else, or a picture that will not load, is its path.
- */
-function SentFile({ path }: { path: string }) {
-	const images = useChatImages();
-	const [failed, setFailed] = useState(false);
-	const name = displayName(path.slice(path.lastIndexOf("/") + 1));
-	if (images === null || failed || chatImageType(path) === null) {
-		return (
-			<li className="pk-chat-attachment">
-				<Icon name="file" size="sm" />
-				<span className="pk-chat-attachment-name">{displayName(path)}</span>
-			</li>
-		);
-	}
-	const src = images.imageUrl(path);
-	return (
-		<li className="pk-chat-attachment pk-chat-sent-image">
-			<button
-				type="button"
-				className="pk-chat-image pk-chat-thumb"
-				aria-label={`View image ${name}`}
-				onClick={() => images.open({ src, name, alt: name, projectPath: path })}
-			>
-				<img
-					src={src}
-					alt={name}
-					width={56}
-					height={56}
-					loading="lazy"
-					onError={() => setFailed(true)}
-				/>
-			</button>
-			<span className="pk-chat-attachment-name" title={displayName(path)}>
-				{name}
-			</span>
-		</li>
-	);
-}
-
-/** What the student wrote, drawn as the Markdown the composer sent (SPEC.md §10.8). */
-function UserMessage({ message }: { message: ChatMessageItem }) {
-	const { name } = useChatAgent();
-	return (
-		<li
-			className="pk-chat-entry pk-chat-entry--user pk-chat-copy-host"
-			data-testid="chat-user-message"
-		>
-			<p className="sr-only">You said:</p>
-			{message.markdown !== "" ? (
-				<CopyButton label="Copy message" text={message.markdown} />
-			) : null}
-			<div className="pk-chat-bubble">
-				{message.markdown !== "" ? <ChatMarkdown text={message.markdown} /> : null}
-				{message.attachments.length > 0 ? (
-					<ul className="pk-chat-attachments" aria-label="Attached files">
-						{message.attachments.map((file) => (
-							<SentFile key={file.path} path={file.path} />
-						))}
-					</ul>
-				) : null}
-			</div>
-			{message.whileWorking ? (
-				<p className="pk-turn-sent-note" data-testid="chat-sent-while-working">
-					Sent while {name} was working
-				</p>
-			) : null}
-		</li>
-	);
 }
 
 /**
@@ -365,6 +292,7 @@ function Step({ item }: { item: ChatItem }) {
 		case "shell":
 			return <ShellCommand shell={item} />;
 		case "handoff":
+		case "freshStart":
 			return <HandoffDivider handoff={item} />;
 		case "error":
 			return (
@@ -749,7 +677,7 @@ export function MessageList({
 			) : null}
 			{groupByTurn(items, currentTurnId).map((entry) => {
 				if (entry.kind === "handoff") {
-					speaker = entry.item.to;
+					if (entry.item.kind === "handoff") speaker = entry.item.to;
 					return <HandoffDivider key={entry.item.key} handoff={entry.item} />;
 				}
 				if (entry.kind === "turn") {

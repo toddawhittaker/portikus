@@ -23,6 +23,7 @@ import {
 	type ChatToolOutputPart,
 	type CodingAgent,
 	chatStartMode,
+	type HandoffReview,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
@@ -34,6 +35,7 @@ import {
 	NO_GROWTH,
 	sentOne,
 } from "./chatGrowth.js";
+import { applyFreshStart, type ChatFreshStartItem } from "./freshStart.js";
 import { isWorking, sentWhileWorking, takeInSentMessage } from "./sentWhileWorking.js";
 
 export interface ChatMessageItem {
@@ -100,7 +102,8 @@ export type ChatItem =
 	| ChatToolItem
 	| ChatShellItem
 	| ChatErrorItem
-	| ChatHandoffItem;
+	| ChatHandoffItem
+	| ChatFreshStartItem;
 
 export interface ChatTurn {
 	id: string;
@@ -177,6 +180,8 @@ export interface ChatState {
 	context: ChatContextUsage | null;
 	/** How this conversation has grown since its start or last reset, for the fresh-chat hint. */
 	growth: ChatGrowth;
+	/** The handoff note waiting for review (SPEC.md §10.8); null when none waits. */
+	handoffReview: HandoffReview | null;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -228,6 +233,7 @@ export const initialChatState: ChatState = {
 	commands: [],
 	context: null,
 	growth: NO_GROWTH,
+	handoffReview: null,
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -302,6 +308,8 @@ function applySnapshot(
 		context: null,
 		// A snapshot follows /clear and an agent swap, and the history it replays counts again.
 		growth: NO_GROWTH,
+		// The host sends a waiting note again after the snapshot.
+		handoffReview: null,
 		// Or a new agent after a swap; its host says where it stands after the snapshot.
 		signIn: "unknown",
 		signInChecking: false,
@@ -437,6 +445,9 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			};
 			return { ...state, items: [...state.items, item] };
 		}
+		case "handoff.review":
+		case "handoff.fresh":
+			return applyFreshStart(state, event);
 	}
 }
 
@@ -722,6 +733,14 @@ interface ChatActions {
 	unwatchSubagent: (toolUseId: string) => boolean;
 	/** Ask the host to check the student's sign-in again; a `signIn` event answers. */
 	checkSignIn: () => boolean;
+	/** Ask the agent for a handoff note; a `handoff.review` event answers (SPEC.md §10.8). */
+	startHandoff: () => boolean;
+	/** Continue, edit, or cancel the note under review, by its id. */
+	continueHandoff: (id: string) => boolean;
+	editHandoff: (id: string, markdown: string) => boolean;
+	cancelHandoff: (id: string) => boolean;
+	/** Send a failed fresh start's first message again, naming its divider. */
+	resendHandoff: (id: string) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -754,6 +773,11 @@ export function createChatStore(
 			if (sent) set({ signInChecking: true });
 			return sent;
 		},
+		startHandoff: () => deliver({ type: "handoff.start" }),
+		continueHandoff: (id) => deliver({ type: "handoff.continue", id }),
+		editHandoff: (id, markdown) => deliver({ type: "handoff.edit", id, markdown }),
+		cancelHandoff: (id) => deliver({ type: "handoff.cancel", id }),
+		resendHandoff: (id) => deliver({ type: "handoff.resend", id }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

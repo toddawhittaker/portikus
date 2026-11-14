@@ -37,7 +37,13 @@ beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "pk-core-"));
 	agent = new FakeAgent();
 	core = new ChatCore(
-		{ terminalId: ID, socketDir: dir, homeDir: dir, log: silentLogger() },
+		{
+			terminalId: ID,
+			socketDir: dir,
+			homeDir: dir,
+			projectDir: dir,
+			log: silentLogger(),
+		},
 		agent,
 		"claude",
 	);

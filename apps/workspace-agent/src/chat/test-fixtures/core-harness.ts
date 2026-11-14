@@ -27,6 +27,8 @@ export class FakeAgent implements ChatAgent {
 	/** When set, a transcript read waits for it. */
 	transcriptGate: Promise<void> | null = null;
 	failAdopt = false;
+	/** Called after each send, to play the agent's answer to it. */
+	onSend: ((text: string) => void) | null = null;
 
 	async start(sink: ChatSink): Promise<void> {
 		this.sink = sink;
@@ -51,6 +53,7 @@ export class FakeAgent implements ChatAgent {
 		this.calls.push(["send", text, attachments]);
 		if (this.sendGate) await this.sendGate;
 		if (this.failSend) throw new Error(this.failSend);
+		this.onSend?.(text);
 	}
 	async interrupt(): Promise<void> {
 		this.calls.push(["interrupt"]);

@@ -1,6 +1,7 @@
 import { chmod, unlink } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import {
+	type ChatAttachment,
 	ChatClientMessage,
 	type ChatClientMessage as ChatClientMessageType,
 	type ChatCommand,
@@ -25,6 +26,7 @@ import type {
 	ChatSink,
 	ContextFigures,
 } from "./agent.js";
+import { type FreshDivider, FreshStart, HANDOFF_COMMAND_INFO } from "./fresh-start.js";
 import { capLog, lastTurns, newHandoffId, turnsFromEvents } from "./handoff.js";
 import { OpenCards } from "./open-cards.js";
 import {
@@ -40,6 +42,8 @@ export interface ChatCoreOptions {
 	terminalId: string;
 	socketDir: string;
 	homeDir: string;
+	/** The project the chat works in, where handoff notes are saved. */
+	projectDir: string;
 	log: Logger;
 	/**
 	 * The tab's state across agent swaps, as `takeSwapState` read it, and
@@ -48,6 +52,8 @@ export interface ChatCoreOptions {
 	swap?: { state: ChatSwapState | null; switched: boolean };
 	/** How long a host that prepared a swap waits to be replaced; a test shortens it. */
 	replacedWithinMs?: number;
+	/** How long a fresh start waits for the agent's new conversation; a test shortens it. */
+	resetWithinMs?: number;
 }
 
 /** Why a chat cannot swap agents now; one sentence the student can act on. */
@@ -62,6 +68,11 @@ export const SWITCH_SAME_AGENT_MESSAGE = "This chat already uses that agent.";
  * a host still running after it was never replaced and takes the chat back.
  */
 const REPLACED_WITHIN_MS = 60_000;
+
+/** Longer than either agent takes to start a new conversation. */
+const RESET_WITHIN_MS = 60_000;
+/** How often a fresh start looks again for the new conversation. */
+const RESET_POLL_MS = 50;
 
 interface Client {
 	socket: Socket;
@@ -111,6 +122,9 @@ export class ChatCore {
 	 * keeps it (SPEC.md section 10.8). A resumed session counts from the resume.
 	 */
 	private growth = { startTokens: 0, messages: 0, requests: 0 };
+	/** Conversation resets so far, so a fresh start can see its own arrive. */
+	private resets = 0;
+	private readonly fresh: FreshStart;
 
 	private readonly sink: ChatSink = {
 		emit: (event) => this.relay(event),
@@ -124,9 +138,14 @@ export class ChatCore {
 			this.broadcast({ type: "settings", ...settings });
 		},
 		commands: (commands) => {
-			if (same(commands, this.commands)) return;
-			this.commands = commands;
-			this.broadcast({ type: "commands", commands });
+			// Every agent's chat offers /handoff; the core runs it (SPEC.md §10.8).
+			const listed = [
+				...commands.filter((command) => command.name !== HANDOFF_COMMAND_INFO.name),
+				{ ...HANDOFF_COMMAND_INFO },
+			];
+			if (same(listed, this.commands)) return;
+			this.commands = listed;
+			this.broadcast({ type: "commands", commands: listed });
 		},
 		modes: (modes) => {
 			if (same(modes, this.modes)) return;
@@ -163,6 +182,16 @@ export class ChatCore {
 		private readonly agentName: CodingAgent,
 	) {
 		this.swap = options.swap?.state ?? null;
+		this.fresh = new FreshStart({
+			projectDir: this.options.projectDir,
+			log: this.options.log,
+			busy: () => this.busy() || this.switching,
+			send: (text) => this.sendText(text, []),
+			reset: () => this.newConversation(),
+			broadcast: (event) => this.broadcast(event),
+			recordDivider: (divider) => this.recordDivider(divider),
+			divider: (id) => this.freshDivider(id),
+		});
 	}
 
 	get socketPath(): string {
@@ -279,7 +308,8 @@ export class ChatCore {
 	 */
 	private async prepareSwitch(client: Client, to: CodingAgent): Promise<void> {
 		if (to === this.agentName) throw new Error(SWITCH_SAME_AGENT_MESSAGE);
-		if (this.switching || this.busy()) throw new Error(SWITCH_BUSY_MESSAGE);
+		if (this.switching || this.busy() || this.fresh.active)
+			throw new Error(SWITCH_BUSY_MESSAGE);
 		this.switching = true;
 		try {
 			const [own, shown, session] = await Promise.all([
@@ -358,10 +388,65 @@ export class ChatCore {
 		} else if (event.type === "message" && this.partial?.id === event.id) {
 			this.partial = null;
 		}
+		this.fresh.observe(event);
 		this.broadcast(event);
 	}
 
+	/**
+	 * Ask the agent for a new conversation, as a typed /clear does, and wait
+	 * until it has one and is idle again.
+	 */
+	private async newConversation(): Promise<void> {
+		const before = this.resets;
+		await this.sendText("/clear", []);
+		const deadline = Date.now() + (this.options.resetWithinMs ?? RESET_WITHIN_MS);
+		while (this.resets === before || this.busy()) {
+			if (Date.now() > deadline) throw new Error("no new conversation");
+			await new Promise((resolve) => setTimeout(resolve, RESET_POLL_MS));
+		}
+	}
+
+	/** Keep a fresh start's divider before the new conversation, as a swap's is kept. */
+	private async recordDivider(divider: FreshDivider): Promise<void> {
+		const earlier = this.swap?.earlier ?? [];
+		const at = earlier.findIndex(
+			(event) => event.type === "handoff.fresh" && event.id === divider.id,
+		);
+		this.swap = {
+			sessions: this.swap?.sessions ?? {},
+			earlier:
+				at === -1
+					? [...earlier, divider]
+					: earlier.map((event, index) => (index === at ? divider : event)),
+			truncated: this.swap?.truncated ?? false,
+			log: this.swap?.log ?? [],
+			handoff: this.swap?.handoff ?? null,
+		};
+		await this.saveSwap();
+	}
+
+	private freshDivider(id: string): FreshDivider | null {
+		const found = this.swap?.earlier.find(
+			(event) => event.type === "handoff.fresh" && event.id === id,
+		);
+		return found?.type === "handoff.fresh" ? found : null;
+	}
+
+	/** A message from the student, or one Portikus sends for them; counted for the fresh-chat estimate. */
+	private async sendText(text: string, attachments: ChatAttachment[]): Promise<void> {
+		// Counted from arrival, so a swap cannot start while a turn is still starting.
+		this.sends += 1;
+		// A `!` command reaches no model, so it is not a message to it.
+		if (!isShellCommand(text)) this.growth.messages += 1;
+		try {
+			await this.agent.send(text, attachments);
+		} finally {
+			this.sends -= 1;
+		}
+	}
+
 	private conversationReset(context: ContextFigures | null): void {
+		this.resets += 1;
 		this.partial = null;
 		this.growth = { startTokens: 0, messages: 0, requests: 0 };
 		// A new conversation starts with nothing from before a swap.
@@ -386,6 +471,9 @@ export class ChatCore {
 			if (this.signIn)
 				writeLine(client.socket, this.frame({ type: "signIn", state: this.signIn }));
 			if (context) writeLine(client.socket, this.frame(this.contextEvent(context)));
+			// A note under review outlives a /clear the student typed meanwhile.
+			const review = this.fresh.reviewEvent();
+			if (review) writeLine(client.socket, this.frame(review));
 		}
 	}
 
@@ -426,6 +514,10 @@ export class ChatCore {
 		const held = client.held ?? [];
 		client.held = null;
 		for (const event of held) this.write(socket, event);
+		const review = this.fresh.reviewEvent();
+		if (review && !held.some((event) => event.type === "handoff.review")) {
+			this.write(socket, review);
+		}
 		const models = this.models;
 		if (models && !held.some((event) => event.type === "models")) {
 			writeLine(socket, this.frame({ type: "models", models }));
@@ -525,15 +617,9 @@ export class ChatCore {
 				return writeLine(client.socket, JSON.stringify(result));
 			}
 			case "send":
-				// Counted from arrival, so a swap cannot start while a turn is still starting.
-				this.sends += 1;
-				// A `!` command reaches no model, so it is not a message to it.
-				if (!isShellCommand(message.text)) this.growth.messages += 1;
-				try {
-					return await this.agent.send(message.text, message.attachments ?? []);
-				} finally {
-					this.sends -= 1;
-				}
+				if (message.text.trim() === `/${HANDOFF_COMMAND_INFO.name}`)
+					return this.fresh.start();
+				return this.sendText(message.text, message.attachments ?? []);
 			case "permission.answer":
 				return this.cards.answer(message.id, {
 					type: "permission",
@@ -558,6 +644,16 @@ export class ChatCore {
 				return this.prepareSwitch(client, message.agent);
 			case "signIn.check":
 				return this.agent.checkSignIn();
+			case "handoff.start":
+				return this.fresh.start();
+			case "handoff.edit":
+				return this.fresh.edit(message.id, message.markdown);
+			case "handoff.cancel":
+				return this.fresh.cancel(message.id);
+			case "handoff.continue":
+				return this.fresh.continue(message.id);
+			case "handoff.resend":
+				return this.fresh.resend(message.id);
 			default:
 				return assertHandled(message);
 		}

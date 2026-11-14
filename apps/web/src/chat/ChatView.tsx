@@ -37,6 +37,8 @@ import { Composer } from "./Composer.js";
 import { AgentSwitchReported } from "./ComposerPickers.js";
 import { ChatAgentContext } from "./chatAgent.js";
 import { type ChatState, isEmptyChat } from "./chatStore.js";
+import { type FreshStartActions, FreshStartContext } from "./HandoffDivider.js";
+import { HandoffReviewCard } from "./HandoffReviewCard.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { type FileOpener, MessageList } from "./MessageList.js";
 import { PermissionCard, permissionHeading } from "./PermissionCard.js";
@@ -165,6 +167,85 @@ function useFileOpener(workspaceId: string, projectId: string): FileOpener | nul
 }
 
 /**
+ * The cards waiting for an answer, docked below the conversation: the front
+ * card, or the handoff note under review when no card waits.
+ */
+function CardDock({
+	store,
+	state,
+	takeFocus,
+	takeReviewFocus,
+	onFocus,
+}: {
+	store: ReturnType<typeof useChatSession>;
+	state: ChatState;
+	takeFocus: () => boolean;
+	takeReviewFocus: () => boolean;
+	onFocus: () => void;
+}) {
+	const card = state.cards[0];
+	const review = state.handoffReview;
+	const waiting = state.cards.length - 1;
+	if (!card && !review) return null;
+	// A snapshot brings each open card again, with fresh state, so an answer lost
+	// in a dropped connection can be given again.
+	const cardKey = `${card?.id ?? review?.id}:${state.snapshotAt}`;
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: only notes where focus was; the cards hold the controls
+		<div className="pk-chat-cards" data-testid="chat-cards" onFocus={onFocus}>
+			{card?.type === "question" ? (
+				<QuestionCard
+					key={cardKey}
+					card={card}
+					takeFocus={takeFocus}
+					waiting={waiting}
+					onAnswer={(answers, notes) =>
+						store.getState().answerQuestion(card.id, answers, notes)
+					}
+				/>
+			) : card ? (
+				<PermissionCard
+					key={cardKey}
+					card={card}
+					takeFocus={takeFocus}
+					waiting={waiting}
+					onAnswer={(optionId, extras) =>
+						store.getState().answerPermission(card.id, optionId, extras)
+					}
+				/>
+			) : review ? (
+				<HandoffReviewCard
+					key={cardKey}
+					review={review}
+					takeFocus={takeReviewFocus}
+					onContinue={() => store.getState().continueHandoff(review.id)}
+					onEdit={(markdown) => store.getState().editHandoff(review.id, markdown)}
+					onCancel={() => store.getState().cancelHandoff(review.id)}
+				/>
+			) : null}
+		</div>
+	);
+}
+
+/**
+ * What a fresh start's divider can do: open its note in the work area's
+ * editor, and send a failed first message again (SPEC.md §10.8).
+ */
+function useFreshStartActions(
+	store: ReturnType<typeof useChatSession>,
+): FreshStartActions {
+	const layout = useContext(LayoutStoreContext);
+	return useMemo(
+		() => ({
+			openNote:
+				layout === null ? null : (path: string) => layout.getState().openFile(path),
+			resend: (id: string) => store.getState().resendHandoff(id),
+		}),
+		[layout, store],
+	);
+}
+
+/**
  * Swap the other agent into this chat (SPEC.md §10.8). An empty chat is
  * replaced by a new chat of the other agent, through the same create and
  * close a New chat uses: with nothing said yet, nothing is lost. A chat with
@@ -239,6 +320,7 @@ function ChatViewBody({
 	const state = useStore(store);
 	const readAloud = useReadAloud(workspaceId, projectId);
 	const opener = useFileOpener(workspaceId, projectId);
+	const freshStart = useFreshStartActions(store);
 	const switchAgent = useAgentSwitch(
 		workspaceId,
 		projectId,
@@ -306,7 +388,7 @@ function ChatViewBody({
 		else focusComposer();
 	}, [subagent]);
 	const card = state.cards[0];
-	const waiting = state.cards.length - 1;
+	const review = state.handoffReview;
 	// A permission card's id is the id of the tool call it asks about.
 	const asking = useMemo(
 		() =>
@@ -349,13 +431,22 @@ function ChatViewBody({
 				`.pk-chat-cards input, .pk-chat-cards button, ${COMPOSER_BOX}`,
 			)
 			?.focus({ preventScroll: true });
-	}, [card?.id]);
+	}, [card?.id, review?.id]);
 
 	/** A new card takes the keyboard only when nothing holds it; the announcement covers the rest. */
 	function takeFocus(): boolean {
 		if (!visible) return false;
 		const active = document.activeElement;
 		return active === null || active === document.body;
+	}
+
+	/** The note the student asked for takes the keyboard unless focus is outside this chat. */
+	function takeReviewFocus(): boolean {
+		if (!visible) return false;
+		const active = document.activeElement;
+		return (
+			active === null || active === document.body || !!root.current?.contains(active)
+		);
 	}
 
 	/** Focus never scrolls: only the log scrolls, and only by its own rules. */
@@ -396,9 +487,6 @@ function ChatViewBody({
 	}
 
 	const notice = CONNECTION_TEXT[state.connection];
-	// A snapshot brings each open card again, with fresh state, so an answer lost
-	// in a dropped connection can be given again.
-	const cardKey = card ? `${card.id}:${state.snapshotAt}` : "";
 
 	return (
 		// The conversation's byline, cards and notes name this chat's agent.
@@ -456,14 +544,16 @@ function ChatViewBody({
 								</div>
 							) : (
 								<SubagentOpenerContext.Provider value={openSubagent}>
-									<MessageList
-										items={state.items}
-										turns={state.turns}
-										currentTurnId={state.currentTurnId}
-										truncated={state.truncated}
-										asking={asking}
-										opener={opener}
-									/>
+									<FreshStartContext.Provider value={freshStart}>
+										<MessageList
+											items={state.items}
+											turns={state.turns}
+											currentTurnId={state.currentTurnId}
+											truncated={state.truncated}
+											asking={asking}
+											opener={opener}
+										/>
+									</FreshStartContext.Provider>
 								</SubagentOpenerContext.Provider>
 							)}
 						</div>
@@ -507,38 +597,15 @@ function ChatViewBody({
 				>
 					{notice}
 				</p>
-				{card ? (
-					// biome-ignore lint/a11y/noStaticElementInteractions: only notes where focus was; the cards hold the controls
-					<div
-						className="pk-chat-cards"
-						data-testid="chat-cards"
-						onFocus={() => {
-							cardsHadFocus.current = true;
-						}}
-					>
-						{card.type === "question" ? (
-							<QuestionCard
-								key={cardKey}
-								card={card}
-								takeFocus={takeFocus}
-								waiting={waiting}
-								onAnswer={(answers, notes) =>
-									store.getState().answerQuestion(card.id, answers, notes)
-								}
-							/>
-						) : (
-							<PermissionCard
-								key={cardKey}
-								card={card}
-								takeFocus={takeFocus}
-								waiting={waiting}
-								onAnswer={(optionId, extras) =>
-									store.getState().answerPermission(card.id, optionId, extras)
-								}
-							/>
-						)}
-					</div>
-				) : null}
+				<CardDock
+					store={store}
+					state={state}
+					takeFocus={takeFocus}
+					takeReviewFocus={takeReviewFocus}
+					onFocus={() => {
+						cardsHadFocus.current = true;
+					}}
+				/>
 				<SessionRules store={store} />
 				<div className="pk-chat-composer">
 					{state.signIn === "signedOut" && state.settings ? (

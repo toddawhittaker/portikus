@@ -22,6 +22,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ChatEventBody } from "./agent.js";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
+import { HANDOFF_COMMAND_INFO } from "./fresh-start.js";
 import type { HandoffSegment } from "./handoff.js";
 import { ChatHost, type ChatSdk } from "./host.js";
 import {
@@ -1181,6 +1182,8 @@ describe("slash commands", () => {
 			},
 			{ name: "config", description: "Open settings", terminalOnly: true, prefix: "/" },
 			{ name: "deploy", description: "Ship it", terminalOnly: true, prefix: "/" },
+			// The core adds the handoff to every agent's list (SPEC.md §10.8).
+			HANDOFF_COMMAND_INFO,
 		]);
 	});
 
@@ -1221,6 +1224,7 @@ describe("slash commands", () => {
 				terminalOnly: false,
 				prefix: "/",
 			},
+			HANDOFF_COMMAND_INFO,
 		]);
 		fake.emit({
 			type: "system",
@@ -1245,6 +1249,7 @@ describe("slash commands", () => {
 			["config", true],
 			["deploy", true],
 			["login", true],
+			["handoff", false],
 		]);
 		expect(ofType(a, "commands")[0]?.commands[0]?.description).toBe("");
 	});

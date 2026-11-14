@@ -34,6 +34,7 @@ export * from "./events.js";
 export * from "./files.js";
 export * from "./git.js";
 export * from "./guard.js";
+export * from "./handoff-note.js";
 export * from "./health-series.js";
 export * from "./host.js";
 export * from "./image.js";

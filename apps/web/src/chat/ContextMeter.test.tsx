@@ -1,4 +1,5 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import type { ChatClientMessage } from "@portikus/contracts";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { stopTime } from "../shell/useCountdown.js";
 import {
@@ -8,6 +9,7 @@ import {
 	contextPercent,
 	formatClock,
 	formatTokens,
+	HANDOFF_BUTTON,
 	RESTART_EXPLAINED,
 	RESTART_NOW,
 	restartText,
@@ -398,4 +400,23 @@ test("a chat that opens past the point is not announced", () => {
 	growing(400_000);
 	expect(screen.getByTestId("composer-restart").textContent).toContain(RESTART_NOW);
 	expect(announced).toEqual([]);
+});
+
+test("only once a fresh chat would save usage, a button starts fresh with a handoff", () => {
+	cleanup();
+	const sent: ChatClientMessage[] = [];
+	store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	render(<ContextMeter store={store} onAnnounce={() => undefined} />);
+	growing(120_000);
+	expect(screen.queryByRole("button", { name: HANDOFF_BUTTON })).toBeNull();
+	growing(400_000);
+	const button = screen.getByRole("button", { name: HANDOFF_BUTTON });
+	// Outside the hint, so the hint's own words and hidden sentence stay as they were.
+	expect(screen.getByTestId("composer-restart").contains(button)).toBe(false);
+	expect(button.closest('[data-testid="composer-meters"]')).not.toBeNull();
+	fireEvent.click(button);
+	expect(sent).toEqual([{ type: "handoff.start" }]);
 });

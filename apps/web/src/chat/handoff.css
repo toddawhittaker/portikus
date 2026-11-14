@@ -30,3 +30,45 @@
 	flex: none;
 	block-size: 1lh;
 }
+
+/* The note link is a button with the shared link look (.pk-link). */
+.pk-chat-handoff-link {
+	padding: 0;
+	border: 0;
+	background: none;
+	font: inherit;
+	cursor: pointer;
+}
+
+/* A failed fresh start puts its resend button under the sentence. */
+.pk-chat-handoff:has(> .pk-btn) {
+	flex-wrap: wrap;
+	justify-content: center;
+}
+
+/* The note's edit field: as tall as the note view, scrolling past that. */
+.pk-chat-handoff-edit {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.pk-chat-handoff-edit .pk-chat-handoff-text {
+	block-size: auto;
+	min-block-size: 8rem;
+	max-block-size: 24rem;
+	padding-block: var(--space-2);
+	resize: vertical;
+	font-family: var(--font-mono);
+	line-height: 1.5;
+}
+
+/* The note is read before Continue, so its dock may take more of the chat and the
+   note about half of it, scrolling inside. */
+.pk-chat-cards:has(> .pk-chat-handoff-card) {
+	max-block-size: 75cqb;
+}
+
+.pk-chat-handoff-card .pk-chat-plan {
+	max-block-size: max(12rem, 50cqb);
+}
