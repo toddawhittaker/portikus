@@ -27,6 +27,7 @@ import {
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { type ChatGrowth, grownBy, NO_GROWTH, sentOne } from "./chatGrowth.js";
 import { isWorking, sentWhileWorking, takeInSentMessage } from "./sentWhileWorking.js";
 
 export interface ChatMessageItem {
@@ -168,6 +169,8 @@ export interface ChatState {
 	commands: ChatCommand[];
 	/** How full the context is and when the prompt cache goes cold; null until the host says. */
 	context: ChatContextUsage | null;
+	/** How this conversation has grown since its start or last reset, for the fresh-chat hint. */
+	growth: ChatGrowth;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -218,6 +221,7 @@ export const initialChatState: ChatState = {
 	signInChecking: false,
 	commands: [],
 	context: null,
+	growth: NO_GROWTH,
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -290,6 +294,8 @@ function applySnapshot(
 		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
+		// A snapshot follows /clear and an agent swap, and the history it replays counts again.
+		growth: NO_GROWTH,
 		// Or a new agent after a swap; its host says where it stands after the snapshot.
 		signIn: "unknown",
 		signInChecking: false,
@@ -406,7 +412,11 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 		case "commands":
 			return { ...state, commands: event.commands };
 		case "context":
-			return { ...state, context: contextUsage(event, now) };
+			return {
+				...state,
+				context: contextUsage(event, now),
+				growth: grownBy(state.growth, event.usedTokens),
+			};
 		case "handoff": {
 			const item: ChatHandoffItem = {
 				kind: "handoff",
@@ -524,10 +534,13 @@ function applyMessage(
 	const lastUserMessageSeq =
 		event.role === "user" ? event.seq : state.lastUserMessageSeq;
 	if (items) return { ...state, items, lastUserMessageSeq };
-	if (event.role === "user" && isWorking(state)) {
-		return sentWhileWorking(state, { ...fields, id: event.id }, event.seq);
+	// Counted on arrival, so a message replaced in place above is not counted twice.
+	const counted =
+		event.role === "user" ? { ...state, growth: sentOne(state.growth) } : state;
+	if (event.role === "user" && isWorking(counted)) {
+		return sentWhileWorking(counted, { ...fields, id: event.id }, event.seq);
 	}
-	const split = event.role === "user" ? state : takeInSentMessage(state, now);
+	const split = event.role === "user" ? counted : takeInSentMessage(state, now);
 	return {
 		...split,
 		lastUserMessageSeq,

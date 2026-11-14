@@ -29,6 +29,7 @@ import {
 	spawnAppServer,
 } from "./app-server.js";
 import { codexCommands, slashCommand } from "./commands.js";
+import { CodexContextWindows } from "./context-window.js";
 import { CodexHandoff, codexTranscript } from "./handoff.js";
 import { recentTurns, replayTurns, turnStatus, userShell } from "./history.js";
 import { type CodexInput, codexInput } from "./input.js";
@@ -142,6 +143,9 @@ export class CodexAgent implements ChatAgent {
 	private settings: Settings = { model: "", effort: "", mode: CODEX_DEFAULT_MODE };
 	private workspace: SandboxPolicy = DEFAULT_WORKSPACE_SANDBOX;
 	private context: ContextFigures | null = null;
+	/** True once Codex has reported usage for this conversation. */
+	private usageReported = false;
+	private readonly windows: CodexContextWindows;
 	private readonly handoff = new CodexHandoff(() => ({
 		client: this.client,
 		threadId: this.threadId,
@@ -182,6 +186,7 @@ export class CodexAgent implements ChatAgent {
 			options.projectDir,
 			options.postTitle,
 		);
+		this.windows = new CodexContextWindows(options.homeDir);
 		this.threadId =
 			options.sessionId && options.sessionId !== options.terminalId
 				? options.sessionId
@@ -260,6 +265,7 @@ export class CodexAgent implements ChatAgent {
 		await this.openThread(client);
 		await this.readModels(client);
 		this.broadcastSettings();
+		if (!this.context) await this.sendStartingContext();
 		void this.readSkills(client, false);
 		void this.mcp.read(client);
 		void this.checkSignIn();
@@ -425,9 +431,12 @@ export class CodexAgent implements ChatAgent {
 				const usage = parsed(TokenUsageNotification, params)?.tokenUsage;
 				if (!usage) return;
 				const window = usage.modelContextWindow;
+				const windowTokens = window && window > 0 ? Math.round(window) : null;
+				this.windows.remember(this.settings.model, windowTokens);
+				this.usageReported = true;
 				this.context = {
 					usedTokens: Math.max(0, Math.round(usage.last.totalTokens)),
-					windowTokens: window && window > 0 ? Math.round(window) : null,
+					windowTokens,
 					cache: null,
 				};
 				this.sink.context(this.context);
@@ -769,17 +778,31 @@ export class CodexAgent implements ChatAgent {
 				.catch(() => undefined);
 		this.endConversationState("interrupted");
 		this.mapper = new CodexItemMapper();
-		this.context = null;
+		this.usageReported = false;
 		this.collaboration = "default";
 		this.title.reset();
 		this.adoptThread(result);
-		this.sink.conversationReset(null);
+		this.context = await this.startingContext();
+		this.sink.conversationReset(this.context);
 		void this.mcp.read(client);
 	}
 
 	async set(change: ChatSettingsChange): Promise<void> {
 		this.settings = changedSettings(this.settings, change, this.models);
 		this.broadcastSettings();
+		if (change.model !== undefined && !this.usageReported)
+			await this.sendStartingContext();
+	}
+
+	/** Nothing used yet, with the window when it is known (SPEC.md section 10.8). */
+	private async startingContext(): Promise<ContextFigures> {
+		const windowTokens = await this.windows.of(this.settings.model);
+		return { usedTokens: 0, windowTokens, cache: null };
+	}
+
+	private async sendStartingContext(): Promise<void> {
+		this.context = await this.startingContext();
+		this.sink.context(this.context);
 	}
 
 	private broadcastSettings(): void {

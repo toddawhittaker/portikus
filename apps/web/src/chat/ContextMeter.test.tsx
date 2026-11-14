@@ -8,6 +8,9 @@ import {
 	contextPercent,
 	formatClock,
 	formatTokens,
+	RESTART_EXPLAINED,
+	RESTART_NOW,
+	restartText,
 	spokenTokens,
 } from "./ContextMeter.js";
 import { type ChatState, type ChatStore, createChatStore } from "./chatStore.js";
@@ -339,4 +342,60 @@ test("an older host that sends no time gets no correction", () => {
 	expect(screen.getByTestId("composer-cache").textContent).toContain(
 		"Cache expires in 4:00",
 	);
+});
+
+/** A Claude chat on a one-hour cache whose first report was 58k, one message in. */
+function growing(used: number) {
+	act(() =>
+		store.setState({
+			settings: {
+				agent: "claude",
+				model: "claude-opus-5-5",
+				effort: "medium",
+				mode: "default",
+			},
+			growth: { firstUsedTokens: 58_000, messagesSent: 1, contextEvents: 1 },
+			context: report(used, 1_000_000, { agoSeconds: 0, ttlSeconds: 3600 }),
+		}),
+	);
+}
+
+test("the fresh-chat hint is hidden on an empty chat", () => {
+	show(report(0, 1_000_000, null));
+	expect(screen.queryByTestId("composer-restart")).toBeNull();
+});
+
+test("the fresh-chat hint counts down in words, singular at one", () => {
+	// Fallback rates put the cheapest restart at 156k, 18k per message.
+	growing(58_000);
+	const hint = screen.getByTestId("composer-restart");
+	expect(hint.textContent).toContain(
+		"About 5 more messages before a fresh chat saves usage",
+	);
+	expect(hint.getAttribute("title")).toBe(RESTART_EXPLAINED);
+	expect(hint.classList.contains("is-warning")).toBe(false);
+	growing(138_000);
+	expect(screen.getByTestId("composer-restart").textContent).toContain(
+		"About 1 more message before a fresh chat saves usage",
+	);
+	expect(restartText(2)).toBe("About 2 more messages before a fresh chat saves usage");
+});
+
+test("at zero the hint warns, keeps its count from a screen reader, and is announced once", () => {
+	growing(120_000);
+	expect(announced).toEqual([]);
+	growing(160_000);
+	const hint = screen.getByTestId("composer-restart");
+	expect(hint.classList.contains("is-warning")).toBe(true);
+	expect(hint.textContent).toContain(RESTART_NOW);
+	expect(hint.querySelector(".sr-only")?.textContent).not.toMatch(/\d/);
+	growing(200_000);
+	growing(300_000);
+	expect(announced.filter((text) => text.startsWith(RESTART_NOW))).toHaveLength(1);
+});
+
+test("a chat that opens past the point is not announced", () => {
+	growing(400_000);
+	expect(screen.getByTestId("composer-restart").textContent).toContain(RESTART_NOW);
+	expect(announced).toEqual([]);
 });

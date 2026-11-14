@@ -1073,3 +1073,38 @@ test("a Codex model that is gone leaves the chat's own; an effort the model lack
 		),
 	).toBeNull();
 });
+
+test("the conversation's growth is counted for the fresh-chat hint, and a snapshot starts it over", () => {
+	const used = (usedTokens: number) => ({
+		usedTokens,
+		windowTokens: 1_000_000,
+		cache: null,
+	});
+	let state = feed([
+		snapshot(0),
+		frame("context", 1, used(0)),
+		frame("message", 2, { id: "u1", role: "user", markdown: "one" }),
+		frame("context", 3, used(30_000)),
+		frame("context", 4, used(34_000)),
+		frame("message", 5, { id: "a1", role: "assistant", markdown: "ok" }),
+		// The same message again updates it in place and is not counted twice.
+		frame("message", 6, { id: "u1", role: "user", markdown: "one" }),
+		frame("message", 7, { id: "u2", role: "user", markdown: "two" }),
+		frame("context", 8, used(50_000)),
+	]);
+	expect(state.growth).toEqual({
+		firstUsedTokens: 30_000,
+		messagesSent: 2,
+		contextEvents: 3,
+	});
+
+	// /clear and an agent swap both arrive as a new snapshot.
+	state = feed([snapshot(9)], state);
+	expect(state.growth).toEqual({
+		firstUsedTokens: null,
+		messagesSent: 0,
+		contextEvents: 0,
+	});
+	state = feed([frame("context", 10, used(12_000))], state);
+	expect(state.growth.firstUsedTokens).toBe(12_000);
+});

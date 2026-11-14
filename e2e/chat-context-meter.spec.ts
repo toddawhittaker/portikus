@@ -242,11 +242,20 @@ test("crossing 75 and 90 percent is announced once, and a fall then a climb is n
 		setContext(id, { usedTokens: used, windowTokens: 200_000, cache: null });
 	await at(20_000);
 	await expect(status).toHaveText("");
-	// The 25 and 50% steps change the look but say nothing.
+	// The 25 and 50% steps change the look but say nothing of the context; this
+	// fast growth may bring the fresh-chat hint's own announcement.
 	await at(60_000);
-	await expect(status).toHaveText("");
+	await expect(view.getByTestId("composer-context")).toHaveAttribute(
+		"data-level",
+		"rising",
+	);
+	await expect(status).not.toContainText("Context is now");
 	await at(110_000);
-	await expect(status).toHaveText("");
+	await expect(view.getByTestId("composer-context")).toHaveAttribute(
+		"data-level",
+		"half",
+	);
+	await expect(status).not.toContainText("Context is now");
 	await at(160_000);
 	await expect(status).toHaveText(/^Context is now 80% full\. Run \/compact/);
 	await expect(view.getByTestId("composer-context")).toHaveAttribute(

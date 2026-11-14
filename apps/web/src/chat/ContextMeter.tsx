@@ -6,6 +6,9 @@
  * `context` event, so each chat tab shows its own conversation. The look steps
  * up as the window fills, at 25, 50 and 75%, and turns to the error look from 90%.
  *
+ * A third item estimates how many more messages are worth sending before a
+ * fresh chat would use less of the student's plan (restartEstimate.ts).
+ *
  * The ticking digits are hidden from assistive technology; a stable sentence
  * carries the same meaning, and the row's status region announces crossing
  * 75 and 90% once each, the steps worth acting on (SPEC.md §25.8).
@@ -15,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { stopTime } from "../shell/useCountdown.js";
 import type { ChatState, ChatStore } from "./chatStore.js";
+import { estimateRestart, priceRatios } from "./restartEstimate.js";
 
 type Cache = NonNullable<NonNullable<ChatState["context"]>["cache"]>;
 
@@ -216,6 +220,73 @@ function CacheClock({
 	);
 }
 
+export const RESTART_EXPLAINED =
+	"An estimate from API prices, assuming your plan's usage tracks them, based on how this chat has grown so far.";
+export const RESTART_NOW = "A fresh chat would now save usage";
+
+/** The visible words for this many messages left. */
+export function restartText(messagesLeft: number): string {
+	if (messagesLeft === 0) return RESTART_NOW;
+	const noun = messagesLeft === 1 ? "message" : "messages";
+	return `About ${messagesLeft} more ${noun} before a fresh chat saves usage`;
+}
+
+/** Messages left before a fresh chat saves usage; null until there is enough to say. */
+function selectMessagesLeft(state: ChatState): number | null {
+	const { context, growth, settings } = state;
+	if (!context || context.windowTokens === null || !settings) return null;
+	if (growth.firstUsedTokens === null) return null;
+	return estimateRestart({
+		usedTokens: context.usedTokens,
+		windowTokens: context.windowTokens,
+		firstUsedTokens: growth.firstUsedTokens,
+		messagesSent: growth.messagesSent,
+		contextEvents: growth.contextEvents,
+		prices: priceRatios(
+			settings.agent,
+			settings.model,
+			context.cache?.ttlSeconds ?? null,
+		),
+	}).messagesLeft;
+}
+
+/** Mounted afresh for each conversation, so it announces at most once in one. */
+function RestartHint({
+	messagesLeft,
+	onAnnounce,
+}: {
+	messagesLeft: number;
+	onAnnounce: (text: string) => void;
+}) {
+	const now = messagesLeft === 0;
+	// A chat that opens already past the point is not news.
+	const told = useRef(now);
+	useEffect(() => {
+		if (now && !told.current) {
+			told.current = true;
+			onAnnounce(`${RESTART_NOW}. ${RESTART_EXPLAINED}`);
+		}
+	}, [now, onAnnounce]);
+	return (
+		<span
+			className={`pk-ctx pk-ctx-restart${now ? " is-warning" : ""}`}
+			data-state={now ? "now" : "later"}
+			title={RESTART_EXPLAINED}
+			data-testid="composer-restart"
+		>
+			<span className="pk-ctx-sight" aria-hidden={true}>
+				{now ? <Icon name="alert" size="sm" /> : null}
+				<span>{restartText(messagesLeft)}</span>
+			</span>
+			{/* The count changes with each message, so it is left out; the sentence is stable. */}
+			<span className="sr-only">
+				{now ? `${RESTART_NOW}. ` : "Fresh chat estimate. "}
+				{RESTART_EXPLAINED}
+			</span>
+		</span>
+	);
+}
+
 interface Props {
 	store: ChatStore;
 	/** A sentence for the composer's status region. */
@@ -224,6 +295,7 @@ interface Props {
 
 export function ContextMeter({ store, onAnnounce }: Props) {
 	const context = useStore(store, (state) => state.context);
+	const messagesLeft = useStore(store, selectMessagesLeft);
 	// Always rendered, so its place is a line of the composer's bar only while it holds something.
 	return (
 		<div className="pk-ctx-row" data-testid="composer-meters">
@@ -247,6 +319,9 @@ export function ContextMeter({ store, onAnnounce }: Props) {
 							onAnnounce={onAnnounce}
 						/>
 					) : null}
+					{messagesLeft === null ? null : (
+						<RestartHint messagesLeft={messagesLeft} onAnnounce={onAnnounce} />
+					)}
 				</>
 			) : null}
 		</div>
