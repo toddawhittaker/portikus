@@ -195,3 +195,35 @@ test("a chat's subagent row opens that subagent's view; a terminal's does not", 
 	});
 	expect(takeSubagentRequest(TUI)).toBeUndefined();
 });
+
+test("a Codex chat's row reads Codex (GUI) and has the same title, pencil and subagent view as Claude's", async () => {
+	const { takeSubagentRequest } = await import("../chat/subagentView.js");
+	show([
+		terminal({
+			agent: "codex",
+			title: "Fix the build",
+			subagents: [
+				{
+					id: "thread-child",
+					type: "worker",
+					description: "",
+					state: "working",
+					since: new Date().toISOString(),
+				},
+			],
+		}),
+		terminal({ terminalId: TUI, agent: "codex", kind: "terminal" }),
+	]);
+	const row = screen.getByTestId(`agent-row-${CHAT}`);
+	expect(row.textContent).toContain("Codex (GUI)");
+	expect(row.textContent).toContain("Fix the build");
+	expect(screen.getByTestId(`agent-row-${TUI}`).textContent).toContain("Codex (TUI)");
+	fireEvent.click(screen.getByTestId(`agent-rename-${CHAT}`));
+	expect(screen.getByRole("textbox", { name: "Title of Codex (GUI)" })).toBeDefined();
+	fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+	fireEvent.click(screen.getByTestId("subagent-row-thread-child"));
+	expect(takeSubagentRequest(CHAT)).toEqual({
+		toolUseId: "thread-child",
+		title: "worker",
+	});
+});

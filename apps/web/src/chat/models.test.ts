@@ -1,11 +1,18 @@
 import type { ChatModelInfo } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
+	effortChoices,
+	effortLabel,
 	familyChoices,
+	modeChoices,
 	modelSummary,
+	modeOf,
 	offeredModel,
+	offersEffort,
 	resolveModel,
 	sameModel,
+	startEffort,
+	startMode,
 	versionChoices,
 } from "./models.js";
 
@@ -106,4 +113,89 @@ test("two values are the same choice when they mean the same family and version"
 	expect(sameModel(LIST, "opus", "claude-opus-5-5[1m]")).toBe(true);
 	expect(sameModel(LIST, "opus", "claude-opus-4-8")).toBe(false);
 	expect(sameModel(LIST, "opus", "sonnet")).toBe(false);
+});
+
+const codexRow = (
+	value: string,
+	displayName: string,
+	efforts?: string[],
+	defaultEffort?: string,
+): ChatModelInfo => ({
+	...row(value, displayName),
+	...(efforts ? { efforts } : {}),
+	...(defaultEffort ? { defaultEffort } : {}),
+});
+
+const CODEX = [
+	codexRow("gpt-5.5", "GPT-5.5", ["low", "medium", "high", "xhigh", "ultra"], "high"),
+	codexRow("gpt-5.4-mini", "GPT-5.4 mini"),
+];
+
+test("a list with no pinned versions names models by their display names and has no Version rows", () => {
+	expect(familyChoices(CODEX, "gpt-5.5", "codex").map((one) => one.label)).toEqual([
+		"GPT-5.5",
+		"GPT-5.4 mini",
+	]);
+	expect(versionChoices(CODEX, "gpt-5.5")).toEqual([]);
+	expect(modelSummary(CODEX, "gpt-5.4-mini", "Codex")).toBe("GPT-5.4 mini");
+	// A model the list does not know shows as it is, with no Default row added.
+	expect(familyChoices(CODEX, "gpt-6", "codex").map((one) => one.label)).toEqual([
+		"GPT-5.5",
+		"GPT-5.4 mini",
+		"gpt-6",
+	]);
+	expect(modelSummary(CODEX, "gpt-6", "Codex")).toBe("gpt-6");
+	expect(modelSummary(LIST, "default", "Codex")).toBe("Codex");
+});
+
+test("a saved model a list with no default row lacks falls back to the given model", () => {
+	expect(offeredModel(CODEX, "gpt-4", "gpt-5.5")).toBe("gpt-5.5");
+	expect(offeredModel(LIST, "fable", "opus")).toBe("default");
+});
+
+test("efforts come from the model's own list, worded where known and as written otherwise", () => {
+	expect(effortChoices(CODEX, "gpt-5.5").map((one) => one.label)).toEqual([
+		"Low",
+		"Medium",
+		"High",
+		"Extra high",
+		"ultra",
+	]);
+	expect(effortChoices(CODEX, "gpt-5.5").at(-1)?.description).toBe("");
+	// A model with no list, or none known, keeps Portikus's five.
+	expect(effortChoices(CODEX, "gpt-5.4-mini").map((one) => one.value)).toEqual([
+		"low",
+		"medium",
+		"high",
+		"xhigh",
+		"max",
+	]);
+	expect(effortChoices([], "opus")).toHaveLength(5);
+	expect(effortLabel("max")).toBe("Max");
+	expect(effortLabel("minimal")).toBe("minimal");
+	expect(startEffort(CODEX, "gpt-5.5")).toBe("high");
+	expect(startEffort(CODEX, "gpt-5.4-mini")).toBe("medium");
+	expect(offersEffort(CODEX, "gpt-5.5", "ultra")).toBe(true);
+	expect(offersEffort(CODEX, "gpt-5.5", "max")).toBe(false);
+	expect(offersEffort(CODEX, "gpt-5.4-mini", "max")).toBe(true);
+	// A window suffix still finds the model's row.
+	expect(startEffort(CODEX, "gpt-5.5[1m]")).toBe("high");
+});
+
+test("modes come from the host's list, or Claude Code's five when it sends none", () => {
+	const host = [
+		{ id: "untrusted", label: "Ask", description: "", warning: false, plan: false },
+	];
+	expect(modeChoices(host)).toBe(host);
+	expect(modeChoices([]).map((mode) => mode.id)).toEqual([
+		"default",
+		"acceptEdits",
+		"plan",
+		"auto",
+		"bypassPermissions",
+	]);
+	expect(modeOf([], "bypassPermissions")?.warning).toBe(true);
+	expect(modeOf(host, "bypassPermissions")).toBeUndefined();
+	expect(startMode("codex", [], "gpt-5.5")).toBe("onRequest");
+	expect(startMode("claude", [], "opus")).toBe("auto");
 });

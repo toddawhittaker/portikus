@@ -122,3 +122,33 @@ test("a javascript URL is refused and an https URL opens only after the click", 
 	expect(popped).toBe(true);
 	expect(popup.url()).toContain("https://example.com/");
 });
+
+test("the New menu offers each agent's GUI and TUI, and Codex (GUI) opens a Codex chat", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Four launchers" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("launcher").click();
+	const menu = page.getByRole("menu", { name: "New tab" });
+	await expect(menu.getByRole("menuitem")).toHaveText([
+		/Terminal/,
+		"Claude Code (GUI)",
+		"Claude Code (TUI)",
+		"Codex (GUI)",
+		"Codex (TUI)",
+		"Preview",
+	]);
+	const posted = page.waitForRequest(
+		(request) => request.method() === "POST" && request.url().includes("/terminals"),
+	);
+	await page.getByTestId("launcher-codex-gui").click();
+	expect((await posted).postDataJSON()).toEqual({
+		projectId: project.id,
+		kind: "chat",
+		agent: "codex",
+	});
+	await expect(page.getByRole("tab", { name: /Codex \(GUI\)/ })).toBeVisible();
+});

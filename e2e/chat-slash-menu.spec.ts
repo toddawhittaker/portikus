@@ -1,6 +1,12 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { openChat, receivedFrames } from "./chat-helpers";
-import { createStudent, expectNoViolations } from "./helpers";
+import {
+	createProject,
+	createStudent,
+	expectNoViolations,
+	workspacePath,
+	workTabs,
+} from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
@@ -196,4 +202,55 @@ test("/ after the start of the message is only a slash", async ({ page, context 
 	await page.keyboard.type("either/or /compact");
 	await expect(box).toHaveText("either/or /compact");
 	await expect(view.getByRole("listbox")).toHaveCount(0);
+});
+
+test("/mcp opens the MCP server list in Chat options instead of reaching the agent", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const { id, view } = await openChat(page, student.workspaceId, "MCP command");
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await page.keyboard.type("/mc");
+	await expect(view.getByRole("option", { name: /\/mcp/ })).toContainText(
+		"Shown in Chat options",
+	);
+	await page.keyboard.press("Enter");
+	const field = view.getByTestId("composer-mcp");
+	await expect(field).toBeFocused();
+	await expect(field).toHaveAttribute("aria-expanded", "true");
+	await expect(view.getByRole("region", { name: "MCP servers" })).toContainText(
+		"github",
+	);
+	await expect(box).toHaveText("");
+	expect(await sends(id)).toEqual([]);
+});
+
+test("$ in a Codex chat lists the skills alone, and / lists them with their $", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Codex skills" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("launcher").click();
+	await page.getByTestId("launcher-codex-gui").click();
+	const view = page.locator('[data-testid^="chat-view-"]');
+	await expect(view.getByTestId("composer-model")).toBeAttached({ timeout: 15_000 });
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await page.keyboard.type("$");
+	const skills = view.getByRole("listbox", { name: "Skills" });
+	await expect(skills.getByRole("option")).toHaveText([/\$pdf/]);
+	await expectNoViolations(page);
+	await page.keyboard.press("Enter");
+	await expect(box).toHaveText("$pdf");
+	await page.keyboard.press("ControlOrMeta+a");
+	await page.keyboard.press("Backspace");
+	await page.keyboard.type("/pd");
+	await expect(
+		view.getByRole("listbox", { name: "Commands" }).getByRole("option"),
+	).toHaveText([/\$pdf/]);
 });

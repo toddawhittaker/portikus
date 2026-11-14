@@ -50,9 +50,9 @@ export function agentRowName(terminal: CodingAgentTerminal): string {
 	return agentLabel(terminal) ?? terminal.name;
 }
 
-/** Only a Claude Code chat has a title Portikus can read and change. */
+/** A chat, of either agent, has a title Portikus can read and change. */
 export function canRename(terminal: CodingAgentTerminal): boolean {
-	return terminal.kind === "chat" && terminal.agent === "claude";
+	return terminal.kind === "chat";
 }
 
 function capitalised(words: string): string {
@@ -109,7 +109,7 @@ function SubagentRow({
 	projectId: string;
 	terminalId: string;
 	subagent: CodingAgentSubagent;
-	/** The agent is a Claude Code chat, which can show the subagent's own conversation. */
+	/** The agent is a chat, which can show the subagent's own conversation. */
 	inChat: boolean;
 }) {
 	const description = subagent.description || subagent.type;
@@ -302,7 +302,7 @@ function AgentRow({
 						</span>
 					</Link>
 				)}
-				{/* Claude Code can rename a session only once its first message has given it a title. */}
+				{/* A chat can be renamed only once its first message has given it a title. */}
 				{canRename(terminal) && title && !editing ? (
 					<IconButton
 						ref={pencil}

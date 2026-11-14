@@ -2,18 +2,27 @@
  * The chat's message box (SPEC.md §8.3, §10.8): a growing Markdown editor
  * (composerEditor.ts), attached files, the settings pickers, the microphone
  * and Send. Enter sends, Shift+Enter starts a line; while a turn runs, Stop
- * sits beside Send, a message sent then reaches Claude at its next step, and
+ * sits beside Send, a message sent then reaches the agent at its next step, and
  * Escape stops the turn. Up in an empty box brings back the last message
  * sent, held in memory only. A paste of more than LONG_PASTE_LINES lines is
  * attached as a text file instead of filling the box. Dictation is typed
  * into the box and never sent on its own (SPEC.md §25.10). The draft is
  * cleared only when the host echoes the message back, so a send it refuses
  * leaves the text and files in place to try again. `/` at the start lists
- * slash commands and `@` lists project files (ComposerCommandMenu.tsx).
+ * slash commands and skills, `$` lists skills alone in a Codex chat, and `@`
+ * lists project files (ComposerCommandMenu.tsx). `/model`, `/effort`,
+ * `/permissions` and `/mcp` open their place in Chat options for either
+ * agent, chosen from the list or sent as typed. Every sentence names the
+ * chat's own agent.
  * While the text starts with `!` it is a shell command: the box wears a
  * "Shell" label and monospace text, says so once, and opens neither menu.
  */
-import { MAX_CHAT_TEXT_CHARS } from "@portikus/contracts";
+import {
+	type ChatModeInfo,
+	CODING_AGENT_LABEL,
+	type CodingAgent,
+	MAX_CHAT_TEXT_CHARS,
+} from "@portikus/contracts";
 import { Icon, IconButton } from "@portikus/ui";
 import type { Editor, JSONContent } from "@tiptap/core";
 import {
@@ -28,6 +37,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useStore } from "zustand";
+import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { stop as stopReading } from "../voice/speak.js";
@@ -36,11 +46,12 @@ import { VoiceButton } from "../voice/VoiceButton.js";
 import { ComposerChips } from "./ComposerChips.js";
 import {
 	ComposerCommandMenu,
+	controlFor,
 	optionId,
 	selectCommands,
 	useComposerMenu,
 } from "./ComposerCommandMenu.js";
-import { BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
+import { ComposerPickers } from "./ComposerPickers.js";
 import type { ChatState, ChatStore } from "./chatStore.js";
 import { lineText, useComposerAttachments } from "./composerAttachments.js";
 import {
@@ -56,9 +67,11 @@ import {
 	insertAtCursor,
 	insertPlainText,
 	isBlank,
+	refreshComposer,
 	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
+import { modeOf } from "./models.js";
 import type { ReadAloud } from "./readAloud.js";
 import { isShellCommand } from "./shellCommand.js";
 import "./composer.css";
@@ -69,23 +82,28 @@ const tooLong = (length: number) =>
 	`Your message was not sent because it is ${COUNT.format(length)} characters long, over the limit of ${COUNT.format(MAX_CHAT_TEXT_CHARS)}. Shorten it and send again.`;
 const VOICE_HINT =
 	"Hold Space on this button, or Alt+Shift+M in the message box, to talk.";
-const BYPASS_ON = `Bypass permissions is on. ${BYPASS_WARNING}`;
-const PLACEHOLDER = "Message Claude Code, or paste or drop images";
+const warningOn = (mode: ChatModeInfo) => `${mode.label} is on. ${mode.description}`;
+const placeholder = (agent: CodingAgent) =>
+	`Message ${CODING_AGENT_NAME[agent]}, or paste or drop images`;
 /** The placeholder's advice, said on focus: a combobox may not carry aria-placeholder. */
-const TIPS = "Type / for commands or @ for files. Paste or drop images to attach them.";
+const tips = (agent: CodingAgent) =>
+	agent === "codex"
+		? "Type / for commands, $ for skills or @ for files. Paste or drop images to attach them."
+		: "Type / for commands or @ for files. Paste or drop images to attach them.";
 const KEY_HINT =
 	"Enter sends, Shift+Enter adds a line, Up brings back your last message.";
-const RUNNING_HINT = "Enter sends without stopping Claude. Esc stops it.";
+const runningHint = (name: string) =>
+	`Enter sends without stopping ${name}. Esc stops it.`;
 const SHELL_RUNNING_HINT = "The command is running. Esc stops it.";
 const CODE_HINT = `In code, Enter adds a line. ${currentPlatform() === "mac" ? "Cmd" : "Ctrl"}+Enter sends.`;
 const SAVING = "Wait for the files to finish saving.";
-const SENDING = "Wait for your last message to reach Claude.";
+const sendingText = (name: string) => `Wait for your last message to reach ${name}.`;
 const NOTHING_TO_SEND = "Type a message or attach a file first.";
 // Said once on entering a block: the visible hint is only a description, read on focus.
 const CODE_ANNOUNCED = `In a code block. ${CODE_HINT} Press Enter three times at the end to leave it.`;
 const SHELL_ANNOUNCED = "Shell command mode";
-const SHELL_HINT =
-	"Shell command. Enter runs it in the project folder, and Claude sees the output with your next message.";
+const shellHint = (name: string) =>
+	`Shell command. Enter runs it in the project folder, and ${name} sees the output with your next message.`;
 const PASTED_NAME = "pasted-text.txt";
 
 /** A message sent and not yet echoed back by the host. */
@@ -100,15 +118,16 @@ interface Sending {
 
 /** The line under the box that fits what the box is doing now. */
 function footHint(now: {
+	name: string;
 	shell: boolean;
 	inCode: boolean;
 	shellRunning: boolean;
 	turnRunning: boolean;
 }): string {
-	if (now.shell) return SHELL_HINT;
+	if (now.shell) return shellHint(now.name);
 	if (now.inCode) return CODE_HINT;
 	if (now.shellRunning) return SHELL_RUNNING_HINT;
-	return now.turnRunning ? RUNNING_HINT : KEY_HINT;
+	return now.turnRunning ? runningHint(now.name) : KEY_HINT;
 }
 
 /** The key of the newest `!` command in the conversation, or "". */
@@ -126,6 +145,14 @@ export interface ComposerProps {
 	workspaceId: string;
 	projectId: string;
 	terminalId: string;
+	/** Put the other agent in this chat's place (ComposerPickers.tsx). */
+	onSwitchAgent?: (agent: CodingAgent) => void;
+}
+
+/** The permission mode in force when it is one that warns, else null. */
+function selectWarningMode(state: ChatState): ChatModeInfo | null {
+	const mode = state.settings ? modeOf(state.modes, state.settings.mode) : undefined;
+	return mode?.warning ? mode : null;
 }
 
 export function Composer({
@@ -134,9 +161,12 @@ export function Composer({
 	workspaceId,
 	projectId,
 	terminalId,
+	onSwitchAgent,
 }: ComposerProps) {
 	const ids = useId();
-	const settings = useStore(store, (state) => state.settings);
+	const agent = useStore(store, (state) => state.settings?.agent ?? "claude");
+	const name = CODING_AGENT_LABEL[agent];
+	const warningMode = useStore(store, selectWarningMode);
 	const turnRunning = useStore(store, (state) => state.currentTurnId !== null);
 	const shellRunning = useStore(store, (state) =>
 		state.items.some((item) => item.kind === "shell" && item.state === "running"),
@@ -175,6 +205,7 @@ export function Composer({
 	/** Stop holds the keyboard; when it goes with the turn, the box takes it (SPEC.md §25.8). */
 	const stopFocused = useRef(false);
 	const [optionsOpen, setOptionsOpen] = useState(false);
+	const [mcpOpen, setMcpOpen] = useState(false);
 	// The editor's key handler is set up once, so it reads the panel's state through a ref.
 	const optionsOpenNow = useRef(optionsOpen);
 	optionsOpenNow.current = optionsOpen;
@@ -186,7 +217,9 @@ export function Composer({
 	const lastLongPaste = useRef<Promise<string[]> | null>(null);
 	const files = useComposerAttachments(workspaceId, projectId);
 	const clearFiles = files.clear;
-	const bypass = settings?.mode === "bypassPermissions";
+	// The editor is made once; it reads the agent through here as it draws.
+	const agentNow = useRef(agent);
+	agentNow.current = agent;
 
 	// The echo of the student's own message ends the send; text typed since stays.
 	useEffect(() => {
@@ -211,8 +244,14 @@ export function Composer({
 	}, [connection]);
 
 	useEffect(() => {
-		if (bypass) setAnnounced(BYPASS_ON);
-	}, [bypass]);
+		if (warningMode) setAnnounced(warningOn(warningMode));
+	}, [warningMode]);
+
+	// The host names the agent after the editor is made; its label and placeholder follow.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: redraws when the agent changes
+	useEffect(() => {
+		if (editor.current) refreshComposer(editor.current);
+	}, [agent]);
 
 	// Emptied on leaving the block, so entering the next one is announced again.
 	useEffect(() => {
@@ -265,6 +304,12 @@ export function Composer({
 		if (files.saving > 0 || sending) return;
 		const text = editor.current ? composerText(editor.current) : "";
 		if (text.trim() === "" && files.items.length === 0) return;
+		// `/model` and its kind, sent bare, open their place here instead of reaching the agent.
+		const control = files.items.length === 0 ? controlFor(text.trim()) : undefined;
+		if (control && editor.current && openControl(control)) {
+			editor.current.commands.clearContent(true);
+			return;
+		}
 		if (text.length > MAX_CHAT_TEXT_CHARS) {
 			setError(tooLong(text.length));
 			return;
@@ -349,23 +394,37 @@ export function Composer({
 			chooseFromMenu(box, menu, option.insert);
 			return;
 		}
-		const picker = option.control
-			? host.current
-					?.closest("form")
-					?.querySelector<HTMLElement>(`[data-testid="${option.control}"]`)
-			: null;
-		if (!picker) {
+		if (!option.control || !openControl(option.control)) {
 			setAnnounced(`${option.label} works only in the terminal, so it is not sent.`);
 			return;
 		}
-		// The picker does the command's job here: the typed command goes and the picker opens.
+		// The control does the command's job here: the typed command goes.
 		clearMenuText(box, menu);
-		// The pickers live in the options panel, which must show before one can take focus.
-		flushSync(() => setOptionsOpen(true));
-		picker.focus();
-		picker.dispatchEvent(
-			new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-		);
+	}
+
+	/**
+	 * Open the Chat options control with this test id: a picker's menu, or
+	 * the MCP server list, with the keyboard on it. False when it is not
+	 * there yet, as before the host reports its settings.
+	 */
+	function openControl(testId: string): boolean {
+		const control = host.current
+			?.closest("form")
+			?.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+		if (!control) return false;
+		const mcp = testId === "composer-mcp";
+		// The controls live in the options panel, which must show before one can take focus.
+		flushSync(() => {
+			setOptionsOpen(true);
+			if (mcp) setMcpOpen(true);
+		});
+		control.focus();
+		if (!mcp) {
+			control.dispatchEvent(
+				new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+			);
+		}
+		return true;
 	}
 
 	/**
@@ -471,18 +530,19 @@ export function Composer({
 		if (!element) return;
 		const made = createComposerEditor({
 			element,
-			attributes: {
+			attributes: () => ({
 				id: `${ids}-text`,
 				// A combobox, for the `/` and `@` menus (SPEC.md §25.8).
 				role: "combobox",
 				"aria-autocomplete": "list",
-				"aria-label": "Message Claude Code",
+				"aria-label": `Message ${CODING_AGENT_NAME[agentNow.current]}`,
 				// The tips, then the key hint or the bypass warning in its place.
 				"aria-describedby": `${ids}-tips ${ids}-hint ${ids}-bypass`,
 				class: "pk-composer-text",
 				"data-testid": "chat-composer-input",
-			},
-			placeholder: PLACEHOLDER,
+			}),
+			placeholder: () => placeholder(agentNow.current),
+			skills: () => agentNow.current === "codex",
 			onSend: () => handlers.current.submit(),
 			onFiles: (pasted) => handlers.current.addPasted(pasted),
 			onLongPaste: (text, lines) => handlers.current.addLongPaste(text, lines),
@@ -516,7 +576,7 @@ export function Composer({
 		files.saving > 0
 			? SAVING
 			: sending !== null
-				? SENDING
+				? sendingText(name)
 				: blank && files.items.length === 0
 					? NOTHING_TO_SEND
 					: "";
@@ -603,6 +663,9 @@ export function Composer({
 						readAloud={readAloud}
 						open={optionsOpen}
 						onOpenChange={setOptionsOpen}
+						mcpOpen={mcpOpen}
+						onMcpOpenChange={setMcpOpen}
+						onSwitchAgent={onSwitchAgent}
 					/>
 					<div className="pk-composer-actions">
 						<VoiceButton
@@ -662,14 +725,14 @@ export function Composer({
 				</p>
 			</form>
 			{/* One line kept below the box, so the warning never moves the box when it appears. */}
-			{bypass ? (
+			{warningMode ? (
 				<p
 					id={`${ids}-bypass`}
 					className="pk-composer-foot is-warning"
 					data-testid="chat-bypass-warning"
 				>
 					<Icon name="alert" size="sm" />
-					{BYPASS_WARNING}
+					{warningMode.description}
 				</p>
 			) : (
 				<p
@@ -677,11 +740,11 @@ export function Composer({
 					className="pk-composer-foot"
 					data-testid="chat-composer-hint"
 				>
-					{footHint({ shell, inCode, shellRunning, turnRunning })}
+					{footHint({ name, shell, inCode, shellRunning, turnRunning })}
 				</p>
 			)}
 			<span id={`${ids}-tips`} hidden={true}>
-				{TIPS}
+				{tips(agent)}
 			</span>
 			<p
 				className="sr-only"

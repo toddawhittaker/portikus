@@ -12,7 +12,8 @@ import {
 	ChatClientMessage,
 	type ChatCommand,
 	type ChatEffort,
-	type ChatLastSettings,
+	type ChatMcpServer,
+	type ChatModeInfo,
 	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
@@ -24,7 +25,6 @@ import {
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { offeredModel, sameModel } from "./models.js";
 
 export interface ChatMessageItem {
 	kind: "message";
@@ -36,7 +36,7 @@ export interface ChatMessageItem {
 	/** Deltas are still arriving for it. */
 	streaming: boolean;
 	turnId: string | null;
-	/** The student sent it while Claude was working; only live, a reload does not know. */
+	/** The student sent it while the agent was working; only live, a reload does not know. */
 	whileWorking?: boolean;
 }
 
@@ -131,8 +131,12 @@ export interface ChatState {
 	truncated: boolean;
 	/** The latest `settings` event; null until one arrives. */
 	settings: ChatSettings | null;
-	/** The models Claude Code offers, as the host last listed them; empty until it does. */
+	/** The models the agent offers, as the host last listed them; empty until it does. */
 	models: ChatModelInfo[];
+	/** The permission modes the host offers; empty until it lists them, or when it never does. */
+	modes: ChatModeInfo[];
+	/** The student's MCP servers and how each stands, as the host last listed them. */
+	mcp: ChatMcpServer[];
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
 	/** The slash commands on offer, as the host last listed them; empty until it does. */
@@ -182,6 +186,8 @@ export const initialChatState: ChatState = {
 	truncated: false,
 	settings: null,
 	models: [],
+	modes: [],
+	mcp: [],
 	sessionRules: [],
 	commands: [],
 	context: null,
@@ -351,6 +357,10 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			};
 		case "models":
 			return { ...state, models: event.models };
+		case "modes":
+			return { ...state, modes: event.modes };
+		case "mcp":
+			return { ...state, mcp: event.servers };
 		case "rules":
 			return { ...state, sessionRules: event.rules };
 		case "shell": {
@@ -365,9 +375,7 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return { ...state, commands: event.commands };
 		case "context":
 			return { ...state, context: contextUsage(event, now) };
-		// Events the web does not draw yet.
-		case "modes":
-		case "mcp":
+		// The divider an agent swap leaves; nothing draws it yet.
 		case "handoff":
 			return state;
 	}
@@ -639,48 +647,28 @@ export function selectSessionRulesActive(state: ChatState): boolean {
 	return state.sessionRules.length > 0;
 }
 
+/** Nothing has been said or run in the chat. */
+export function isEmptyChat(state: ChatState): boolean {
+	return (
+		state.loaded && state.items.length === 0 && Object.keys(state.turns).length === 0
+	);
+}
+
 /**
- * A chat nobody has used yet: no turn has run and the host still reports
- * its start values, so the last-used settings may be applied (SPEC.md §10.8).
+ * A chat nobody has used yet: no turn has run and, for Claude Code, the host
+ * still reports its start values, so the last-used settings may be applied
+ * (SPEC.md §10.8). Codex starts at the student's own Codex defaults, which
+ * the web cannot know, so an empty Codex chat counts as new.
  */
 export function isNewChat(state: ChatState): boolean {
 	const { settings } = state;
+	if (!isEmptyChat(state) || settings === null) return false;
+	if (settings.agent !== "claude") return true;
 	return (
-		state.loaded &&
-		settings !== null &&
-		state.items.length === 0 &&
-		Object.keys(state.turns).length === 0 &&
 		settings.model === CHAT_START_SETTINGS.model &&
 		settings.effort === CHAT_START_SETTINGS.effort &&
 		settings.mode === chatStartMode(state.models, settings.model)
 	);
-}
-
-/** The values worth keeping from what the host confirmed. */
-export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
-	return {
-		model: settings.model,
-		effort: settings.effort,
-		mode: settings.mode,
-	};
-}
-
-/**
- * The change that brings a new chat to the last-used values; null when
- * there is none. A saved model the list no longer offers is replaced by its
- * family's newest version, or the default.
- */
-export function changeToward(
-	settings: ChatSettings,
-	last: ChatLastSettings,
-	models: readonly ChatModelInfo[],
-): Partial<ChatLastSettings> | null {
-	const change: Partial<ChatLastSettings> = {};
-	const model = offeredModel(models, last.model);
-	if (!sameModel(models, settings.model, model)) change.model = model;
-	if (settings.effort !== last.effort) change.effort = last.effort;
-	if (settings.mode !== last.mode) change.mode = last.mode;
-	return Object.keys(change).length > 0 ? change : null;
 }
 
 /** What a tool still running becomes when its turn ends. */
