@@ -43,19 +43,19 @@ The **+** at the end of the tab bar, named New tab, offers six choices.
 The first five open in the project's folder:
 
 - **Terminal**: a Linux shell.
-- **Claude Code (TUI)**: Claude Code in a terminal. TUI means text user
-  interface: the program draws itself with text.
 - **Claude Code (GUI)**: Claude Code as a chat tab, with formatted replies,
   buttons and pickers. GUI means graphical user interface.
-- **Codex (TUI)**: OpenAI's coding agent, in a terminal.
-- **Codex (GUI)**: Codex as a chat tab, like Claude Code (GUI).
+- **Claude Code (TUI)**: Claude Code in a terminal. TUI means text user
+  interface: the program draws itself with text.
+- **Codex (GUI)**: OpenAI's coding agent as a chat tab, like Claude Code (GUI).
+- **Codex (TUI)**: Codex in a terminal.
 - **Preview**: opens a web app that is running in your project in a tab
   inside Portikus.
 
 If your course uses the Traditional profile, it hides the Claude Code and
 Codex choices, and only **Terminal** and **Preview** are there.
 
-![The New tab menu: Terminal, Claude Code (TUI), Claude Code (GUI), Codex and Preview](images/student-new-tab-menu.png)
+![The New tab menu: Terminal, Claude Code (GUI), Claude Code (TUI), Codex (GUI), Codex (TUI) and Preview](images/student-new-tab-menu.png)
 
 ## The workspace layout
 

@@ -114,6 +114,8 @@ Claude's protocol.
     inside one process. A browser cannot start a swap; the relay drops an
     `agent.switch` message from it, and only the API route starts one. A
     swap is refused while a reply, a card or a `!` command is running.
+    A switch makes the `agent-session` recovery point first, as launching
+    an agent does (SPEC.md sections 15.6 and 15.10).
     Claude to Codex: the messages go through `thread/inject_items` into a
     new thread. To Claude: as text with the next prompt, inside a marked
     block that the transcript hides on replay. Claude resumes its own
