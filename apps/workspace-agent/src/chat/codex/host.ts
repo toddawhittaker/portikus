@@ -2,20 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { Socket } from "node:net";
 import {
 	type ChatAttachment,
-	ChatEffort,
-	type ChatMcpStatus,
-	ChatModelInfo,
-	type ChatShellItem,
+	type ChatModelInfo,
 	CODEX_DEFAULT_MODE,
 	isShellCommand,
-	MAX_CHAT_MCP_SERVERS,
 	MAX_CHAT_MODELS,
 	shellCommandText,
 } from "@portikus/contracts";
 import type { Logger } from "@portikus/observability";
 import type {
-	CardAnswer,
-	CardOutcome,
 	ChatAgent,
 	ChatEventBody,
 	ChatRenameResult,
@@ -24,54 +18,31 @@ import type {
 	ContextFigures,
 } from "../agent.js";
 import { ChatCore } from "../core.js";
-import { ELICITATION_NOTICE } from "../mcp-status.js";
 import { writeChatSession } from "../session-record.js";
-import { runningShell, shellRefusal, withoutKind } from "../shell-command.js";
+import { shellRefusal } from "../shell-command.js";
 import { REPLAY_TURNS } from "../snapshot.js";
 import { ChatTitle } from "../titles.js";
 import {
 	AppServerClient,
 	type AppServerProcess,
 	type AppServerClient as Client,
-	type RequestId,
 	spawnAppServer,
 } from "./app-server.js";
-import {
-	approvalCard,
-	approvalOptions,
-	mcpAnswer,
-	mcpCard,
-	PLAN_OPTION,
-	planCard,
-	questionAnswer,
-	questionCard,
-} from "./cards.js";
 import { codexCommands, slashCommand } from "./commands.js";
-import { replayTurns, shellItem, turnStatus, userShell } from "./history.js";
-import { codexInput } from "./input.js";
-import { CodexItemMapper, planRow, type ToolRow, toolRow } from "./mapper.js";
+import { replayTurns, turnStatus, userShell } from "./history.js";
+import { type CodexInput, codexInput } from "./input.js";
+import { CodexItemMapper } from "./mapper.js";
+import { CodexMcp } from "./mcp.js";
+import { CODEX_MODES, DEFAULT_WORKSPACE_SANDBOX, type SandboxPolicy } from "./modes.js";
 import {
-	CODEX_MODES,
-	type CodexModeId,
-	DEFAULT_WORKSPACE_SANDBOX,
-	isCodexMode,
-	modePolicy,
-	type SandboxPolicy,
-} from "./modes.js";
-import {
-	CommandApprovalRequest,
 	DeltaNotification,
-	ElicitationRequest,
 	ErrorNotification,
 	ItemBase,
 	ItemNotification,
-	McpStartupNotification,
-	McpStatusList,
 	ModelList,
 	NameNotification,
 	PlanNotification,
 	parsed,
-	ResolvedNotification,
 	SkillsList,
 	TextItem,
 	ThreadResult,
@@ -81,28 +52,29 @@ import {
 	TurnNotification,
 	TurnStartResult,
 	TurnsList,
-	UserInputRequest,
 } from "./protocol.js";
+import { CodexRequests, type PostedState } from "./requests.js";
+import {
+	type Collaboration,
+	changedSettings,
+	modelInfos,
+	type Settings,
+	threadParams,
+	turnStartParams,
+} from "./settings.js";
+import { CodexShell } from "./shell.js";
 import { CodexSubagents } from "./subagents.js";
+
+export type { PostedState };
 
 /** The shared, unmodified Codex CLI (SPEC.md §10.1). */
 const CODEX_COMMAND = "codex";
-
-/** How long a `!` command may run before Codex stops it (ADR 0073). */
-const SHELL_TIME_LIMIT_MS = 2 * 60 * 1000;
-
-/** Codex's own connector server for ChatGPT apps; not one of the student's servers. */
-const CODEX_APPS_SERVER = "codex_apps";
 
 export const SIGN_IN_MESSAGE =
 	"Sign in to Codex in a Codex (TUI) tab, or run codex login --device-auth";
 const STOPPED_MESSAGE = "Codex stopped. Send a message to resume.";
 const START_FAILED_MESSAGE = "Codex could not start. Send a message to try again.";
 const BUSY_MESSAGE = "Wait for Codex to finish, or stop it first.";
-const IMPLEMENT_PLAN = "Implement the plan.";
-
-/** The coding-agent states the host posts itself; no Codex hook fires for a question. */
-export type PostedState = "needs-input" | "working" | "finished";
 
 export interface CodexHostOptions {
 	terminalId: string;
@@ -127,33 +99,6 @@ export interface CodexHostOptions {
 export class CodexChatHost extends ChatCore {
 	constructor(options: CodexHostOptions) {
 		super(options, new CodexAgent(options));
-	}
-}
-
-interface Settings {
-	model: string;
-	effort: string;
-	mode: CodexModeId;
-}
-
-/** A thread's runtime status as the chat's MCP list words it. */
-function mcpStatus(
-	runtime: string | null | undefined,
-	auth?: string | null,
-): ChatMcpStatus {
-	switch (runtime) {
-		case "connected":
-		case "ready":
-			return "connected";
-		case "failed":
-		case "cancelled":
-			return "failed";
-		case "authenticationRequired":
-			return "needsAuth";
-		case "disabled":
-			return "disabled";
-		default:
-			return auth === "notLoggedIn" ? "needsAuth" : "starting";
 	}
 }
 
@@ -185,28 +130,36 @@ export class CodexAgent implements ChatAgent {
 	/** Messages that wait for the running turn to end, such as a deny reason after Cancel. */
 	private afterTurn: string[] = [];
 	/** The collaboration mode last sent; Codex keeps it for later turns. */
-	private collaboration: "default" | "plan" = "default";
+	private collaboration: Collaboration = "default";
 	private mapper = new CodexItemMapper();
 	private readonly subagents: CodexSubagents;
+	private readonly requests: CodexRequests;
+	private readonly mcp: CodexMcp;
+	private readonly shell: CodexShell;
 	private readonly title: ChatTitle;
 	private models: ChatModelInfo[] = [];
 	private settings: Settings = { model: "", effort: "", mode: CODEX_DEFAULT_MODE };
 	private workspace: SandboxPolicy = DEFAULT_WORKSPACE_SANDBOX;
 	private context: ContextFigures | null = null;
 	private skills: SkillsList | null = null;
-	private readonly mcp = new Map<string, ChatMcpStatus>();
-	/** The `!` command running now; its turn id once Codex starts it. */
-	private shell: { item: ChatShellItem; turnId: string | null } | null = null;
 	private recording: Promise<void> = Promise.resolve();
-	/** Aborted when the conversation ends, which closes its open cards. */
-	private ended = new AbortController();
-	/** Open cards by the app-server request they answer, so Codex can withdraw one. */
-	private readonly requests = new Map<
-		RequestId,
-		{ cardId: string; withdrawn: AbortController }
-	>();
-
 	constructor(private readonly options: CodexHostOptions) {
+		this.requests = new CodexRequests({
+			sink: () => this.sink,
+			mapperOf: (threadId) => this.mapperOf(threadId),
+			deliver: (message, steerable) => this.deliver(message, steerable),
+			send: (message) => this.send(message, []),
+			setMode: (mode) => {
+				this.settings.mode = mode;
+				this.broadcastSettings();
+			},
+			postState: (state) => options.postState(state),
+		});
+		this.mcp = new CodexMcp(
+			() => this.sink,
+			() => this.threadId,
+		);
+		this.shell = new CodexShell(() => this.sink);
 		this.subagents = new CodexSubagents({
 			terminalId: options.terminalId,
 			turns: (threadId) => this.recentTurns(threadId).then((page) => page.turns),
@@ -272,7 +225,7 @@ export class CodexAgent implements ChatAgent {
 				if (client === this.client) this.onNotification(method, params);
 			},
 			request: (id, method, params) => {
-				if (client === this.client) this.onRequest(client, id, method, params);
+				if (client === this.client) this.requests.onRequest(client, id, method, params);
 			},
 			exit: () => {
 				if (client === this.client) this.onExit();
@@ -302,18 +255,12 @@ export class CodexAgent implements ChatAgent {
 		await this.readModels(client);
 		this.broadcastSettings();
 		void this.readSkills(client, false);
-		void this.readMcp(client);
+		void this.mcp.read(client);
 	}
 
 	/** Resume the tab's thread, or start one when it has none Codex can find. */
 	private async openThread(client: Client): Promise<void> {
-		const policy = modePolicy(this.settings.mode, this.workspace);
-		const common = {
-			cwd: this.options.projectDir,
-			approvalPolicy: policy.approvalPolicy,
-			sandbox: policy.sandbox,
-			...(this.settings.model ? { model: this.settings.model } : {}),
-		};
+		const common = threadParams(this.options.projectDir, this.settings, this.workspace);
 		let result: ThreadResult | null = null;
 		if (this.threadId) {
 			result = parsed(
@@ -364,34 +311,13 @@ export class CodexAgent implements ChatAgent {
 			// The picker keeps the model the thread runs.
 		}
 		if (!list) return;
-		const models: ChatModelInfo[] = [];
-		for (const row of list.data) {
-			if (row.hidden) continue;
-			const efforts = (row.supportedReasoningEfforts ?? [])
-				.map((each) => each.reasoningEffort)
-				.filter((effort) => ChatEffort.safeParse(effort).success);
-			const model = ChatModelInfo.safeParse({
-				value: row.id,
-				displayName: row.displayName.slice(0, 100),
-				description: (row.description ?? "").slice(0, 300),
-				supportsAutoMode: true,
-				efforts: efforts.slice(0, 10),
-				...(row.defaultReasoningEffort
-					? { defaultEffort: row.defaultReasoningEffort }
-					: {}),
-			});
-			if (model.success) models.push(model.data);
-		}
-		this.models = models.slice(0, MAX_CHAT_MODELS);
+		this.models = modelInfos(list);
 		if (!this.settings.effort) {
 			this.settings.effort =
-				this.modelInfo(this.settings.model)?.defaultEffort ?? "medium";
+				this.models.find((row) => row.value === this.settings.model)?.defaultEffort ??
+				"medium";
 		}
 		this.sink.models(this.models);
-	}
-
-	private modelInfo(model: string): ChatModelInfo | undefined {
-		return this.models.find((row) => row.value === model);
 	}
 
 	/** The student's skills, as `$name` commands; read again when Codex says they changed. */
@@ -414,46 +340,6 @@ export class CodexAgent implements ChatAgent {
 		this.sink.commands(codexCommands(this.skills));
 	}
 
-	/** The student's MCP servers: names and status only (ADR 0012). */
-	private async readMcp(client: Client): Promise<void> {
-		const seen = new Map<string, ChatMcpStatus>();
-		let cursor: string | null | undefined;
-		try {
-			for (let page = 0; page < 5; page += 1) {
-				const list = parsed(
-					McpStatusList,
-					await client.request("mcpServerStatus/list", {
-						detail: "toolsAndAuthOnly",
-						threadId: this.threadId,
-						limit: MAX_CHAT_MCP_SERVERS,
-						...(cursor ? { cursor } : {}),
-					}),
-				);
-				if (!list) break;
-				for (const server of list.data) {
-					if (server.name !== CODEX_APPS_SERVER) {
-						seen.set(server.name, mcpStatus(server.runtimeStatus, server.authStatus));
-					}
-				}
-				cursor = list.nextCursor;
-				if (!cursor) break;
-			}
-		} catch {
-			return;
-		}
-		this.mcp.clear();
-		for (const [name, status] of seen) this.mcp.set(name, status);
-		this.publishMcp();
-	}
-
-	private publishMcp(): void {
-		const servers = [...this.mcp]
-			.filter(([name]) => name.length >= 1 && name.length <= 64)
-			.slice(0, MAX_CHAT_MCP_SERVERS)
-			.map(([name, status]) => ({ name, status }));
-		this.sink.mcp(servers);
-	}
-
 	private onExit(): void {
 		this.client = null;
 		this.options.log.info("codex app-server ended");
@@ -463,11 +349,9 @@ export class CodexAgent implements ChatAgent {
 
 	/** Close the cards and subagents of a conversation that is over or replaced. */
 	private endConversationState(subagents: "error" | "interrupted"): void {
-		this.ended.abort();
-		this.ended = new AbortController();
-		this.requests.clear();
+		this.requests.end();
 		this.subagents.ended(subagents);
-		if (this.shell) this.finishShell({ ...this.shell.item, state: "done" });
+		this.shell.end();
 		if (this.turnRunning) this.finishTurn("error", null);
 	}
 
@@ -477,33 +361,17 @@ export class CodexAgent implements ChatAgent {
 				if (this.client) void this.readSkills(this.client, true);
 				return;
 			case "mcpServer/startupStatus/updated":
-				this.mcpChanged(params);
+				this.mcp.changed(params);
 				return;
-			case "serverRequest/resolved": {
-				const resolved = parsed(ResolvedNotification, params);
-				const open = resolved ? this.requests.get(resolved.requestId) : undefined;
-				if (resolved && open) {
-					this.requests.delete(resolved.requestId);
-					open.withdrawn.abort();
-				}
+			case "serverRequest/resolved":
+				this.requests.resolved(params);
 				return;
-			}
 		}
 		const threadId = (params as { threadId?: unknown } | null)?.threadId;
 		if (typeof threadId !== "string") return;
 		// A subagent's events share the stream, tagged with its own thread id.
 		if (threadId === this.threadId) this.onThreadEvent(method, params);
 		else this.subagents.notification(threadId, method, params);
-	}
-
-	private mcpChanged(params: unknown): void {
-		const update = parsed(McpStartupNotification, params);
-		if (!update || update.name === CODEX_APPS_SERVER) return;
-		if (update.threadId && update.threadId !== this.threadId) return;
-		const status = mcpStatus(update.status);
-		if (this.mcp.get(update.name) === status) return;
-		this.mcp.set(update.name, status);
-		this.publishMcp();
 	}
 
 	private onThreadEvent(method: string, params: unknown): void {
@@ -564,10 +432,7 @@ export class CodexAgent implements ChatAgent {
 	private turnStarted(params: unknown): void {
 		const turn = parsed(TurnNotification, params)?.turn;
 		if (!turn) return;
-		if (this.shell && this.shell.turnId === null && !this.turnRunning) {
-			this.shell.turnId = turn.id;
-			return;
-		}
+		if (this.shell.claimsTurn(turn.id, this.turnRunning)) return;
 		this.turnId = turn.id;
 		if (!this.turnRunning) this.beginTurn();
 	}
@@ -575,10 +440,7 @@ export class CodexAgent implements ChatAgent {
 	private turnCompleted(params: unknown): void {
 		const turn = parsed(TurnNotification, params)?.turn;
 		if (!turn) return;
-		if (this.shell?.turnId === turn.id) {
-			this.finishShell({ ...this.shell.item, state: "done" });
-			return;
-		}
+		if (this.shell.endsWith(turn.id)) return;
 		if (!this.turnRunning) return;
 		this.finishTurn(turnStatus(turn.status), turn.error ?? null);
 	}
@@ -589,10 +451,7 @@ export class CodexAgent implements ChatAgent {
 		if (!base) return;
 		const shell = userShell(item);
 		if (shell) {
-			// Shown as done once its turn ends, so no message reaches Codex mid-turn.
-			if (method === "item/completed" && this.shell) {
-				this.shell.item = shellItem(this.shell.item.id, shell);
-			}
+			if (method === "item/completed") this.shell.completedItem(shell);
 			return;
 		}
 		// The student's own message was shown when it was sent.
@@ -628,219 +487,15 @@ export class CodexAgent implements ChatAgent {
 		this.sink.emit({ type: "turn.finished", status, at: Date.now() });
 		const plan = this.plan;
 		this.plan = null;
-		if (plan && status === "done") this.askAboutPlan(plan);
+		if (plan && status === "done") this.requests.askAboutPlan(plan);
 		for (const message of this.afterTurn.splice(0)) {
 			void this.send(message, []).catch(() => undefined);
-		}
-	}
-
-	private finishShell(item: ChatShellItem): void {
-		this.shell = null;
-		this.sink.emit({ type: "shell", ...withoutKind(item) });
-	}
-
-	private onRequest(
-		client: Client,
-		id: RequestId,
-		method: string,
-		params: unknown,
-	): void {
-		switch (method) {
-			case "item/commandExecution/requestApproval":
-				this.approval(client, id, params, "commandExecution");
-				return;
-			case "item/fileChange/requestApproval":
-				this.approval(client, id, params, "fileChange");
-				return;
-			case "item/tool/requestUserInput":
-				this.question(client, id, params);
-				return;
-			case "mcpServer/elicitation/request":
-				this.elicitation(client, id, params);
-				return;
-			case "item/tool/call":
-				client.respond(id, { contentItems: [], success: false });
-				return;
-			case "item/permissions/requestApproval":
-				client.respond(id, { permissions: {}, scope: "turn" });
-				return;
-			case "currentTime/read":
-				client.respond(id, { currentTimeAt: Math.floor(Date.now() / 1000) });
-				return;
-			default:
-				client.respondError(id, -32601, "Not supported by this client.");
-				return;
 		}
 	}
 
 	/** The item mapper of the thread a request is about. */
 	private mapperOf(threadId: string): CodexItemMapper {
 		return threadId === this.threadId ? this.mapper : this.subagents.mapper(threadId);
-	}
-
-	/**
-	 * Show a card for an app-server request and answer the request with the
-	 * student's choice. A card Codex withdraws closes without an answer.
-	 */
-	private openCard(
-		client: Client,
-		requestId: RequestId,
-		card: Parameters<ChatSink["openCard"]>[0],
-		settle: (answer: CardAnswer, answerCodex: (result: unknown) => void) => CardOutcome,
-	): void {
-		// A card shows one request per id: an older one for the same item is declined first.
-		for (const open of [...this.requests.values()]) {
-			if (open.cardId === card.id) open.withdrawn.abort();
-		}
-		const withdrawn = new AbortController();
-		this.requests.set(requestId, { cardId: card.id, withdrawn });
-		const answerCodex = (result: unknown) => {
-			if (this.requests.delete(requestId)) client.respond(requestId, result);
-		};
-		this.sink.openCard(
-			card,
-			(answer) => settle(answer, answerCodex),
-			AbortSignal.any([withdrawn.signal, this.ended.signal]),
-		);
-	}
-
-	private approval(
-		client: Client,
-		requestId: RequestId,
-		params: unknown,
-		kind: "commandExecution" | "fileChange",
-	): void {
-		const request = parsed(CommandApprovalRequest, params);
-		if (!request) {
-			client.respond(requestId, { decision: "decline" });
-			return;
-		}
-		const row: ToolRow = this.mapperOf(request.threadId).row(request.itemId) ??
-			toolRow({
-				...(params as object),
-				type: kind,
-				id: request.itemId,
-				status: "inProgress",
-			}) ?? {
-				id: request.itemId,
-				name: kind,
-				title: kind === "fileChange" ? "files" : "a command",
-				input: {},
-			};
-		const options = approvalOptions(
-			kind === "commandExecution" ? (request.availableDecisions ?? []) : undefined,
-		);
-		const deny =
-			options.find((option) => option.decision === "denied")?.id ?? "decline";
-		this.openCard(
-			client,
-			requestId,
-			approvalCard(row, options),
-			(answer, answerCodex) => {
-				if (answer.type !== "permission") {
-					answerCodex({ decision: deny });
-					return {};
-				}
-				answerCodex({ decision: answer.optionId });
-				const decision = options.find(
-					(option) => option.id === answer.optionId,
-				)?.decision;
-				if (decision === "denied" && answer.message) {
-					void this.deliver(answer.message, answer.optionId !== "cancel");
-				}
-				return decision ? { decision } : {};
-			},
-		);
-	}
-
-	private elicitation(client: Client, requestId: RequestId, params: unknown): void {
-		const request = parsed(ElicitationRequest, params);
-		const tool = request?._meta?.tool_name;
-		if (request?._meta?.codex_approval_kind !== "mcp_tool_call" || !tool) {
-			client.respond(requestId, { action: "decline", content: null, _meta: null });
-			this.sink.emit({ type: "error", message: ELICITATION_NOTICE });
-			return;
-		}
-		const taken = new Set([...this.requests.values()].map((open) => open.cardId));
-		const row = this.mapperOf(request.threadId).mcpRow(
-			request.serverName,
-			tool,
-			request._meta?.tool_params,
-			taken,
-		);
-		const card = mcpCard(row?.id ?? `mcp-${requestId}`, request.serverName, tool, row);
-		this.openCard(client, requestId, card, (answer, answerCodex) => {
-			const optionId = answer.type === "permission" ? answer.optionId : "decline";
-			answerCodex(mcpAnswer(optionId));
-			const decision = card.options.find((option) => option.id === optionId)?.decision;
-			if (answer.type === "permission" && decision === "denied" && answer.message) {
-				void this.deliver(answer.message, true);
-			}
-			return answer.type === "permission" && decision ? { decision } : {};
-		});
-	}
-
-	private question(client: Client, requestId: RequestId, params: unknown): void {
-		const request = parsed(UserInputRequest, params);
-		const card = request ? questionCard(request) : null;
-		if (!request || !card) {
-			client.respond(requestId, { answers: {} });
-			this.sink.emit({
-				type: "error",
-				message: "Codex asked a question the chat cannot show, so it was skipped.",
-			});
-			return;
-		}
-		this.postState("needs-input");
-		const ended = this.ended.signal;
-		this.openCard(client, requestId, card, (answer, answerCodex) => {
-			// The answers may be secret: they go to Codex and nowhere else.
-			answerCodex(
-				questionAnswer(request, answer.type === "question" ? answer.answers : {}),
-			);
-			if (answer.type === "question") this.postState("working");
-			else if (ended.aborted) this.postState("finished");
-			return {};
-		});
-	}
-
-	/** A Plan turn ended with a plan: ask whether to carry it out. */
-	private askAboutPlan(plan: { id: string; text: string }): void {
-		this.postState("needs-input");
-		// The card's own row, so its decision has a row to land on.
-		this.sink.emit(planRow(plan.id, plan.text));
-		const card = planCard(plan.id, plan.text);
-		this.sink.openCard(
-			card,
-			(answer) => {
-				this.sink.emit({ type: "tool.finished", id: plan.id, isError: false });
-				if (answer.type !== "permission") {
-					this.postState("finished");
-					return {};
-				}
-				const decision = card.options.find(
-					(option) => option.id === answer.optionId,
-				)?.decision;
-				if (answer.optionId === PLAN_OPTION.keepPlanning && !answer.message) {
-					this.postState("finished");
-				} else if (answer.optionId === PLAN_OPTION.keepPlanning) {
-					this.postState("working");
-					void this.send(answer.message ?? "", []).catch(() => undefined);
-				} else {
-					this.postState("working");
-					this.settings.mode =
-						answer.optionId === PLAN_OPTION.ask ? "untrusted" : CODEX_DEFAULT_MODE;
-					this.broadcastSettings();
-					void this.send(IMPLEMENT_PLAN, []).catch(() => undefined);
-				}
-				return decision ? { decision } : {};
-			},
-			this.ended.signal,
-		);
-	}
-
-	private postState(state: PostedState): void {
-		void this.options.postState(state).catch(() => undefined);
 	}
 
 	/**
@@ -895,7 +550,7 @@ export class CodexAgent implements ChatAgent {
 	}
 
 	inProgress(): ChatEventBody[] {
-		return this.shell ? [{ type: "shell", ...withoutKind(this.shell.item) }] : [];
+		return this.shell.inProgress();
 	}
 
 	rename(title: string): Promise<ChatRenameResult> {
@@ -917,7 +572,7 @@ export class CodexAgent implements ChatAgent {
 	async interrupt(): Promise<void> {
 		const client = this.client;
 		if (!client || !this.threadId) return;
-		const turnId = this.shell
+		const turnId = this.shell.running
 			? this.shell.turnId
 			: this.turnRunning
 				? this.turnId
@@ -930,7 +585,7 @@ export class CodexAgent implements ChatAgent {
 	}
 
 	async send(text: string, attachments: ChatAttachment[]): Promise<void> {
-		if (this.shell) throw new Error("Wait for the shell command to finish.");
+		if (this.shell.running) throw new Error("Wait for the shell command to finish.");
 		if (isShellCommand(text)) return this.runShell(shellCommandText(text), attachments);
 		const command = attachments.length === 0 ? slashCommand(text) : null;
 		if (command) return this.runCommand(command.name, command.rest, text);
@@ -953,42 +608,28 @@ export class CodexAgent implements ChatAgent {
 		}
 	}
 
+	private input(text: string, attachments: ChatAttachment[]): Promise<CodexInput[]> {
+		return codexInput(this.options.homeDir, this.options.projectDir, text, attachments);
+	}
+
 	private async startTurn(text: string, attachments: ChatAttachment[]): Promise<void> {
-		const input = await codexInput(
-			this.options.homeDir,
-			this.options.projectDir,
-			text,
-			attachments,
-		);
+		const input = await this.input(text, attachments);
 		if (input.length === 0) return;
 		const client = await this.ready();
 		this.userMessage(text, attachments);
 		this.beginTurn();
-		const { model, effort, mode } = this.settings;
-		const policy = modePolicy(mode, this.workspace);
-		const collaboration = mode === "plan" ? "plan" : "default";
-		const start = client.request("turn/start", {
-			threadId: this.threadId,
-			input,
-			approvalPolicy: policy.approvalPolicy,
-			sandboxPolicy: policy.sandboxPolicy,
-			...(model ? { model } : {}),
-			...(effort ? { effort } : {}),
-			// Sent only on a change. A null leaves Codex's own text for the mode, and
-			// the platform's managed developer instructions still apply.
-			...(collaboration !== this.collaboration
-				? {
-						collaborationMode: {
-							mode: collaboration,
-							settings: {
-								model,
-								reasoning_effort: effort || null,
-								developer_instructions: null,
-							},
-						},
-					}
-				: {}),
-		});
+		const collaboration = this.settings.mode === "plan" ? "plan" : "default";
+		const start = client.request(
+			"turn/start",
+			turnStartParams(
+				this.threadId,
+				input,
+				this.settings,
+				this.workspace,
+				collaboration,
+				this.collaboration,
+			),
+		);
 		this.turnStart = start.then(
 			(result) => {
 				const turn = parsed(TurnStartResult, result)?.turn;
@@ -1007,12 +648,7 @@ export class CodexAgent implements ChatAgent {
 
 	/** Add a message to the running turn. */
 	private async steer(text: string, attachments: ChatAttachment[] = []): Promise<void> {
-		const input = await codexInput(
-			this.options.homeDir,
-			this.options.projectDir,
-			text,
-			attachments,
-		);
+		const input = await this.input(text, attachments);
 		if (input.length === 0) return;
 		await this.turnStart;
 		const client = this.client;
@@ -1051,20 +687,7 @@ export class CodexAgent implements ChatAgent {
 		}
 		const refused = shellRefusal(command, attachments.length, false);
 		if (refused) throw new Error(refused);
-		const client = await this.ready();
-		const item = runningShell(randomUUID(), command);
-		this.shell = { item, turnId: null };
-		this.sink.emit({ type: "shell", ...withoutKind(item) });
-		try {
-			await client.request("thread/shellCommand", {
-				threadId: this.threadId,
-				command,
-				timeoutMs: SHELL_TIME_LIMIT_MS,
-			});
-		} catch {
-			if (this.shell?.item.id === item.id) this.finishShell({ ...item, state: "done" });
-			throw new Error("The shell command could not start.");
-		}
+		await this.shell.run(await this.ready(), this.threadId, command);
 	}
 
 	/** A slash command the chat runs itself (the fixed list in commands.ts). */
@@ -1097,7 +720,7 @@ export class CodexAgent implements ChatAgent {
 				return;
 			}
 			case "mcp":
-				return this.readMcp(await this.ready());
+				return this.mcp.read(await this.ready());
 		}
 		if (this.turnRunning) throw new Error(BUSY_MESSAGE);
 		const client = await this.ready();
@@ -1117,15 +740,12 @@ export class CodexAgent implements ChatAgent {
 
 	/** `/new` and `/clear`: a fresh thread, recorded so Resume continues it. */
 	private async newConversation(client: Client): Promise<void> {
-		const policy = modePolicy(this.settings.mode, this.workspace);
 		const result = parsed(
 			ThreadResult,
-			await client.request("thread/start", {
-				cwd: this.options.projectDir,
-				approvalPolicy: policy.approvalPolicy,
-				sandbox: policy.sandbox,
-				...(this.settings.model ? { model: this.settings.model } : {}),
-			}),
+			await client.request(
+				"thread/start",
+				threadParams(this.options.projectDir, this.settings, this.workspace),
+			),
 		);
 		if (!result) throw new Error("Codex did not start a new conversation.");
 		const old = this.threadId;
@@ -1140,32 +760,11 @@ export class CodexAgent implements ChatAgent {
 		this.title.reset();
 		this.adoptThread(result);
 		this.sink.conversationReset(null);
-		void this.readMcp(client);
+		void this.mcp.read(client);
 	}
 
 	async set(change: ChatSettingsChange): Promise<void> {
-		const next = { ...this.settings };
-		if (change.model !== undefined) {
-			next.model = change.model;
-			const efforts = this.modelInfo(change.model)?.efforts;
-			if (efforts && !efforts.includes(next.effort)) {
-				next.effort =
-					this.modelInfo(change.model)?.defaultEffort ?? efforts[0] ?? next.effort;
-			}
-		}
-		if (change.effort !== undefined) {
-			const efforts = this.modelInfo(next.model)?.efforts;
-			if (efforts && !efforts.includes(change.effort)) {
-				throw new Error("This model does not offer that effort.");
-			}
-			next.effort = change.effort;
-		}
-		if (change.mode !== undefined) {
-			if (!isCodexMode(change.mode))
-				throw new Error("Codex has no such permission mode.");
-			next.mode = change.mode;
-		}
-		this.settings = next;
+		this.settings = changedSettings(this.settings, change, this.models);
 		this.broadcastSettings();
 	}
 
