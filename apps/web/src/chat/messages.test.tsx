@@ -739,12 +739,12 @@ test("an answered Codex card leaves its line, in words, for a plan, an MCP call 
 	codexList([
 		tool(
 			"plan",
-			{ steps: [{ step: "a", status: "pending" }] },
+			{ plan: "1. Do it" },
 			{ key: "p", id: "p", status: "done", decision: "allowed" },
 		),
 		tool(
 			"plan",
-			{ steps: [{ step: "a", status: "pending" }] },
+			{ plan: "1. Do it" },
 			{ key: "k", id: "k", status: "done", decision: "denied" },
 		),
 		tool(

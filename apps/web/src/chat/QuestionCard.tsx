@@ -345,6 +345,15 @@ export function QuestionCard({
 	);
 }
 
+/** What a secret question's field says: hidden as typed, and kept out of the conversation. */
+function SecretHint({ id, agentName }: { id: string; agentName: string }) {
+	return (
+		<p id={id} className="pk-chat-hint">
+			Hidden as you type. It goes to {agentName} and is not shown in the conversation.
+		</p>
+	);
+}
+
 function QuestionFields({
 	id,
 	question,
@@ -408,12 +417,7 @@ function QuestionFields({
 					data-testid="chat-question-answer"
 					onChange={(event) => onChange({ other: event.target.value })}
 				/>
-				{question.secret ? (
-					<p id={`${id}-secret`} className="pk-chat-hint">
-						Hidden as you type. It goes to {agentName} and is not shown in the
-						conversation.
-					</p>
-				) : null}
+				{question.secret ? <SecretHint id={`${id}-secret`} agentName={agentName} /> : null}
 			</div>
 		);
 	}
@@ -475,16 +479,24 @@ function QuestionFields({
 						}}
 					/>
 					{draft.otherPicked ? (
-						<input
-							ref={otherField}
-							className="pk-chat-input pk-chat-other-input pk-focus-ring"
-							type="text"
-							aria-label="Your own answer"
-							value={draft.other}
-							placeholder="Write your own answer"
-							data-testid="chat-question-other"
-							onChange={(event) => onChange({ other: event.target.value })}
-						/>
+						<>
+							<input
+								ref={otherField}
+								className="pk-chat-input pk-chat-other-input pk-focus-ring"
+								type={question.secret ? "password" : "text"}
+								// A password manager has nothing to offer for an agent's question.
+								autoComplete="off"
+								aria-label="Your own answer"
+								aria-describedby={question.secret ? `${id}-secret` : undefined}
+								value={draft.other}
+								placeholder="Write your own answer"
+								data-testid="chat-question-other"
+								onChange={(event) => onChange({ other: event.target.value })}
+							/>
+							{question.secret ? (
+								<SecretHint id={`${id}-secret`} agentName={agentName} />
+							) : null}
+						</>
 					) : null}
 				</li>
 			</ul>

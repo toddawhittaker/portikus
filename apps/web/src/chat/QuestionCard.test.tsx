@@ -323,6 +323,50 @@ test("a secret question is a password field that is not echoed anywhere", () => 
 	expect(onAnswer).toHaveBeenCalledWith({ "API key?": "sk-top-secret" }, undefined);
 });
 
+test("a secret question with options gives Other a password field, hinted and never echoed", () => {
+	const onAnswer = drawFor([
+		{
+			question: "Which key?",
+			header: "Key",
+			multiSelect: false,
+			secret: true,
+			options: [{ label: "Staging", description: "" }],
+		},
+	]);
+	const other = screen.getByRole("radio", { name: "Other" });
+	fireEvent.pointerDown(other);
+	fireEvent.click(other);
+	const field = screen.getByLabelText("Your own answer") as HTMLInputElement;
+	expect(field.type).toBe("password");
+	expect(field.autocomplete).toBe("off");
+	expect(field.getAttribute("aria-describedby")).toBeTruthy();
+	expect(
+		screen.getByText(/Hidden as you type\. It goes to Codex and is not shown/),
+	).toBeTruthy();
+	fireEvent.change(field, { target: { value: "sk-top-secret" } });
+	expect(document.body.textContent).not.toContain("sk-top-secret");
+	fireEvent.click(submit());
+	expect(onAnswer).toHaveBeenCalledWith({ "Which key?": "sk-top-secret" }, undefined);
+});
+
+test("a question that is not secret keeps a plain text Other field with no hint", () => {
+	drawFor([
+		{
+			question: "Which key?",
+			header: "Key",
+			multiSelect: true,
+			options: [{ label: "Staging", description: "" }],
+		},
+	]);
+	const other = screen.getByRole("checkbox", { name: "Other" });
+	fireEvent.pointerDown(other);
+	fireEvent.click(other);
+	expect((screen.getByLabelText("Your own answer") as HTMLInputElement).type).toBe(
+		"text",
+	);
+	expect(screen.queryByText(/Hidden as you type/)).toBeNull();
+});
+
 test("a question with no options can be skipped, and one with options still works", () => {
 	const onAnswer = drawFor([FREE_TEXT]);
 	fireEvent.click(screen.getByTestId("chat-question-skip"));

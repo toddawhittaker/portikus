@@ -266,7 +266,8 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 	const line = toolLine(tool.name, tool.input, tool.title);
 	const detail = line.detail;
 	// What the opened row shows already is the tool's input.
-	const showsInput = detail?.kind === "arguments" || tool.name === "Agent";
+	const showsInput =
+		detail?.kind === "arguments" || tool.name === "Agent" || tool.name === "plan";
 	// An edit, a write or a file change says nothing back; its diff or content is the result.
 	const quiet =
 		detail?.kind === "edit" ||

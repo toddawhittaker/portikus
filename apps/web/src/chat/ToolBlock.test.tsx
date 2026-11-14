@@ -297,7 +297,7 @@ test("Codex's other tools read in their own words", () => {
 		],
 		[
 			{
-				name: "plan",
+				name: "planSteps",
 				input: {
 					steps: [
 						{ step: "a", status: "completed" },
@@ -307,6 +307,7 @@ test("Codex's other tools read in their own words", () => {
 			},
 			"Updated the plan 1 of 2 steps done",
 		],
+		[{ name: "plan", input: { plan: "1. Do it" } }, "Proposed a plan"],
 		[{ name: "Skill", input: { skill: "pdf" } }, "Used skill pdf"],
 	];
 	for (const [overrides, text] of cases) {
@@ -315,10 +316,17 @@ test("Codex's other tools read in their own words", () => {
 	}
 });
 
-test("a plan row lists its steps, and says nothing about output", () => {
+test("a plan-card row shows the plan text once, with no raw input beside it", () => {
+	const { body } = row(tool({ name: "plan", input: { plan: "1. Write a test" } }));
+	expect(body?.querySelector("pre")?.textContent).toBe("1. Write a test");
+	expect(body?.textContent).not.toContain("No output");
+	expect(body?.querySelector(".pk-chat-raw")).toBeNull();
+});
+
+test("a plan steps row lists its steps, and says nothing about output", () => {
 	const { body } = row(
 		tool({
-			name: "plan",
+			name: "planSteps",
 			input: {
 				steps: [
 					{ step: "Write a test", status: "completed" },
