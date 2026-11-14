@@ -104,13 +104,32 @@ Claude's protocol.
    Parsing is defensive, so a missing or changed field becomes a plain
    message, and the recorded fixtures and the smoke check catch a Codex
    update that breaks them.
-10. **Switching agents in a chat is a handoff.** Each agent keeps its own
-    history, so the swap carries the earlier messages in. Claude to Codex:
-    through `thread/inject_items`. Codex to Claude: as text with the next
-    prompt; if the chat began on Claude, Claude resumes its own session and
-    receives only the Codex turns. Tool calls pass as a short summary. The
-    oldest turns are dropped when the handoff would not fit the new agent's
-    context window, and the warning says so.
+10. **Switching agents in a chat is a handoff, and a restart.** Each agent
+    keeps its own history, so the swap carries the earlier messages in. The
+    API asks the workspace agent, which has the host prepare the swap and
+    then restarts the chat process in the same tmux session with the other
+    agent's driver. Only the new agent's institutional key is passed and
+    the old one is removed from the session environment (SPEC.md sections
+    10.6 and 24), which is why the swap is a restart and not a driver swap
+    inside one process. A browser cannot start a swap; the relay drops an
+    `agent.switch` message from it, and only the API route starts one. A
+    swap is refused while a reply, a card or a `!` command is running.
+    A switch makes the `agent-session` recovery point first, as launching
+    an agent does (SPEC.md sections 15.6 and 15.10).
+    Two switches of one chat at once are refused with 409. A host still
+    waiting a minute after it prepared a swap takes the chat back, and if the
+    new host cannot start, the old agent is started again with its own key.
+    A handoff that fails marks the divider failed.
+    Claude to Codex: the messages go through `thread/inject_items` into a
+    new thread. To Claude: as text with the next prompt, inside a marked
+    block that the transcript hides on replay. Claude resumes its own
+    session whenever the tab has one, even in a chat that began on Codex,
+    and receives only the turns since it last spoke (Todd, accepted
+    2026-11-14); the tab keeps a session id for each agent. Tool calls pass
+    as a one-line summary and never with their output. The oldest turns are
+    dropped when the handoff would not fit half of the new agent's context
+    window, or 200k tokens when the window is not yet known, and the
+    divider says how many. `/clear` forgets the swap history.
 
 ## Consequences
 
