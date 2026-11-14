@@ -42,6 +42,7 @@ import {
 	type ToolAsk,
 	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
+import { readClaudeSignIn } from "./claude-sign-in.js";
 import {
 	ContextTracker,
 	fromTranscript,
@@ -184,10 +185,21 @@ class ClaudeAgent implements ChatAgent {
 		this.sink = sink;
 		sink.modes([...CLAUDE_MODES]);
 		this.broadcastSettings();
+		void this.checkSignIn();
 		await this.ensureSession();
 		// The socket opens once the model list is read (or has taken too long), so a
 		// first attach gets the list ahead of the settings that use it.
 		await this.modelList.settled(MODELS_WAIT_MS);
+	}
+
+	/** Asks Claude Code itself in a process of its own, so a send never waits on it. */
+	async checkSignIn(): Promise<void> {
+		this.sink.signIn(
+			await readClaudeSignIn(
+				this.options.claudePath ?? CLAUDE_PATH,
+				this.options.projectDir,
+			),
+		);
 	}
 
 	/** Stop Claude. The transcript stays. */
@@ -415,6 +427,10 @@ class ClaudeAgent implements ChatAgent {
 		if (this.subagents.handle(message)) return;
 		if (this.handleControl(message)) return;
 		if (message.type === "stream_event" && !this.turnRunning) this.beginTurn();
+		// Claude Code says so when a request fails because no one is signed in.
+		if (message.type === "assistant" && message.error === "authentication_failed") {
+			this.sink.signIn("signedOut");
+		}
 		this.requestMade(message);
 		for (const event of this.mapper.map(message)) this.sink.emit(event);
 	}

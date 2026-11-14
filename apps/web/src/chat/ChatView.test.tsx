@@ -1085,3 +1085,81 @@ test("a permission card is announced in the words of its heading, for both agent
 		emit("card.resolved", { id: "p" });
 	}
 });
+
+test("a signed-out chat warns above the message box, and Check again asks the host", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+	emit("signIn", { state: "signedOut" });
+	const banner = screen.getByTestId("chat-sign-in");
+	const status = within(banner).getByRole("status");
+	expect(status.textContent).toContain("You're not signed in to Codex.");
+	expect(status.textContent).toContain("Sign in from a Codex (TUI) tab");
+	// Outside a work area there is no tab strip to open a terminal in.
+	expect(within(banner).queryByTestId("chat-sign-in-terminal")).toBeNull();
+	// Sending is still possible.
+	expect(screen.getByRole("combobox").getAttribute("aria-disabled")).not.toBe("true");
+
+	const check = within(banner).getByRole("button", { name: "Check again" });
+	fireEvent.click(check);
+	expect(latest().sent.at(-1)).toEqual({ type: "signIn.check" });
+	expect(check.getAttribute("aria-busy")).toBe("true");
+	emit("signIn", { state: "signedOut" });
+	expect(check.getAttribute("aria-busy")).toBeNull();
+	expect(status.textContent).toContain("Still not signed in.");
+
+	fireEvent.click(check);
+	emit("signIn", { state: "signedIn" });
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+});
+
+test("an unknown sign-in warns of nothing, and a new snapshot forgets the last answer", () => {
+	draw();
+	snapshot();
+	emit("settings", {
+		agent: "claude",
+		model: "sonnet",
+		effort: "medium",
+		mode: "default",
+	});
+	emit("signIn", { state: "unknown" });
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+	emit("signIn", { state: "signedOut" });
+	expect(screen.getByTestId("chat-sign-in").textContent).toContain(
+		"You're not signed in to Claude Code.",
+	);
+	// A swap's new host asks about its own agent before anything is said.
+	snapshot();
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+});
+
+test("a Check again on a closed socket says it was not sent", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	emit("signIn", { state: "signedOut" });
+	act(() => {
+		latest().readyState = 3;
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+	expect(screen.getByTestId("chat-sign-in").textContent).toContain(
+		"The check was not sent because the chat is not connected.",
+	);
+});
+
+test("in a work area the warning offers the agent's own terminal", () => {
+	drawInWorkArea(false);
+	emit("settings", {
+		agent: "claude",
+		model: "sonnet",
+		effort: "medium",
+		mode: "default",
+	});
+	emit("signIn", { state: "signedOut" });
+	expect(
+		within(screen.getByTestId("chat-sign-in")).getByRole("button", {
+			name: "Open Claude Code (TUI)",
+		}),
+	).toBeTruthy();
+});

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -274,8 +274,9 @@ beforeEach(async () => {
 	await host.start();
 });
 
-function makeHost(): ChatHost {
+function makeHost(claudePath?: string): ChatHost {
 	return new ChatHost({
+		...(claudePath ? { claudePath } : {}),
 		terminalId: ID,
 		projectDir: join(dir, "projects", "demo"),
 		homeDir: dir,
@@ -2383,6 +2384,74 @@ describe("permission cards", () => {
 		expect(open.find((card) => card.id === "toolu_p")).toMatchObject({
 			plan: "1. Do it",
 		});
+	});
+});
+
+describe("sign-in", () => {
+	/** A stand-in Claude Code whose `auth status` reads its answer from a file the test sets. */
+	async function signInHost(loggedIn: boolean) {
+		const answer = join(dir, "auth.json");
+		const claude = join(dir, "claude");
+		await writeFile(answer, JSON.stringify({ loggedIn, email: "student@example.edu" }));
+		await writeFile(claude, `#!/bin/sh\ncat "${answer}"\n`);
+		await chmod(claude, 0o755);
+		await host.stop();
+		host = makeHost(claude);
+		await host.start();
+		return (next: boolean) =>
+			writeFile(
+				answer,
+				JSON.stringify({ loggedIn: next, email: "student@example.edu" }),
+			);
+	}
+
+	test("asks Claude Code at start, and again when the browser asks", async () => {
+		const answer = await signInHost(false);
+		const a = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual(["signedOut"]),
+		);
+		await answer(true);
+		a.send({ type: "signIn.check" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual([
+				"signedOut",
+				"signedIn",
+			]),
+		);
+		expect(JSON.stringify(a.events)).not.toContain("student@example.edu");
+	});
+
+	test("without Claude Code to ask, the state is unknown", async () => {
+		const a = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual(["unknown"]),
+		);
+	});
+
+	test("a request that fails as not signed in shows the warning", async () => {
+		await signInHost(true);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "signIn")).toHaveLength(1));
+		queries.at(-1)?.emit({
+			type: "assistant",
+			parent_tool_use_id: null,
+			session_id: ID,
+			uuid: randomUUID(),
+			error: "authentication_failed",
+			message: {
+				id: "msg-auth",
+				role: "assistant",
+				model: "<synthetic>",
+				content: [{ type: "text", text: "Not logged in · Please run /login" }],
+			},
+		} as never);
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual([
+				"signedIn",
+				"signedOut",
+			]),
+		);
 	});
 });
 

@@ -726,3 +726,33 @@ test("a test can replace the MCP list for every attachment", async () => {
 	late.ws.close();
 	chat.ws.close();
 });
+
+test("a test sets the sign-in state; attaches carry it and Check again finds what the test set", async () => {
+	const id = "550e8400-e29b-41d4-a716-4466554400f1";
+	await newChat(id, "codex");
+	const before = await connect(id);
+	await expect.poll(() => types(before.frames).includes("settings")).toBe(true);
+	expect(types(before.frames)).not.toContain("signIn");
+	const response = await fetch(
+		`http://127.0.0.1:${agent.port}/__test/chats/${id}/sign-in`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ state: "signedOut", afterCheck: "signedIn" }),
+		},
+	);
+	expect(response.status).toBe(204);
+	await expect.poll(() => types(before.frames).includes("signIn")).toBe(true);
+	before.ws.close();
+	const late = await connect(id);
+	await expect.poll(() => types(late.frames).includes("settings")).toBe(true);
+	const states = () =>
+		late.frames
+			.map((one) => JSON.parse(one))
+			.filter((e) => e.type === "signIn")
+			.map((e) => e.state);
+	expect(states()).toEqual(["signedOut"]);
+	late.ws.send(JSON.stringify({ type: "signIn.check" }));
+	await expect.poll(states).toEqual(["signedOut", "signedIn"]);
+	late.ws.close();
+});

@@ -346,6 +346,13 @@ export type ChatMcpServer = z.infer<typeof ChatMcpServer>;
 /** Most MCP servers one `mcp` event lists. */
 export const MAX_CHAT_MCP_SERVERS = 50;
 
+/**
+ * Whether the student is signed in to the chat's agent, as the agent itself
+ * says. `unknown` means the host could not tell, and shows no warning.
+ */
+export const ChatSignIn = z.enum(["signedIn", "signedOut", "unknown"]);
+export type ChatSignIn = z.infer<typeof ChatSignIn>;
+
 /** One permission mode a host offers, as the picker draws it. */
 export const ChatModeInfo = z.object({
 	id: ChatPermissionMode,
@@ -552,6 +559,15 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		servers: z.array(ChatMcpServer).max(MAX_CHAT_MCP_SERVERS),
 	}),
 	/**
+	 * Whether the student is signed in to the agent; sent on attach once the
+	 * host has asked, and again after each check. Older hosts never send it.
+	 */
+	z.object({
+		type: z.literal("signIn"),
+		...Envelope,
+		state: ChatSignIn,
+	}),
+	/**
 	 * The chat changed agents here: a divider in the conversation.
 	 * `droppedTurns` counts the oldest turns that did not fit the new
 	 * agent's context window and were left out of the handoff. `failed`
@@ -673,6 +689,8 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("subagent.unwatch"), toolUseId: ToolUseId }).strict(),
 	/** Swap in the other agent, handing it this conversation. */
 	z.object({ type: z.literal("agent.switch"), agent: CodingAgent }).strict(),
+	/** Ask the agent again whether the student is signed in; a `signIn` event answers. */
+	z.object({ type: z.literal("signIn.check") }).strict(),
 	/** Retitle the conversation; the host cleans the title (ADR 0074). */
 	z
 		.object({

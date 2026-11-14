@@ -6,6 +6,8 @@ import {
 import type { ChatEventBody } from "../agent.js";
 import { splitAttachmentLines } from "../attachments.js";
 import { REPLAY_IMAGE_TURNS } from "../snapshot.js";
+import { REPLAY_TURNS } from "../wire.js";
+import type { AppServerClient } from "./app-server.js";
 import { CodexItemMapper, planRow, shownCommand } from "./mapper.js";
 import {
 	CommandItem,
@@ -13,6 +15,7 @@ import {
 	parsed,
 	TextItem,
 	type Turn,
+	TurnsList,
 	UserMessageItem,
 } from "./protocol.js";
 
@@ -24,6 +27,28 @@ import {
  * decision lands on. Images older than the last REPLAY_IMAGE_TURNS turns
  * are left out.
  */
+
+/**
+ * A thread's last REPLAY_TURNS turns, oldest first, and whether older ones
+ * exist. No app-server, or a page that does not parse, reads as none.
+ */
+export async function recentTurns(
+	client: AppServerClient | null,
+	threadId: string,
+): Promise<{ turns: Turn[]; truncated: boolean }> {
+	if (!client) return { turns: [], truncated: false };
+	const page = parsed(
+		TurnsList,
+		await client.request("thread/turns/list", {
+			threadId,
+			limit: REPLAY_TURNS,
+			sortDirection: "desc",
+			itemsView: "full",
+		}),
+	);
+	if (!page) return { turns: [], truncated: false };
+	return { turns: [...page.data].reverse(), truncated: Boolean(page.nextCursor) };
+}
 
 export type TurnStatus = "done" | "interrupted" | "error";
 

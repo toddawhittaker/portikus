@@ -920,6 +920,33 @@ describe("the mcp event", () => {
 	});
 });
 
+describe("sign-in", () => {
+	test("the host says signed in, signed out or unknown, and nothing about the account", () => {
+		for (const state of ["signedIn", "signedOut", "unknown"]) {
+			expect(ChatServerEvent.safeParse({ type: "signIn", ...env, state }).success).toBe(
+				true,
+			);
+		}
+		expect(
+			ChatServerEvent.safeParse({ type: "signIn", ...env, state: "expired" }).success,
+		).toBe(false);
+		const parsed = ChatServerEvent.parse({
+			type: "signIn",
+			...env,
+			state: "signedIn",
+			email: "student@example.edu",
+		});
+		expect(JSON.stringify(parsed)).not.toContain("student@example.edu");
+	});
+
+	test("the browser asks for a check with nothing else", () => {
+		expect(ChatClientMessage.safeParse({ type: "signIn.check" }).success).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({ type: "signIn.check", state: "x" }).success,
+		).toBe(false);
+	});
+});
+
 describe("switching agents", () => {
 	test("the browser asks for the other agent, and only a known one", () => {
 		expect(
