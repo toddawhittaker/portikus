@@ -4,7 +4,6 @@
 	align-items: center;
 	gap: var(--space-3);
 	text-align: center;
-	font-size: 12px;
 }
 
 .pk-chat-handoff::before,

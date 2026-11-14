@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { failingTmux } from "./test-support/failing-tmux.js";
 import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import {
 	attachArgs,
@@ -597,6 +598,37 @@ test.skipIf(!haveTmux)(
 			]);
 			expect(env).not.toContain("claude-key");
 		} finally {
+			await closeSession(id, SERVER).catch(() => undefined);
+		}
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"a chat swap that cannot take the old agent's key out of the session fails before starting the new host",
+	async () => {
+		const id = "00000000-0000-4000-8000-000000009021";
+		const name = `pk-${id}`;
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER, {
+			command: ["sleep", "60"],
+			institutionalEnv: { ANTHROPIC_API_KEY: "claude-key" },
+		});
+		const restore = await failingTmux("set-environment");
+		try {
+			await expect(
+				respawnChatHost(id, "codex", { OPENAI_API_KEY: "codex-key" }, SERVER),
+			).rejects.toMatchObject({ code: "TMUX_FAILED" });
+			const { stdout: started } = await run("tmux", [
+				"-L",
+				SOCKET_NAME,
+				"display-message",
+				"-p",
+				"-t",
+				name,
+				"#{pane_start_command}",
+			]);
+			expect(started).not.toContain("--agent=codex");
+		} finally {
+			restore();
 			await closeSession(id, SERVER).catch(() => undefined);
 		}
 	},

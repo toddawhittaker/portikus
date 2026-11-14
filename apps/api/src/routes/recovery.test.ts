@@ -376,6 +376,33 @@ function createTerminal(payload: Record<string, unknown>) {
 }
 
 test.skipIf(skip)(
+	"swapping a chat's agent makes an agent-session point before the other agent starts",
+	async () => {
+		const before = agent.requests.length;
+		const created = await createTerminal({ projectId, kind: "chat", agent: "claude" });
+		expect(created.statusCode).toBe(201);
+		const swapped = await app.inject({
+			method: "PATCH",
+			url: `/workspaces/${workspaceId}/terminals/${created.json().id}`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { agent: "codex" },
+		});
+		expect(swapped.statusCode).toBe(200);
+		const points = await pointRows();
+		expect(points.map((point) => point.reason)).toEqual([
+			"agent-session",
+			"agent-session",
+		]);
+		const urls = agent.requests.slice(before).map((request) => request.url);
+		const swap = urls.findIndex((url) => url.endsWith("/chat-agent"));
+		const pointsBefore = urls
+			.slice(0, swap)
+			.filter((url) => url.endsWith("/recovery-points"));
+		expect(pointsBefore).toHaveLength(2);
+	},
+);
+
+test.skipIf(skip)(
 	"a coding agent's terminal carries its agent-session point",
 	async () => {
 		const created = await createTerminal({ projectId, agent: "claude" });

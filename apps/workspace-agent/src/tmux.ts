@@ -524,10 +524,9 @@ export async function respawnChatHost(
 	const cwd = (
 		await tmux(["display-message", "-p", "-t", name, "#{session_path}"], server)
 	).trim();
+	// Fail closed: a key that cannot be taken out must not reach the other agent.
 	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]) {
-		await tmux(["set-environment", "-t", name, "-u", key], server).catch(
-			() => undefined,
-		);
+		await tmux(["set-environment", "-t", name, "-u", key], server);
 	}
 	await tmux(
 		[

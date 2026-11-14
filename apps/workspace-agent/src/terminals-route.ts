@@ -153,12 +153,27 @@ export async function terminalsRoutes(
 				terminalId,
 				body.data.agent,
 			);
-			await respawnChatHost(
-				terminalId,
-				body.data.agent,
-				body.data.institutionalEnv,
-				tmuxServer,
-			);
+			try {
+				await respawnChatHost(
+					terminalId,
+					body.data.agent,
+					body.data.institutionalEnv,
+					tmuxServer,
+				);
+			} catch (error) {
+				// The running host stopped serving to be replaced; start the same
+				// agent again with its own key, and it drops the unused handoff.
+				const previous = body.data.agent === "claude" ? "codex" : "claude";
+				await respawnChatHost(
+					terminalId,
+					previous,
+					body.data.previousInstitutionalEnv,
+					tmuxServer,
+				).catch(() =>
+					request.log.warn({ terminalId }, "could not restart the chat's agent"),
+				);
+				throw error;
+			}
 			request.log.info({ terminalId, agent: body.data.agent }, "chat agent switched");
 			return reply.code(204).send();
 		} catch (error) {

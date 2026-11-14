@@ -1,6 +1,7 @@
 import { connect } from "node:net";
 import { type CodingAgent, MAX_CHAT_SERVER_FRAME_BYTES } from "@portikus/contracts";
 import { AgentFailure } from "../errors.js";
+import { SWITCH_SAME_AGENT_MESSAGE } from "./core.js";
 import { chatSocketPath, readLines, writeLine } from "./wire.js";
 
 /** The longest a host may take to read its conversation and prepare a swap. */
@@ -27,7 +28,7 @@ export function askHostToSwitch(
 			reject(error);
 		};
 		const timer = setTimeout(
-			() => fail(new AgentFailure("CHAT_BUSY", "the chat did not answer")),
+			() => fail(new AgentFailure("CHAT_SWITCH_TIMEOUT", "the chat did not answer")),
 			timeoutMs,
 		);
 		socket.on("connect", () => {
@@ -38,16 +39,19 @@ export function askHostToSwitch(
 			if (!refused) fail(new AgentFailure("TERMINAL_NOT_FOUND", "no such chat"));
 		});
 		readLines(socket, MAX_CHAT_SERVER_FRAME_BYTES, (line) => {
-			let type: unknown;
+			let frame: { type?: unknown; message?: unknown };
 			try {
-				type = (JSON.parse(line) as { type?: unknown }).type;
+				frame = JSON.parse(line) as { type?: unknown; message?: unknown };
 			} catch {
 				return;
 			}
-			if (type === "error" && !refused) {
-				clearTimeout(timer);
-				fail(new AgentFailure("CHAT_BUSY", "the chat cannot switch agents now"));
-			}
+			if (frame.type !== "error" || refused) return;
+			clearTimeout(timer);
+			fail(
+				frame.message === SWITCH_SAME_AGENT_MESSAGE
+					? new AgentFailure("CHAT_SAME_AGENT", "the chat already runs that agent")
+					: new AgentFailure("CHAT_BUSY", "the chat cannot switch agents now"),
+			);
 		});
 		socket.on("close", () => {
 			clearTimeout(timer);

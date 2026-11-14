@@ -68,7 +68,8 @@ interface FakeChat {
 	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
 	/** How the next agent swap goes, as a test set it. */
-	swap: { droppedTurns: number; delayMs: number; refuse: boolean };
+	/** `refuse` true answers CHAT_BUSY; a string answers with that code. */
+	swap: { droppedTurns: number; delayMs: number; refuse: boolean | string };
 }
 
 /** What a chat of each agent starts with and offers. */
@@ -621,10 +622,14 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const body = request.body as {
 			agent: CodingAgent;
 			institutionalEnv?: Record<string, string>;
+			previousInstitutionalEnv?: Record<string, string>;
 		};
 		const to = body.agent;
 		const { droppedTurns, delayMs, refuse } = chat.swap;
 		if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+		if (typeof refuse === "string") {
+			return reply.status(409).send({ error: { code: refuse, message: "refused" } });
+		}
 		if (refuse || chat.openCards.length > 0) {
 			return reply.status(409).send({
 				error: { code: "CHAT_BUSY", message: "the chat cannot switch agents now" },
@@ -639,6 +644,9 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			...rest,
 			agent: to,
 			...(body.institutionalEnv ? { institutionalEnv: body.institutionalEnv } : {}),
+			...(body.previousInstitutionalEnv
+				? { previousInstitutionalEnv: body.previousInstitutionalEnv }
+				: {}),
 		});
 		for (const peer of chat.sockets) peer.close(1000, "chat closed");
 		return reply.status(204).send();

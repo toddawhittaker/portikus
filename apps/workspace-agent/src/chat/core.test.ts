@@ -1,35 +1,25 @@
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	type ChatClientMessage,
 	type ChatOpenCard,
-	type ChatServerEvent,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type {
-	CardAnswer,
-	CardOutcome,
-	ChatAgent,
-	ChatEventBody,
-	ChatSink,
-	ContextFigures,
-} from "./agent.js";
-import { ChatCore, SWITCH_BUSY_MESSAGE } from "./core.js";
-import type { Handoff } from "./handoff.js";
+import type { CardAnswer, CardOutcome, ContextFigures } from "./agent.js";
+import { ChatCore } from "./core.js";
 import {
-	type ChatSwapState,
-	readSwapState,
-	takeSwapState,
-	writeChatSession,
-} from "./session-record.js";
-import { readLines } from "./wire.js";
+	attached as attachedTo,
+	attach as attachTo,
+	type Client,
+	FakeAgent,
+	ID,
+	permissionCard,
+	types,
+} from "./test-fixtures/core-harness.js";
 
-const ID = "00000000-0000-4000-8000-000000000001";
 const MODE = {
 	id: "default",
 	label: "Ask",
@@ -38,77 +28,6 @@ const MODE = {
 	plan: false,
 };
 const FIGURES: ContextFigures = { usedTokens: 10, windowTokens: 100, cache: null };
-
-/** A driver the tests steer by hand; it records what the core asked of it. */
-class FakeAgent implements ChatAgent {
-	sink!: ChatSink;
-	calls: unknown[][] = [];
-	historyEvents: ChatEventBody[] = [];
-	historyContext: ContextFigures | null = null;
-	running: ChatEventBody[] = [];
-	/** When set, a history read waits for it. */
-	gate: Promise<void> | null = null;
-	failSend: string | null = null;
-
-	async start(sink: ChatSink): Promise<void> {
-		this.sink = sink;
-		sink.settings({ agent: "claude", model: "default", effort: "high", mode: "auto" });
-	}
-	async stop(): Promise<void> {
-		this.calls.push(["stop"]);
-	}
-	async history(turnRunning: boolean) {
-		this.calls.push(["history", turnRunning]);
-		if (this.gate) await this.gate;
-		return {
-			events: this.historyEvents,
-			truncated: false,
-			context: this.historyContext,
-		};
-	}
-	inProgress(): ChatEventBody[] {
-		return this.running;
-	}
-	async send(text: string, attachments: unknown[]): Promise<void> {
-		this.calls.push(["send", text, attachments]);
-		if (this.failSend) throw new Error(this.failSend);
-	}
-	async interrupt(): Promise<void> {
-		this.calls.push(["interrupt"]);
-	}
-	async set(change: unknown): Promise<void> {
-		this.calls.push(["set", change]);
-	}
-	async revokeRule(rule: string): Promise<void> {
-		this.calls.push(["revokeRule", rule]);
-	}
-	async watchSubagent(_socket: Socket, id: string): Promise<void> {
-		this.calls.push(["watch", id]);
-	}
-	unwatchSubagent(_socket: Socket, id: string): void {
-		this.calls.push(["unwatch", id]);
-	}
-	async rename(title: string) {
-		this.calls.push(["rename", title]);
-		return { type: "rename.result" as const, ok: true };
-	}
-	dropped = 0;
-	transcriptEvents: ChatEventBody[] = [];
-	async adoptHandoff(handoff: Handoff): Promise<number> {
-		this.calls.push(["adopt", handoff]);
-		return this.dropped;
-	}
-	async transcript(): Promise<ChatEventBody[]> {
-		return this.transcriptEvents;
-	}
-}
-
-interface Client {
-	socket: Socket;
-	events: ChatServerEvent[];
-	closed: Promise<void>;
-	send: (message: ChatClientMessage) => void;
-}
 
 let dir: string;
 let agent: FakeAgent;
@@ -130,45 +49,8 @@ afterEach(async () => {
 	await rm(dir, { recursive: true, force: true });
 });
 
-async function attach(): Promise<Client> {
-	const socket = connect(core.socketPath);
-	const events: ChatServerEvent[] = [];
-	readLines(socket, 16 * 1024 * 1024, (line) => events.push(JSON.parse(line)));
-	socket.on("error", () => undefined);
-	await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
-	const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
-	return {
-		socket,
-		events,
-		closed,
-		send: (message) => socket.write(`${JSON.stringify(message)}\n`),
-	};
-}
-
-/** Attach and wait until the attach's last fixed frame, the rules, has arrived. */
-async function attached(): Promise<Client> {
-	const client = await attach();
-	await vi.waitFor(() => expect(types(client)).toContain("rules"));
-	return client;
-}
-
-function types(client: Client): string[] {
-	return client.events.map((event) => event.type);
-}
-
-function permissionCard(id: string): ChatOpenCard {
-	return {
-		type: "permission",
-		id,
-		toolName: "Bash",
-		input: {},
-		title: "Run a command",
-		options: [
-			{ id: "allow", label: "Allow" },
-			{ id: "deny", label: "Deny" },
-		],
-	} as unknown as ChatOpenCard;
-}
+const attach = () => attachTo(core.socketPath);
+const attached = () => attachedTo(core.socketPath);
 
 describe("the core stays agent-neutral", () => {
 	test("core.ts, agent.ts, open-cards.ts and decisions.ts import nothing from the Claude SDK or adapter", async () => {
@@ -660,157 +542,5 @@ describe("conversation reset", () => {
 		agent.sink.conversationReset(null);
 		await client.closed;
 		release();
-	});
-});
-
-describe("agent swaps", () => {
-	const OTHER = "22222222-2222-4222-8222-222222222222";
-
-	function reply(text: string): ChatEventBody[] {
-		return [
-			{ type: "turn.started", at: 1 },
-			{ type: "message", id: `u-${text}`, role: "user", markdown: `ask ${text}` },
-			{ type: "message", id: `a-${text}`, role: "assistant", markdown: text },
-			{ type: "turn.finished", status: "done", at: 2 },
-		];
-	}
-
-	test("a swap is refused mid-reply, with a card open, or to the agent already running", async () => {
-		const asker = await attached();
-		asker.send({ type: "agent.switch", agent: "claude" });
-		await vi.waitFor(() =>
-			expect(asker.events.at(-1)).toMatchObject({
-				type: "error",
-				message: "This chat already uses Claude.",
-			}),
-		);
-		agent.sink.emit({ type: "turn.started", at: 1 });
-		asker.send({ type: "agent.switch", agent: "codex" });
-		await vi.waitFor(() =>
-			expect(asker.events.at(-1)).toMatchObject({
-				type: "error",
-				message: SWITCH_BUSY_MESSAGE,
-			}),
-		);
-		agent.sink.emit({ type: "turn.finished", status: "done", at: 2 });
-		agent.sink.openCard(permissionCard("toolu_1"), () => ({}));
-		asker.send({ type: "agent.switch", agent: "codex" });
-		await vi.waitFor(() =>
-			expect(asker.events.filter((event) => event.type === "error")).toHaveLength(3),
-		);
-		await expect(readSwapState(dir, ID)).resolves.toBeNull();
-	});
-
-	test("a prepared swap records the chat so far for the next host, then lets the asker go and stops listening", async () => {
-		await writeChatSession(dir, ID, OTHER);
-		agent.historyEvents = reply("shown");
-		agent.transcriptEvents = [...reply("older"), ...reply("shown")];
-		const viewer = await attached();
-		const asker = await attached();
-		asker.send({ type: "agent.switch", agent: "codex" });
-		await asker.closed;
-		expect(types(asker)).not.toContain("error");
-		await expect(takeSwapState(dir, ID, "codex")).resolves.toEqual({
-			switched: true,
-			state: {
-				sessions: { claude: OTHER },
-				earlier: reply("shown"),
-				truncated: false,
-				log: [
-					{
-						agent: "claude",
-						turns: [
-							{ user: "ask older", reply: "older", tools: [] },
-							{ user: "ask shown", reply: "shown", tools: [] },
-						],
-					},
-				],
-				handoff: null,
-			},
-		});
-		// Nothing reaches the old agent while it waits to be replaced.
-		viewer.send({ type: "send", text: "late", attachments: [] });
-		await vi.waitFor(() =>
-			expect(viewer.events.at(-1)).toMatchObject({
-				type: "error",
-				message: "This chat is switching agents.",
-			}),
-		);
-		expect(agent.calls.map((call) => call[0])).not.toContain("send");
-		await expect(stat(core.socketPath)).rejects.toThrow();
-	});
-
-	async function startAfter(
-		state: ChatSwapState,
-		switched: boolean,
-	): Promise<FakeAgent> {
-		await core.stop();
-		const next = new FakeAgent();
-		next.dropped = 2;
-		next.historyEvents = reply("codex");
-		core = new ChatCore(
-			{
-				terminalId: ID,
-				socketDir: dir,
-				homeDir: dir,
-				log: silentLogger(),
-				swap: { state, switched },
-			},
-			next,
-			"codex",
-		);
-		agent = next;
-		await core.start();
-		return next;
-	}
-
-	const BEFORE: ChatSwapState = {
-		sessions: { claude: OTHER },
-		earlier: reply("claude"),
-		truncated: false,
-		log: [
-			{ agent: "claude", turns: [{ user: "ask claude", reply: "claude", tools: [] }] },
-		],
-		handoff: null,
-	};
-
-	test("the next host hands its agent the conversation, and the divider stays in the replay after the earlier part", async () => {
-		const next = await startAfter(BEFORE, true);
-		const adopted = next.calls.find((call) => call[0] === "adopt")?.[1] as Handoff;
-		expect(adopted).toMatchObject({ from: "claude", log: BEFORE.log });
-		const client = await attached();
-		const replay = client.events.filter((event) =>
-			["message", "handoff"].includes(event.type),
-		);
-		expect(
-			replay.map((event) =>
-				event.type === "message" ? event.markdown : `${event.type}`,
-			),
-		).toEqual(["ask claude", "claude", "handoff", "ask codex", "codex"]);
-		expect(replay.find((event) => event.type === "handoff")).toMatchObject({
-			from: "claude",
-			to: "codex",
-			droppedTurns: 2,
-		});
-		const saved = await readSwapState(dir, ID);
-		expect(saved?.handoff).toEqual({ id: adopted.id, from: "claude", droppedTurns: 2 });
-	});
-
-	test("a restarted host lets its agent find its place again, with no second divider", async () => {
-		await startAfter(BEFORE, true);
-		const saved = (await readSwapState(dir, ID)) as ChatSwapState;
-		const again = await startAfter(saved, false);
-		const adopted = again.calls.find((call) => call[0] === "adopt")?.[1] as Handoff;
-		expect(adopted.id).toBe(saved.handoff?.id);
-		const client = await attached();
-		expect(types(client).filter((type) => type === "handoff")).toHaveLength(1);
-	});
-
-	test("a new conversation, as /clear starts, forgets the swaps", async () => {
-		await startAfter(BEFORE, true);
-		agent.sink.conversationReset(null);
-		await vi.waitFor(async () => expect(await readSwapState(dir, ID)).toBeNull());
-		const client = await attached();
-		expect(types(client)).not.toContain("handoff");
 	});
 });

@@ -210,3 +210,48 @@ export async function answersOf(id: string): Promise<Record<string, unknown>[]> 
 	const body = (await response.json()) as { answers: Record<string, unknown>[] };
 	return body.answers;
 }
+
+/** Run `check` in the dark theme, then in the light one (SPEC.md §25.8). */
+export async function inBothThemes(page: Page, check: () => Promise<void>) {
+	for (const colorScheme of ["dark", "light"] as const) {
+		await page.emulateMedia({ colorScheme });
+		await check();
+	}
+}
+
+/** The newest turn with its folded work and every group of tool calls opened. */
+export async function openWork(view: Locator): Promise<Locator> {
+	const turn = view.getByTestId("chat-turn").last();
+	const worked = turn.getByTestId("chat-worked");
+	if (!(await worked.evaluate((node) => (node as HTMLDetailsElement).open))) {
+		await worked.locator("> summary").click();
+	}
+	const groups = turn.getByTestId("chat-tool-group");
+	for (let at = 0; at < (await groups.count()); at++) {
+		const group = groups.nth(at);
+		if (!(await group.evaluate((node) => (node as HTMLDetailsElement).open))) {
+			await group.locator("> summary").click();
+		}
+	}
+	return turn;
+}
+
+/** A tool row's summary line: the sentence the conversation shows for the call. */
+export function rowLine(view: Locator, id: string): Locator {
+	return view.getByTestId(`chat-tool-${id}`).locator("> summary");
+}
+
+/** What a screen reader is told: exactly the card's heading, as a sentence. */
+export async function expectAnnounced(view: Locator, waiting = 0) {
+	const heading =
+		(
+			await view.getByTestId("chat-cards").getByRole("heading").first().textContent()
+		)?.trim() ?? "";
+	const said = heading.endsWith("?") ? heading : `${heading}.`;
+	const more =
+		waiting === 0
+			? ""
+			: ` ${waiting === 1 ? "1 more request is waiting." : `${waiting} more requests are waiting.`}`;
+	await expect(view.getByTestId("chat-announcer")).toHaveText(`${said}${more}`);
+	return heading;
+}

@@ -554,7 +554,9 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 	/**
 	 * The chat changed agents here: a divider in the conversation.
 	 * `droppedTurns` counts the oldest turns that did not fit the new
-	 * agent's context window and were left out of the handoff.
+	 * agent's context window and were left out of the handoff. `failed`
+	 * says the new agent could not take the conversation in, so it starts
+	 * without it.
 	 */
 	z.object({
 		type: z.literal("handoff"),
@@ -562,6 +564,7 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		from: CodingAgent,
 		to: CodingAgent,
 		droppedTurns: z.number().int().nonnegative(),
+		failed: z.literal(true).optional(),
 	}),
 	z.object({
 		type: z.literal("settings"),

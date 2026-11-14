@@ -105,7 +105,7 @@ test("a swap back to Claude resumes Claude's own session", async () => {
 	await writeChatSession(home, A, C);
 	await writePendingSwitch(home, A, "claude", {
 		...STATE,
-		sessions: { claude: B, codex: C },
+		sessions: { claude: B },
 	});
 	expect((await takeSwapState(home, A, "claude")).switched).toBe(true);
 	expect(await recordChatSession(home, A)).toBe(B);

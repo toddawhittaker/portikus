@@ -104,9 +104,11 @@ test.skipIf(skip)(
 		const swapped = await patch(id, { agent: "codex" });
 		expect(swapped.statusCode).toBe(200);
 		expect(swapped.json().agent).toBe("codex");
+		// The old agent's key goes along only to start it again should the swap fail.
 		expect(agent.terminals.get(id)).toMatchObject({
 			agent: "codex",
 			institutionalEnv: { OPENAI_API_KEY: "codex-key" },
+			previousInstitutionalEnv: { ANTHROPIC_API_KEY: "claude-key" },
 		});
 		expect(agent.requests).toContainEqual({
 			method: "POST",
@@ -160,3 +162,62 @@ test.skipIf(skip)("a stopped workspace cannot swap a chat's agent", async () => 
 	expect(refused.statusCode).toBe(409);
 	expect(refused.json().code).toBe("AGENT_UNAVAILABLE");
 });
+
+function swapNext(id: string, how: Record<string, unknown>) {
+	return fetch(`http://127.0.0.1:${agent.port}/__test/chats/${id}/swap`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(how),
+	});
+}
+
+function switchCalls(id: string): number {
+	return agent.requests.filter(
+		(request) => request.url === `/terminals/${id}/chat-agent`,
+	).length;
+}
+
+test.skipIf(skip)("two swaps at once reach the chat only once", async () => {
+	const id = await create({ kind: "chat", agent: "claude" });
+	await swapNext(id, { delayMs: 300 });
+	const answers = await Promise.all([
+		patch(id, { agent: "codex" }),
+		patch(id, { agent: "codex" }),
+	]);
+	expect(switchCalls(id)).toBe(1);
+	for (const answer of answers) expect([200, 409]).toContain(answer.statusCode);
+	const row = await testDb.db
+		.selectFrom("terminals")
+		.select("agent")
+		.where("id", "=", id)
+		.executeTakeFirstOrThrow();
+	expect(row.agent).toBe("codex");
+});
+
+test.skipIf(skip)(
+	"a chat whose host already runs the asked-for agent keeps it, and the row follows",
+	async () => {
+		const id = await create({ kind: "chat", agent: "claude" });
+		await swapNext(id, { refuse: "CHAT_SAME_AGENT" });
+		const answer = await patch(id, { agent: "codex" });
+		expect(answer.statusCode).toBe(200);
+		expect(answer.json().agent).toBe("codex");
+	},
+);
+
+test.skipIf(skip)(
+	"a chat that did not answer in time is not reported as busy",
+	async () => {
+		const id = await create({ kind: "chat", agent: "claude" });
+		await swapNext(id, { refuse: "CHAT_SWITCH_TIMEOUT" });
+		const answer = await patch(id, { agent: "codex" });
+		expect(answer.statusCode).toBe(503);
+		expect(answer.json().code).toBe("AGENT_UNAVAILABLE");
+		const row = await testDb.db
+			.selectFrom("terminals")
+			.select("agent")
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+		expect(row.agent).toBe("claude");
+	},
+);
