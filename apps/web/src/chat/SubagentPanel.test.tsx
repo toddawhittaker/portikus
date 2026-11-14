@@ -10,6 +10,9 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChatView } from "./ChatView";
+import { ChatAgentContext } from "./chatAgent";
+import { createChatStore, receiveChatEvent } from "./chatStore";
+import { SubagentPanel } from "./SubagentPanel";
 import { requestSubagentClose, requestSubagentView } from "./subagentView.js";
 
 /**
@@ -338,4 +341,64 @@ test("a close asked of a chat with no panel open does nothing", () => {
 		requestSubagentView(TERMINAL, { toolUseId: CALL, title: "Count the routes" }),
 	);
 	expect(screen.getByTestId("subagent-panel")).toBeTruthy();
+});
+
+const CHILD = "00000000-0000-7000-8000-0000000000c1";
+
+function codexPanel() {
+	const sent: { type: string; toolUseId?: string }[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message as { type: string; toolUseId?: string });
+		return true;
+	});
+	render(
+		<ChatAgentContext.Provider value="codex">
+			<SubagentPanel
+				chat={store}
+				target={{ toolUseId: CHILD, title: "Subagent" }}
+				opener={null}
+				onClose={() => {}}
+			/>
+		</ChatAgentContext.Provider>,
+	);
+	return { store, sent };
+}
+
+test("a Codex subagent is watched by its child thread id, and its panel says what a student can do", () => {
+	const { store, sent } = codexPanel();
+	expect(sent).toEqual([{ type: "subagent.watch", toolUseId: CHILD }]);
+	expect(screen.getByTestId("subagent-note").textContent).toBe(
+		"Read only. You cannot send a subagent a message here; to pass one on, ask Codex in the chat below.",
+	);
+	const frame = (n: number, type: string, body: object, toolUseId = CHILD) =>
+		act(() =>
+			store.setState((state) =>
+				receiveChatEvent(
+					state,
+					{
+						type: "subagent",
+						sessionId: TERMINAL,
+						toolUseId,
+						event: { type, sessionId: TERMINAL, seq: n, ...body },
+					} as never,
+					Date.now(),
+				),
+			),
+		);
+	frame(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
+	frame(1, "turn.started", { at: 1500 });
+	frame(2, "message", { id: "m1", role: "assistant", markdown: "Found 4 routes." });
+	frame(
+		3,
+		"message",
+		{ id: "x", role: "assistant", markdown: "Not mine" },
+		"other-child",
+	);
+	const panel = screen.getByTestId("subagent-panel");
+	expect(panel.textContent).toContain("Found 4 routes.");
+	expect(panel.textContent).not.toContain("Not mine");
+	// The byline in the panel is Codex's too.
+	expect(panel.querySelector(".pk-chat-author")?.textContent).toBe("Codex");
+	cleanup();
+	expect(sent.at(-1)).toEqual({ type: "subagent.unwatch", toolUseId: CHILD });
 });

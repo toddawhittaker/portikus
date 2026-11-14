@@ -76,3 +76,6 @@ export async function privateDirectory(dir: string): Promise<void> {
 	}
 	await chmod(dir, 0o700);
 }
+
+/** Most turns replayed on attach (SPEC.md §10.8). */
+export const REPLAY_TURNS = 20;

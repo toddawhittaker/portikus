@@ -1,6 +1,6 @@
 import { Icon } from "@portikus/ui";
 import type { ChatToolItem } from "./chatStore.js";
-import { toolLine } from "./toolView.js";
+import { isPlanCall, toolLine } from "./toolView.js";
 
 const DECIDED: Record<NonNullable<ChatToolItem["decision"]>, string> = {
 	allowed: "Allowed:",
@@ -31,7 +31,7 @@ export function DecisionLine({ tool }: { tool: ChatToolItem }) {
 					size="sm"
 					className="pk-chat-decision-icon"
 				/>
-				{tool.name === "ExitPlanMode" ? (
+				{isPlanCall(tool.name) ? (
 					<span>{allowed ? "Plan approved" : "Kept planning"}</span>
 				) : (
 					<span className="pk-chat-decision-text">

@@ -17,12 +17,13 @@
  * those buttons, and their menus portal above it.
  */
 
-import type { ChatModelInfo } from "@portikus/contracts";
 import {
-	CHAT_START_SETTINGS,
 	ChatEffort,
+	type ChatModeInfo,
+	type ChatModelInfo,
 	ChatPermissionMode,
-	chatStartMode,
+	CODING_AGENT_LABEL,
+	type CodingAgent,
 } from "@portikus/contracts";
 import {
 	Icon,
@@ -36,23 +37,34 @@ import {
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { isSpeechSupported } from "../voice/speak.js";
 import { ContextMeter } from "./ContextMeter.js";
 import {
 	type ChatSettings,
 	type ChatStore,
+	isEmptyChat,
 	selectSessionRulesActive,
 } from "./chatStore.js";
-import { familyChoices, modelSummary, resolveModel, versionChoices } from "./models.js";
+import { McpServers } from "./McpServers.js";
+import {
+	effortChoices,
+	effortLabel,
+	familyChoices,
+	modeChoices,
+	modelSummary,
+	modeOf,
+	resolveModel,
+	startEffort,
+	startMode,
+	versionChoices,
+} from "./models.js";
 import type { ReadAloud } from "./readAloud.js";
 import "./pickers.css";
 
 /** Ask with session rules lets some tools run without a card, so the picker says so (SPEC.md §10.8). */
 export const ASK_RULES_HINT =
 	"Some actions are allowed without asking in this session. See \u201cAllowed without asking in this session\u201d above.";
-
-export const BYPASS_WARNING =
-	"Bypass permissions lets Claude run every tool without asking you first.";
 
 interface Choice {
 	value: string;
@@ -62,75 +74,104 @@ interface Choice {
 	unavailable?: boolean;
 }
 
-const AGENTS: Choice[] = [
-	{
-		value: "claude",
-		label: "Claude Code",
-		description: "Anthropic's coding agent.",
-	},
-	{
-		value: "codex",
-		label: "Codex",
-		description: "Coming soon.",
-		unavailable: true,
-	},
-];
+const AGENTS: readonly CodingAgent[] = ["claude", "codex"];
 
-const EFFORTS: Choice[] = [
-	{ value: "low", label: "Low", description: "Answers quickly with little thinking." },
-	{ value: "medium", label: "Medium", description: "Thinks a little before acting." },
-	{
-		value: "high",
-		label: "High",
-		description: "Thinks it through. Slower, uses more.",
-	},
-	{
-		value: "xhigh",
-		label: "Extra high",
-		description: "Thinks at length. For tricky problems.",
-	},
-	{
-		value: "max",
-		label: "Max",
-		description: "Thinks the longest. Slowest, uses the most.",
-	},
-];
+const AGENT_DESCRIPTION: Record<CodingAgent, string> = {
+	claude: "Anthropic's coding agent.",
+	codex: "OpenAI's coding agent.",
+};
 
-const MODES: Choice[] = [
-	{
-		value: "default",
-		label: "Ask",
-		description: "Asks before it edits files or runs commands.",
-	},
-	{
-		value: "acceptEdits",
-		label: "Accept edits",
-		description: "Edits files on its own. Asks before commands.",
-	},
-	{ value: "plan", label: "Plan", description: "Reads and plans. Changes nothing." },
-	{
-		value: "auto",
-		label: "Auto",
-		description: "Runs what it judges safe. Asks about the rest.",
-	},
-	{
-		value: "bypassPermissions",
-		label: "Bypass permissions",
-		description: (
-			<span className="pk-picker-warning">
-				<Icon name="alert" size="sm" />
-				<span>{BYPASS_WARNING}</span>
-			</span>
-		),
-	},
-];
+/** What swapping agents in a chat with history costs, said before it is chosen (SPEC.md §10.8). */
+function swapWarning(agent: CodingAgent): string {
+	const name = CODING_AGENT_NAME[agent];
+	return `${name} starts fresh with this conversation as context; the cache is lost. If the conversation is too long for ${name}, its oldest turns are left out.`;
+}
 
 /**
- * The values a chat starts with, as the host sets them. The model is left
- * out of the menus' "Default" marker, since a model row of that name exists;
- * the start mode is Ask on a model that cannot run Auto.
+ * How long a swap waits for the new host's settings before the pickers come
+ * back, so a host that never reports them cannot hide them for good.
  */
-const START = { agent: "claude", effort: CHAT_START_SETTINGS.effort } as const;
+export const AGENT_START_TIMEOUT_MS = 30_000;
+
+/**
+ * What `onSwitchAgent` rejects with when the student has already been told
+ * why the swap failed, as a toast is, so the composer does not say it twice.
+ */
+export class AgentSwitchReported extends Error {
+	constructor() {
+		super("The agent switch failed and was already reported.");
+		this.name = "AgentSwitchReported";
+	}
+}
+
+/**
+ * The agent picker's rows. In an empty chat the other agent takes this
+ * chat's place at once. In a chat with history it swaps in after a warning,
+ * in the warning colour and icon as Bypass has, and is handed the
+ * conversation. While a swap is pending the agent being left is not
+ * unavailable, only busy. Where the chat cannot swap, the other agent is
+ * shown but cannot be chosen, and says how to start it.
+ */
+function agentChoices(
+	current: CodingAgent,
+	canSwitch: boolean,
+	switching: boolean,
+	empty: boolean,
+): Choice[] {
+	return AGENTS.map((agent) => {
+		if (agent === current) {
+			return {
+				value: agent,
+				label: CODING_AGENT_NAME[agent],
+				description: AGENT_DESCRIPTION[agent],
+			};
+		}
+		if (switching) {
+			return {
+				value: agent,
+				label: CODING_AGENT_NAME[agent],
+				description: "Switching\u2026",
+				unavailable: true,
+			};
+		}
+		if (!canSwitch) {
+			return {
+				value: agent,
+				label: CODING_AGENT_NAME[agent],
+				description: `To use ${CODING_AGENT_NAME[agent]} now, start a new chat from the New tab menu.`,
+				unavailable: true,
+			};
+		}
+		return {
+			value: agent,
+			label: CODING_AGENT_NAME[agent],
+			description: empty ? (
+				AGENT_DESCRIPTION[agent]
+			) : (
+				<span className="pk-picker-warning">
+					<Icon name="alert" size="sm" />
+					<span>{swapWarning(agent)}</span>
+				</span>
+			),
+		};
+	});
+}
+
+/** A mode that warns carries its words in the warning colour and icon, before it is chosen. */
+function modeChoice(mode: ChatModeInfo): Choice {
+	return {
+		value: mode.id,
+		label: mode.label,
+		description: mode.warning ? (
+			<span className="pk-picker-warning">
+				<Icon name="alert" size="sm" />
+				<span>{mode.description}</span>
+			</span>
+		) : (
+			mode.description
+		),
+	};
+}
 
 type Change = Partial<Pick<ChatSettings, "model" | "effort" | "mode">>;
 
@@ -152,6 +193,8 @@ interface PickProps {
 	/** Not the start value, so it is set apart. */
 	changed?: boolean;
 	warning?: boolean;
+	/** The choice is being carried out; the picker says so until it is done. */
+	busy?: boolean;
 }
 
 function Pick({
@@ -164,6 +207,7 @@ function Pick({
 	describedBy,
 	changed = false,
 	warning = false,
+	busy = false,
 }: PickProps) {
 	const current = choices.find((choice) => choice.value === value);
 	const shown = current?.label ?? value;
@@ -174,6 +218,7 @@ function Pick({
 					type="button"
 					className={`pk-picker${changed ? " is-changed" : ""}${warning ? " is-warning" : ""}`}
 					aria-describedby={describedBy}
+					aria-busy={busy ? true : undefined}
 					data-testid={testId}
 				>
 					{/* The space keeps the name "Model Opus", not "ModelOpus". */}
@@ -272,14 +317,26 @@ interface PickersProps {
 	/** Whether the options panel is showing; the composer opens it for `/model`. */
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	/** Whether the MCP server list is showing; the composer opens it for `/mcp`. */
+	mcpOpen: boolean;
+	onMcpOpenChange: (open: boolean) => void;
+	/**
+	 * Put the other agent in this chat's place; absent where the chat has no
+	 * work area to swap it in. It settles when the swap is asked for, and a
+	 * refusal rejects with what to tell the student.
+	 */
+	onSwitchAgent?: (agent: CodingAgent) => Promise<void>;
 }
 
 /** The short summary on the Options button: agent or model, effort, permissions. */
-function summaryOf(shown: ChatSettings, models: ChatModelInfo[]): string {
-	const first = modelSummary(models, shown.model);
-	const effort = EFFORTS.find((choice) => choice.value === shown.effort)?.label;
-	const mode = MODES.find((choice) => choice.value === shown.mode)?.label;
-	return [first, effort ?? shown.effort, mode ?? shown.mode].join(" \u00b7 ");
+function summaryOf(
+	shown: ChatSettings,
+	models: readonly ChatModelInfo[],
+	modes: readonly ChatModeInfo[],
+): string {
+	const first = modelSummary(models, shown.model, CODING_AGENT_LABEL[shown.agent]);
+	const mode = modeOf(modes, shown.mode)?.label ?? shown.mode;
+	return [first, effortLabel(shown.effort), mode].join(" \u00b7 ");
 }
 
 export function ComposerPickers({
@@ -290,15 +347,25 @@ export function ComposerPickers({
 	readAloud,
 	open,
 	onOpenChange,
+	mcpOpen,
+	onMcpOpenChange,
+	onSwitchAgent,
 }: PickersProps) {
 	const settings = useStore(store, (state) => state.settings);
 	const models = useStore(store, (state) => state.models);
+	const modes = useStore(store, (state) => state.modes);
+	const mcp = useStore(store, (state) => state.mcp);
+	const empty = useStore(store, isEmptyChat);
 	const lastError = useStore(store, (state) => state.lastError);
 	const [pending, setPending] = useState<Change>({});
 	const pendingNow = useRef(pending);
 	pendingNow.current = pending;
 	const errorAtAsk = useRef<number>(-1);
 	const rulesActive = useStore(store, selectSessionRulesActive);
+	/** The agent asked for, shown until the host reports it runs. */
+	const [agentAsked, setAgentAsked] = useState<CodingAgent | null>(null);
+	const agentAskedNow = useRef(agentAsked);
+	agentAskedNow.current = agentAsked;
 	const hintId = useId();
 	const panelId = useId();
 	const panel = useRef<HTMLFieldSetElement>(null);
@@ -307,11 +374,33 @@ export function ComposerPickers({
 	// The host's report is the truth; it ends any wait.
 	useEffect(() => {
 		if (settings) setPending({});
-	}, [settings]);
+		if (settings && agentAsked !== null && settings.agent === agentAsked) {
+			setAgentAsked(null);
+			onAnnounce(`Now chatting with ${CODING_AGENT_NAME[agentAsked]}`);
+		}
+	}, [settings, agentAsked, onAnnounce]);
+
+	// A host that never reports its settings must not hide the pickers for good.
+	useEffect(() => {
+		if (agentAsked === null) return;
+		const timer = setTimeout(() => {
+			setAgentAsked(null);
+			onAnnounce(
+				`${CODING_AGENT_NAME[agentAsked]} has not reported its settings, so the options shown are for the previous agent. Reload the page if the chat does not respond.`,
+			);
+		}, AGENT_START_TIMEOUT_MS);
+		return () => clearTimeout(timer);
+	}, [agentAsked, onAnnounce]);
 
 	// An error while a change waits means the host refused it.
 	useEffect(() => {
 		if (!lastError || lastError.seq <= errorAtAsk.current) return;
+		const swapping = agentAskedNow.current;
+		if (swapping !== null) {
+			setAgentAsked(null);
+			onAnnounce(`${CODING_AGENT_NAME[swapping]} did not start. ${lastError.message}`);
+			return;
+		}
 		const asked = Object.keys(pendingNow.current) as (keyof Change)[];
 		if (asked.length === 0) return;
 		const what = asked.map((key) => LABEL[key]).join(" and ");
@@ -333,14 +422,39 @@ export function ComposerPickers({
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [open, onOpenChange]);
 
+	function chooseAgent(next: CodingAgent) {
+		if (!onSwitchAgent) return;
+		setAgentAsked(next);
+		errorAtAsk.current = lastError?.seq ?? -1;
+		// A chat with history keeps its tab; an empty one is replaced by a new chat.
+		onAnnounce(
+			empty
+				? `Starting a ${CODING_AGENT_NAME[next]} chat\u2026`
+				: `Switching to ${CODING_AGENT_NAME[next]}\u2026`,
+		);
+		onSwitchAgent(next).catch((error: unknown) => {
+			setAgentAsked(null);
+			if (error instanceof AgentSwitchReported) {
+				// Told elsewhere; only the status line's "starting" is taken back.
+				onAnnounce("");
+				return;
+			}
+			const reason = error instanceof Error ? ` ${error.message}` : "";
+			onAnnounce(`The agent did not change.${reason}`);
+		});
+	}
+
 	function ask(change: Change) {
 		errorAtAsk.current = lastError?.seq ?? -1;
 		if (onSet(change)) setPending((waiting) => ({ ...waiting, ...change }));
 	}
 
-	const shown = settings ? { ...settings, ...pending } : null;
-	const bypass = shown?.mode === "bypassPermissions";
-	const startMode = shown ? chatStartMode(models, shown.model) : "default";
+	// While another agent starts, the old agent's pickers mean nothing.
+	const shown = settings && agentAsked === null ? { ...settings, ...pending } : null;
+	const agent = agentAsked ?? settings?.agent ?? "claude";
+	const warning = shown ? modeOf(modes, shown.mode)?.warning === true : false;
+	const firstMode = shown ? startMode(agent, models, shown.model) : null;
+	const firstEffort = shown ? startEffort(models, shown.model) : null;
 	const current = shown ? resolveModel(models, shown.model) : null;
 	const versions = current ? versionChoices(models, current.family) : [];
 	// The host's own mode, not one still waiting, decides whether Ask is the whole story.
@@ -351,16 +465,16 @@ export function ComposerPickers({
 			<button
 				type="button"
 				ref={button}
-				className={`pk-composer-options${bypass ? " is-warning" : ""}`}
+				className={`pk-composer-options${warning ? " is-warning" : ""}`}
 				aria-expanded={open}
 				aria-controls={panelId}
 				data-testid="composer-options"
 				onClick={() => onOpenChange(!open)}
 			>
-				<Icon name={bypass ? "alert" : "agent"} size="sm" />
+				<Icon name={warning ? "alert" : "agent"} size="sm" />
 				<span className="sr-only">Chat options: </span>
 				<span className="pk-composer-options-summary">
-					{shown ? summaryOf(shown, models) : <Skeleton width="6rem" />}
+					{shown ? summaryOf(shown, models, modes) : <Skeleton width="6rem" />}
 				</span>
 				<Icon name={open ? "chevron-up" : "chevron-down"} size="sm" />
 			</button>
@@ -386,10 +500,15 @@ export function ComposerPickers({
 					<Pick
 						label="Agent"
 						testId="composer-agent"
-						value="claude"
-						choices={AGENTS}
-						start={START.agent}
-						onChoose={() => {}}
+						value={agent}
+						busy={agentAsked !== null}
+						choices={agentChoices(
+							agent,
+							onSwitchAgent !== undefined,
+							agentAsked !== null,
+							empty,
+						)}
+						onChoose={(next) => chooseAgent(next === "codex" ? "codex" : "claude")}
 					/>
 					{shown ? (
 						<>
@@ -399,7 +518,7 @@ export function ComposerPickers({
 									label="Model"
 									testId="composer-model"
 									value={current?.family ?? shown.model}
-									choices={familyChoices(models, shown.model)}
+									choices={familyChoices(models, shown.model, agent)}
 									onChoose={(model) => ask({ model })}
 								/>
 								{versions.length > 0 ? (
@@ -416,20 +535,20 @@ export function ComposerPickers({
 								label="Effort"
 								testId="composer-effort"
 								value={shown.effort}
-								choices={EFFORTS}
-								start={START.effort}
-								changed={shown.effort !== START.effort}
+								choices={effortChoices(models, shown.model)}
+								start={firstEffort ?? undefined}
+								changed={shown.effort !== firstEffort}
 								onChoose={(effort) => ask({ effort: ChatEffort.parse(effort) })}
 							/>
 							<Pick
 								label="Permissions"
 								testId="composer-mode"
 								value={shown.mode}
-								choices={MODES}
-								start={startMode}
-								changed={shown.mode !== startMode}
-								warning={bypass}
-								describedBy={bypass ? warningId : askWithRules ? hintId : undefined}
+								choices={modeChoices(modes).map(modeChoice)}
+								start={firstMode ?? undefined}
+								changed={shown.mode !== firstMode}
+								warning={warning}
+								describedBy={warning ? warningId : askWithRules ? hintId : undefined}
 								onChoose={(mode) => ask({ mode: ChatPermissionMode.parse(mode) })}
 							/>
 						</>
@@ -440,6 +559,12 @@ export function ComposerPickers({
 							<Waiting label="Permissions" />
 						</>
 					)}
+					<McpServers
+						servers={mcp}
+						agent={agent}
+						expanded={mcpOpen}
+						onExpandedChange={onMcpOpenChange}
+					/>
 				</div>
 			</fieldset>
 			{/* Outside the panel, so Ask never reads as the whole story while it is closed. */}

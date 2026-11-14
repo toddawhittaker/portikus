@@ -2,15 +2,14 @@ import type { ChatClientMessage, ChatServerEvent } from "@portikus/contracts";
 import { expect, test, vi } from "vitest";
 import {
 	type ChatState,
-	changeToward,
 	createChatStore,
 	initialChatState,
 	isNewChat,
-	lastSettingsOf,
 	receiveChatEvent,
 	receiveChatFrame,
 	selectSessionRulesActive,
 } from "./chatStore";
+import { changeToward, lastSettingsOf } from "./useChatSession";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 
@@ -882,4 +881,195 @@ test("a new snapshot, as /clear or a reattach sends, empties the decisions, and 
 		state,
 	);
 	expect(decisionOf(state, "t1")).toBe("denied");
+});
+
+const CODEX_LIST = [
+	{
+		value: "gpt-5.5",
+		resolvedModel: "gpt-5.5",
+		displayName: "GPT-5.5",
+		description: "",
+		supportsAutoMode: true,
+		efforts: ["low", "medium", "high", "ultra"],
+		defaultEffort: "medium",
+	},
+	{
+		value: "gpt-5.4-mini",
+		resolvedModel: "gpt-5.4-mini",
+		displayName: "GPT-5.4 mini",
+		description: "",
+		supportsAutoMode: true,
+		efforts: ["low", "medium"],
+		defaultEffort: "medium",
+	},
+];
+
+const CODEX_MODES = [
+	{ id: "untrusted", label: "Ask", description: "", warning: false, plan: false },
+	{ id: "onRequest", label: "Auto", description: "", warning: false, plan: false },
+	{
+		id: "fullAccess",
+		label: "Full access",
+		description: "",
+		warning: true,
+		plan: false,
+	},
+];
+
+const CODEX_START = {
+	agent: "codex" as const,
+	model: "gpt-5.5",
+	effort: "medium",
+	mode: "onRequest",
+};
+
+test("the modes and MCP lists the host reports are kept, replaced by the next, and survive a new snapshot", () => {
+	const state = feed([
+		snapshot(1),
+		frame("modes", 2, { modes: CODEX_MODES }),
+		frame("mcp", 3, { servers: [{ name: "github", status: "connected" }] }),
+	]);
+	expect(state.modes.map((mode) => mode.id)).toEqual([
+		"untrusted",
+		"onRequest",
+		"fullAccess",
+	]);
+	expect(state.mcp).toEqual([{ name: "github", status: "connected" }]);
+	const next = feed([frame("mcp", 4, { servers: [] })], state);
+	expect(next.mcp).toEqual([]);
+	expect(feed([snapshot(5)], next).modes).toHaveLength(3);
+	// The swap's divider is an item of the conversation, outside any turn.
+	const handoff = feed(
+		[frame("handoff", 6, { from: "claude", to: "codex", droppedTurns: 2 })],
+		next,
+	);
+	expect(handoff.items.at(-1)).toEqual({
+		kind: "handoff",
+		key: "handoff:6",
+		from: "claude",
+		to: "codex",
+		droppedTurns: 2,
+		failed: false,
+		turnId: null,
+	});
+	// A handoff the new agent could not take in says so.
+	const failed = feed(
+		[
+			frame("handoff", 7, {
+				from: "claude",
+				to: "codex",
+				droppedTurns: 0,
+				failed: true,
+			}),
+		],
+		next,
+	);
+	expect(failed.items.at(-1)).toMatchObject({ kind: "handoff", failed: true });
+});
+
+test("an empty Codex chat is new whatever it starts at, since Codex starts at the student's own defaults", () => {
+	const codexSettings = (seq: number) => frame("settings", seq, CODEX_START);
+	expect(isNewChat(feed([snapshot(1), codexSettings(2)]))).toBe(true);
+	const used = feed([
+		snapshot(1),
+		frame("turn.started", 2, { at: 1000 }),
+		codexSettings(3),
+	]);
+	expect(isNewChat(used)).toBe(false);
+});
+
+test("a Codex chat keeps its values in codex, and sends Claude's stored values back as they were", () => {
+	const stored = { model: "sonnet", effort: "high", mode: "plan", readAloud: true };
+	expect(lastSettingsOf({ ...CODEX_START, effort: "ultra" }, stored)).toEqual({
+		model: "sonnet",
+		effort: "high",
+		mode: "plan",
+		agent: "codex",
+		codex: { model: "gpt-5.5", effort: "ultra", mode: "onRequest" },
+	});
+	// With nothing stored, Claude's keys are the start values.
+	expect(lastSettingsOf(CODEX_START, null)).toEqual({
+		model: "opus",
+		effort: "medium",
+		mode: "auto",
+		agent: "codex",
+		codex: { model: "gpt-5.5", effort: "medium", mode: "onRequest" },
+	});
+	// A Claude save names no agent and never carries Codex's values.
+	expect(
+		lastSettingsOf(
+			{ agent: "claude", model: "opus", effort: "low", mode: "auto" },
+			{
+				...stored,
+				agent: "codex",
+				codex: { model: "gpt-5.5", effort: "low", mode: "plan" },
+			},
+		),
+	).toEqual({ model: "opus", effort: "low", mode: "auto" });
+});
+
+test("a new chat moves toward the values last used with its own agent only", () => {
+	const last = {
+		model: "sonnet",
+		effort: "high",
+		mode: "plan",
+		agent: "codex" as const,
+		codex: { model: "gpt-5.4-mini", effort: "low", mode: "untrusted" },
+	};
+	expect(changeToward(CODEX_START, last, CODEX_LIST, CODEX_MODES)).toEqual({
+		model: "gpt-5.4-mini",
+		effort: "low",
+		mode: "untrusted",
+	});
+	// A Claude chat takes Claude's flat values, whichever agent was used last.
+	expect(
+		changeToward(
+			{ agent: "claude", model: "opus", effort: "medium", mode: "auto" },
+			last,
+			LIST,
+		),
+	).toEqual({ model: "default", effort: "high", mode: "plan" });
+	// A Codex chat with no Codex values stored stays as it starts.
+	expect(
+		changeToward(
+			CODEX_START,
+			{ model: "opus", effort: "low", mode: "auto" },
+			CODEX_LIST,
+		),
+	).toBeNull();
+});
+
+test("a Codex model that is gone leaves the chat's own; an effort the model lacks and a mode that warns are not carried", () => {
+	const last = (codex: { model: string; effort: string; mode: string }) => ({
+		model: "opus",
+		effort: "medium",
+		mode: "auto",
+		agent: "codex" as const,
+		codex,
+	});
+	// No default row to fall back to: the host's model stands.
+	expect(
+		changeToward(
+			CODEX_START,
+			last({ model: "gpt-4", effort: "medium", mode: "onRequest" }),
+			CODEX_LIST,
+			CODEX_MODES,
+		),
+	).toBeNull();
+	expect(
+		changeToward(
+			CODEX_START,
+			last({ model: "gpt-5.4-mini", effort: "ultra", mode: "fullAccess" }),
+			CODEX_LIST,
+			CODEX_MODES,
+		),
+	).toEqual({ model: "gpt-5.4-mini" });
+	// Claude's Bypass warns in the fallback list too.
+	expect(
+		changeToward(
+			{ agent: "claude", model: "opus", effort: "medium", mode: "auto" },
+			{ model: "opus", effort: "medium", mode: "bypassPermissions" },
+			LIST,
+		),
+	).toBeNull();
 });

@@ -7,12 +7,20 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
-import { beforeEach, expect, test } from "vitest";
-import { ASK_RULES_HINT, BYPASS_WARNING, ComposerPickers } from "./ComposerPickers.js";
+import { beforeEach, expect, test, vi } from "vitest";
+import {
+	AGENT_START_TIMEOUT_MS,
+	AgentSwitchReported,
+	ASK_RULES_HINT,
+	ComposerPickers,
+} from "./ComposerPickers.js";
 import { type ChatState, type ChatStore, createChatStore } from "./chatStore.js";
 import { installFakeSpeech, removeFakeSpeech } from "./speechTesting.js";
 
 type Settings = NonNullable<ChatState["settings"]>;
+
+const BYPASS_WARNING =
+	"Bypass permissions lets Claude run every tool without asking you first.";
 
 const START: Settings = { agent: "claude", ...CHAT_START_SETTINGS, model: "sonnet" };
 
@@ -50,6 +58,11 @@ let switched: boolean[];
 let readingAloud: boolean;
 let panelOpen: boolean;
 let toggled: boolean[];
+let mcpOpen: boolean;
+let mcpToggled: boolean[];
+let agentsAsked: string[];
+/** What the next agent swap answers; null leaves the picker without a swap. */
+let swapAnswer: (() => Promise<void>) | null;
 let store: ChatStore;
 let rerender: (
 	settings: ChatState["settings"],
@@ -74,6 +87,16 @@ function draw(
 				readAloud={{ on: readingAloud, set: (next) => switched.push(next) }}
 				open={panelOpen}
 				onOpenChange={(next) => toggled.push(next)}
+				mcpOpen={mcpOpen}
+				onMcpOpenChange={(next) => mcpToggled.push(next)}
+				onSwitchAgent={
+					swapAnswer === null
+						? undefined
+						: (agent) => {
+								agentsAsked.push(agent);
+								return (swapAnswer as () => Promise<void>)();
+							}
+				}
 			/>
 			<p id="bypass-warning">{BYPASS_WARNING}</p>
 		</>
@@ -106,6 +129,10 @@ beforeEach(() => {
 	readingAloud = false;
 	panelOpen = true;
 	toggled = [];
+	mcpOpen = false;
+	mcpToggled = [];
+	agentsAsked = [];
+	swapAnswer = () => Promise.resolve();
 });
 
 test("each picker is a menu button named by its label and the value shown", () => {
@@ -142,7 +169,23 @@ test("the menu marks the current value as checked and the start value as Default
 	).toBe("Default. Thinks a little before acting.");
 });
 
+/** Claude Code's modes as its host lists them. */
+const CLAUDE_MODES = [
+	["default", "Ask", "Asks before it edits files or runs commands."],
+	["acceptEdits", "Accept edits", "Edits files on its own. Asks before commands."],
+	["plan", "Plan", "Reads and plans. Changes nothing."],
+	["auto", "Auto", "Runs what it judges safe. Asks about the rest."],
+	["bypassPermissions", "Bypass permissions", BYPASS_WARNING],
+].map(([id = "", label = "", description = ""]) => ({
+	id,
+	label,
+	description,
+	warning: id === "bypassPermissions",
+	plan: id === "plan",
+}));
+
 test("every choice says what it is for in a line of its own", () => {
+	store.setState({ modes: CLAUDE_MODES });
 	draw();
 	for (const name of ["Agent", "Model", "Version", "Effort", "Permissions"]) {
 		const menu = open(name);
@@ -211,7 +254,7 @@ test("a value other than the start value is set apart, and Bypass carries the wa
 	expect(warning?.textContent).toBe(BYPASS_WARNING);
 });
 
-test("the permission menu offers five modes and warns about Bypass before it is chosen", () => {
+test("a host that lists no modes still gets Claude's five, and Bypass warns before it is chosen", () => {
 	draw();
 	const menu = open("Permissions");
 	expect(
@@ -285,18 +328,156 @@ test("a press outside the open panel closes it; a press inside does not", () => 
 	expect(toggled).toEqual([false]);
 });
 
-test("Codex is shown, reachable and not choosable, and the agent picker sends nothing", () => {
+function description(item: HTMLElement): string | undefined {
+	return (
+		document.getElementById(item.getAttribute("aria-describedby") ?? "")?.textContent ??
+		undefined
+	);
+}
+
+test("in an empty chat Codex can be chosen, and choosing it asks to swap the agent, not to set anything", () => {
+	store.setState({ loaded: true });
+	draw();
+	const menu = open("Agent");
+	const codex = within(menu).getByRole("menuitemradio", { name: "Codex" });
+	expect(codex.getAttribute("aria-disabled")).toBeNull();
+	expect(description(codex)).toBe("OpenAI's coding agent.");
+	fireEvent.click(codex);
+	expect(agentsAsked).toEqual(["codex"]);
+	expect(asked).toEqual([]);
+	// An empty chat is replaced by a new one, so it says a chat starts.
+	expect(announced).toEqual(["Starting a Codex chat\u2026"]);
+});
+
+const HISTORY: ChatState["items"] = [
+	{
+		kind: "message",
+		key: "message:m1",
+		id: "m1",
+		role: "user",
+		markdown: "Hi",
+		attachments: [],
+		streaming: false,
+		turnId: null,
+	},
+];
+
+test("in a chat with history the other agent warns before it is chosen, then shows as asked while it starts", async () => {
+	store.setState({ loaded: true, items: HISTORY });
+	let answer!: () => void;
+	swapAnswer = () =>
+		new Promise<void>((resolve) => {
+			answer = resolve;
+		});
+	draw();
+	const menu = open("Agent");
+	const codex = within(menu).getByRole("menuitemradio", { name: "Codex" });
+	expect(codex.getAttribute("aria-disabled")).toBeNull();
+	expect(description(codex)).toBe(
+		"Codex starts fresh with this conversation as context; the cache is lost. If the conversation is too long for Codex, its oldest turns are left out.",
+	);
+	fireEvent.click(codex);
+	expect(agentsAsked).toEqual(["codex"]);
+	expect(asked).toEqual([]);
+	// The tab stays, so the agent is switched to, not a chat started.
+	expect(announced).toEqual(["Switching to Codex\u2026"]);
+	// The picker shows the agent asked for, and the old agent's pickers wait.
+	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(picker("Agent").getAttribute("aria-busy")).toBe("true");
+	expect(screen.queryByRole("button", { name: /^Model / })).toBeNull();
+	// The agent being left is not unavailable, only switching.
+	const left = within(open("Agent")).getByRole("menuitemradio", {
+		name: "Claude Code",
+	});
+	expect(description(left)).toBe("Switching\u2026");
+	fireEvent.keyDown(left, { key: "Escape" });
+	await act(async () => answer());
+	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(picker("Agent").getAttribute("aria-busy")).toBe("true");
+	// The new host's own settings end the wait, and the status says who answers now.
+	rerender({ agent: "codex", model: "gpt-5.5", effort: "medium", mode: "onRequest" });
+	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
+	expect(picker("Model")).toBeTruthy();
+	expect(announced).toEqual(["Switching to Codex\u2026", "Now chatting with Codex"]);
+});
+
+test("a refused swap goes back to the agent the chat runs and says why", async () => {
+	store.setState({ loaded: true, items: HISTORY });
+	swapAnswer = () =>
+		Promise.reject(new Error("Wait for the reply to finish before switching agents."));
+	draw();
+	fireEvent.click(within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }));
+	await act(async () => {});
+	expect(picker("Agent").textContent).toBe("Agent Claude Code");
+	expect(announced).toEqual([
+		"Switching to Codex\u2026",
+		"The agent did not change. Wait for the reply to finish before switching agents.",
+	]);
+	expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
+});
+
+test("a failure told elsewhere, as a toast tells it, is not said again, and the status is cleared", async () => {
+	store.setState({ loaded: true });
+	swapAnswer = () => Promise.reject(new AgentSwitchReported());
+	draw();
+	fireEvent.click(within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }));
+	await act(async () => {});
+	expect(picker("Agent").textContent).toBe("Agent Claude Code");
+	expect(announced).toEqual(["Starting a Codex chat\u2026", ""]);
+});
+
+test("an error from the chat while the new agent starts brings the pickers back and says so", async () => {
+	store.setState({ loaded: true, items: HISTORY });
+	swapAnswer = () => new Promise<void>(() => {});
+	draw();
+	fireEvent.click(within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }));
+	expect(screen.queryByRole("button", { name: /^Model / })).toBeNull();
+	rerender(START, { seq: 7, message: "The chat host stopped." });
+	expect(announced.at(-1)).toBe("Codex did not start. The chat host stopped.");
+	expect(picker("Agent").textContent).toBe("Agent Claude Code");
+	expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
+	expect(picker("Model")).toBeTruthy();
+});
+
+test("a new host that never reports its settings gives the pickers back after a while, and says so", async () => {
+	vi.useFakeTimers();
+	try {
+		store.setState({ loaded: true, items: HISTORY });
+		swapAnswer = () => Promise.resolve();
+		draw();
+		fireEvent.click(
+			within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }),
+		);
+		await act(async () => {});
+		act(() => vi.advanceTimersByTime(AGENT_START_TIMEOUT_MS - 1));
+		expect(picker("Agent").getAttribute("aria-busy")).toBe("true");
+		act(() => vi.advanceTimersByTime(1));
+		expect(picker("Agent").getAttribute("aria-busy")).toBeNull();
+		expect(picker("Model")).toBeTruthy();
+		expect(announced.at(-1)).toMatch(/^Codex has not reported its settings/);
+		// Nothing is left to fire once the wait has ended.
+		act(() => vi.advanceTimersByTime(AGENT_START_TIMEOUT_MS));
+		expect(announced).toHaveLength(2);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("where the chat cannot swap, the other agent stays reachable, cannot be chosen, and says how to use it", () => {
+	store.setState({ loaded: true, items: HISTORY });
+	swapAnswer = null;
 	draw();
 	const menu = open("Agent");
 	const codex = within(menu).getByRole("menuitemradio", { name: "Codex" });
 	expect(codex.getAttribute("aria-disabled")).toBe("true");
-	expect(
-		document.getElementById(codex.getAttribute("aria-describedby") ?? "")?.textContent,
-	).toBe("Coming soon.");
+	expect(description(codex)).toBe(
+		"To use Codex now, start a new chat from the New tab menu.",
+	);
 	fireEvent.click(codex);
-	expect(screen.getByRole("menu", { name: /^Agent / })).toBeTruthy();
+	// Choosing the agent already in use asks for nothing.
 	fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Claude Code" }));
-	expect(asked).toEqual([]);
+	expect(agentsAsked).toEqual([]);
 	expect(picker("Agent").textContent).toBe("Agent Claude Code");
 });
 
@@ -507,6 +688,7 @@ test("Read replies aloud heads the panel beside its title, then the settings in 
 			"composer-version",
 			"composer-effort",
 			"composer-mode",
+			"composer-mcp",
 		]);
 		// The switch sits in the heading row, not among the settings.
 		expect(panel.querySelector("legend")?.nextElementSibling).toBe(
@@ -519,4 +701,200 @@ test("Read replies aloud heads the panel beside its title, then the settings in 
 	} finally {
 		removeFakeSpeech();
 	}
+});
+
+/** Codex's list: no default row and no pinned versions; each model lists its efforts. */
+function codexRow(
+	value: string,
+	displayName: string,
+	efforts: string[],
+): ChatModelInfo {
+	return {
+		value,
+		resolvedModel: value,
+		displayName,
+		description: `${displayName} model`,
+		supportsAutoMode: true,
+		efforts,
+		defaultEffort: "medium",
+	};
+}
+const CODEX_MODELS: ChatModelInfo[] = [
+	codexRow("gpt-5.5", "GPT-5.5", ["low", "medium", "high", "xhigh", "ultra"]),
+	codexRow("gpt-5.4-mini", "GPT-5.4 mini", ["low", "medium", "high"]),
+];
+const CODEX_MODES = [
+	{
+		id: "untrusted",
+		label: "Ask",
+		description: "Asks first.",
+		warning: false,
+		plan: false,
+	},
+	{ id: "plan", label: "Plan", description: "Plans only.", warning: false, plan: true },
+	{
+		id: "onRequest",
+		label: "Auto",
+		description: "Works alone.",
+		warning: false,
+		plan: false,
+	},
+	{
+		id: "fullAccess",
+		label: "Full access",
+		description: "Full access lets Codex run every command without asking you first.",
+		warning: true,
+		plan: false,
+	},
+];
+const CODEX: Settings = {
+	agent: "codex",
+	model: "gpt-5.5",
+	effort: "medium",
+	mode: "onRequest",
+};
+
+function drawCodex(settings: Settings = CODEX) {
+	store.setState({ modes: CODEX_MODES });
+	draw(settings, CODEX_MODELS);
+}
+
+/** Each row's visible name, without the line that describes it. */
+function rows(menu: HTMLElement): string[] {
+	return within(menu)
+		.getAllByRole("menuitemradio")
+		.map((item) => (item.textContent ?? "").replace(description(item) ?? "", ""));
+}
+
+test("a Codex chat names the agent, lists the models by their own names, and has no Version picker", () => {
+	drawCodex();
+	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(picker("Model").textContent).toBe("Model GPT-5.5");
+	expect(screen.queryByTestId("composer-version")).toBeNull();
+	// No Default row: Codex has none of its own.
+	expect(rows(open("Model"))).toEqual(["GPT-5.5", "GPT-5.4 mini"]);
+	expect(screen.getByTestId("composer-options").textContent).toContain(
+		"GPT-5.5 · Medium · Auto",
+	);
+});
+
+test("the Effort menu lists the model's own efforts, in Portikus's words where known and as written otherwise", () => {
+	drawCodex();
+	const menu = open("Effort");
+	expect(rows(menu)).toEqual(["Low", "Medium Default", "High", "Extra high", "ultra"]);
+	fireEvent.click(within(menu).getByRole("menuitemradio", { name: "ultra" }));
+	expect(asked).toEqual([{ effort: "ultra" }]);
+	expect(picker("Effort").textContent).toBe("Effort ultra");
+	expect(picker("Effort").classList.contains("is-changed")).toBe(true);
+});
+
+test("a model's own default effort is the one marked Default, and another reads as changed", () => {
+	drawCodex({ ...CODEX, model: "gpt-5.4-mini", effort: "high" });
+	expect(picker("Effort").classList.contains("is-changed")).toBe(true);
+	expect(rows(open("Effort"))).toEqual(["Low", "Medium Default", "High"]);
+});
+
+test("a Claude model with no efforts listed keeps all five", () => {
+	draw();
+	expect(rows(open("Effort"))).toEqual([
+		"Low",
+		"Medium Default",
+		"High",
+		"Extra high",
+		"Max",
+	]);
+});
+
+test("the Permissions menu draws the host's modes, Auto as Codex's start, and warns about Full access", () => {
+	drawCodex();
+	const menu = open("Permissions");
+	expect(rows(menu)).toEqual(["Ask", "Plan", "Auto Default", "Full access"]);
+	const full = within(menu).getByRole("menuitemradio", { name: "Full access" });
+	expect(description(full)).toBe(
+		"Full access lets Codex run every command without asking you first.",
+	);
+	expect(full.querySelector(".pk-picker-warning")).not.toBeNull();
+	fireEvent.click(full);
+	expect(asked).toEqual([{ mode: "fullAccess" }]);
+	const mode = picker("Permissions");
+	expect(mode.classList.contains("is-warning")).toBe(true);
+	expect(mode.getAttribute("aria-describedby")).toBe("bypass-warning");
+	expect(screen.getByTestId("composer-options").classList.contains("is-warning")).toBe(
+		true,
+	);
+});
+
+test("a host's own words for Claude's modes replace Portikus's", () => {
+	store.setState({
+		modes: [
+			{
+				id: "default",
+				label: "Ask first",
+				description: "Asks.",
+				warning: false,
+				plan: false,
+			},
+			{ id: "auto", label: "Auto", description: "Runs.", warning: false, plan: false },
+		],
+	});
+	draw();
+	expect(rows(open("Permissions"))).toEqual(["Ask first", "Auto Default"]);
+});
+
+test("the MCP servers field sums up the list and discloses each server's state", () => {
+	store.setState({
+		mcp: [
+			{ name: "github", status: "connected" },
+			{ name: "docs", status: "needsAuth" },
+			{ name: "db", status: "failed" },
+		],
+	});
+	drawCodex();
+	const field = screen.getByTestId("composer-mcp");
+	expect(field.textContent).toBe("MCP servers 1 of 3 connected");
+	expect(field.getAttribute("aria-expanded")).toBe("false");
+	const list = screen.getByTestId("composer-mcp-list");
+	expect(list.hidden).toBe(true);
+	expect(field.getAttribute("aria-controls")).toBe(list.id);
+	fireEvent.click(field);
+	expect(mcpToggled).toEqual([true]);
+});
+
+test("an open MCP list names each server with its state in words, and where they are managed", () => {
+	mcpOpen = true;
+	store.setState({
+		mcp: [
+			{ name: "github", status: "connected" },
+			{ name: "docs", status: "needsAuth" },
+			{ name: "db", status: "failed" },
+			{ name: "local", status: "starting" },
+			{ name: "old", status: "disabled" },
+		],
+	});
+	drawCodex();
+	const list = screen.getByRole("region", { name: "MCP servers" });
+	expect(
+		within(list)
+			.getAllByRole("listitem")
+			.map((item) => item.textContent),
+	).toEqual([
+		"github Connected",
+		"docs Needs sign-in",
+		"db Failed",
+		"local Starting",
+		"old Disabled",
+	]);
+	expect(list.textContent).toContain(
+		"Servers are managed in a terminal, with codex mcp.",
+	);
+	expect(screen.getByTestId("composer-mcp").getAttribute("aria-expanded")).toBe("true");
+});
+
+test("with no MCP servers the field says None and the list says none are set up", () => {
+	mcpOpen = true;
+	draw();
+	expect(screen.getByTestId("composer-mcp").textContent).toBe("MCP servers None");
+	const list = screen.getByRole("region", { name: "MCP servers" });
+	expect(list.textContent).toContain("No MCP servers are set up.");
+	expect(list.textContent).toContain("with claude mcp.");
 });

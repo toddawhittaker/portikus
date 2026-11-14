@@ -474,7 +474,10 @@ test("Up in an empty box brings back the last message sent", async ({
 	const student = await createStudent(context);
 	const { view } = await openChat(page, student.workspaceId, "Composer");
 	const box = view.getByTestId("chat-composer-input");
+	// The fake host's chat already holds an earlier question, which Up brings back.
 	await box.press("ArrowUp");
+	await expect(box).toHaveText("Earlier question");
+	await box.press("ArrowDown");
 	await expect(box).toHaveText("");
 	await box.pressSequentially("check **all** files");
 	await box.press("Enter");
@@ -482,9 +485,9 @@ test("Up in an empty box brings back the last message sent", async ({
 	await box.press("ArrowUp");
 	await expect(box).toHaveText("check all files");
 	await expect(box.locator("strong")).toHaveText("all");
-	// With text in the box, Up is left to move the cursor.
+	// Up again goes on to the one before it.
 	await box.press("ArrowUp");
-	await expect(box).toHaveText("check all files");
+	await expect(box).toHaveText("Earlier question");
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
@@ -732,7 +735,7 @@ test("Markdown typed in the box shows formatted and is sent as the same Markdown
 		]);
 	await expect(box).toHaveText("");
 	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
-		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.",
 	);
 });
 

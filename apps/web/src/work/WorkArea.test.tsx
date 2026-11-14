@@ -8,6 +8,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store";
@@ -464,7 +465,7 @@ test("Claude Code and Codex tabs share the agent icon and those labels", async (
 	const ordinary = screen.getByTestId("tab-tab3");
 	expect(claude.textContent).toContain("Claude Code (TUI)");
 	expect(claude.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("agent");
-	expect(codex.textContent).toContain("Codex");
+	expect(codex.textContent).toContain("Codex (TUI)");
 	expect(codex.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("agent");
 	expect(ordinary.textContent).toContain("zsh");
 	expect(ordinary.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe(
@@ -774,6 +775,7 @@ test("Traditional hides the agent launchers and the Start Claude Code button, an
 	expect(screen.queryByTestId("launcher-claude")).toBeNull();
 	expect(screen.queryByTestId("launcher-claude-gui")).toBeNull();
 	expect(screen.queryByTestId("launcher-codex")).toBeNull();
+	expect(screen.queryByTestId("launcher-codex-gui")).toBeNull();
 });
 
 test("Agentic keeps the agent launchers once the profile is known", async () => {
@@ -789,13 +791,71 @@ test("Agentic keeps the agent launchers once the profile is known", async () => 
 	await flushCloseFocus();
 	expect(screen.getByTestId("empty-open-claude")).toBeTruthy();
 	fireEvent.pointerDown(screen.getByTestId("launcher"), { button: 0, ctrlKey: false });
-	expect((await screen.findByTestId("launcher-claude")).textContent).toBe(
-		"Claude Code (TUI)",
-	);
-	expect(screen.getByTestId("launcher-claude-gui").textContent).toBe(
+	const menu = await screen.findByRole("menu", { name: "New tab" });
+	// Each agent's GUI and TUI, in the same words and order for both.
+	expect(
+		within(menu)
+			.getAllByRole("menuitem")
+			.map((item) => item.textContent),
+	).toEqual([
+		"TerminalCtrlAltT",
 		"Claude Code (GUI)",
-	);
-	expect(screen.getByTestId("launcher-codex")).toBeTruthy();
+		"Claude Code (TUI)",
+		"Codex (GUI)",
+		"Codex (TUI)",
+		"Preview",
+	]);
+});
+
+test("Codex (GUI) creates a chat terminal for Codex, and (TUI) does not", async () => {
+	const { fetchMock } = stubFetch({ terminals: [] });
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId("launcher")).toBeTruthy());
+	const posts = () =>
+		fetchMock.mock.calls
+			.filter((call) => (call[1] as RequestInit | undefined)?.method === "POST")
+			.filter((call) => String(call[0]).includes("/terminals"))
+			.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+
+	fireEvent.pointerDown(screen.getByTestId("launcher"), { button: 0, ctrlKey: false });
+	fireEvent.click(await screen.findByTestId("launcher-codex-gui"));
+	await waitFor(() => expect(posts()).toHaveLength(1));
+	expect(posts()[0]).toEqual({ projectId: PROJECT, kind: "chat", agent: "codex" });
+	await flushCloseFocus();
+
+	fireEvent.pointerDown(screen.getByTestId("launcher"), { button: 0, ctrlKey: false });
+	fireEvent.click(await screen.findByTestId("launcher-codex"));
+	await waitFor(() => expect(posts()).toHaveLength(2));
+	expect(posts()[1]).toEqual({ projectId: PROJECT, agent: "codex" });
+});
+
+test("a Codex chat tab reads Codex (GUI), and Resume continues it with Codex", async () => {
+	const { fetchMock } = stubFetch({
+		layout: { tabs: [{ id: "tab1", root: { type: "leaf", terminalId: ONE } }] },
+		terminals: [
+			{
+				...terminal(ONE, "Terminal 1", "2026-01-02T00:00:00.000Z"),
+				agent: "codex",
+				kind: "chat",
+			},
+		],
+	});
+	renderArea();
+	await waitFor(() => expect(screen.getByTestId(`terminal-ended-${ONE}`)).toBeTruthy());
+	expect(screen.getByTestId("tab-tab1").textContent).toContain("Codex (GUI)");
+	fireEvent.click(screen.getByRole("button", { name: "Resume chat" }));
+	const posts = () =>
+		fetchMock.mock.calls
+			.filter((call) => (call[1] as RequestInit | undefined)?.method === "POST")
+			.filter((call) => String(call[0]).includes("/terminals"))
+			.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+	await waitFor(() => expect(posts()).toHaveLength(1));
+	expect(posts()[0]).toEqual({
+		projectId: PROJECT,
+		kind: "chat",
+		agent: "codex",
+		resumeChatOf: ONE,
+	});
 });
 
 test("Claude Code (GUI) creates a chat terminal for Claude, and (TUI) does not", async () => {

@@ -13,6 +13,7 @@ import {
 	insertAtCursor,
 	LONG_PASTE_LINES,
 	lineCount,
+	refreshComposer,
 	setMenuAria,
 	showInterim,
 } from "./composerEditor.js";
@@ -28,8 +29,13 @@ let onMenu: ReturnType<
 	typeof vi.fn<(menu: ComposerMenu | null, closed?: string) => void>
 >;
 let onMenuKey: ReturnType<typeof vi.fn<(event: KeyboardEvent) => boolean>>;
+/** What the box's label and placeholder read, and whether `$` opens the skills. */
+let label = "Message Claude Code";
+let skills = false;
 
 beforeEach(() => {
+	label = "Message Claude Code";
+	skills = false;
 	onSend = vi.fn<() => void>();
 	onFiles = vi.fn<(files: File[]) => void>();
 	onLongPaste = vi.fn<(text: string, lines: number) => void>();
@@ -40,12 +46,13 @@ beforeEach(() => {
 	document.body.append(element);
 	editor = createComposerEditor({
 		element,
-		attributes: {
+		attributes: () => ({
 			role: "combobox",
-			"aria-label": "Message Claude Code",
+			"aria-label": label,
 			"data-testid": "box",
-		},
-		placeholder: "Message Claude Code",
+		}),
+		placeholder: () => label,
+		skills: () => skills,
 		onSend,
 		onFiles,
 		onLongPaste,
@@ -577,4 +584,35 @@ test("the menu's ARIA state is set on the editor: expanded, its list, and the cu
 	expect(box.getAttribute("aria-expanded")).toBe("false");
 	expect(box.hasAttribute("aria-controls")).toBe(false);
 	expect(box.hasAttribute("aria-activedescendant")).toBe(false);
+});
+
+test("$ at the very start opens the skills menu where the agent takes skills", async () => {
+	skills = true;
+	typeInto(box, "$");
+	await vi.waitFor(() =>
+		expect(lastMenu()).toEqual({ kind: "skill", query: "", from: 1, to: 2 }),
+	);
+	typeInto(box, "pd");
+	await vi.waitFor(() =>
+		expect(lastMenu()).toMatchObject({ kind: "skill", query: "pd" }),
+	);
+});
+
+test("$ is only a dollar sign where the agent takes no skills, or past the start", async () => {
+	typeInto(box, "$5");
+	skills = true;
+	typeInto(box, " costs $3");
+	await new Promise((done) => setTimeout(done, 10));
+	expect(onMenu).not.toHaveBeenCalled();
+	expect(boxText(box)).toBe("$5 costs $3");
+});
+
+test("the box's name and placeholder follow what they read once redrawn", () => {
+	expect(box.getAttribute("aria-label")).toBe("Message Claude Code");
+	label = "Message Codex";
+	refreshComposer(editor);
+	expect(box.getAttribute("aria-label")).toBe("Message Codex");
+	expect(
+		box.querySelector("[data-placeholder]")?.getAttribute("data-placeholder"),
+	).toBe("Message Codex");
 });

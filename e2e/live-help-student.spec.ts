@@ -94,7 +94,7 @@ test("start with consent, let them type, stop typing, then End", async ({
 	await expect(terms).toContainText("Off. They can only watch");
 	await expect(terms).toContainText("Only you can turn typing on or off");
 	await expect(dialog.getByTestId("live-help-typing-risk")).toContainText(
-		"full shell as you. That includes your Git, Claude and SSH credentials",
+		"full shell as you. That includes your Git, Claude, Codex and SSH credentials",
 	);
 	await expect(dialog.getByTestId("live-help-typing-risk")).toContainText(
 		"your other terminals",

@@ -356,10 +356,10 @@ test.skipIf(skip)("a plain terminal create forwards no kind", async () => {
 	expect(agent.creates[0]).not.toHaveProperty("kind");
 });
 
-test("the create request refuses a codex chat and a chat with no agent", () => {
+test("the create request takes a chat for either agent but refuses one with no agent", () => {
 	expect(
 		CreateTerminalRequest.safeParse({ kind: "chat", agent: "codex" }).success,
-	).toBe(false);
+	).toBe(true);
 	expect(CreateTerminalRequest.safeParse({ kind: "chat" }).success).toBe(false);
 	expect(
 		CreateTerminalRequest.safeParse({ kind: "chat", agent: "claude" }).success,

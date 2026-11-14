@@ -59,7 +59,8 @@ administrators get 404 (SPEC.md 5.2).
      `type`, `claude_code.cost.usage` and `claude_code.lines_of_code.count`.
      The session count names no model, so it is kept under the model
      `(none)`.
-   - Codex exports through the `[otel]` table of its system config:
+   - Codex exports through the `[otel]` table of its managed config
+     (`/etc/codex/managed_config.toml`):
      `metrics_exporter` to the receiver as JSON, the log and trace
      exporters off, `log_user_prompt = false`. This also stops Codex's
      default metrics export to OpenAI. Kept: `codex.thread.started` as

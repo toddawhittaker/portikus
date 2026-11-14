@@ -47,7 +47,10 @@ cannot show them.
   only where the session already shows it.
 - A hook's input format is Claude Code's, and a change to it hides rows
   rather than breaking the agent.
-- Codex has no subagent hooks, so its sessions show none.
+- Codex gained `SubagentStart` and `SubagentStop` hooks, so since Epic 66
+  (ADR 0076) its sessions show subagent rows too. The script keeps only
+  `agent_id` and `agent_type` from a Codex start and `agent_id` from a stop;
+  Codex gives no description, so a Codex row shows its type.
 
 ## Rejected
 

@@ -115,3 +115,65 @@ test("a change the host confirms is saved as the project's last used", async () 
 		]),
 	);
 });
+
+function codexSettings(model: string, effort: string, mode: string) {
+	frame("settings", { agent: "codex", model, effort, mode });
+}
+
+test("a new Codex chat is brought to Codex's stored values, not Claude's", async () => {
+	stored = {
+		model: "sonnet",
+		effort: "low",
+		mode: "plan",
+		agent: "codex",
+		codex: { model: "gpt-5.4", effort: "high", mode: "untrusted" },
+	};
+	await open();
+	frame("snapshot", { cards: [], turnRunning: false, truncated: false });
+	codexSettings("gpt-5.5", "medium", "onRequest");
+	await waitFor(() =>
+		expect(sent).toEqual([
+			{ type: "set", model: "gpt-5.4", effort: "high", mode: "untrusted" },
+		]),
+	);
+});
+
+test("a new Claude chat takes Claude's stored values even when Codex was used last", async () => {
+	stored = {
+		model: "sonnet",
+		effort: "low",
+		mode: "plan",
+		agent: "codex",
+		codex: { model: "gpt-5.4", effort: "high", mode: "untrusted" },
+	};
+	await open();
+	frame("snapshot", { cards: [], turnRunning: false, truncated: false });
+	settings("opus", "medium", "auto");
+	await waitFor(() =>
+		expect(sent).toEqual([
+			{ type: "set", model: "sonnet", effort: "low", mode: "plan" },
+		]),
+	);
+});
+
+test("a Codex change is saved under codex with the agent, beside Claude's stored values", async () => {
+	stored = { model: "sonnet", effort: "low", mode: "plan" };
+	const store = await open();
+	frame("snapshot", { cards: [], turnRunning: false, truncated: false });
+	codexSettings("gpt-5.5", "medium", "onRequest");
+	act(() => {
+		store.getState().set({ effort: "ultra" });
+	});
+	codexSettings("gpt-5.5", "ultra", "onRequest");
+	await waitFor(() =>
+		expect(puts).toEqual([
+			{
+				model: "sonnet",
+				effort: "low",
+				mode: "plan",
+				agent: "codex",
+				codex: { model: "gpt-5.5", effort: "ultra", mode: "onRequest" },
+			},
+		]),
+	);
+});

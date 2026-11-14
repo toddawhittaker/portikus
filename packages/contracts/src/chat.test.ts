@@ -2,17 +2,24 @@ import { describe, expect, test } from "vitest";
 import { AgentCreateTerminalRequest } from "./agent.js";
 import {
 	CHAT_START_SETTINGS,
+	ChatCardQuestion,
 	ChatClientMessage,
+	ChatEffort,
 	ChatLastSettings,
 	ChatModel,
-	type ChatQuestion,
+	ChatPermissionMode,
+	ChatQuestion,
 	ChatServerEvent,
 	ChatShellItem,
 	chatStartMode,
 	decodedBase64Bytes,
 	MAX_CHAT_ATTACHMENTS,
+	MAX_CHAT_EFFORTS,
 	MAX_CHAT_IMAGE_BYTES,
+	MAX_CHAT_MCP_SERVERS,
 	MAX_CHAT_MODELS,
+	MAX_CHAT_MODES,
+	MAX_CHAT_PLAN_CHARS,
 	MAX_CHAT_QUESTION_HEADER_CHARS,
 	MAX_CHAT_RULE_CHARS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -197,7 +204,7 @@ describe("chat server events (SPEC.md §10.8)", () => {
 		expect(ChatServerEvent.safeParse(image("<svg>")).success).toBe(false);
 	});
 
-	test("question counts: 1 to 4 questions of 2 to 4 options", () => {
+	test("question counts: 1 to 4 questions of 0 to 4 options", () => {
 		const ask = (questions: ChatQuestion[]) =>
 			ChatServerEvent.safeParse({
 				type: "question.requested",
@@ -208,7 +215,8 @@ describe("chat server events (SPEC.md §10.8)", () => {
 		expect(ask([])).toBe(false);
 		expect(ask(Array(4).fill(question()))).toBe(true);
 		expect(ask(Array(5).fill(question()))).toBe(false);
-		expect(ask([question(1)])).toBe(false);
+		expect(ask([question(0)])).toBe(true);
+		expect(ask([question(1)])).toBe(true);
 		expect(ask([question(4)])).toBe(true);
 		expect(ask([question(5)])).toBe(false);
 		expect(ask([question(2, "h".repeat(MAX_CHAT_QUESTION_HEADER_CHARS))])).toBe(true);
@@ -266,8 +274,8 @@ describe("chat client messages (SPEC.md §10.8)", () => {
 		}
 	});
 
-	test("an unknown permission mode is refused", () => {
-		expect(ChatClientMessage.safeParse({ type: "set", mode: "dontAsk" }).success).toBe(
+	test("a malformed permission mode is refused", () => {
+		expect(ChatClientMessage.safeParse({ type: "set", mode: "dont ask" }).success).toBe(
 			false,
 		);
 	});
@@ -305,12 +313,15 @@ describe("terminal kind", () => {
 		expect(Terminal.parse({ ...row, kind: "chat" }).kind).toBe("chat");
 	});
 
-	test("a chat must use claude", () => {
+	test("a chat must name an agent, either one", () => {
 		expect(
 			CreateTerminalRequest.safeParse({ kind: "chat", agent: "claude" }).success,
 		).toBe(true);
 		expect(
 			CreateTerminalRequest.safeParse({ kind: "chat", agent: "codex" }).success,
+		).toBe(true);
+		expect(
+			CreateTerminalRequest.safeParse({ kind: "chat", agent: "gemini" }).success,
 		).toBe(false);
 		expect(CreateTerminalRequest.safeParse({ kind: "chat" }).success).toBe(false);
 		expect(
@@ -589,8 +600,8 @@ describe("models", () => {
 		}
 		const stored = StoredChatSettings.parse({
 			model: "Not A Model",
-			effort: "huge",
-			mode: "low",
+			effort: "Huge!",
+			mode: "low mode",
 		});
 		// What cannot be read is what a new chat starts with.
 		expect(stored).toEqual({
@@ -646,5 +657,381 @@ describe("models", () => {
 		// An unknown model or an empty list does not block Auto.
 		expect(chatStartMode([], "opus")).toBe("auto");
 		expect(chatStartMode([row("sonnet", false)], "opus")).toBe("auto");
+	});
+});
+
+describe("effort and permission mode are bounded strings", () => {
+	test("accept the ids each agent uses, including ones added later", () => {
+		for (const ok of ["low", "medium", "high", "xhigh", "max", "ultra", "x-high_2"]) {
+			expect(ChatEffort.safeParse(ok).success).toBe(true);
+		}
+		for (const ok of ["default", "acceptEdits", "bypassPermissions", "fullAccess"]) {
+			expect(ChatPermissionMode.safeParse(ok).success).toBe(true);
+		}
+	});
+
+	test("refuse empty, over-long and unsafe values", () => {
+		for (const bad of ["", "High", "1x", "a b", "a;b", "a/b", "x".repeat(33)]) {
+			expect(ChatEffort.safeParse(bad).success).toBe(false);
+		}
+		for (const bad of ["", "1mode", "a b", "a.b", "a;b", "x".repeat(41)]) {
+			expect(ChatPermissionMode.safeParse(bad).success).toBe(false);
+		}
+		expect(ChatEffort.safeParse("x".repeat(32)).success).toBe(true);
+		expect(ChatPermissionMode.safeParse("x".repeat(40)).success).toBe(true);
+	});
+
+	test("a set and a settings event carry them", () => {
+		expect(
+			ChatClientMessage.safeParse({ type: "set", effort: "ultra", mode: "fullAccess" })
+				.success,
+		).toBe(true);
+		expect(ChatClientMessage.safeParse({ type: "set", effort: "a b" }).success).toBe(
+			false,
+		);
+		expect(
+			ChatServerEvent.safeParse({
+				type: "settings",
+				...env,
+				agent: "codex",
+				model: "gpt-5.5",
+				effort: "ultra",
+				mode: "fullAccess",
+			}).success,
+		).toBe(true);
+	});
+});
+
+describe("model efforts", () => {
+	const base = {
+		value: "gpt-5.5",
+		displayName: "GPT-5.5",
+		description: "d",
+		supportsAutoMode: true,
+	};
+	const models = (row: object) =>
+		ChatServerEvent.safeParse({ type: "models", ...env, models: [row] }).success;
+
+	test("a model lists its efforts and a default, and an older host may leave them out", () => {
+		expect(models(base)).toBe(true);
+		expect(models({ ...base, efforts: ["low", "high"], defaultEffort: "low" })).toBe(
+			true,
+		);
+		expect(models({ ...base, efforts: [] })).toBe(true);
+	});
+
+	test("refuses a malformed effort or too many", () => {
+		expect(models({ ...base, efforts: ["Low"] })).toBe(false);
+		expect(models({ ...base, defaultEffort: "a b" })).toBe(false);
+		const many = (count: number) =>
+			Array.from({ length: count }, (_, index) => `e${index}`);
+		expect(models({ ...base, efforts: many(MAX_CHAT_EFFORTS) })).toBe(true);
+		expect(models({ ...base, efforts: many(MAX_CHAT_EFFORTS + 1) })).toBe(false);
+	});
+});
+
+describe("the modes event", () => {
+	const mode = (change: object = {}) => ({
+		id: "fullAccess",
+		label: "Full access",
+		description: "Runs anything without asking",
+		warning: true,
+		plan: false,
+		...change,
+	});
+	const ok = (modes: unknown) =>
+		ChatServerEvent.safeParse({ type: "modes", ...env, modes }).success;
+
+	test("lists modes with a warning flag and a plan flag", () => {
+		expect(
+			ok([mode(), mode({ id: "plan", label: "Plan", warning: false, plan: true })]),
+		).toBe(true);
+		expect(ok([])).toBe(true);
+	});
+
+	test("keeps ids, labels and descriptions within bounds", () => {
+		expect(ok([mode({ id: "a b" })])).toBe(false);
+		expect(ok([mode({ label: "" })])).toBe(false);
+		expect(ok([mode({ label: "l".repeat(41) })])).toBe(false);
+		expect(ok([mode({ description: "d".repeat(300) })])).toBe(true);
+		expect(ok([mode({ description: "d".repeat(301) })])).toBe(false);
+		expect(ok([mode({ warning: undefined })])).toBe(false);
+		expect(ok([mode({ plan: "yes" })])).toBe(false);
+	});
+
+	test("lists at most 10 modes", () => {
+		expect(ok(Array.from({ length: MAX_CHAT_MODES }, () => mode()))).toBe(true);
+		expect(ok(Array.from({ length: MAX_CHAT_MODES + 1 }, () => mode()))).toBe(false);
+	});
+});
+
+describe("card buttons and plans", () => {
+	const card = (change: object = {}) => ({
+		type: "permission.requested",
+		...env,
+		id: "p1",
+		toolName: "ExitPlanMode",
+		title: "Approve the plan?",
+		input: {},
+		options: [
+			{ id: "yes", label: "Yes", decision: "allowed" },
+			{ id: "no", label: "No" },
+		],
+		...change,
+	});
+
+	test("a button may name its decision, and an older host's buttons parse", () => {
+		expect(ChatServerEvent.safeParse(card()).success).toBe(true);
+		for (const decision of ["allowed", "allowedAlways", "denied"]) {
+			expect(
+				ChatServerEvent.safeParse(
+					card({ options: [{ id: "x", label: "X", decision }] }),
+				).success,
+			).toBe(true);
+		}
+		expect(
+			ChatServerEvent.safeParse(
+				card({ options: [{ id: "x", label: "X", decision: "maybe" }] }),
+			).success,
+		).toBe(false);
+	});
+
+	test("a card may carry its plan, within a cap", () => {
+		expect(ChatServerEvent.safeParse(card({ plan: "1. Do it" })).success).toBe(true);
+		expect(
+			ChatServerEvent.safeParse(card({ plan: "p".repeat(MAX_CHAT_PLAN_CHARS) }))
+				.success,
+		).toBe(true);
+		expect(
+			ChatServerEvent.safeParse(card({ plan: "p".repeat(MAX_CHAT_PLAN_CHARS + 1) }))
+				.success,
+		).toBe(false);
+		expect(ChatServerEvent.safeParse(card({ plan: 5 })).success).toBe(false);
+	});
+
+	test("a snapshot's open card carries both fields too", () => {
+		const open = {
+			type: "permission",
+			id: "p1",
+			toolName: "t",
+			title: "t",
+			input: {},
+			options: [{ id: "y", label: "Y", decision: "allowed" }],
+			plan: "steps",
+		};
+		expect(
+			ChatServerEvent.safeParse({
+				type: "snapshot",
+				...env,
+				cards: [open],
+				turnRunning: false,
+				truncated: false,
+			}).success,
+		).toBe(true);
+	});
+});
+
+describe("card questions", () => {
+	const option = { label: "A", description: "a" };
+	const ask = (change: object = {}) => ({
+		question: "Which?",
+		header: "Pick",
+		multiSelect: false,
+		options: [option, { ...option, label: "B" }],
+		...change,
+	});
+	const asked = (questions: unknown) =>
+		ChatServerEvent.safeParse({
+			type: "question.requested",
+			...env,
+			id: "q",
+			questions,
+		}).success;
+
+	test("a card question may have no options, up to four, and may be secret", () => {
+		expect(asked([ask({ options: [] })])).toBe(true);
+		expect(asked([ask({ options: [option] })])).toBe(true);
+		expect(asked([ask({ options: Array.from({ length: 4 }, () => option) })])).toBe(
+			true,
+		);
+		expect(asked([ask({ options: Array.from({ length: 5 }, () => option) })])).toBe(
+			false,
+		);
+		expect(asked([ask({ options: [], secret: true })])).toBe(true);
+		expect(asked([ask({ secret: "yes" })])).toBe(false);
+	});
+
+	test("the terminal question's strict shape is unchanged", () => {
+		expect(ChatQuestion.safeParse(ask()).success).toBe(true);
+		expect(ChatQuestion.safeParse(ask({ options: [] })).success).toBe(false);
+		expect(ChatQuestion.safeParse(ask({ options: [option] })).success).toBe(false);
+		expect(ChatCardQuestion.safeParse(ask()).success).toBe(true);
+	});
+});
+
+describe("command prefix", () => {
+	const ok = (change: object) =>
+		ChatServerEvent.safeParse({
+			type: "commands",
+			...env,
+			commands: [{ name: "lint", description: "d", terminalOnly: false, ...change }],
+		}).success;
+
+	test("is a slash or a dollar sign, and may be left out", () => {
+		expect(ok({})).toBe(true);
+		expect(ok({ prefix: "/" })).toBe(true);
+		expect(ok({ prefix: "$" })).toBe(true);
+		expect(ok({ prefix: "!" })).toBe(false);
+		expect(ok({ prefix: "" })).toBe(false);
+	});
+});
+
+describe("the mcp event", () => {
+	const ok = (servers: unknown) =>
+		ChatServerEvent.safeParse({ type: "mcp", ...env, servers }).success;
+
+	test("lists each server's name and one of five statuses", () => {
+		for (const status of ["connected", "starting", "failed", "needsAuth", "disabled"]) {
+			expect(ok([{ name: "docs", status }])).toBe(true);
+		}
+		expect(ok([])).toBe(true);
+		expect(ok([{ name: "docs", status: "broken" }])).toBe(false);
+	});
+
+	test("bounds names and the list, and has no room for an address or error", () => {
+		expect(ok([{ name: "", status: "failed" }])).toBe(false);
+		expect(ok([{ name: "n".repeat(64), status: "failed" }])).toBe(true);
+		expect(ok([{ name: "n".repeat(65), status: "failed" }])).toBe(false);
+		const list = (count: number) =>
+			Array.from({ length: count }, (_, index) => ({
+				name: `s${index}`,
+				status: "connected",
+			}));
+		expect(ok(list(MAX_CHAT_MCP_SERVERS))).toBe(true);
+		expect(ok(list(MAX_CHAT_MCP_SERVERS + 1))).toBe(false);
+		const parsed = ChatServerEvent.parse({
+			type: "mcp",
+			...env,
+			servers: [{ name: "docs", status: "failed", url: "https://x", error: "boom" }],
+		});
+		expect(parsed).toMatchObject({ servers: [{ name: "docs", status: "failed" }] });
+		expect(JSON.stringify(parsed)).not.toContain("https://x");
+		expect(JSON.stringify(parsed)).not.toContain("boom");
+	});
+});
+
+describe("sign-in", () => {
+	test("the host says signed in, signed out or unknown, and nothing about the account", () => {
+		for (const state of ["signedIn", "signedOut", "unknown"]) {
+			expect(ChatServerEvent.safeParse({ type: "signIn", ...env, state }).success).toBe(
+				true,
+			);
+		}
+		expect(
+			ChatServerEvent.safeParse({ type: "signIn", ...env, state: "expired" }).success,
+		).toBe(false);
+		const parsed = ChatServerEvent.parse({
+			type: "signIn",
+			...env,
+			state: "signedIn",
+			email: "student@example.edu",
+		});
+		expect(JSON.stringify(parsed)).not.toContain("student@example.edu");
+	});
+
+	test("the browser asks for a check with nothing else", () => {
+		expect(ChatClientMessage.safeParse({ type: "signIn.check" }).success).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({ type: "signIn.check", state: "x" }).success,
+		).toBe(false);
+	});
+});
+
+describe("switching agents", () => {
+	test("the browser asks for the other agent, and only a known one", () => {
+		expect(
+			ChatClientMessage.safeParse({ type: "agent.switch", agent: "codex" }).success,
+		).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({ type: "agent.switch", agent: "claude" }).success,
+		).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({ type: "agent.switch", agent: "gemini" }).success,
+		).toBe(false);
+		expect(ChatClientMessage.safeParse({ type: "agent.switch" }).success).toBe(false);
+		expect(
+			ChatClientMessage.safeParse({ type: "agent.switch", agent: "codex", x: 1 })
+				.success,
+		).toBe(false);
+	});
+
+	test("the host marks the swap with a divider event", () => {
+		const handoff = (change: object = {}) => ({
+			type: "handoff",
+			...env,
+			from: "claude",
+			to: "codex",
+			droppedTurns: 0,
+			...change,
+		});
+		expect(ChatServerEvent.safeParse(handoff()).success).toBe(true);
+		expect(ChatServerEvent.safeParse(handoff({ droppedTurns: 7 })).success).toBe(true);
+		expect(ChatServerEvent.safeParse(handoff({ droppedTurns: -1 })).success).toBe(
+			false,
+		);
+		expect(ChatServerEvent.safeParse(handoff({ droppedTurns: 1.5 })).success).toBe(
+			false,
+		);
+		expect(ChatServerEvent.safeParse(handoff({ to: "gemini" })).success).toBe(false);
+		expect(ChatServerEvent.safeParse(handoff({ from: undefined })).success).toBe(false);
+	});
+});
+
+describe("stored settings with an agent and Codex's own picks", () => {
+	const claude = { model: "sonnet", effort: "high", mode: "default" };
+	const codex = { model: "gpt-5.5", effort: "ultra", mode: "fullAccess" };
+
+	test("a row from before them still parses, with no agent (Claude) and no Codex object", () => {
+		expect(ChatLastSettings.safeParse(claude).success).toBe(true);
+		const stored = StoredChatSettings.parse(claude);
+		expect(stored.agent).toBeUndefined();
+		expect(stored.codex).toBeUndefined();
+	});
+
+	test("the browser may save the last agent and Codex's picks, strictly", () => {
+		expect(
+			ChatLastSettings.safeParse({ ...claude, agent: "codex", codex }).success,
+		).toBe(true);
+		expect(ChatLastSettings.safeParse({ ...claude, agent: "gemini" }).success).toBe(
+			false,
+		);
+		expect(
+			ChatLastSettings.safeParse({ ...claude, codex: { ...codex, extra: 1 } }).success,
+		).toBe(false);
+		expect(
+			ChatLastSettings.safeParse({ ...claude, codex: { model: "gpt-5.5" } }).success,
+		).toBe(false);
+	});
+
+	test("a stored value is read back, and an unreadable one is dropped", () => {
+		expect(
+			StoredChatSettings.parse({ ...claude, agent: "codex", codex }),
+		).toMatchObject({
+			agent: "codex",
+			codex,
+		});
+		const bad = StoredChatSettings.parse({
+			...claude,
+			agent: "gemini",
+			codex: { ...codex, effort: "No Good" },
+		});
+		expect(bad.agent).toBeUndefined();
+		expect(bad.codex).toBeUndefined();
+	});
+
+	test("Claude's Bypass is still never carried into a new chat", () => {
+		expect(
+			StoredChatSettings.parse({ ...claude, mode: "bypassPermissions" }).mode,
+		).toBe("auto");
 	});
 });

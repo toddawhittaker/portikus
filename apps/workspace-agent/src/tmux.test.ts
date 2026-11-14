@@ -10,15 +10,19 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { failingTmux } from "./test-support/failing-tmux.js";
 import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import {
 	attachArgs,
+	chatHostArgs,
+	chatHostCommand,
 	claimWindowSize,
 	closeSession,
 	createSession,
 	hasSession,
 	listPanes,
 	listSessions,
+	respawnChatHost,
 	SHELL_WRAPPER,
 	serverPid,
 	sessionName,
@@ -505,6 +509,127 @@ test.skipIf(!haveTmux)(
 		} finally {
 			await killServer(server.socketName);
 			daemon.kill();
+		}
+	},
+);
+
+test("a Codex chat tab's command names its agent before the chat it resumes", () => {
+	const id = "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b";
+	const old = "0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d";
+	expect(chatHostCommand(id, undefined, "codex").slice(2)).toEqual([
+		id,
+		"--agent=codex",
+	]);
+	expect(chatHostCommand(id, old, "codex").slice(2)).toEqual([
+		id,
+		"--agent=codex",
+		old,
+	]);
+	expect(chatHostCommand(id, old, "claude").slice(2)).toEqual([id, old]);
+	expect(() => chatHostCommand(id, "../x", "codex")).toThrow();
+});
+
+test("the chat host reads back its agent and the chat it resumes", () => {
+	const id = "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b";
+	const old = "0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d";
+	expect(chatHostArgs([id])).toEqual({
+		terminalId: id,
+		agent: "claude",
+		resumeChatOf: undefined,
+	});
+	expect(chatHostArgs([id, old])).toEqual({
+		terminalId: id,
+		agent: "claude",
+		resumeChatOf: old,
+	});
+	expect(chatHostArgs([id, "--agent=codex"])).toEqual({
+		terminalId: id,
+		agent: "codex",
+		resumeChatOf: undefined,
+	});
+	expect(chatHostArgs([id, "--agent=codex", old])).toEqual({
+		terminalId: id,
+		agent: "codex",
+		resumeChatOf: old,
+	});
+	expect(() => chatHostArgs(["../x"])).toThrow();
+	expect(() => chatHostArgs([id, "--agent=codex", "nope"])).toThrow();
+});
+
+test.skipIf(!haveTmux)(
+	"a chat swap runs the other agent's host in the same session, and the old agent's key leaves it",
+	async () => {
+		const id = "00000000-0000-4000-8000-000000009020";
+		const name = `pk-${id}`;
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER, {
+			command: ["sleep", "60"],
+			institutionalEnv: { ANTHROPIC_API_KEY: "claude-key" },
+		});
+		// The host itself does not run here; keep the pane to read what was started.
+		await run("tmux", [
+			"-L",
+			SOCKET_NAME,
+			"set-option",
+			"-t",
+			name,
+			"remain-on-exit",
+			"on",
+		]);
+		try {
+			await respawnChatHost(id, "codex", { OPENAI_API_KEY: "codex-key" }, SERVER);
+			expect(await hasSession(id, SERVER)).toBe(true);
+			const { stdout: started } = await run("tmux", [
+				"-L",
+				SOCKET_NAME,
+				"display-message",
+				"-p",
+				"-t",
+				name,
+				"#{pane_start_command}",
+			]);
+			expect(started).toContain(id);
+			expect(started).toContain("--agent=codex");
+			const { stdout: env } = await run("tmux", [
+				"-L",
+				SOCKET_NAME,
+				"show-environment",
+				"-t",
+				name,
+			]);
+			expect(env).not.toContain("claude-key");
+		} finally {
+			await closeSession(id, SERVER).catch(() => undefined);
+		}
+	},
+);
+
+test.skipIf(!haveTmux)(
+	"a chat swap that cannot take the old agent's key out of the session fails before starting the new host",
+	async () => {
+		const id = "00000000-0000-4000-8000-000000009021";
+		const name = `pk-${id}`;
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER, {
+			command: ["sleep", "60"],
+			institutionalEnv: { ANTHROPIC_API_KEY: "claude-key" },
+		});
+		const restore = await failingTmux("set-environment");
+		try {
+			await expect(
+				respawnChatHost(id, "codex", { OPENAI_API_KEY: "codex-key" }, SERVER),
+			).rejects.toMatchObject({ code: "TMUX_FAILED" });
+			const { stdout: started } = await run("tmux", [
+				"-L",
+				SOCKET_NAME,
+				"display-message",
+				"-p",
+				"-t",
+				name,
+				"#{pane_start_command}",
+			]);
+			expect(started).not.toContain("--agent=codex");
+		} finally {
+			restore();
+			await closeSession(id, SERVER).catch(() => undefined);
 		}
 	},
 );

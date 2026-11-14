@@ -33,11 +33,17 @@ export const AGENT_STATUS_TOPIC: HelpPart["topics"][number] = {
 					Select a row to go to its tab. In a chat, selecting a subagent shows its card
 					and opens a read-only view of its conversation. Use the arrow button beside a
 					project to hide or show its agents. Rows appear after the agent's first
-					report, and Codex shows no subagents.
+					report. A Codex subagent's row shows its type but no description, because
+					Codex gives none.
 				</li>
 				<li>
 					If you stop Claude Code with Esc, its tab keeps showing "working" until you
 					type your next prompt.
+				</li>
+				<li>
+					When Codex asks a question in a terminal, the tab shows "needs your input" and
+					you answer in the terminal. Unlike Claude Code's questions, the browser has no
+					card for it.
 				</li>
 			</ul>
 			<h4>Alerts</h4>

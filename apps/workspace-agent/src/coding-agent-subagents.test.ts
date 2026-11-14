@@ -119,6 +119,61 @@ describe("subagent rows", () => {
 		expect(states(b)).toEqual(["toolu_b:finished"]);
 	});
 
+	test("a Codex subagent shows its type, with no description, from its start to its stop", () => {
+		const b = board();
+		b.subagent(
+			post("subagent_start", 10, { agent_id: "cx-1", subagent_type: "explorer" }),
+		);
+		expect(rows(b)).toEqual([
+			{
+				id: "cx-1",
+				type: "explorer",
+				description: "",
+				state: "working",
+				since: NOW.toISOString(),
+			},
+		]);
+		b.subagent(post("subagent_stop", 20, { agent_id: "other" }));
+		expect(states(b)).toEqual(["cx-1:working"]);
+		b.subagent(post("subagent_stop", 30, { agent_id: "cx-1" }));
+		expect(states(b)).toEqual(["cx-1:finished"]);
+	});
+
+	test("a Codex subagent that finishes before its start arrives is finished at once", () => {
+		const b = board();
+		b.subagent(post("subagent_stop", 30, { agent_id: "cx-1" }));
+		b.subagent(
+			post("subagent_start", 10, { agent_id: "cx-1", subagent_type: "worker" }),
+		);
+		expect(states(b)).toEqual(["cx-1:finished"]);
+	});
+
+	test("a repeated start for the same Codex subagent adds no second row", () => {
+		const b = board();
+		b.subagent(post("subagent_start", 10, { agent_id: "cx-1" }));
+		b.subagent(post("subagent_start", 12, { agent_id: "cx-1" }));
+		expect(states(b)).toEqual(["cx-1:working"]);
+		// A start that arrives after the stop cannot bring a finished row back to work.
+		b.subagent(post("subagent_stop", 20, { agent_id: "cx-1" }));
+		b.subagent(post("subagent_start", 14, { agent_id: "cx-1" }));
+		expect(states(b)).toEqual(["cx-1:finished"]);
+	});
+
+	test("a start with no agent id adds no row", () => {
+		const b = board();
+		b.subagent(post("subagent_start", 10, { subagent_type: "explorer" }));
+		expect(rows(b)).toEqual([]);
+	});
+
+	test("the next prompt drops a finished Codex subagent and keeps a working one", () => {
+		const b = board();
+		b.subagent(post("subagent_start", 10, { agent_id: "cx-1" }));
+		b.subagent(post("subagent_start", 11, { agent_id: "cx-2" }));
+		b.subagent(post("subagent_stop", 15, { agent_id: "cx-2" }));
+		b.subagent(post("user_prompt_submit", 30));
+		expect(states(b)).toEqual(["cx-1:working"]);
+	});
+
 	test("a SubagentStop with no start adds no row", () => {
 		const b = board();
 		b.subagent(post("subagent_stop", 10, { agent_id: "ag1" }));
@@ -251,8 +306,24 @@ describe("POST /coding-agent-subagent", () => {
 		expect(rows(b)[0]?.description).toHaveLength(MAX_SUBAGENT_DESCRIPTION_CHARS);
 	});
 
+	test("a Codex start adds a row and answers 204; a start without an agent id answers 400", async () => {
+		const { app, b } = receiver();
+		const send = (payload: object) =>
+			app.inject({
+				method: "POST",
+				url: CODING_AGENT_SUBAGENT_PATH,
+				payload: { terminal: ID, event: "subagent_start", at, ...payload },
+			});
+		expect((await send({})).statusCode).toBe(400);
+		expect(rows(b)).toEqual([]);
+		const response = await send({ agent_id: "cx-1", subagent_type: "explorer" });
+		expect(response.statusCode).toBe(204);
+		expect(states(b)).toEqual(["cx-1:working"]);
+	});
+
 	test.each([
 		["an unknown field, such as a prompt", { prompt: "secret" }],
+		["a Codex reply", { last_assistant_message: "secret" }],
 		["an unknown event", { event: "session_start" }],
 		["a bad tool call id", { tool_use_id: "a b" }],
 		["a bad terminal", { terminal: "nope" }],

@@ -321,6 +321,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			panePipes,
 			terminalsExitPath: options.terminalsExitPath,
 			build: options.build,
+			chatSocketDir: options.chatSocketDir,
 		});
 		instance.register(terminalQuestionRoute, { questions });
 		instance.register(chatRoute, {

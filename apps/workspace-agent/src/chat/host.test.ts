@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,9 +20,15 @@ import {
 import { silentLogger } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { ChatEventBody } from "./agent.js";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
+import type { HandoffSegment } from "./handoff.js";
 import { ChatHost, type ChatSdk } from "./host.js";
-import { chatSessionsDir, recordChatSession } from "./session-record.js";
+import {
+	type ChatSwapState,
+	chatSessionsDir,
+	recordChatSession,
+} from "./session-record.js";
 import { readLines } from "./wire.js";
 
 const ID = "5d0f4a7e-0a51-4b8e-9d0e-6c3f1b2a9e10";
@@ -118,6 +124,21 @@ class FakeQuery {
 	async supportedModels() {
 		if (this.modelRows === null) throw new Error("unsupported");
 		return this.modelRows;
+	}
+	/** What `mcpServerStatus()` answers; null makes it fail. */
+	mcpRows: Record<string, unknown>[] | null = [];
+	mcpCalls = 0;
+	async mcpServerStatus() {
+		this.mcpCalls += 1;
+		if (this.mcpRows === null) throw new Error("unsupported");
+		return this.mcpRows;
+	}
+	/** A server asks the student for input, as the SDK's callback hears it. */
+	elicit(request: Record<string, unknown> = {}) {
+		return this.options.onElicitation?.(
+			{ serverName: "docs", message: "Your token?", ...request } as never,
+			{ signal: new AbortController().signal, requestId: "r1" },
+		);
 	}
 	close() {
 		this.ended = true;
@@ -227,7 +248,7 @@ function delta(text: string) {
 
 /** The stand-in SDK a host holds, so a test can slow or count one call. */
 function sdkOf(chat: ChatHost): ChatSdk {
-	return (chat as unknown as { sdk: ChatSdk }).sdk;
+	return (chat as unknown as { agent: { sdk: ChatSdk } }).agent.sdk;
 }
 
 function ofType<T extends ChatServerEvent["type"]>(client: Client, type: T) {
@@ -253,8 +274,9 @@ beforeEach(async () => {
 	await host.start();
 });
 
-function makeHost(): ChatHost {
+function makeHost(claudePath?: string): ChatHost {
 	return new ChatHost({
+		...(claudePath ? { claudePath } : {}),
 		terminalId: ID,
 		projectDir: join(dir, "projects", "demo"),
 		homeDir: dir,
@@ -393,7 +415,7 @@ describe("starting", () => {
 describe("attaching", () => {
 	test("the snapshot comes first, then history replayed as events, then the settings", async () => {
 		const client = await attach();
-		await vi.waitFor(() => expect(client.events.length).toBeGreaterThanOrEqual(5));
+		await vi.waitFor(() => expect(client.events.length).toBeGreaterThanOrEqual(7));
 		expect(client.events[0]).toEqual({
 			type: "snapshot",
 			sessionId: ID,
@@ -410,14 +432,15 @@ describe("attaching", () => {
 		]);
 		const seqs = client.events.map((event) => (event as { seq: number }).seq);
 		expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
-		expect(client.events[4]).toMatchObject({
+		expect(client.events[4]).toMatchObject({ type: "modes" });
+		expect(client.events[5]).toMatchObject({
 			type: "settings",
 			agent: "claude",
 			model: "opus",
 			effort: "medium",
 			mode: "auto",
 		});
-		expect(client.events[5]).toMatchObject({ type: "rules", rules: [] });
+		expect(client.events[6]).toMatchObject({ type: "rules", rules: [] });
 	});
 
 	test("events during the transcript read come after the replay, numbered in order, without doubling the partial reply", async () => {
@@ -1154,9 +1177,10 @@ describe("slash commands", () => {
 				description: "Shrink the conversation",
 				argumentHint: "[focus]",
 				terminalOnly: false,
+				prefix: "/",
 			},
-			{ name: "config", description: "Open settings", terminalOnly: true },
-			{ name: "deploy", description: "Ship it", terminalOnly: true },
+			{ name: "config", description: "Open settings", terminalOnly: true, prefix: "/" },
+			{ name: "deploy", description: "Ship it", terminalOnly: true, prefix: "/" },
 		]);
 	});
 
@@ -1195,6 +1219,7 @@ describe("slash commands", () => {
 				description: "Review a PR",
 				argumentHint: "<pr>",
 				terminalOnly: false,
+				prefix: "/",
 			},
 		]);
 		fake.emit({
@@ -1840,6 +1865,77 @@ describe("models", () => {
 		expect(ofType(a, "settings").at(-1)?.model).toBe("opus");
 	});
 
+	describe("a setting change the Claude host refuses", () => {
+		const refusal = async (
+			change: Record<string, string>,
+			message: string,
+			models: Record<string, unknown>[] = [
+				row("opus", { supportedEffortLevels: ["low", "medium"] }),
+			],
+		) => {
+			const fake = await startWith(models);
+			const a = await attach();
+			await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+			await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+			const before = fake.calls.length;
+			const settingsBefore = ofType(a, "settings").length;
+			a.send({ type: "set", ...change } as never);
+			await vi.waitFor(() =>
+				expect(ofType(a, "error").map((e) => e.message)).toContain(message),
+			);
+			// Nothing was stored, broadcast or passed to the SDK.
+			expect(fake.calls.length).toBe(before);
+			expect(ofType(a, "settings")).toHaveLength(settingsBefore);
+			return { fake, a };
+		};
+
+		test("a mode Claude does not offer", async () => {
+			await refusal({ mode: "onRequest" }, "Claude has no such permission mode.");
+		});
+
+		test("an effort the current model does not offer", async () => {
+			const { fake } = await refusal(
+				{ effort: "max" },
+				"This model does not offer that effort.",
+			);
+			expect(fake.flags.effortLevel).toBeUndefined();
+		});
+
+		test("an effort the SDK has no level for, even when the model lists it", async () => {
+			const { fake } = await refusal(
+				{ effort: "ultra" },
+				"This model does not offer that effort.",
+				[row("opus", { supportedEffortLevels: ["low", "ultra"] })],
+			);
+			expect(fake.calls.filter((call) => call.startsWith("effort:"))).toEqual([]);
+		});
+
+		test("a refused part leaves the rest of the change unapplied", async () => {
+			const { fake } = await refusal(
+				{ model: "opus", effort: "max" },
+				"This model does not offer that effort.",
+			);
+			expect(fake.calls).not.toContain("model:opus");
+		});
+
+		test("an effort is checked against the model it arrives with", async () => {
+			const fake = await startWith([
+				row("opus", { supportedEffortLevels: ["low", "medium"] }),
+				row("sonnet", { supportedEffortLevels: ["low", "max"] }),
+			]);
+			const a = await attach();
+			await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+			a.send({ type: "set", model: "sonnet", effort: "max" });
+			await vi.waitFor(() =>
+				expect(ofType(a, "settings").at(-1)).toMatchObject({
+					model: "sonnet",
+					effort: "max",
+				}),
+			);
+			expect(fake.calls).toContain("effort:max");
+		});
+	});
+
 	test("choosing a pinned version sets that exact value", async () => {
 		const a = await attach();
 		a.send({ type: "set", model: "claude-opus-4-8" });
@@ -2213,5 +2309,415 @@ describe("subagents", () => {
 				status: "error",
 			}),
 		);
+	});
+});
+
+describe("modes", () => {
+	test("a browser gets Claude's five modes before the settings", async () => {
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		const [modes] = ofType(a, "modes");
+		expect(modes?.modes.map((mode) => mode.id)).toEqual([
+			"default",
+			"acceptEdits",
+			"plan",
+			"auto",
+			"bypassPermissions",
+		]);
+		const types = a.events.map((event) => event.type);
+		expect(types.indexOf("modes")).toBeLessThan(types.indexOf("settings"));
+		expect(modes?.modes.find((mode) => mode.id === "bypassPermissions")?.warning).toBe(
+			true,
+		);
+		expect(modes?.modes.find((mode) => mode.id === "plan")?.plan).toBe(true);
+	});
+
+	test("the model list carries each model's efforts and default", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.modelRows = [
+			{
+				value: "opus",
+				displayName: "Opus",
+				description: "",
+				supportedEffortLevels: ["low", "medium", "high"],
+			},
+		];
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+		expect(ofType(a, "models")[0]?.models[0]).toMatchObject({
+			efforts: ["low", "medium", "high"],
+			defaultEffort: "medium",
+		});
+	});
+});
+
+describe("permission cards", () => {
+	test("each button carries its decision and a plan card carries the plan", async () => {
+		const SUGGESTION: PermissionUpdate[] = [
+			{
+				type: "addRules",
+				rules: [{ toolName: "Bash", ruleContent: "ls:*" }],
+				behavior: "allow",
+				destination: "session",
+			},
+		];
+		const a = await attach();
+		const fake = queries[0] as FakeQuery;
+		void fake.ask("Bash", { command: "ls" }, "toolu_b", SUGGESTION).result;
+		void fake.ask("ExitPlanMode", { plan: "1. Do it" }, "toolu_p").result;
+		await vi.waitFor(() => expect(ofType(a, "permission.requested")).toHaveLength(2));
+		const [bash, plan] = ofType(a, "permission.requested");
+		expect(bash?.options.map((o) => o.decision)).toEqual([
+			"allowed",
+			"allowedAlways",
+			"denied",
+		]);
+		expect(plan?.plan).toBe("1. Do it");
+		expect(plan?.options.map((o) => o.decision)).toEqual([
+			"allowed",
+			"allowed",
+			"denied",
+		]);
+		const late = await attach();
+		await vi.waitFor(() => expect(ofType(late, "snapshot")).toHaveLength(1));
+		const open = ofType(late, "snapshot")[0]?.cards ?? [];
+		expect(open.find((card) => card.id === "toolu_p")).toMatchObject({
+			plan: "1. Do it",
+		});
+	});
+});
+
+describe("sign-in", () => {
+	/** A stand-in Claude Code whose `auth status` reads its answer from a file the test sets. */
+	async function signInHost(loggedIn: boolean) {
+		const answer = join(dir, "auth.json");
+		const claude = join(dir, "claude");
+		await writeFile(answer, JSON.stringify({ loggedIn, email: "student@example.edu" }));
+		await writeFile(claude, `#!/bin/sh\ncat "${answer}"\n`);
+		await chmod(claude, 0o755);
+		await host.stop();
+		host = makeHost(claude);
+		await host.start();
+		return (next: boolean) =>
+			writeFile(
+				answer,
+				JSON.stringify({ loggedIn: next, email: "student@example.edu" }),
+			);
+	}
+
+	test("asks Claude Code at start, and again when the browser asks", async () => {
+		const answer = await signInHost(false);
+		const a = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual(["signedOut"]),
+		);
+		await answer(true);
+		a.send({ type: "signIn.check" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual([
+				"signedOut",
+				"signedIn",
+			]),
+		);
+		expect(JSON.stringify(a.events)).not.toContain("student@example.edu");
+	});
+
+	test("without Claude Code to ask, the state is unknown", async () => {
+		const a = await attach();
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual(["unknown"]),
+		);
+	});
+
+	test("a request that fails as not signed in shows the warning", async () => {
+		await signInHost(true);
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "signIn")).toHaveLength(1));
+		queries.at(-1)?.emit({
+			type: "assistant",
+			parent_tool_use_id: null,
+			session_id: ID,
+			uuid: randomUUID(),
+			error: "authentication_failed",
+			message: {
+				id: "msg-auth",
+				role: "assistant",
+				model: "<synthetic>",
+				content: [{ type: "text", text: "Not logged in · Please run /login" }],
+			},
+		} as never);
+		await vi.waitFor(() =>
+			expect(ofType(a, "signIn").map((e) => e.state)).toEqual([
+				"signedIn",
+				"signedOut",
+			]),
+		);
+	});
+});
+
+describe("MCP servers", () => {
+	const ROWS = [
+		{
+			name: "docs",
+			status: "connected",
+			config: { type: "http", url: "https://secret.example/mcp" },
+			error: "token abc",
+			tools: [{ name: "search" }],
+		},
+		{ name: "db", status: "pending" },
+		{ name: "git", status: "failed", error: "spawn ENOENT" },
+		{ name: "cloud", status: "needs-auth" },
+		{ name: "old", status: "disabled" },
+	];
+
+	test("the list is sent at start as names and statuses only", async () => {
+		await host.stop();
+		queries = [];
+		const rows = ROWS;
+		const starting = makeHost();
+		host = starting;
+		// The stand-in query answers from its own field, set before the first read.
+		const original = sdkOf(starting).query;
+		sdkOf(starting).query = ((params) => {
+			const query = original(params) as unknown as FakeQuery;
+			query.mcpRows = rows;
+			return query as unknown as Query;
+		}) as ChatSdk["query"];
+		await starting.start();
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "mcp")).toHaveLength(1));
+		expect(ofType(a, "mcp")[0]?.servers).toEqual([
+			{ name: "docs", status: "connected" },
+			{ name: "db", status: "starting" },
+			{ name: "git", status: "failed" },
+			{ name: "cloud", status: "needsAuth" },
+			{ name: "old", status: "disabled" },
+		]);
+		const wire = JSON.stringify(a.events);
+		expect(wire).not.toContain("secret.example");
+		expect(wire).not.toContain("ENOENT");
+		expect(wire).not.toContain("search");
+	});
+
+	test("it is read again after each turn, and a change reaches every browser", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		const b = await attach();
+		const before = fake.mcpCalls;
+		fake.mcpRows = [{ name: "docs", status: "failed" }];
+		fake.emit({ type: "result", subtype: "success", is_error: false, num_turns: 1 });
+		await vi.waitFor(() => expect(fake.mcpCalls).toBeGreaterThan(before));
+		for (const client of [a, b]) {
+			await vi.waitFor(() =>
+				expect(ofType(client, "mcp").at(-1)?.servers).toEqual([
+					{ name: "docs", status: "failed" },
+				]),
+			);
+		}
+	});
+
+	test("/mcp reads the servers and sends the list, with no turn and no message", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		fake.mcpRows = [{ name: "docs", status: "connected" }];
+		a.send({ type: "send", text: "/mcp", attachments: [] });
+		await vi.waitFor(() =>
+			expect(ofType(a, "mcp").at(-1)?.servers).toEqual([
+				{ name: "docs", status: "connected" },
+			]),
+		);
+		const before = a.events.length;
+		expect(fake.sent).toEqual([]);
+		expect(a.events.slice(before - 1).map((event) => event.type)).not.toContain(
+			"turn.started",
+		);
+		expect(ofType(a, "message").map((m) => m.id)).toEqual(["u1"]);
+	});
+
+	test("/mcp works while a turn runs, and with trailing spaces", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		a.send({ type: "send", text: "work", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(1));
+		fake.mcpRows = [{ name: "git", status: "pending" }];
+		a.send({ type: "send", text: "/mcp  ", attachments: [] });
+		await vi.waitFor(() =>
+			expect(ofType(a, "mcp").at(-1)?.servers).toEqual([
+				{ name: "git", status: "starting" },
+			]),
+		);
+		expect(fake.sent).toHaveLength(1);
+	});
+
+	test("a read that fails keeps the last list, and /mcp tells the sender", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		const b = await attach();
+		fake.mcpRows = [{ name: "docs", status: "connected" }];
+		a.send({ type: "send", text: "/mcp", attachments: [] });
+		await vi.waitFor(() => expect(ofType(a, "mcp")).toHaveLength(1));
+		fake.mcpRows = null;
+		a.send({ type: "send", text: "/mcp", attachments: [] });
+		await vi.waitFor(() =>
+			expect(ofType(a, "error").at(-1)?.message).toBe(
+				"Could not read the MCP servers.",
+			),
+		);
+		expect(ofType(a, "mcp")).toHaveLength(1);
+		expect(ofType(b, "error")).toEqual([]);
+	});
+
+	test("an MCP server asking for input is declined, and the chat is told to use a terminal", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		const b = await attach();
+		await expect(fake.elicit()).resolves.toEqual({ action: "decline" });
+		await expect(fake.elicit({ mode: "url", url: "https://x.test" })).resolves.toEqual({
+			action: "decline",
+		});
+		for (const client of [a, b]) {
+			await vi.waitFor(() => expect(ofType(client, "error")).toHaveLength(2));
+			expect(ofType(client, "error")[0]?.message).toBe(
+				"An MCP server asked for input. Use a terminal tab to answer it.",
+			);
+		}
+		expect(JSON.stringify(a.events)).not.toContain("Your token?");
+	});
+});
+
+describe("agent swaps", () => {
+	const HANDOFF = "0f6b6f3e-6a4c-4b7c-9d1e-2f3a4b5c6d7e";
+	const LOG: HandoffSegment[] = [
+		{ agent: "claude", turns: [{ user: "c1", reply: "claude said", tools: [] }] },
+		{ agent: "codex", turns: [{ user: "x1", reply: "codex said", tools: ["Run ls"] }] },
+	];
+
+	function state(handoff: ChatSwapState["handoff"]): ChatSwapState {
+		return { sessions: {}, earlier: [], truncated: false, log: LOG, handoff };
+	}
+
+	async function swapHost(swap: { state: ChatSwapState; switched: boolean }) {
+		await host.stop();
+		queries = [];
+		host = new ChatHost({
+			terminalId: ID,
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async () => undefined,
+			sdk: sdk(),
+			swap,
+		});
+		await host.start();
+	}
+
+	function sentText(index: number): string {
+		const content = queries[0]?.sent[index]?.message.content as { text?: string }[];
+		return content.map((block) => block.text ?? "").join("");
+	}
+
+	test("a fresh Claude session takes the whole conversation with the first prompt, once", async () => {
+		exists = false;
+		transcript = async () => [];
+		await swapHost({ state: state(null), switched: true });
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "handoff")).toHaveLength(1));
+		a.send({ type: "send", text: "go on", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		const first = sentText(0);
+		expect(first.startsWith('<portikus-handoff id="')).toBe(true);
+		expect(first).toContain("Student: c1");
+		expect(first).toContain("Codex: codex said");
+		expect(first).toContain("[Codex used these tools, summarised: Run ls]");
+		expect(first.endsWith("go on")).toBe(true);
+		// The student sees only what they wrote.
+		await vi.waitFor(() =>
+			expect(ofType(a, "message").at(-1)).toMatchObject({ markdown: "go on" }),
+		);
+		a.send({ type: "send", text: "again", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(2));
+		expect(sentText(1)).toBe("again");
+	});
+
+	test("resuming its own session, Claude is told only what was said since it last spoke", async () => {
+		exists = true;
+		await swapHost({ state: state(null), switched: true });
+		const a = await attach();
+		a.send({ type: "send", text: "go on", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toContain("Student: x1");
+		expect(sentText(0)).not.toContain("Student: c1");
+	});
+
+	test("a slash command waits; the handoff goes with the next message", async () => {
+		await swapHost({ state: state(null), switched: true });
+		const a = await attach();
+		a.send({ type: "send", text: "/compact", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toBe("/compact");
+	});
+
+	const MARKED = (text: string): SessionMessage =>
+		({
+			type: "user",
+			uuid: "u-marked",
+			session_id: ID,
+			message: {
+				role: "user",
+				content: `<portikus-handoff id="${HANDOFF}">\nStudent: x1\n</portikus-handoff>\n\n${text}`,
+			},
+			parent_tool_use_id: null,
+			parent_agent_id: null,
+			timestamp: "2026-11-07T11:00:00.000Z",
+		}) as SessionMessage;
+
+	test("after a restart the handoff already sent is not sent again, and the replay starts where it landed, without it", async () => {
+		exists = true;
+		transcript = async () => [...EARLIER, MARKED("go on")];
+		await swapHost({
+			state: state({ id: HANDOFF, from: "codex", droppedTurns: 0 }),
+			switched: false,
+		});
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings").length).toBeGreaterThan(0));
+		// The turn before the swap is the earlier part's to show, not the session's.
+		expect(ofType(a, "message").map((event) => event.markdown)).toEqual(["go on"]);
+		a.send({ type: "send", text: "next", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toBe("next");
+	});
+
+	test("while the handoff is unsent, the session's own part is empty, and the handoff waits", async () => {
+		exists = true;
+		transcript = async () => EARLIER;
+		await swapHost({
+			state: state({ id: HANDOFF, from: "codex", droppedTurns: 0 }),
+			switched: false,
+		});
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings").length).toBeGreaterThan(0));
+		expect(ofType(a, "message")).toEqual([]);
+		a.send({ type: "send", text: "next", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toContain(`<portikus-handoff id="${HANDOFF}">`);
+	});
+
+	test("the next swap hands on Claude's whole part, past the replay limit", async () => {
+		exists = true;
+		transcript = async () => [...EARLIER, MARKED("go on")];
+		await swapHost({
+			state: state({ id: HANDOFF, from: "codex", droppedTurns: 0 }),
+			switched: false,
+		});
+		const agent = (
+			host as unknown as { agent: { transcript(): Promise<ChatEventBody[]> } }
+		).agent;
+		const events = await agent.transcript();
+		expect(
+			events.filter((event) => event.type === "message").map((event) => event.markdown),
+		).toEqual(["go on"]);
 	});
 });

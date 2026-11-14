@@ -6,7 +6,12 @@
  * keyboard from where the student is typing: an Enter meant for a message
  * must not grant a permission.
  */
-import type { ChatOpenCard } from "@portikus/contracts";
+import {
+	type ChatOpenCard,
+	CODING_AGENT_LABEL,
+	type CodingAgent,
+	Terminal,
+} from "@portikus/contracts";
 import { IconButton, Skeleton } from "@portikus/ui";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import {
@@ -20,16 +25,21 @@ import {
 	useState,
 } from "react";
 import { useStore } from "zustand";
+import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
+import { sendJson } from "../api/request.js";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { LayoutStoreContext } from "../layout/store.js";
 import { useProjects } from "../projects/queries.js";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
+import { useTerminals } from "../terminal/useTerminals.js";
 import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
-import type { ChatState } from "./chatStore.js";
+import { AgentSwitchReported } from "./ComposerPickers.js";
+import { ChatAgentContext } from "./chatAgent.js";
+import { type ChatState, isEmptyChat } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { type FileOpener, MessageList } from "./MessageList.js";
-import { PermissionCard } from "./PermissionCard.js";
+import { PermissionCard, permissionHeading } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
 import {
 	overlayOpen,
@@ -39,6 +49,7 @@ import {
 } from "./readAloud.js";
 import { useToolReveal } from "./revealTool.js";
 import { SessionRules } from "./SessionRules.js";
+import { SignInBanner } from "./SignInBanner.js";
 import { SubagentPanel } from "./SubagentPanel.js";
 import {
 	SubagentOpenerContext,
@@ -62,13 +73,19 @@ export interface ChatViewProps {
 	onLeave: () => void;
 }
 
+/** The chat's agent as a speaker: "Claude", "Codex"; Claude until the host says. */
+function agentOf(state: ChatState): CodingAgent {
+	return state.settings?.agent ?? "claude";
+}
+
 function announcement(state: ChatState): string {
+	const name = CODING_AGENT_LABEL[agentOf(state)];
 	const card = state.cards[0];
 	if (card) {
 		const waiting = state.cards.length - 1;
 		return waiting > 0
-			? `${cardAnnouncement(card)} ${waitingText(waiting)}`
-			: cardAnnouncement(card);
+			? `${cardAnnouncement(card, name)} ${waitingText(waiting)}`
+			: cardAnnouncement(card, name);
 	}
 	// A command is not a turn: its end is said when it is the newest thing in the chat.
 	const newest = state.items.at(-1);
@@ -78,23 +95,23 @@ function announcement(state: ChatState): string {
 			? "Command finished."
 			: `Command failed with exit code ${newest.exitCode}.`;
 	}
-	if (state.currentTurnId !== null) return "Claude is working.";
+	if (state.currentTurnId !== null) return `${name} is working.`;
 	const last = Object.values(state.turns).at(-1);
-	if (last?.status === "done") return "Claude finished.";
-	if (last?.status === "interrupted") return "Claude stopped.";
-	if (last?.status === "error") return "Claude's turn failed.";
+	if (last?.status === "done") return `${name} finished.`;
+	if (last?.status === "interrupted") return `${name} stopped.`;
+	if (last?.status === "error") return `${name}'s turn failed.`;
 	return "";
 }
 
-function cardAnnouncement(card: ChatOpenCard): string {
+function cardAnnouncement(card: ChatOpenCard, name: string): string {
 	if (card.type === "permission") {
-		return card.toolName === "ExitPlanMode"
-			? "Claude has a plan for you to review."
-			: `Claude wants to use ${card.toolName}.`;
+		// The words of the card's heading, said as a sentence unless it asks.
+		const heading = permissionHeading(card, name);
+		return heading.endsWith("?") ? heading : `${heading}.`;
 	}
 	return card.questions.length === 1
-		? `Claude has a question: ${card.questions[0]?.question ?? ""}`
-		: `Claude has ${card.questions.length} questions.`;
+		? `${name} has a question: ${card.questions[0]?.question ?? ""}`
+		: `${name} has ${card.questions.length} questions.`;
 }
 
 const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
@@ -147,6 +164,69 @@ function useFileOpener(workspaceId: string, projectId: string): FileOpener | nul
 	);
 }
 
+/**
+ * Swap the other agent into this chat (SPEC.md §10.8). An empty chat is
+ * replaced by a new chat of the other agent, through the same create and
+ * close a New chat uses: with nothing said yet, nothing is lost. A chat with
+ * history keeps its tab: the API swaps its agent in place, handing over the
+ * conversation, and the chat reconnects to the new agent. Null outside a
+ * work area.
+ */
+function useAgentSwitch(
+	workspaceId: string,
+	projectId: string,
+	terminalId: string,
+	empty: boolean,
+): ((agent: CodingAgent) => Promise<void>) | null {
+	const layout = useContext(LayoutStoreContext);
+	// The work area polls the list; this only creates, changes and closes.
+	const terminals = useTerminals(workspaceId, projectId, false);
+	if (layout === null) return null;
+	if (!empty) {
+		return async (agent) => {
+			await sendJson(
+				Terminal,
+				`/workspaces/${workspaceId}/terminals/${terminalId}`,
+				{ agent },
+				"PATCH",
+			);
+			// The left pane and a reload follow the tab's new agent.
+			terminals.refetch();
+		};
+	}
+	return async (agent) => {
+		// A failed create is the hook's toast; this chat stays, and says no more.
+		const created = await terminals
+			.create({ kind: "chat", agent })
+			.catch(() => Promise.reject(new AgentSwitchReported()));
+		layout.getState().replaceLeaf(terminalId, created.id);
+		layout.getState().setFocused(created.id);
+		void terminals.close(terminalId).catch(() => {});
+		terminals.refetch();
+	};
+}
+
+/**
+ * Open the agent's own terminal in a new tab with the keyboard in it, where
+ * the student signs in (SPEC.md §10.2). Null outside a work area.
+ */
+function useAgentTerminal(
+	workspaceId: string,
+	projectId: string,
+): ((agent: CodingAgent) => Promise<void>) | null {
+	const layout = useContext(LayoutStoreContext);
+	const terminals = useTerminals(workspaceId, projectId, false);
+	if (layout === null) return null;
+	return async (agent) => {
+		// A failed create is the hook's toast.
+		const created = await terminals.create({ agent }).catch(() => null);
+		if (!created) return;
+		layout.getState().addTab(created.id);
+		layout.getState().setFocused(created.id);
+		terminals.refetch();
+	};
+}
+
 function ChatViewBody({
 	workspaceId,
 	projectId,
@@ -159,6 +239,14 @@ function ChatViewBody({
 	const state = useStore(store);
 	const readAloud = useReadAloud(workspaceId, projectId);
 	const opener = useFileOpener(workspaceId, projectId);
+	const switchAgent = useAgentSwitch(
+		workspaceId,
+		projectId,
+		terminalId,
+		isEmptyChat(state),
+	);
+	const openAgentTerminal = useAgentTerminal(workspaceId, projectId);
+	const program = CODING_AGENT_NAME[agentOf(state)];
 	useReadNewReplies(store, readAloud.on, visible);
 	useStopWhenLeaving(store, visible);
 	const root = useRef<HTMLDivElement | null>(null);
@@ -313,155 +401,173 @@ function ChatViewBody({
 	const cardKey = card ? `${card.id}:${state.snapshotAt}` : "";
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: one shortcut for the whole chat, as a terminal has
-		<div
-			ref={root}
-			className="pk-chat"
-			data-testid={`chat-view-${terminalId}`}
-			onKeyDown={(event) => {
-				// Escape stops the speech, unless a menu or dialog is open and it is theirs.
-				if (event.key === "Escape" && speakingId() !== null && !overlayOpen()) {
-					stopReading();
-				}
-				if (!isLeaveShortcut(event.nativeEvent)) return;
-				event.preventDefault();
-				onLeave();
-			}}
-		>
-			<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
-				<div
-					ref={log}
-					className="pk-chat-scroll"
-					data-testid="chat-scroll"
-					onScroll={follow.onScroll}
-					// The subagent card floats over the log; the keyboard stays out from behind it.
-					inert={subagent !== null}
+		// The conversation's byline, cards and notes name this chat's agent.
+		<ChatAgentContext.Provider value={state.settings?.agent ?? "claude"}>
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: one shortcut for the whole chat, as a terminal has */}
+			<div
+				ref={root}
+				className="pk-chat"
+				data-testid={`chat-view-${terminalId}`}
+				onKeyDown={(event) => {
+					// Escape stops the speech, unless a menu or dialog is open and it is theirs.
+					if (event.key === "Escape" && speakingId() !== null && !overlayOpen()) {
+						stopReading();
+					}
+					if (!isLeaveShortcut(event.nativeEvent)) return;
+					event.preventDefault();
+					onLeave();
+				}}
+			>
+				<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
+					<div
+						ref={log}
+						className="pk-chat-scroll"
+						data-testid="chat-scroll"
+						onScroll={follow.onScroll}
+						// The subagent card floats over the log; the keyboard stays out from behind it.
+						inert={subagent !== null}
+					>
+						<div ref={content} className="pk-chat-column">
+							{!state.loaded ? (
+								<div className="pk-chat-loading" data-testid="chat-loading">
+									<span className="sr-only">Loading the conversation…</span>
+									<Skeleton lines={3} width="60%" />
+								</div>
+							) : state.items.length === 0 && state.currentTurnId === null ? (
+								<div className="pk-chat-empty" data-testid="chat-empty">
+									<p className="pk-chat-empty-title">No messages yet</p>
+									<p className="pk-chat-muted">
+										Ask {program} about this project below, or start from one of these.
+										The conversation is kept in your workspace, not by Portikus.
+									</p>
+									<ul className="pk-chat-starters">
+										{STARTERS.map((starter) => (
+											<li key={starter}>
+												<button
+													type="button"
+													className="pk-chat-starter pk-focus-ring"
+													onClick={() => fillComposer(starter)}
+												>
+													{starter}
+												</button>
+											</li>
+										))}
+									</ul>
+								</div>
+							) : (
+								<SubagentOpenerContext.Provider value={openSubagent}>
+									<MessageList
+										items={state.items}
+										turns={state.turns}
+										currentTurnId={state.currentTurnId}
+										truncated={state.truncated}
+										asking={asking}
+										opener={opener}
+									/>
+								</SubagentOpenerContext.Provider>
+							)}
+						</div>
+					</div>
+					{subagent ? (
+						<SubagentPanel
+							chat={store}
+							target={subagent}
+							opener={opener}
+							onClose={() => setSubagent(null)}
+						/>
+					) : null}
+					{follow.away && !subagent ? (
+						<div className="pk-chat-jump">
+							<IconButton
+								icon="chevron-down"
+								label="Jump to latest"
+								variant="secondary"
+								className="pk-chat-jump-button"
+								data-testid="chat-jump"
+								data-fresh={follow.fresh || undefined}
+								aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
+								onClick={jumpToLatest}
+							/>
+							{follow.fresh ? (
+								<>
+									<span className="pk-chat-jump-dot" aria-hidden={true} />
+									<span id={`${ids}-fresh`} className="sr-only">
+										Something new arrived below
+									</span>
+								</>
+							) : null}
+						</div>
+					) : null}
+				</div>
+				<p
+					className="pk-chat-notice"
+					role="status"
+					aria-live="polite"
+					data-testid="chat-connection"
 				>
-					<div ref={content} className="pk-chat-column">
-						{!state.loaded ? (
-							<div className="pk-chat-loading" data-testid="chat-loading">
-								<span className="sr-only">Loading the conversation…</span>
-								<Skeleton lines={3} width="60%" />
-							</div>
-						) : state.items.length === 0 && state.currentTurnId === null ? (
-							<div className="pk-chat-empty" data-testid="chat-empty">
-								<p className="pk-chat-empty-title">No messages yet</p>
-								<p className="pk-chat-muted">
-									Ask Claude Code about this project below, or start from one of these.
-									The conversation is kept in your workspace, not by Portikus.
-								</p>
-								<ul className="pk-chat-starters">
-									{STARTERS.map((starter) => (
-										<li key={starter}>
-											<button
-												type="button"
-												className="pk-chat-starter pk-focus-ring"
-												onClick={() => fillComposer(starter)}
-											>
-												{starter}
-											</button>
-										</li>
-									))}
-								</ul>
-							</div>
+					{notice}
+				</p>
+				{card ? (
+					// biome-ignore lint/a11y/noStaticElementInteractions: only notes where focus was; the cards hold the controls
+					<div
+						className="pk-chat-cards"
+						data-testid="chat-cards"
+						onFocus={() => {
+							cardsHadFocus.current = true;
+						}}
+					>
+						{card.type === "question" ? (
+							<QuestionCard
+								key={cardKey}
+								card={card}
+								takeFocus={takeFocus}
+								waiting={waiting}
+								onAnswer={(answers, notes) =>
+									store.getState().answerQuestion(card.id, answers, notes)
+								}
+							/>
 						) : (
-							<SubagentOpenerContext.Provider value={openSubagent}>
-								<MessageList
-									items={state.items}
-									turns={state.turns}
-									currentTurnId={state.currentTurnId}
-									truncated={state.truncated}
-									asking={asking}
-									opener={opener}
-								/>
-							</SubagentOpenerContext.Provider>
+							<PermissionCard
+								key={cardKey}
+								card={card}
+								takeFocus={takeFocus}
+								waiting={waiting}
+								onAnswer={(optionId, extras) =>
+									store.getState().answerPermission(card.id, optionId, extras)
+								}
+							/>
 						)}
 					</div>
-				</div>
-				{subagent ? (
-					<SubagentPanel
-						chat={store}
-						target={subagent}
-						opener={opener}
-						onClose={() => setSubagent(null)}
+				) : null}
+				<SessionRules store={store} />
+				<div className="pk-chat-composer">
+					{state.signIn === "signedOut" && state.settings ? (
+						<SignInBanner
+							store={store}
+							agent={state.settings.agent}
+							onOpenTerminal={
+								openAgentTerminal
+									? () => {
+											const agent = state.settings?.agent;
+											if (agent) void openAgentTerminal(agent);
+										}
+									: undefined
+							}
+						/>
+					) : null}
+					<Composer
+						store={store}
+						readAloud={readAloud}
+						workspaceId={workspaceId}
+						projectId={projectId}
+						terminalId={terminalId}
+						onSwitchAgent={switchAgent ?? undefined}
 					/>
-				) : null}
-				{follow.away && !subagent ? (
-					<div className="pk-chat-jump">
-						<IconButton
-							icon="chevron-down"
-							label="Jump to latest"
-							variant="secondary"
-							className="pk-chat-jump-button"
-							data-testid="chat-jump"
-							data-fresh={follow.fresh || undefined}
-							aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
-							onClick={jumpToLatest}
-						/>
-						{follow.fresh ? (
-							<>
-								<span className="pk-chat-jump-dot" aria-hidden={true} />
-								<span id={`${ids}-fresh`} className="sr-only">
-									Something new arrived below
-								</span>
-							</>
-						) : null}
-					</div>
-				) : null}
-			</div>
-			<p
-				className="pk-chat-notice"
-				role="status"
-				aria-live="polite"
-				data-testid="chat-connection"
-			>
-				{notice}
-			</p>
-			{card ? (
-				// biome-ignore lint/a11y/noStaticElementInteractions: only notes where focus was; the cards hold the controls
-				<div
-					className="pk-chat-cards"
-					data-testid="chat-cards"
-					onFocus={() => {
-						cardsHadFocus.current = true;
-					}}
-				>
-					{card.type === "question" ? (
-						<QuestionCard
-							key={cardKey}
-							card={card}
-							takeFocus={takeFocus}
-							waiting={waiting}
-							onAnswer={(answers, notes) =>
-								store.getState().answerQuestion(card.id, answers, notes)
-							}
-						/>
-					) : (
-						<PermissionCard
-							key={cardKey}
-							card={card}
-							takeFocus={takeFocus}
-							waiting={waiting}
-							onAnswer={(optionId, extras) =>
-								store.getState().answerPermission(card.id, optionId, extras)
-							}
-						/>
-					)}
 				</div>
-			) : null}
-			<SessionRules store={store} />
-			<div className="pk-chat-composer">
-				<Composer
-					store={store}
-					readAloud={readAloud}
-					workspaceId={workspaceId}
-					projectId={projectId}
-					terminalId={terminalId}
-				/>
+				<p className="sr-only" aria-live="polite" data-testid="chat-announcer">
+					{announcement(state)}
+				</p>
 			</div>
-			<p className="sr-only" aria-live="polite" data-testid="chat-announcer">
-				{announcement(state)}
-			</p>
-		</div>
+		</ChatAgentContext.Provider>
 	);
 }

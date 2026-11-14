@@ -37,24 +37,25 @@ To start working:
 
 ![The New project dialog, with the project name Budget Tracker and the folder it will get](images/student-new-project.png)
 
-### The five New tab choices
+### The six New tab choices
 
-The **+** at the end of the tab bar, named New tab, offers five choices.
-The first four open in the project's folder:
+The **+** at the end of the tab bar, named New tab, offers six choices.
+The first five open in the project's folder:
 
 - **Terminal**: a Linux shell.
+- **Claude Code (GUI)**: Claude Code as a chat tab, with formatted replies,
+  buttons and options. GUI means graphical user interface.
 - **Claude Code (TUI)**: Claude Code in a terminal. TUI means text user
   interface: the program draws itself with text.
-- **Claude Code (GUI)**: Claude Code as a chat tab, with formatted replies,
-  buttons and pickers. GUI means graphical user interface.
-- **Codex**: OpenAI's coding agent, in a terminal.
+- **Codex (GUI)**: OpenAI's coding agent as a chat tab, like Claude Code (GUI).
+- **Codex (TUI)**: Codex in a terminal.
 - **Preview**: opens a web app that is running in your project in a tab
   inside Portikus.
 
 If your course uses the Traditional profile, it hides the Claude Code and
 Codex choices, and only **Terminal** and **Preview** are there.
 
-![The New tab menu: Terminal, Claude Code (TUI), Claude Code (GUI), Codex and Preview](images/student-new-tab-menu.png)
+![The New tab menu: Terminal, Claude Code (GUI), Claude Code (TUI), Codex (GUI), Codex (TUI) and Preview](images/student-new-tab-menu.png)
 
 ## The workspace layout
 
@@ -153,15 +154,18 @@ microphone.
 Claude Code and Codex are coding agents: programs that read your code, run
 commands and change files when you ask them in plain language. Sign in to
 each one inside the workspace, as you would on your own computer. Portikus
-never sees your sign-in.
+never sees your sign-in. If a GUI chat finds you are not signed in, a
+warning above its message box says so. Choose **Open Claude Code (TUI)** or
+**Open Codex (TUI)**, sign in in the terminal tab that opens, then choose
+**Check again**. You can still send a message while the warning shows.
 
-- **Claude Code (TUI)** and **Codex** run in a terminal tab. Everything in
-  [Terminals](#terminals) applies to them, voice input included.
-- **Claude Code (GUI)** is a chat tab, described next.
+- **Claude Code (TUI)** and **Codex (TUI)** run in a terminal tab. Everything
+  in [Terminals](#terminals) applies to them, voice input included.
+- **Claude Code (GUI)** and **Codex (GUI)** are chat tabs, described next.
 
-Do not run a GUI tab and a TUI terminal on the same Claude session at once.
-After a chat tab is closed, running `claude --resume` in a terminal
-continues it.
+Do not run a GUI tab and a TUI terminal on the same Claude or Codex session
+at once. After a Claude chat tab is closed, running `claude --resume` in a
+terminal continues it.
 
 ### The chat tab
 
@@ -177,16 +181,20 @@ as you type: stars for bold and italic, backticks for code, and a dash, a
 `#` or three backticks at the start of a line for a list, a heading or a
 code block. You can paste, drop or attach images. Pasting more than 40
 lines attaches them as a text file; paste again straight away to put them
-in the box instead. Up in an empty box brings back your last message, and
-Esc stops Claude.
+in the box instead. Up and Down go back and forward through the messages
+you sent in this chat, like a shell: Up works with the cursor on the box's
+first line (an empty box counts), and Down on its last line. Down past
+your newest message gives back what you were typing, and an open `/` or `@`
+menu keeps the arrow keys. Esc stops Claude.
 
-**The pickers**, beside the box, choose the model, the effort and the
-permission mode. A new chat starts with what you last chose in that
+**Chat options** is the button under the message box that summarises your
+choices, such as "Opus · Medium · Auto". It opens a panel where you choose
+the agent, the model, the effort and the permission mode. A new chat starts with what you last chose in that
 project, except that **Bypass permissions**, which lets Claude act without
 asking, is never carried over; a new chat starts in Auto instead. A warning
 shows while Bypass permissions is on.
 
-The Permissions picker has five modes:
+The Permissions choice has five modes:
 
 - **Ask** asks before Claude edits files or runs commands.
 - **Accept edits** lets it edit files on its own but asks before commands.
@@ -198,11 +206,11 @@ The Permissions picker has five modes:
 **The `/` and `@` menus.** Type `/` at the start of a message to see
 Claude's commands, or `@` anywhere to pick a project file. The arrow keys
 move, Enter inserts and Escape closes the list. Commands that only work in
-the terminal are greyed out; `/model` and `/effort` open the pickers
+the terminal are greyed out; `/model` and `/effort` open Chat options
 instead. The `@` list shows files only, and skips files your `.gitignore`
 leaves out.
 
-![The message box with the / menu open above the model, effort and permission pickers](images/student-chat-composer.png)
+![The message box with the / menu open above the Chat options button, which summarises the model, effort and permission mode](images/student-chat-composer.png)
 
 **Shell commands.** Start a message with `!` to run it as a shell command
 in the project folder. The box shows a Shell label while you type it. The
@@ -218,20 +226,20 @@ Esc, ends a command that is still running.
 only on the card, never while you type. **Deny** opens a line, "Tell
 Claude what to do instead": type a reason and press Enter, or press Enter
 with nothing typed to deny without one. Escape goes back to the buttons.
-When you have chosen "Always allow" for something, a line under the pickers
+When you have chosen "Always allow" for something, a line in Chat options
 says so, and the list "Allowed without asking in this session" lets you
 revoke each rule.
 
 **Plan mode.** When Claude offers a plan, choose **Yes, and accept edits**
 to let it change files without asking, **Yes, and ask before edits** to
 approve each change, or **No, keep planning**, which also opens the reason
-line. Your choice sets the Permissions picker.
+line. Your choice sets the Permissions choice.
 
 **Sending while Claude works.** You can still send a message; Claude reads
 it at its next step and it is marked "Sent while Claude was working". If
 Claude does not act on it, stop Claude and send it again.
 
-**Memory and changed files.** Under the pickers, Portikus shows how full
+**Memory and changed files.** Under the Chat options button, Portikus shows how full
 Claude's memory of the chat is once it passes half, and how long until the
 prompt cache goes cold. While the cache is warm, your next message is
 faster and uses less of your limit. When the memory is high, type
@@ -240,7 +248,7 @@ Claude edits files, a line under its reply says how many changed; open it
 to see each file.
 
 **Read aloud.** A speaker button under each reply reads it aloud; press it
-again to stop. Turn on **Read replies aloud** beside the pickers to hear the
+again to stop. Turn on **Read replies aloud** in Chat options to hear the
 last reply of each turn. Escape, sending a message or leaving the tab stops
 the speech, and code blocks are read as "code block". Your browser makes
 the voice. If it has only an online voice for your language, such as
@@ -251,6 +259,33 @@ spoken.
 When the workspace has stopped and started again, choose **Resume chat** on
 the ended tab to carry on. A reply still being written when the workspace
 stopped is lost.
+
+### Codex in the chat tab
+
+**Codex (GUI)** works like the Claude Code chat tab: the same rows, cards,
+message box, `!` commands and Chat options. The differences:
+
+- The Permissions choice has Codex's own five modes: **Ask**, **Read only**,
+  **Plan**, **Auto** and **Full access**. Full access runs anything without
+  asking, shows a warning, and is never carried into a new chat.
+- Codex's skills start with `$`; type `$` at the start of a message to see
+  them. Claude Code's start with `/`.
+- A permission card offers **Allow once**, **Deny** and sometimes **Allow
+  for this chat**, never "Always allow". The rules list does not show what
+  you allowed for this chat; a new chat clears it.
+- The memory meter shows tokens only, with no cache countdown. A question
+  Codex asks in a **Codex (TUI)** terminal has no card in the browser;
+  answer it in the terminal.
+- Sign in to Codex in a **Codex (TUI)** tab, or run
+  `codex login --device-auth` in a terminal.
+
+**Switching agents.** To change agent in the middle of a chat, open **Chat
+options** and choose the other agent. Portikus warns you first: the new
+agent starts fresh with this conversation as context, and the cache is lost,
+so the next message may use more of your limit. Each tool call is reduced to
+a short summary, and if the conversation would not fit, the oldest turns are
+left out. A line in the conversation marks the switch. You cannot switch
+while a reply, a card or a `!` command is running.
 
 ## Coding agent status, alerts and usage
 
@@ -270,8 +305,9 @@ each agent tab says what it is doing and for how long, such as "Working
 type and state. Select a row to go to its tab; in a chat, selecting a
 subagent opens that step of the conversation. The arrow button beside a
 project hides or shows its agents. Rows appear after the agent's first
-report, and Codex shows no subagents. If you stop Claude Code with Esc in a
-terminal, its tab keeps showing "working" until you type your next prompt.
+report. A Codex subagent shows its type and no description. If you stop
+Claude Code with Esc in a terminal, its tab keeps showing "working" until
+you type your next prompt.
 
 ![The project list with agent and subagent rows and their status marks](images/student-agent-rows.png)
 
@@ -488,8 +524,8 @@ They get a notification.
   the page names them and has **Let them type**. Only you can turn typing
   on, and **Stop typing** turns it off at once.
 - Letting them type gives them a full shell as you. That includes your Git,
-  Claude and SSH credentials, every file in your workspace, and your other
-  terminals. Turn it on only while you are watching.
+  Claude, Codex and SSH credentials, every file in your workspace, and your
+  other terminals. Turn it on only while you are watching.
 - Live help lasts at most 60 minutes. **End live help** in the bar ends it
   at once. It also ends when the instructor leaves or the project is
   archived. One session can be open at a time.

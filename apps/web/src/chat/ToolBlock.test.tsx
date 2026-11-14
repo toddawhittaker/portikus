@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
 import type { ChatToolItem } from "./chatStore";
 import { ImageViewerProvider } from "./ImageViewer";
 import { SubagentOpenerContext } from "./subagentView";
@@ -208,4 +208,252 @@ test("each Agent card's Show its conversation button is described by that card's
 	);
 	expect(described[0]).toContain("Count the routes");
 	expect(described[1]).toContain("Find the tests");
+});
+
+const UPDATE = "@@ -1,3 +1,3 @@\n keep\n-old\n+new\n tail\n";
+
+test("a Codex command reads as its action, and its opened row holds the command", () => {
+	const { summary, body } = row(
+		tool({
+			name: "commandExecution",
+			input: {
+				command: "cat src/a.ts",
+				actions: [{ type: "read", path: "src/a.ts" }],
+			},
+			output: [{ type: "text", text: "export {}" }],
+		}),
+	);
+	expect(summary.textContent).toBe("Read a.ts");
+	expect(body?.querySelector(".pk-chat-command")?.textContent).toBe("cat src/a.ts");
+	expect(body?.querySelector(".pk-chat-tool-output")?.textContent).toContain(
+		"export {}",
+	);
+	cleanup();
+	const ran = row(
+		tool({ name: "commandExecution", input: { command: "make", actions: [] } }),
+	);
+	expect(ran.summary.textContent).toBe("Ran make");
+});
+
+test("a Codex file change draws a unified diff for each file, headed by its path", () => {
+	const { summary, body } = row(
+		tool({
+			name: "fileChange",
+			input: {
+				changes: [
+					{ path: "/w/src/a.ts", kind: "update", diff: UPDATE },
+					{ path: "/w/new.md", kind: "add", diff: "# Hi\n" },
+					{ path: "/w/old.md", kind: "delete", diff: "gone\n" },
+					{
+						path: "/w/b.ts",
+						kind: "update",
+						movePath: "/w/c.ts",
+						diff: "@@ -1 +1 @@\n-x\n+y\n",
+					},
+				],
+			},
+		}),
+	);
+	expect(summary.textContent).toBe(
+		"Changed 4 files+3 −3, 3 lines added, 3 lines removed",
+	);
+	// Each file is a named group, not a landmark region, and the path line names it.
+	expect(body?.querySelector("section[aria-label]")).toBeNull();
+	const sections = [
+		...(body?.querySelectorAll('[role="group"][aria-labelledby]') ?? []),
+	]
+		.filter((one) => one.querySelector(".pk-chat-tool-path"))
+		.map((one) => one as HTMLElement);
+	expect(
+		sections.map((one) =>
+			document
+				.getElementById(one.getAttribute("aria-labelledby") ?? "")
+				?.textContent?.trim(),
+		),
+	).toEqual([
+		"Edited /w/src/a.ts",
+		"Created /w/new.md",
+		"Deleted /w/old.md",
+		"Moved /w/b.ts → /w/c.ts",
+	]);
+	expect(sections[3]?.querySelector(".pk-chat-tool-path")?.textContent).toContain(
+		"/w/b.ts → /w/c.ts",
+	);
+	const first = sections[0]?.querySelector('[data-testid="chat-diff"]');
+	expect(first?.textContent).toBe("  @@ -1,3 +1,3 @@\n  keep\n- old\n+ new\n  tail\n");
+	expect(sections[1]?.querySelector(".is-added")?.textContent).toBe("+ # Hi\n");
+	expect(sections[2]?.querySelector(".is-removed")?.textContent).toBe("- gone\n");
+	// The diff is the result, so no "No output".
+	expect(body?.textContent).not.toContain("No output");
+});
+
+test("one changed file is told by its own name", () => {
+	const { summary } = row(
+		tool({
+			name: "fileChange",
+			input: { changes: [{ path: "/w/src/a.ts", kind: "update", diff: UPDATE }] },
+		}),
+	);
+	expect(summary.textContent).toBe(
+		"Edited /w/src/a.ts+1 −1, 1 line added, 1 line removed",
+	);
+});
+
+test("Codex's other tools read in their own words", () => {
+	const cases: [Partial<ChatToolItem>, string][] = [
+		[{ name: "webSearch", input: { query: "zod v4" } }, "Searched the web for zod v4"],
+		[{ name: "imageView", input: { path: "/w/img/logo.png" } }, "Viewed logo.png"],
+		[
+			{ name: "dynamicToolCall", input: { tool: "lookup", arguments: {} } },
+			"Used lookup",
+		],
+		[
+			{
+				name: "planSteps",
+				input: {
+					steps: [
+						{ step: "a", status: "completed" },
+						{ step: "b", status: "pending" },
+					],
+				},
+			},
+			"Updated the plan 1 of 2 steps done",
+		],
+		[{ name: "plan", input: { plan: "1. Do it" } }, "Proposed a plan"],
+		[{ name: "Skill", input: { skill: "pdf" } }, "Used skill pdf"],
+	];
+	for (const [overrides, text] of cases) {
+		expect(row(tool({ ...overrides, title: "" })).summary.textContent).toBe(text);
+		cleanup();
+	}
+});
+
+test("a plan-card row shows the plan text once, with no raw input beside it", () => {
+	const { body } = row(tool({ name: "plan", input: { plan: "1. Write a test" } }));
+	// Markdown, as the permission card draws it: a list, not raw text.
+	expect(body?.querySelector("pre")).toBeNull();
+	expect(body?.querySelector("ol > li")?.textContent).toBe("Write a test");
+	expect(body?.textContent).not.toContain("1. Write");
+	expect(body?.textContent).not.toContain("No output");
+	expect(body?.querySelector(".pk-chat-raw")).toBeNull();
+});
+
+test("a plan steps row lists its steps, and says nothing about output", () => {
+	const { body } = row(
+		tool({
+			name: "planSteps",
+			input: {
+				steps: [
+					{ step: "Write a test", status: "completed" },
+					{ step: "Fix it", status: "inProgress" },
+				],
+			},
+		}),
+	);
+	const items = [...(body?.querySelectorAll("ol > li") ?? [])];
+	expect(items.map((one) => one.textContent)).toEqual([
+		"Done Write a test",
+		"In progress Fix it",
+	]);
+	// Not drawn as text with [x] marks.
+	expect(body?.textContent).not.toContain("[x]");
+	expect(body?.textContent).not.toContain("No output");
+});
+
+test("both agents' MCP calls are one row with their arguments and output", () => {
+	const claude = row(
+		tool({
+			name: "mcp__github__create_issue",
+			input: { title: "Bug" },
+			output: [{ type: "text", text: "#12 created" }],
+		}),
+	);
+	expect(claude.summary.textContent).toBe("Used create_issue · github");
+	expect(claude.body?.querySelector("pre")?.textContent).toBe('{\n  "title": "Bug"\n}');
+	expect(claude.body?.querySelector(".pk-chat-tool-output")?.textContent).toContain(
+		"#12 created",
+	);
+	// The arguments are shown once: no second, raw copy.
+	expect(claude.body?.querySelector(".pk-chat-raw")).toBeNull();
+	cleanup();
+	const codex = row(
+		tool({
+			name: "mcpToolCall",
+			input: { server: "github", tool: "create_issue", arguments: { title: "Bug" } },
+			output: [{ type: "text", text: "#12 created" }],
+		}),
+	);
+	expect(codex.summary.textContent).toBe(claude.summary.textContent);
+	expect(codex.body?.querySelector("pre")?.textContent).toBe('{\n  "title": "Bug"\n}');
+	cleanup();
+	// With no arguments there is nothing to show twice, so the raw input stays.
+	const bare = row(tool({ name: "mcp__s__t", input: {} }));
+	expect(bare.body?.querySelector(".pk-chat-raw")).not.toBeNull();
+});
+
+test("an unknown Codex item is a plain row with its name, said once", () => {
+	const { summary } = row(
+		tool({ name: "contextCompaction", title: "contextCompaction", input: {} }),
+	);
+	expect(summary.textContent).toBe("contextCompaction");
+	cleanup();
+	expect(
+		row(tool({ name: "reasoning", title: "Thinking", input: {} })).summary.textContent,
+	).toBe("reasoning Thinking");
+});
+
+test("a Codex subagent call opens each child by its thread id", () => {
+	const open = vi.fn();
+	const call = (receivers: string[], tool_ = "spawnAgent") =>
+		tool({
+			id: "c1",
+			name: "collabAgentToolCall",
+			title: "",
+			input: { tool: tool_, receivers, prompt: "Count the routes" },
+		});
+	const { rerender } = render(
+		<SubagentOpenerContext.Provider value={open}>
+			<ToolBlock tool={call(["thread-1"])} />
+		</SubagentOpenerContext.Provider>,
+	);
+	expect(screen.getByTestId("chat-tool-c1").querySelector("summary")?.textContent).toBe(
+		"Started a subagent",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Show its conversation" }));
+	expect(open).toHaveBeenCalledWith({ toolUseId: "thread-1", title: "Subagent" });
+	rerender(
+		<SubagentOpenerContext.Provider value={open}>
+			<ToolBlock tool={call(["thread-1", "thread-2"], "wait")} />
+		</SubagentOpenerContext.Provider>,
+	);
+	fireEvent.click(
+		screen.getByRole("button", { name: "Show subagent 2's conversation" }),
+	);
+	expect(open).toHaveBeenLastCalledWith({
+		toolUseId: "thread-2",
+		title: "Subagent 2",
+	});
+	fireEvent.click(
+		screen.getByRole("button", { name: "Show subagent 1's conversation" }),
+	);
+	expect(open).toHaveBeenLastCalledWith({
+		toolUseId: "thread-1",
+		title: "Subagent 1",
+	});
+	// A call that failed, or names no child, offers no way in.
+	rerender(
+		<SubagentOpenerContext.Provider value={open}>
+			<ToolBlock tool={{ ...call(["thread-1"]), status: "error" }} />
+		</SubagentOpenerContext.Provider>,
+	);
+	expect(screen.queryByRole("button", { name: /conversation/ })).toBeNull();
+	rerender(
+		<SubagentOpenerContext.Provider value={open}>
+			<ToolBlock tool={call([], "listAgents")} />
+		</SubagentOpenerContext.Provider>,
+	);
+	expect(screen.queryByRole("button", { name: /conversation/ })).toBeNull();
+	// Without an opener there is no button at all.
+	rerender(<ToolBlock tool={call(["thread-1"])} />);
+	expect(screen.queryByRole("button", { name: /conversation/ })).toBeNull();
 });

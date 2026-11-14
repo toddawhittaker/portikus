@@ -379,7 +379,7 @@ test("a card resolved elsewhere goes, and the next waiting card shows", () => {
 		"1 more request is waiting.",
 	);
 	expect(screen.getByTestId("chat-announcer").textContent).toBe(
-		"Claude wants to use Bash. 1 more request is waiting.",
+		"Claude wants to run a command. 1 more request is waiting.",
 	);
 	emit("card.resolved", { id: "p1" });
 	expect(screen.getAllByTestId("chat-permission-card")).toHaveLength(1);
@@ -438,7 +438,7 @@ test("typing in the composer keeps the keyboard when a card arrives", () => {
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toEqual([{ type: "send", text: "and also", attachments: [] }]);
 	expect(screen.getByTestId("chat-announcer").textContent).toBe(
-		"Claude wants to use Bash.",
+		"Claude wants to run a command.",
 	);
 });
 
@@ -798,4 +798,368 @@ test("a changed file opens in its diff when the project is a Git repository", ()
 
 test("a changed file opens in the editor when the project is not a Git repository", () => {
 	expect(drawInWorkArea(false)).toHaveBeenCalledWith("src/a.ts", undefined);
+});
+
+function codexSettings() {
+	emit("settings", {
+		agent: "codex",
+		model: "gpt-5.5",
+		effort: "medium",
+		mode: "onRequest",
+	});
+}
+
+test("a Codex chat names Codex in its empty state and announcements", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	expect(screen.getByTestId("chat-empty").textContent).toContain(
+		"Ask Codex about this project below",
+	);
+	const announcer = () => screen.getByTestId("chat-announcer").textContent;
+	emit("turn.started", { at: Date.now() });
+	expect(announcer()).toBe("Codex is working.");
+	emit("question.requested", {
+		id: "q1",
+		questions: [
+			{ question: "Which branch?", header: "Branch", multiSelect: false, options: [] },
+		],
+	});
+	expect(announcer()).toBe("Codex has a question: Which branch?");
+	emit("card.resolved", { id: "q1" });
+	emit("turn.finished", { at: Date.now(), status: "interrupted" });
+	expect(announcer()).toBe("Codex stopped.");
+});
+
+/** The chat in a work area that can swap it, with the terminal calls it makes. */
+function drawSwappable(options: { createFails?: boolean } = {}) {
+	const layout = { replaceLeaf: vi.fn(), setFocused: vi.fn() };
+	const calls: { method: string; url: string; body?: unknown }[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (url: string, init?: RequestInit) => {
+			const method = init?.method ?? "GET";
+			calls.push({
+				method,
+				url: String(url),
+				...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+			});
+			if (method === "POST" && String(url).endsWith("/terminals")) {
+				if (options.createFails) {
+					return Response.json(
+						{ code: "INTERNAL", message: "No room" },
+						{ status: 500 },
+					);
+				}
+				return Response.json({
+					id: "44444444-4444-4444-8444-444444444444",
+					workspaceId: WORKSPACE,
+					name: "Codex",
+					cwd: "/home/student/projects/demo",
+					position: 1,
+					projectId: PROJECT,
+					createdAt: "2026-01-01T00:00:00.000Z",
+					theme: "dark",
+					kind: "chat",
+					agent: "codex",
+					endedAt: null,
+				});
+			}
+			if (method === "PATCH") {
+				return Response.json({
+					id: TERMINAL,
+					workspaceId: WORKSPACE,
+					name: "Chat",
+					cwd: "/home/student/projects/demo",
+					position: 0,
+					projectId: PROJECT,
+					createdAt: "2026-01-01T00:00:00.000Z",
+					theme: "dark",
+					kind: "chat",
+					agent: "codex",
+					endedAt: null,
+				});
+			}
+			if (method === "DELETE") return new Response(null, { status: 204 });
+			return Response.json({});
+		}),
+	);
+	render(
+		<QueryClientProvider
+			client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+		>
+			<LayoutStoreContext.Provider
+				value={{ getState: () => layout } as unknown as LayoutStore}
+			>
+				<ToastProvider>
+					<ChatView
+						workspaceId={WORKSPACE}
+						projectId={PROJECT}
+						terminalId={TERMINAL}
+						visible={true}
+						focused={false}
+						onLeave={vi.fn()}
+					/>
+				</ToastProvider>
+			</LayoutStoreContext.Provider>
+		</QueryClientProvider>,
+	);
+	open();
+	return { layout, calls };
+}
+
+function chooseAgent(name: string) {
+	fireEvent.click(screen.getByTestId("composer-options"));
+	fireEvent.keyDown(screen.getByTestId("composer-agent"), { key: "Enter" });
+	const menu = screen.getByRole("menu", { name: /^Agent / });
+	fireEvent.click(within(menu).getByRole("menuitemradio", { name }));
+}
+
+test("choosing Codex in an empty chat makes a Codex chat in its place and closes this one, with no warning", async () => {
+	const { layout, calls } = drawSwappable();
+	snapshot();
+	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
+	chooseAgent("Codex");
+	await vi.waitFor(() =>
+		expect(calls.some((call) => call.method === "DELETE")).toBe(true),
+	);
+	const terminals = `/workspaces/${WORKSPACE}/terminals`;
+	expect(calls.filter((call) => call.method !== "GET")).toEqual([
+		{
+			method: "POST",
+			url: terminals,
+			body: { projectId: PROJECT, agent: "codex", kind: "chat" },
+		},
+		{ method: "DELETE", url: `${terminals}/${TERMINAL}` },
+	]);
+	expect(layout.replaceLeaf).toHaveBeenCalledWith(
+		TERMINAL,
+		"44444444-4444-4444-8444-444444444444",
+	);
+	expect(layout.setFocused).toHaveBeenCalledWith(
+		"44444444-4444-4444-8444-444444444444",
+	);
+	// Nothing went to the agent: the swap is the work area's, not the host's.
+	expect(latest().sent).toEqual([]);
+});
+
+test("a failed create in an empty chat is told once, by the toast, and the chat stays", async () => {
+	const { layout, calls } = drawSwappable({ createFails: true });
+	snapshot();
+	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
+	chooseAgent("Codex");
+	const toast = "Something went wrong with the terminal. Please try again.";
+	await vi.waitFor(() => expect(screen.queryAllByText(toast)).toHaveLength(1));
+	await vi.waitFor(() =>
+		expect(screen.getByTestId("composer-agent").textContent).toBe("Agent Claude Code"),
+	);
+	// The status line neither says the chat is starting nor tells the failure again.
+	expect(screen.getByTestId("chat-composer-status").textContent).toBe("");
+	expect(layout.replaceLeaf).not.toHaveBeenCalled();
+	expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+});
+
+test("a chat with history swaps its agent in place through the API, and says the new one is starting", async () => {
+	const { layout, calls } = drawSwappable();
+	snapshot();
+	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
+	replayTurn(1_000, 1_000, "hi", "hello");
+	chooseAgent("Codex");
+	// The tab stays, so the status says the agent is switched to.
+	expect(screen.getByTestId("chat-composer-status").textContent).toBe(
+		"Switching to Codex\u2026",
+	);
+	await vi.waitFor(() =>
+		expect(calls.filter((call) => call.method !== "GET")).toEqual([
+			{
+				method: "PATCH",
+				url: `/workspaces/${WORKSPACE}/terminals/${TERMINAL}`,
+				body: { agent: "codex" },
+			},
+		]),
+	);
+	// The tab stays; nothing is created, replaced or closed.
+	expect(layout.replaceLeaf).not.toHaveBeenCalled();
+	expect(screen.getByTestId("composer-agent").textContent).toBe("Agent Codex");
+});
+
+test("after a swap the divider says what changed, and each stretch keeps its own agent's byline", () => {
+	draw();
+	snapshot();
+	replayTurn(1_000, 1_000, "hi", "from claude");
+	emit("handoff", { from: "claude", to: "codex", droppedTurns: 3 });
+	replayTurn(5_000, 1_000, "and now", "from codex");
+	codexSettings();
+	const divider = screen.getByTestId("chat-handoff");
+	expect(divider.textContent).toBe(
+		"Switched from Claude Code to Codex. Codex started fresh with this conversation as context. The 3 oldest turns did not fit Codex\u2019s context window and were left out.",
+	);
+	// Set in the design system's caption type, not a size of its own.
+	expect(divider.querySelector("p")?.classList.contains("pk-text-caption")).toBe(true);
+	const log = screen.getByRole("list", { name: "Conversation" });
+	const bylines = within(log)
+		.getAllByText(/^(Claude|Codex)$/)
+		.map((node) => node.textContent);
+	expect(bylines).toEqual(["Claude", "Codex"]);
+});
+
+test("a handoff that failed says the new agent started without the conversation, in the warning style", () => {
+	draw();
+	snapshot();
+	replayTurn(1_000, 1_000, "hi", "from claude");
+	emit("handoff", { from: "claude", to: "codex", droppedTurns: 0, failed: true });
+	codexSettings();
+	const divider = screen.getByTestId("chat-handoff");
+	expect(divider.textContent).toBe(
+		"Switched from Claude Code to Codex. Codex started fresh, but the earlier conversation could not be passed to it.",
+	);
+	expect(divider.classList.contains("is-failed")).toBe(true);
+	expect(divider.querySelector("svg[data-icon='alert']")).not.toBeNull();
+	// The success text is not said as well.
+	expect(divider.textContent).not.toContain("with this conversation as context");
+});
+
+test("a card carrying a plan is announced as the agent's plan, and the byline names the chat's agent", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	emit("message", { id: "a1", role: "assistant", markdown: "Here is my answer." });
+	const log = screen.getByRole("list", { name: "Conversation" });
+	expect(within(log).getByText("Codex")).toBeTruthy();
+	expect(within(log).queryByText("Claude")).toBeNull();
+	emit("permission.requested", {
+		id: "cx-plan",
+		toolName: "plan",
+		title: "Implement this plan?",
+		input: {},
+		plan: "1. Read the test.",
+		options: [
+			{ id: "implement", label: "Implement the plan", decision: "allowed" },
+			{ id: "keep", label: "Keep planning", decision: "denied" },
+		],
+	});
+	expect(screen.getByTestId("chat-announcer").textContent).toBe(
+		"Codex has a plan for you to review.",
+	);
+	emit("card.resolved", { id: "cx-plan" });
+	// A Codex tool is announced by the name its row shows, as Claude's are.
+	emit("permission.requested", {
+		id: "cx-run",
+		toolName: "commandExecution",
+		title: "Run npm test",
+		input: { command: "npm test", actions: [] },
+		options: [{ id: "allow", label: "Allow", decision: "allowed" }],
+	});
+	expect(screen.getByTestId("chat-announcer").textContent).toBe(
+		"Codex wants to run a command.",
+	);
+});
+
+test("a permission card is announced in the words of its heading, for both agents", () => {
+	draw();
+	snapshot();
+	const cases: [string, string, unknown][] = [
+		["claude", "Bash", { command: "ls" }],
+		["claude", "mcp__github__create_issue", { title: "Bug" }],
+		["codex", "commandExecution", { command: "ls", actions: [] }],
+		["codex", "mcpToolCall", { server: "github", tool: "create_issue", arguments: {} }],
+		["codex", "fileChange", { changes: [{ path: "a", kind: "add", diff: "x\n" }] }],
+		["codex", "dynamicToolCall", { tool: "lookup" }],
+	];
+	for (const [agent, toolName, input] of cases) {
+		emit("settings", { agent, model: "m", effort: "medium", mode: "auto" });
+		emit("permission.requested", {
+			id: "p",
+			toolName,
+			title: "",
+			input,
+			options: [{ id: "allow", label: "Allow" }],
+		});
+		const heading =
+			within(screen.getByTestId("chat-permission-card")).getByRole("heading")
+				.textContent ?? "";
+		// A heading with no ending mark is said as a sentence.
+		expect(screen.getByTestId("chat-announcer").textContent).toBe(
+			heading.endsWith("?") ? heading : `${heading}.`,
+		);
+		emit("card.resolved", { id: "p" });
+	}
+});
+
+test("a signed-out chat warns above the message box, and Check again asks the host", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+	emit("signIn", { state: "signedOut" });
+	const banner = screen.getByTestId("chat-sign-in");
+	const status = within(banner).getByRole("status");
+	expect(status.textContent).toContain("You're not signed in to Codex.");
+	expect(status.textContent).toContain("Sign in from a Codex (TUI) tab");
+	// Outside a work area there is no tab strip to open a terminal in.
+	expect(within(banner).queryByTestId("chat-sign-in-terminal")).toBeNull();
+	// Sending is still possible.
+	expect(screen.getByRole("combobox").getAttribute("aria-disabled")).not.toBe("true");
+
+	const check = within(banner).getByRole("button", { name: "Check again" });
+	fireEvent.click(check);
+	expect(latest().sent.at(-1)).toEqual({ type: "signIn.check" });
+	expect(check.getAttribute("aria-busy")).toBe("true");
+	emit("signIn", { state: "signedOut" });
+	expect(check.getAttribute("aria-busy")).toBeNull();
+	expect(status.textContent).toContain("Still not signed in.");
+
+	fireEvent.click(check);
+	emit("signIn", { state: "signedIn" });
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+});
+
+test("an unknown sign-in warns of nothing, and a new snapshot forgets the last answer", () => {
+	draw();
+	snapshot();
+	emit("settings", {
+		agent: "claude",
+		model: "sonnet",
+		effort: "medium",
+		mode: "default",
+	});
+	emit("signIn", { state: "unknown" });
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+	emit("signIn", { state: "signedOut" });
+	expect(screen.getByTestId("chat-sign-in").textContent).toContain(
+		"You're not signed in to Claude Code.",
+	);
+	// A swap's new host asks about its own agent before anything is said.
+	snapshot();
+	expect(screen.queryByTestId("chat-sign-in")).toBeNull();
+});
+
+test("a Check again on a closed socket says it was not sent", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	emit("signIn", { state: "signedOut" });
+	act(() => {
+		latest().readyState = 3;
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+	expect(screen.getByTestId("chat-sign-in").textContent).toContain(
+		"The check was not sent because the chat is not connected.",
+	);
+});
+
+test("in a work area the warning offers the agent's own terminal", () => {
+	drawInWorkArea(false);
+	emit("settings", {
+		agent: "claude",
+		model: "sonnet",
+		effort: "medium",
+		mode: "default",
+	});
+	emit("signIn", { state: "signedOut" });
+	expect(
+		within(screen.getByTestId("chat-sign-in")).getByRole("button", {
+			name: "Open Claude Code (TUI)",
+		}),
+	).toBeTruthy();
 });

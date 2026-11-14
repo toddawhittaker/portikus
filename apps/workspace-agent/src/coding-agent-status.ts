@@ -163,9 +163,10 @@ export class CodingAgentBoard {
 	/**
 	 * Apply one subagent hook post (SPEC.md §10.8). A foreground call finishes
 	 * at its PostToolUse, a background one at the SubagentStop naming its
-	 * agent id; a failed call removes its row. Stop finishes working foreground
-	 * rows and UserPromptSubmit drops finished ones, each only for rows whose
-	 * last post fired earlier.
+	 * agent id; a failed call removes its row. A Codex subagent starts at its
+	 * SubagentStart and finishes at its SubagentStop. Stop finishes working
+	 * foreground rows and UserPromptSubmit drops finished ones, each only for
+	 * rows whose last post fired earlier.
 	 */
 	subagent(post: CodingAgentSubagentPost): void {
 		const terminalId = post.terminal;
@@ -190,6 +191,8 @@ export class CodingAgentBoard {
 				return this.subagentReturned(rows, post);
 			case "post_tool_use_failure":
 				return this.subagentFailed(rows, post);
+			case "subagent_start":
+				return this.codexSubagentStarted(rows, post);
 			case "subagent_stop":
 				return this.subagentStopped(rows, post);
 			case "stop":
@@ -230,6 +233,35 @@ export class CodingAgentBoard {
 		const id = post.tool_use_id;
 		// A call id already seen is a repeat or arrived after its own end.
 		if (id === undefined || rows.seen.has(id)) return false;
+		this.addRow(rows, id, post, post.run_in_background === true);
+		return true;
+	}
+
+	/**
+	 * A Codex subagent has no tool call id: its agent id keys the row, and its
+	 * SubagentStop, which may arrive first, finishes it.
+	 */
+	private codexSubagentStarted(
+		rows: SubagentRows,
+		post: CodingAgentSubagentPost,
+	): boolean {
+		const id = post.agent_id;
+		if (id === undefined || rows.seen.has(id)) return false;
+		const entry = this.addRow(rows, id, post, false);
+		entry.agentId = id;
+		const stoppedAt = rows.earlyStops.get(id);
+		if (stoppedAt === undefined) return true;
+		rows.earlyStops.delete(id);
+		this.finish(entry, Math.max(entry.at, stoppedAt));
+		return true;
+	}
+
+	private addRow(
+		rows: SubagentRows,
+		id: string,
+		post: CodingAgentSubagentPost,
+		background: boolean,
+	): SubagentRow {
 		rememberBounded(rows.seen, id, post.at);
 		while (rows.rows.size >= MAX_SUBAGENTS_PER_TERMINAL) {
 			const finished = [...rows.rows.entries()].find(
@@ -239,7 +271,7 @@ export class CodingAgentBoard {
 			if (oldest === undefined) break;
 			rows.rows.delete(oldest);
 		}
-		rows.rows.set(id, {
+		const entry: SubagentRow = {
 			row: {
 				id,
 				type: post.subagent_type ?? DEFAULT_SUBAGENT_TYPE,
@@ -248,9 +280,10 @@ export class CodingAgentBoard {
 				since: this.now().toISOString(),
 			},
 			at: post.at,
-			background: post.run_in_background === true,
-		});
-		return true;
+			background,
+		};
+		rows.rows.set(id, entry);
+		return entry;
 	}
 
 	private subagentReturned(rows: SubagentRows, post: CodingAgentSubagentPost): boolean {

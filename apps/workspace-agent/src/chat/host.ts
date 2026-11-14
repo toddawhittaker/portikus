@@ -1,50 +1,62 @@
 import { randomUUID } from "node:crypto";
-import { chmod, unlink } from "node:fs/promises";
-import { createServer, type Server, type Socket } from "node:net";
+import type { Socket } from "node:net";
 import type {
 	PermissionMode,
+	PermissionResult,
 	Query,
 	SDKMessage,
 	SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
 	CHAT_START_SETTINGS,
-	ChatClientMessage,
-	type ChatClientMessage as ChatClientMessageType,
-	type ChatCommand,
+	type ChatAttachment,
 	type ChatEffort,
-	type ChatMessage,
-	type ChatModelInfo,
+	type ChatOpenCard,
 	type ChatPermissionMode,
 	type ChatQuestion,
 	type ChatShellItem,
 	chatStartMode,
 	isShellCommand,
-	MAX_ATTACHMENTS_PER_TERMINAL,
-	MAX_CHAT_CLIENT_FRAME_BYTES,
-	MAX_CHAT_SERVER_FRAME_BYTES,
 	shellCommandText,
 } from "@portikus/contracts";
 import type { Logger } from "@portikus/observability";
+import type {
+	CardAnswer,
+	CardOutcome,
+	ChatAgent,
+	ChatEventBody,
+	ChatRenameResult,
+	ChatSettingsChange,
+	ChatSink,
+} from "./agent.js";
 import { userContent } from "./attachments.js";
 import {
-	type ChatEventBody,
+	CLAUDE_MODES,
 	type ClaudeLimitWindows,
 	ClaudeMessageMapper,
+	cardForTool,
+	decisionForOption,
+	PERMISSION_OPTION,
+	permissionResult,
 	questionResult,
+	type ToolAsk,
 	UNANSWERED_CAPABILITY,
 } from "./claude-adapter.js";
+import { readClaudeSignIn } from "./claude-sign-in.js";
 import {
-	type ContextFigures,
 	ContextTracker,
 	fromTranscript,
 	windowFromModelUsage,
 } from "./context-usage.js";
+import { ChatCore, type ChatCoreOptions } from "./core.js";
+import { fitTurns, type Handoff, handoffText, turnsFor } from "./handoff.js";
 import { InputQueue } from "./input-queue.js";
+import { ELICITATION_NOTICE, refreshMcp } from "./mcp-status.js";
 import { ModelList } from "./model-list.js";
-import { OpenCards } from "./open-cards.js";
+import { splitSuggestions } from "./permission-rules.js";
 import { PlanUsage } from "./plan-usage.js";
 import { type ChatSdk, realSdk } from "./sdk.js";
+import { toSdkEffort, toSdkPermissionMode } from "./sdk-settings.js";
 import { writeChatSession } from "./session-record.js";
 import { SessionRules } from "./session-rules.js";
 import {
@@ -55,13 +67,15 @@ import {
 	withoutKind,
 } from "./shell-command.js";
 import { SlashCommandList } from "./slash-commands.js";
-import { buildSnapshot, replayHistory } from "./snapshot.js";
+import { carriesHandoff, replayHistory, sinceHandoff } from "./snapshot.js";
 import { SubagentStreams } from "./subagents.js";
 import { ChatTitle } from "./titles.js";
-import { chatSocketPath, privateDirectory, readLines, writeLine } from "./wire.js";
 
 /** The longest the host waits to read the model list before it opens its socket. */
 const MODELS_WAIT_MS = 3000;
+
+/** The chat command that reads the MCP servers instead of reaching Claude. */
+const MCP_COMMAND = /^\/mcp\s*$/;
 
 /** The shared, unmodified Claude Code binary (SPEC.md §10.1). */
 const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
@@ -88,43 +102,31 @@ export interface ChatHostOptions {
 	sdk?: ChatSdk;
 	/** For tests only: the `!` command time limit. */
 	shellTimeoutMs?: number;
+	swap?: ChatCoreOptions["swap"];
 }
 
-interface Client {
-	socket: Socket;
-	/**
-	 * Live events held, unnumbered, until this client's snapshot and replay
-	 * have gone; they are numbered as they are flushed.
-	 */
-	held: ChatEventBody[] | null;
-}
-
-/**
- * One chat tab's host (SPEC.md §10.2, §10.8). It runs the
- * Agent SDK in tmux session `pk-<id>`, so it outlives a workspace-agent
- * restart, and serves each browser attachment, relayed by the agent, as
- * one connection on a Unix socket only the workspace user can open.
- */
 export type { ChatSdk };
 
-export class ChatHost {
-	private readonly clients = new Set<Client>();
-	private readonly cards = new OpenCards(
-		(event) => this.broadcast(event),
-		(rules) => this.rules.grant(rules),
-	);
+/** A chat tab's host running Claude through the Agent SDK (ADR 0069). */
+export class ChatHost extends ChatCore {
+	constructor(options: ChatHostOptions) {
+		super(options, new ClaudeAgent(options), "claude");
+	}
+}
+
+/** The Claude driver behind the chat core: the Agent SDK in, chat events out. */
+class ClaudeAgent implements ChatAgent {
+	private sink!: ChatSink;
 	private readonly sdk: ChatSdk;
-	private server: Server | null = null;
 	private session: Query | null = null;
 	/** A session being started, shared so concurrent sends start only one. */
 	private starting: Promise<void> | null = null;
 	private input: InputQueue | null = null;
+	/** Aborted when the session ends, which closes its open cards. */
+	private ended = new AbortController();
 	private mapper = new ClaudeMessageMapper();
-	private seq = 0;
 	private turnRunning = false;
 	private interrupting = false;
-	/** The assistant text streamed so far in this turn, for a snapshot. */
-	private partial: { id: string; text: string } | null = null;
 	/** The `!` command running now, for an attachment that arrives mid-run. */
 	private shell: ChatShellItem | null = null;
 	private shellStop: AbortController | null = null;
@@ -137,14 +139,12 @@ export class ChatHost {
 	private readonly planUsage: PlanUsage;
 	private readonly title: ChatTitle;
 	private readonly commands = new SlashCommandList((commands) =>
-		this.broadcast(this.commandsEvent(commands)),
+		this.sink.commands(commands),
 	);
 	private context = new ContextTracker();
 	/** The session's init said a skipped question may be marked so. */
 	private reportSkipped = false;
-	private readonly modelList = new ModelList((models) =>
-		this.broadcast(this.modelsEvent(models)),
-	);
+	private readonly modelList = new ModelList((models) => this.sink.models(models));
 	private settings: { model: string; effort: ChatEffort; mode: ChatPermissionMode } = {
 		...CHAT_START_SETTINGS,
 	};
@@ -156,8 +156,13 @@ export class ChatHost {
 					rules.length > 0 ? { allow: rules.map((held) => held.rule) } : null,
 			});
 		},
-		() => this.broadcast(this.rulesEvent()),
+		() => this.sink.rules(this.rules.held),
 	);
+
+	/** The handoff this session's part of the chat starts at, if the tab has swapped. */
+	private handoffId: string | null = null;
+	/** The handoff text the next prompt carries, until it is sent. */
+	private handoffPrefix = "";
 
 	/** The Claude session in force; /clear moves the tab to a new one. */
 	private sessionId: string;
@@ -176,41 +181,31 @@ export class ChatHost {
 		this.sessionId = options.sessionId ?? options.terminalId;
 	}
 
-	get socketPath(): string {
-		return chatSocketPath(this.options.socketDir, this.options.terminalId);
-	}
-
-	/** Listen on the socket and start Claude. */
-	async start(): Promise<void> {
-		await privateDirectory(this.options.socketDir);
-		await unlink(this.socketPath).catch(() => undefined);
+	async start(sink: ChatSink): Promise<void> {
+		this.sink = sink;
+		sink.modes([...CLAUDE_MODES]);
+		this.broadcastSettings();
+		void this.checkSignIn();
 		await this.ensureSession();
 		// The socket opens once the model list is read (or has taken too long), so a
 		// first attach gets the list ahead of the settings that use it.
 		await this.modelList.settled(MODELS_WAIT_MS);
-		const server = createServer((socket) => {
-			void this.attach(socket);
-		});
-		await new Promise<void>((resolve, reject) => {
-			server.once("error", reject);
-			server.listen(this.socketPath, () => resolve());
-		});
-		await chmod(this.socketPath, 0o600);
-		this.server = server;
-		this.options.log.info("chat host listening");
 	}
 
-	/** Stop Claude and close every attachment. The transcript stays. */
+	/** Asks Claude Code itself in a process of its own, so a send never waits on it. */
+	async checkSignIn(): Promise<void> {
+		this.sink.signIn(
+			await readClaudeSignIn(
+				this.options.claudePath ?? CLAUDE_PATH,
+				this.options.projectDir,
+			),
+		);
+	}
+
+	/** Stop Claude. The transcript stays. */
 	async stop(): Promise<void> {
 		this.session?.close();
 		this.session = null;
-		for (const client of this.clients) client.socket.destroy();
-		this.clients.clear();
-		await new Promise<void>((resolve) => {
-			if (!this.server) return resolve();
-			this.server.close(() => resolve());
-		});
-		await unlink(this.socketPath).catch(() => undefined);
 	}
 
 	private ensureSession(): Promise<void> {
@@ -228,6 +223,7 @@ export class ChatHost {
 			.sessionExists(sessionId, projectDir)
 			.catch(() => false);
 		const input = new InputQueue();
+		const ended = new AbortController();
 		// Leave CLAUDE_CODE_ENTRYPOINT at the SDK's own value: Claude Code treats
 		// an unrecognized label as a print (-p) session, which bills a classifier
 		// call on every auto-mode tool use and rejects Console API credits.
@@ -242,28 +238,102 @@ export class ChatHost {
 				includePartialMessages: true,
 				// A subagent's whole conversation, for its read-only view.
 				forwardSubagentText: true,
-				effort: this.settings.effort,
-				permissionMode: this.settings.mode,
+				effort: toSdkEffort(this.settings.effort),
+				permissionMode: toSdkPermissionMode(this.settings.mode),
 				// The picker offers bypass, so the SDK must allow switching to it.
 				allowDangerouslySkipPermissions: true,
 				...(this.settings.model === "default" ? {} : { model: this.settings.model }),
 				canUseTool: (toolName, toolInput, ask) =>
-					this.cards.ask(toolName, toolInput, ask),
+					this.ask(toolName, toolInput, ask, ended.signal),
+				// The chat has no form for an MCP server's request for input.
+				onElicitation: async () => {
+					this.sink.emit({ type: "error", message: ELICITATION_NOTICE });
+					return { action: "decline" };
+				},
 				// Claude Code's own messages may quote the student's work.
 				stderr: () => undefined,
 			},
 		});
 		this.session = session;
 		this.input = input;
+		this.ended = ended;
 		this.mapper = new ClaudeMessageMapper();
 		this.quietResults = 0;
 		this.rules.reset();
 		void this.pump(session);
 		void this.refreshCommands(session);
+		void this.refreshMcpServers(session);
 		void this.refreshPlanUsage(session);
 		void this.refreshWindow(session, undefined);
 		void this.refreshModels(session);
 		void this.title.refresh(sessionId);
+	}
+
+	/** Raise a card and wait for its answer; the card closes when the ask is withdrawn. */
+	private ask(
+		toolName: string,
+		input: Record<string, unknown>,
+		ask: ToolAsk & { signal: AbortSignal },
+		ended: AbortSignal,
+	): Promise<PermissionResult> {
+		const card = cardForTool(toolName, input, ask);
+		return new Promise<PermissionResult>((resolve) => {
+			this.sink.openCard(
+				card,
+				(answer) => this.settleCard(card, input, ask, answer, ended, resolve),
+				AbortSignal.any([ask.signal, ended]),
+			);
+		});
+	}
+
+	private settleCard(
+		card: ChatOpenCard,
+		input: Record<string, unknown>,
+		ask: ToolAsk,
+		answer: CardAnswer,
+		ended: AbortSignal,
+		resolve: (result: PermissionResult) => void,
+	): CardOutcome | Promise<CardOutcome> {
+		if (answer.type === "closed") {
+			resolve({
+				behavior: "deny",
+				message: ended.aborted ? "The session ended." : "Cancelled.",
+			});
+			return {};
+		}
+		if (answer.type === "question") {
+			const questions = card.type === "question" ? card.questions : [];
+			resolve(
+				questionResult(
+					input,
+					questions as ChatQuestion[],
+					answer.answers,
+					answer.notes,
+					this.reportSkipped,
+				),
+			);
+			return {};
+		}
+		const { optionId } = answer;
+		const result = () =>
+			resolve(permissionResult(optionId, input, ask, { message: answer.message }));
+		if (optionId !== PERMISSION_OPTION.allowAlways || !ask.suggestions) {
+			result();
+			return { decision: decisionForOption(optionId) };
+		}
+		// Always allow grants the session rules before Claude goes on.
+		return this.rules
+			.grant(splitSuggestions(ask.suggestions).sessionRules)
+			.then(
+				(): CardOutcome => ({ decision: decisionForOption(optionId) }),
+				// The student chose to allow, so the tool still runs this once.
+				(): CardOutcome => ({
+					decision: "allowed",
+					error:
+						"Allowed this once. The Always allow rule could not be saved, so Claude will ask again next time.",
+				}),
+			)
+			.finally(result);
 	}
 
 	/**
@@ -278,20 +348,17 @@ export class ChatHost {
 		if (!models || this.settings.mode !== CHAT_START_SETTINGS.mode) return;
 		const mode = chatStartMode(models, this.settings.model);
 		if (mode === this.settings.mode) return;
-		await session.setPermissionMode(mode).catch(() => undefined);
+		const sdkMode = toSdkPermissionMode(mode);
+		if (sdkMode) await session.setPermissionMode(sdkMode).catch(() => undefined);
 		this.settings.mode = mode;
 		this.broadcastSettings();
-	}
-
-	private modelsEvent(models: ChatModelInfo[]): ChatEventBody {
-		return { type: "models", models };
 	}
 
 	/** A main-thread request finished: tell every attachment how full the context is. */
 	private requestMade(message: SDKMessage): void {
 		if (message.type !== "assistant") return;
 		const next = this.context.request(message, Date.now());
-		if (next) this.broadcast(this.contextEvent(next));
+		if (next) this.sink.context(next);
 	}
 
 	/**
@@ -312,11 +379,16 @@ export class ChatHost {
 		window ??= windowFromModelUsage(modelUsage, this.context.lastModel);
 		if (this.session !== session || window === null) return;
 		const next = this.context.window(window);
-		if (next) this.broadcast(this.contextEvent(next));
+		if (next) this.sink.context(next);
 	}
 
-	private contextEvent(context: ContextFigures): ChatEventBody {
-		return { type: "context", ...context, now: Date.now() };
+	/** Read the MCP servers' status; a failed read keeps the last list. */
+	private refreshMcpServers(session: Query): Promise<boolean> {
+		return refreshMcp(
+			() => session.mcpServerStatus(),
+			() => this.session === session,
+			(servers) => this.sink.mcp(servers),
+		);
 	}
 
 	private refreshPlanUsage(session: Query): Promise<void> {
@@ -331,10 +403,6 @@ export class ChatHost {
 		);
 	}
 
-	private commandsEvent(commands: ChatCommand[]): ChatEventBody {
-		return { type: "commands", commands };
-	}
-
 	private async pump(session: Query): Promise<void> {
 		try {
 			for await (const message of session) this.handle(message);
@@ -345,10 +413,10 @@ export class ChatHost {
 		if (this.session !== session) return;
 		this.session = null;
 		this.input = null;
-		this.cards.denyAll("The session ended.");
+		this.ended.abort();
 		this.subagents.ended();
 		if (this.turnRunning) this.finishTurn("error");
-		this.broadcast({
+		this.sink.emit({
 			type: "error",
 			message: "Claude Code stopped. Send a message to resume.",
 		});
@@ -359,8 +427,12 @@ export class ChatHost {
 		if (this.subagents.handle(message)) return;
 		if (this.handleControl(message)) return;
 		if (message.type === "stream_event" && !this.turnRunning) this.beginTurn();
+		// Claude Code says so when a request fails because no one is signed in.
+		if (message.type === "assistant" && message.error === "authentication_failed") {
+			this.sink.signIn("signedOut");
+		}
 		this.requestMade(message);
-		for (const event of this.mapper.map(message)) this.relay(event);
+		for (const event of this.mapper.map(message)) this.sink.emit(event);
 	}
 
 	/** Messages about the session rather than the conversation; true when handled. */
@@ -389,17 +461,6 @@ export class ChatHost {
 		return false;
 	}
 
-	/** Broadcast one event, keeping the reply streaming now for late attachers. */
-	private relay(event: ChatEventBody): void {
-		if (event.type === "text.delta") {
-			const text = this.partial?.id === event.messageId ? this.partial.text : "";
-			this.partial = { id: event.messageId, text: text + event.text };
-		} else if (event.type === "message" && this.partial?.id === event.id) {
-			this.partial = null;
-		}
-		this.broadcast(event);
-	}
-
 	private resultArrived(message: Extract<SDKMessage, { type: "result" }>): void {
 		// `/rename` and Claude Code's own summary change the title with no event.
 		void this.title.refresh(this.sessionId);
@@ -416,6 +477,7 @@ export class ChatHost {
 		this.finishTurn(status);
 		if (this.session) {
 			void this.refreshPlanUsage(this.session);
+			void this.refreshMcpServers(this.session);
 			void this.refreshWindow(this.session, message.modelUsage);
 		}
 	}
@@ -427,7 +489,10 @@ export class ChatHost {
 		);
 		this.reportSkipped = message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
 		this.commands.initKnown(message.slash_commands, message.terminal_slash_commands);
-		if (this.session) void this.refreshCommands(this.session);
+		if (this.session) {
+			void this.refreshCommands(this.session);
+			void this.refreshMcpServers(this.session);
+		}
 		this.settings.mode =
 			message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
 		this.broadcastSettings();
@@ -440,42 +505,23 @@ export class ChatHost {
 
 	/**
 	 * Claude Code moved to a new session, as /clear does. The tab's record
-	 * follows it so Resume and a restarted host continue it, and every
-	 * attachment gets a fresh, empty snapshot (SPEC.md §10.8).
+	 * follows it so Resume and a restarted host continue it (SPEC.md §10.8).
 	 */
 	private sessionChanged(sessionId: string): void {
 		this.sessionId = sessionId;
+		this.handoffId = null;
+		this.handoffPrefix = "";
 		void writeChatSession(
 			this.options.homeDir,
 			this.options.terminalId,
 			sessionId,
 		).catch(() => this.options.log.warn("could not record the new chat session"));
 		this.mapper = new ClaudeMessageMapper();
-		this.partial = null;
 		this.context.figures = null;
 		this.title.reset();
 		void this.title.refresh(sessionId);
 		this.subagents.reset();
-		this.cards.clearDecisions();
-		const context = this.context.current();
-		for (const client of this.clients) {
-			// Mid-attach, its replay is of the old session; it reattaches.
-			if (client.held) {
-				client.socket.destroy();
-				continue;
-			}
-			const snapshot = buildSnapshot({
-				sessionId: this.options.terminalId,
-				seq: this.seq,
-				cards: this.cards.current,
-				turnRunning: this.turnRunning,
-				truncated: false,
-			});
-			writeLine(client.socket, JSON.stringify(snapshot));
-			writeLine(client.socket, this.frame(this.settingsEvent()));
-			writeLine(client.socket, this.frame(this.rulesEvent()));
-			if (context) writeLine(client.socket, this.frame(this.contextEvent(context)));
-		}
+		this.sink.conversationReset(this.context.current());
 	}
 
 	private modeChanged(mode: PermissionMode): void {
@@ -488,14 +534,13 @@ export class ChatHost {
 	private beginTurn(): void {
 		this.turnRunning = true;
 		this.interrupting = false;
-		this.broadcast({ type: "turn.started", at: Date.now() });
+		this.sink.emit({ type: "turn.started", at: Date.now() });
 	}
 
 	private finishTurn(status: "done" | "interrupted" | "error"): void {
 		this.turnRunning = false;
 		this.interrupting = false;
-		this.partial = null;
-		this.broadcast({ type: "turn.finished", status, at: Date.now() });
+		this.sink.emit({ type: "turn.finished", status, at: Date.now() });
 		this.flushAppends();
 	}
 
@@ -506,188 +551,93 @@ export class ChatHost {
 		}
 	}
 
-	private async attach(socket: Socket): Promise<void> {
-		if (this.clients.size >= MAX_ATTACHMENTS_PER_TERMINAL) {
-			writeLine(
-				socket,
-				this.frame({ type: "error", message: "Too many open chat views." }),
-			);
-			socket.end();
-			return;
-		}
-		const client: Client = { socket, held: [] };
-		this.clients.add(client);
-		socket.on("close", () => {
-			this.clients.delete(client);
-			this.subagents.drop(socket);
-		});
-		socket.on("error", () => socket.destroy());
-		readLines(socket, MAX_CHAT_CLIENT_FRAME_BYTES, (line) => {
-			void this.onLine(client, line);
-		});
-		this.options.log.info({ attachments: this.clients.size }, "chat attached");
-
-		// The state as of now; anything that changes during the read below
-		// arrives as a held event after the replay.
-		const partial = this.partial;
-		const cards = this.cards.current;
-		const turnRunning = this.turnRunning;
-		const history = await this.readHistory(turnRunning, this.context.figures);
-		const replay = history.replay;
-		const context = history.context ?? this.context.current();
-		// What is not known yet arrives as its own event once Claude Code answers.
-		if (this.session && !this.modelList.current) void this.refreshModels(this.session);
-		if (this.session && this.context.windowTokens === null) {
-			void this.refreshWindow(this.session, undefined);
-		}
-		const snapshot = buildSnapshot({
-			sessionId: this.options.terminalId,
-			seq: this.seq,
-			cards,
-			turnRunning,
-			truncated: replay.truncated,
-		});
-		writeLine(socket, JSON.stringify(snapshot));
-		const replayed = [...replay.events, ...this.cards.replayDecisions(replay.events)];
-		for (const event of replayed) writeLine(socket, this.frame(event));
-		this.sendInProgress(socket, partial, replay.events);
-		const held = client.held ?? [];
-		client.held = null;
-		for (const event of held) {
-			const line = this.fitted(event);
-			if (line !== null) writeLine(socket, line);
-		}
-		const models = this.modelList.current;
-		if (models && !held.some((event) => event.type === "models")) {
-			writeLine(socket, this.frame(this.modelsEvent(models)));
-		}
-		writeLine(socket, this.frame(this.settingsEvent()));
-		writeLine(socket, this.frame(this.rulesEvent()));
-		const commands = this.commands.current;
-		if (commands) writeLine(socket, this.frame(this.commandsEvent(commands)));
-		// A figure that arrived during the read was already sent, held.
-		if (context && !held.some((event) => event.type === "context")) {
-			writeLine(socket, this.frame(this.contextEvent(context)));
-		}
-	}
-
 	/**
-	 * The transcript's replay, and the context figures: `figures` when known,
+	 * The transcript's replay, and the context figures: the ones known now,
 	 * else read from the transcript. An unreadable transcript replays nothing.
 	 */
-	private async readHistory(
-		turnRunning: boolean,
-		figures: typeof this.context.figures,
-	): Promise<{
-		replay: ReturnType<typeof replayHistory>;
-		context: ReturnType<typeof fromTranscript> | null;
-	}> {
+	async history(turnRunning: boolean): ReturnType<ChatAgent["history"]> {
 		let replay: ReturnType<typeof replayHistory> = { events: [], truncated: false };
-		let context = figures;
+		let context = this.context.figures;
 		try {
 			const messages = await this.sdk.sessionMessages(
 				this.sessionId,
 				this.options.projectDir,
 			);
-			replay = replayHistory(messages, turnRunning);
+			replay = replayHistory(sinceHandoff(messages, this.handoffId), turnRunning);
 			context ??= fromTranscript(messages, this.context.windowTokens);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
 		}
-		return { replay, context };
+		// What is not known yet arrives as its own event once Claude Code answers.
+		if (this.session && !this.modelList.current) void this.refreshModels(this.session);
+		if (this.session && this.context.windowTokens === null) {
+			void this.refreshWindow(this.session, undefined);
+		}
+		return { ...replay, context: context ?? this.context.current() };
 	}
 
-	/** What the replay cannot hold: the reply streaming now and a running `!` command. */
-	private sendInProgress(
-		socket: Socket,
-		partial: { id: string; text: string } | null,
-		replayed: readonly ChatEventBody[],
-	): void {
-		// The reply streaming now, as one delta that later deltas append to.
-		if (partial) {
-			writeLine(
-				socket,
-				this.frame({ type: "text.delta", messageId: partial.id, text: partial.text }),
-			);
-		}
-		// A `!` command still running; its "done" event follows.
-		const shell = this.shell;
-		if (
-			shell &&
-			!replayed.some((event) => event.type === "shell" && event.id === shell.id)
-		) {
-			writeLine(socket, this.frame({ type: "shell", ...withoutKind(shell) }));
-		}
+	/**
+	 * Take in the other agent's turns (SPEC.md §10.8). Resuming its own
+	 * session, Claude is told only what was said since it last spoke; a new
+	 * session is told everything. The text goes with the next prompt, once.
+	 */
+	async adoptHandoff(handoff: Handoff): Promise<number> {
+		this.handoffId = handoff.id;
+		const messages = await this.sdk
+			.sessionMessages(this.sessionId, this.options.projectDir)
+			.catch(() => []);
+		if (messages.some((entry) => carriesHandoff(entry, handoff.id))) return 0;
+		const turns = turnsFor(handoff.log, "claude", messages.length > 0);
+		const { kept, dropped } = fitTurns(turns, this.context.windowTokens);
+		this.handoffPrefix = handoffText(handoff.id, kept, dropped);
+		return dropped;
 	}
 
-	private async onLine(client: Client, line: string): Promise<void> {
-		let parsed: ChatClientMessageType;
-		try {
-			const result = ChatClientMessage.safeParse(JSON.parse(line));
-			if (!result.success) throw new Error("bad frame");
-			parsed = result.data;
-		} catch {
-			client.socket.destroy();
-			return;
-		}
-		try {
-			if (parsed.type === "subagent.watch") {
-				return await this.subagents.watch(client.socket, parsed.toolUseId);
-			}
-			if (parsed.type === "subagent.unwatch") {
-				return this.subagents.unwatch(client.socket, parsed.toolUseId);
-			}
-			if (parsed.type === "rename") {
-				// The asker alone hears the answer: a broadcast `error` could be another's.
-				const result = await this.title.answerRename(this.sessionId, parsed.title);
-				return writeLine(client.socket, JSON.stringify(result));
-			}
-			await this.onMessage(parsed);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : "That did not work.";
-			writeLine(client.socket, this.frame({ type: "error", message }));
-		}
+	/** Claude's whole part of the conversation, for the next swap. */
+	async transcript(): Promise<ChatEventBody[]> {
+		const messages = await this.sdk.sessionMessages(
+			this.sessionId,
+			this.options.projectDir,
+		);
+		return replayHistory(
+			sinceHandoff(messages, this.handoffId),
+			false,
+			undefined,
+			Number.POSITIVE_INFINITY,
+		).events;
 	}
 
-	private async onMessage(message: ChatClientMessageType): Promise<void> {
-		switch (message.type) {
-			case "send":
-				return this.send(message.text, message.attachments);
-			case "permission.answer":
-				return this.cards.answerPermission(message.id, message.optionId, {
-					message: message.message,
-				});
-			case "rule.revoke":
-				return this.rules.revoke(message.rule);
-			case "question.answer":
-				return this.cards.answer(message.id, (open) =>
-					open.card.type === "question"
-						? questionResult(
-								open.input,
-								open.card.questions as ChatQuestion[],
-								message.answers,
-								message.notes,
-								this.reportSkipped,
-							)
-						: null,
-				);
-			case "interrupt":
-				this.shellStop?.abort();
-				if (this.session && this.turnRunning) {
-					this.interrupting = true;
-					await this.session.interrupt();
-				}
-				return;
-			case "set":
-				await this.applySettings(message);
-				return;
+	/** A `!` command still running; its "done" event follows. */
+	inProgress(): ChatEventBody[] {
+		return this.shell ? [{ type: "shell", ...withoutKind(this.shell) }] : [];
+	}
+
+	watchSubagent(socket: Socket, id: string): Promise<void> {
+		return this.subagents.watch(socket, id);
+	}
+
+	unwatchSubagent(socket: Socket, id: string): void {
+		this.subagents.unwatch(socket, id);
+	}
+
+	rename(title: string): Promise<ChatRenameResult> {
+		return this.title.answerRename(this.sessionId, title);
+	}
+
+	revokeRule(rule: string): Promise<void> {
+		return this.rules.revoke(rule);
+	}
+
+	async interrupt(): Promise<void> {
+		this.shellStop?.abort();
+		if (this.session && this.turnRunning) {
+			this.interrupting = true;
+			await this.session.interrupt();
 		}
 	}
 
-	private async send(
-		text: string,
-		attachments: ChatMessage["attachments"] = [],
-	): Promise<void> {
+	async send(text: string, attachments: ChatAttachment[]): Promise<void> {
+		if (MCP_COMMAND.test(text)) return this.runMcpCommand();
 		if (this.shell) throw new Error("Wait for the shell command to finish.");
 		if (isShellCommand(text)) return this.runShell(shellCommandText(text), attachments);
 		this.sending = true;
@@ -698,14 +648,22 @@ export class ChatHost {
 		}
 	}
 
-	private async sendMessage(
-		text: string,
-		attachments: ChatMessage["attachments"] = [],
-	) {
+	/** `/mcp`: read the servers afresh and send the list; no turn, no model. */
+	private async runMcpCommand(): Promise<void> {
+		await this.ensureSession();
+		const session = this.session;
+		if (!session || !(await this.refreshMcpServers(session))) {
+			throw new Error("Could not read the MCP servers.");
+		}
+	}
+
+	private async sendMessage(text: string, attachments: ChatAttachment[]) {
+		// A slash command must stay first in its prompt, so the handoff waits for a message.
+		const prefix = text.startsWith("/") ? "" : this.handoffPrefix;
 		const content = await userContent(
 			this.options.homeDir,
 			this.options.projectDir,
-			text,
+			prefix + text,
 			attachments,
 		);
 		if (content.length === 0) return;
@@ -717,7 +675,8 @@ export class ChatHost {
 			parent_tool_use_id: null,
 			uuid,
 		} as SDKUserMessage);
-		this.broadcast({
+		if (prefix !== "") this.handoffPrefix = "";
+		this.sink.emit({
 			type: "message",
 			id: uuid,
 			role: "user",
@@ -734,14 +693,14 @@ export class ChatHost {
 	 */
 	private async runShell(
 		command: string,
-		attachments: NonNullable<ChatMessage["attachments"]>,
+		attachments: ChatAttachment[],
 	): Promise<void> {
 		const busy = this.turnRunning || this.sending;
 		const refused = shellRefusal(command, attachments.length, busy);
 		if (refused) throw new Error(refused);
 		const id = randomUUID();
 		this.shell = runningShell(id, command);
-		this.broadcast({ type: "shell", ...withoutKind(this.shell) });
+		this.sink.emit({ type: "shell", ...withoutKind(this.shell) });
 		let done: ChatShellItem = { ...this.shell, state: "done" };
 		this.shellStop = new AbortController();
 		try {
@@ -758,15 +717,29 @@ export class ChatHost {
 		} finally {
 			this.shell = null;
 			this.shellStop = null;
-			this.broadcast({ type: "shell", ...withoutKind(done) });
+			this.sink.emit({ type: "shell", ...withoutKind(done) });
 		}
 	}
 
-	private async applySettings(change: {
-		model?: string;
-		effort?: ChatEffort;
-		mode?: ChatPermissionMode;
-	}): Promise<void> {
+	async set(change: ChatSettingsChange): Promise<void> {
+		// Refuse before anything is stored, broadcast or passed to the SDK.
+		if (
+			change.mode !== undefined &&
+			!CLAUDE_MODES.some((mode) => mode.id === change.mode)
+		) {
+			throw new Error("Claude has no such permission mode.");
+		}
+		const sdkEffort =
+			change.effort === undefined ? undefined : toSdkEffort(change.effort);
+		if (change.effort !== undefined) {
+			const model = change.model ?? this.settings.model;
+			const efforts = this.modelList.current?.find(
+				(row) => row.value === model,
+			)?.efforts;
+			if (sdkEffort === undefined || (efforts && !efforts.includes(change.effort))) {
+				throw new Error("This model does not offer that effort.");
+			}
+		}
 		const session = this.session;
 		if (change.model !== undefined) {
 			await session?.setModel(change.model);
@@ -775,7 +748,7 @@ export class ChatHost {
 			if (session) void this.refreshWindow(session, undefined);
 		}
 		if (change.effort !== undefined) {
-			await session?.applyFlagSettings({ effortLevel: change.effort });
+			await session?.applyFlagSettings({ effortLevel: sdkEffort });
 			this.settings.effort = change.effort;
 		}
 		// A model without Auto takes the chat to Ask, as a new chat on it starts.
@@ -785,52 +758,14 @@ export class ChatHost {
 				? chatStartMode(this.modelList.current ?? [], change.model)
 				: undefined);
 		if (mode !== undefined) {
-			await session?.setPermissionMode(mode);
+			const sdkMode = toSdkPermissionMode(mode);
+			if (sdkMode) await session?.setPermissionMode(sdkMode);
 			this.settings.mode = mode;
 		}
 		this.broadcastSettings();
 	}
 
-	private rulesEvent(): ChatEventBody {
-		return { type: "rules", rules: this.rules.held };
-	}
-
-	private settingsEvent(): ChatEventBody {
-		return { type: "settings", agent: "claude", ...this.settings };
-	}
-
 	private broadcastSettings(): void {
-		this.broadcast(this.settingsEvent());
-	}
-
-	private frame(event: ChatEventBody): string {
-		this.seq += 1;
-		return JSON.stringify({
-			...event,
-			sessionId: this.options.terminalId,
-			seq: this.seq,
-		});
-	}
-
-	private broadcast(event: ChatEventBody): void {
-		let line: string | null | undefined;
-		for (const client of this.clients) {
-			if (client.held) {
-				client.held.push(event);
-				continue;
-			}
-			if (line === undefined) line = this.fitted(event);
-			if (line !== null) writeLine(client.socket, line);
-		}
-	}
-
-	/**
-	 * The event as one numbered frame, or null when it is larger than a
-	 * frame: it cannot be relayed, and the transcript keeps it. Images over
-	 * the cap never get here; the adapter has made them `imageOmitted`.
-	 */
-	private fitted(event: ChatEventBody): string | null {
-		const line = this.frame(event);
-		return Buffer.byteLength(line, "utf8") <= MAX_CHAT_SERVER_FRAME_BYTES ? line : null;
+		this.sink.settings({ agent: "claude", ...this.settings });
 	}
 }

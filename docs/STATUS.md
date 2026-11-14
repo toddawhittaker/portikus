@@ -87,6 +87,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 63, fix batch.** A quiet line in the chat for each permission decision, a browser question card for Claude Code's questions in a terminal tab (ADR 0075), every terminal drawn with WebGL so box lines have no gaps, a language tag and colour on every file-type icon in the Files pane, and two flaky tests made certain.
 - **Epic 64, admin and instructor redesign.** The winner of a graded design hill climb for the administrator and instructor pages: one page frame with a left rail, an attention summary, a side inspector with Overview, Activity and Account tabs, quiet dot-and-word states, Logs and Audit as workbenches, a Class now summary and dot per student on the course page, and live help in a workspace-style terminal frame; plus the graders' remaining notes, the code and accessibility review fixes, and the design system and mockups brought up to date (DESIGN.md sections 9 and 11, SPEC.md 20.1).
 - **Epic 65, fix batch with editor colour schemes.** Students pick an editor colour scheme in Settings: Portikus (the default), VS Code, IntelliJ, GitHub, Solarized, Catppuccin or High contrast, each in light and dark; the Health page says "Worker not reporting" when the worker has never reported; a terminal question is announced to screen readers when focus is in another pane; the Files pane gains database, binary, slides and log icons; the design README says what the console stylesheet is built from; and three flaky tests are fixed.
+- **Epic 66, Codex in the chat.** A Codex (GUI) chat tab at parity with Claude Code, through one shared chat core with a driver for each agent (ADR 0076); skills and MCP servers for both agents, Codex subagent rows in the left pane and the chat, switching a chat between Claude Code and Codex mid-conversation, Up and Down through the chat's sent messages, and a warning when the student is not signed in to either agent.
 
 ## Open items
 
@@ -139,7 +140,6 @@ list was made and may already be fixed.
 - A student's own edits to `/etc/docker/daemon.json` are reset at every start.
 - An abort during the Docker seed copy or instance create does not cancel the Incus operation; a retry adopts what exists (ADR 0034). An in-container edit that times out is left running until it exits.
 - The language servers' output buffers in the agent are not bounded; the harm stays inside the student's container.
-- A student's own Codex `developer_instructions` replace the platform's (unverified).
 - A named pipe at `/etc/hosts` or `/etc/docker/daemon.json` blocks the controller's read at start, for that workspace only (unverified).
 - Wanted: a bandwidth cap per workspace (#915), ZFS storage (#799), admin-chosen image packages (#627) and per-course tool versions (#1623).
 
@@ -165,7 +165,12 @@ list was made and may already be fixed.
 - Answering a permission card splits an open tool group, because a call with a decision stands alone (a visual jump).
 - The "Answered in the terminal or timed out" notice on a terminal's question card shows for 4 seconds only.
 - A long decision target in the chat is cut with an ellipsis; its full text is in a tooltip.
-- Codex delta metrics are unconfirmed on a real Codex turn (#1531), and Codex has no subagent hooks, so it shows no subagent rows.
+- A question asked in a Codex terminal tab has no browser card, because Codex has no hook that can hold a question open; the tab shows needs input.
+- Codex subagent panels opened from separate left-pane rows share the title "Subagent".
+- The sign-in banner's button always opens a new terminal tab, even when that agent's tab is already open.
+- The smoke check's self-test (`chat-probe-test.sh`, `fake-chat-server.mjs`) has no Codex scenarios.
+- A `!` command run in a resumed Claude chat before the first message after an agent switch is hidden after a reload.
+- Claude's automatic title for a chat that began on Codex is unchecked: it may read the handoff block.
 - Accepted: if a student stops Claude Code with Esc, its tab shows "working" until the next prompt, because Claude sends no hook for it.
 - A GUI and a terminal session of Claude Code can still run one session at once; Help says not to.
 - The `@` menu lists files only, with no recency boost, and does not work in shell mode. A `!` command cannot be sent while Claude works and has no standard input. `/resume` stays terminal-only.

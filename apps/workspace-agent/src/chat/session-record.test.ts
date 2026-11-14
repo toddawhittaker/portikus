@@ -3,9 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import {
+	type ChatSwapState,
 	chatSessionsDir,
+	readChatSession,
+	readSwapState,
 	recordChatSession,
+	takeSwapState,
 	writeChatSession,
+	writePendingSwitch,
+	writeSwapState,
 } from "./session-record.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
@@ -59,4 +65,79 @@ test("a restarted tab keeps the session /clear moved it to", async () => {
 
 test("a session id that is not a UUID is refused", async () => {
 	await expect(writeChatSession(home, A, "../x")).rejects.toThrow();
+});
+
+const STATE: ChatSwapState = {
+	sessions: { claude: B },
+	earlier: [{ type: "turn.started", at: 1 }],
+	truncated: false,
+	log: [{ agent: "claude", turns: [{ user: "hi", reply: "hello", tools: [] }] }],
+	handoff: null,
+};
+
+test("a tab with no swaps has no swap state", async () => {
+	expect(await takeSwapState(home, A, "claude")).toEqual({
+		state: null,
+		switched: false,
+	});
+});
+
+test("a swap prepared for Codex is taken up by the Codex host, which starts a fresh thread", async () => {
+	await writeChatSession(home, A, B);
+	await writePendingSwitch(home, A, "codex", STATE);
+	expect(await takeSwapState(home, A, "codex")).toEqual({
+		state: STATE,
+		switched: true,
+	});
+	expect(await readSwapState(home, A)).toEqual(STATE);
+	// The terminal id in the record means no thread yet.
+	expect(await readChatSession(home, A)).toBe(A);
+	// It is taken once; a restart reads the state, not a second swap.
+	expect(await takeSwapState(home, A, "codex")).toEqual({
+		state: STATE,
+		switched: false,
+	});
+	const file = join(chatSessionsDir(home), `${A}.swap.json`);
+	expect((await stat(file)).mode & 0o777).toBe(0o600);
+});
+
+test("a swap back to Claude resumes Claude's own session", async () => {
+	await writeChatSession(home, A, C);
+	await writePendingSwitch(home, A, "claude", {
+		...STATE,
+		sessions: { claude: B },
+	});
+	expect((await takeSwapState(home, A, "claude")).switched).toBe(true);
+	expect(await recordChatSession(home, A)).toBe(B);
+});
+
+test("a swap prepared for the other agent, which never started, is dropped", async () => {
+	await writePendingSwitch(home, A, "codex", STATE);
+	expect(await takeSwapState(home, A, "claude")).toEqual({
+		state: null,
+		switched: false,
+	});
+	expect(await takeSwapState(home, A, "codex")).toEqual({
+		state: null,
+		switched: false,
+	});
+});
+
+test("a resumed chat carries the ended chat's swaps over", async () => {
+	await writeSwapState(home, A, STATE);
+	expect(await takeSwapState(home, B, "claude", A)).toEqual({
+		state: STATE,
+		switched: false,
+	});
+	expect(await readSwapState(home, B)).toEqual(STATE);
+});
+
+test("forgetting the swaps, as /clear does, removes them; a damaged file reads as none", async () => {
+	await writeSwapState(home, A, STATE);
+	await writeSwapState(home, A, null);
+	expect(await readSwapState(home, A)).toBeNull();
+	await writeFile(join(chatSessionsDir(home), `${A}.swap.json`), "{not json");
+	expect(await readSwapState(home, A)).toBeNull();
+	await writeFile(join(chatSessionsDir(home), `${A}.swap.json`), '{"sessions":{}}');
+	expect(await readSwapState(home, A)).toBeNull();
 });

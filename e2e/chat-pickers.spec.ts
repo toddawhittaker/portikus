@@ -11,6 +11,7 @@ import {
 	createStudent,
 	expectNoViolations,
 	query,
+	terminalIds,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -147,13 +148,11 @@ test("each menu marks the current and the default value and says what every choi
 
 	await picker(view, "Agent").click();
 	const codex = menu(page, "Agent").getByRole("menuitemradio", { name: "Codex" });
-	await expect(codex).toHaveAttribute("aria-disabled", "true");
-	await expect(codex).toHaveAccessibleDescription("Coming soon.");
-	// Playwright will not click an aria-disabled item, so press it.
-	await codex.focus();
-	await page.keyboard.press("Enter");
-	// Nothing to choose: the menu stays open on Claude Code.
-	await expect(menu(page, "Agent")).toBeVisible();
+	// The chat has history, so the other agent warns before it is chosen.
+	await expect(codex).not.toHaveAttribute("aria-disabled", "true");
+	await expect(codex).toHaveAccessibleDescription(
+		/^Codex starts fresh with this conversation as context; the cache is lost\./,
+	);
 	await page.keyboard.press("Escape");
 	await expect(picker(view, "Agent")).toHaveText("Agent Claude Code");
 });
@@ -198,7 +197,7 @@ test("the pickers work from the keyboard alone", async ({ page, context }) => {
 		.poll(async () => receivedFrames(id, "set"))
 		.toEqual([{ type: "set", model: "haiku" }]);
 
-	// The unavailable choice is reached, not skipped.
+	// The other agent is reached from the keyboard too.
 	await picker(view, "Agent").focus();
 	await page.keyboard.press("Enter");
 	await page.keyboard.press("ArrowDown");
@@ -721,3 +720,144 @@ for (const colorScheme of ["dark", "light"] as const) {
 		await expectNoViolations(page, '[data-testid="composer-picks"]');
 	});
 }
+
+/** Start a Codex chat from the New tab menu, with its pickers showing. */
+async function launchCodexChat(page: Page, workspaceId: string, projectId: string) {
+	const before = await terminalIds(workspaceId, projectId);
+	await page.getByTestId("launcher").click();
+	await page.getByTestId("launcher-codex-gui").click();
+	await expect
+		.poll(async () => (await terminalIds(workspaceId, projectId)).length)
+		.toBe(before.length + 1);
+	const id = (await terminalIds(workspaceId, projectId)).find(
+		(one) => !before.includes(one),
+	);
+	if (!id) throw new Error("the Codex chat row was not created");
+	const view = page.getByTestId(`chat-view-${id}`);
+	await expect(picker(view, "Model")).toBeAttached({ timeout: 15_000 });
+	await openChatOptions(view);
+	return { id, view };
+}
+
+test("a Codex chat's pickers draw the host's models, efforts and modes, and its choices are kept apart from Claude's", async ({
+	page,
+	context,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Codex pickers" });
+	await openProject(page, student.workspaceId, project.id);
+	const { view } = await launchCodexChat(page, student.workspaceId, project.id);
+	await expect(page.getByRole("tab", { name: /Codex \(GUI\)/ })).toBeVisible();
+	await expect(picker(view, "Agent")).toHaveText(/Agent\s*Codex/);
+	await expect(picker(view, "Model")).toHaveText(/Model\s*GPT-5\.5/);
+	await expect(view.getByTestId("composer-version")).toHaveCount(0);
+	await expect(view.getByTestId("chat-composer-input")).toHaveAttribute(
+		"aria-label",
+		"Message Codex",
+	);
+
+	await picker(view, "Effort").click();
+	const efforts = menu(page, "Effort");
+	for (const name of ["Low", "Medium", "High", "Extra high", "ultra"]) {
+		await expect(
+			efforts.getByRole("menuitemradio", { name, exact: true }),
+		).toBeVisible();
+	}
+	await efforts.getByRole("menuitemradio", { name: "ultra", exact: true }).click();
+	await expect(picker(view, "Effort")).toHaveText(/Effort\s*ultra/);
+
+	await picker(view, "Permissions").click();
+	const modes = menu(page, "Permissions");
+	for (const name of ["Ask", "Read only", "Plan", "Auto", "Full access"]) {
+		await expect(modes.getByRole("menuitemradio", { name, exact: true })).toBeVisible();
+	}
+	await modes.getByRole("menuitemradio", { name: "Full access", exact: true }).click();
+	await expect(view.getByTestId("chat-bypass-warning")).toHaveText(
+		"Full access lets Codex run every command without asking you first.",
+	);
+	await expectNoViolations(page);
+
+	// Kept under codex with the agent; Full access is never carried.
+	await expect
+		.poll(async () => {
+			const [row] = await query<{ chat_settings: unknown }>(
+				"select chat_settings from projects where id = $1",
+				[project.id],
+			);
+			return row?.chat_settings;
+		})
+		.toMatchObject({
+			agent: "codex",
+			codex: { model: "gpt-5.5", effort: "ultra", mode: "onRequest" },
+		});
+});
+
+test("the MCP servers field in Chat options lists each server's state for both agents", async ({
+	page,
+	context,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "MCP list" });
+	await openProject(page, student.workspaceId, project.id);
+	const claude = await withPickers(launchChat(page, student.workspaceId, project.id));
+	const codex = await launchCodexChat(page, student.workspaceId, project.id);
+	for (const { view, tab, manage } of [
+		{ view: claude.view, tab: /Claude Code \(GUI\)/, manage: "claude mcp" },
+		{ view: codex.view, tab: /Codex \(GUI\)/, manage: "codex mcp" },
+	]) {
+		await page.getByRole("tab", { name: tab }).click();
+		await openChatOptions(view);
+		const field = view.getByTestId("composer-mcp");
+		await expect(field).toHaveText(/MCP servers\s*1 of 2 connected/);
+		await field.click();
+		const list = view.getByRole("region", { name: "MCP servers" });
+		await expect(list.getByRole("listitem")).toHaveText([
+			/github\s*Connected/,
+			/docs\s*Needs sign-in/,
+		]);
+		await expect(list).toContainText(
+			`Servers are managed in a terminal, with ${manage}.`,
+		);
+		await expectNoViolations(page);
+	}
+});
+
+test("an empty Claude chat turns into a Codex chat in its place when Codex is chosen", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Swap agents" });
+	await openProject(page, student.workspaceId, project.id);
+	const { id, view } = await withPickers(
+		launchChat(page, student.workspaceId, project.id),
+	);
+	// A chat with history warns before it swaps.
+	await picker(view, "Agent").click();
+	await expect(
+		menu(page, "Agent").getByRole("menuitemradio", { name: "Codex" }),
+	).toHaveAccessibleDescription(/the cache is lost/);
+	await page.keyboard.press("Escape");
+	// Cleared, the chat is empty, and Codex takes its place with no warning.
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await page.keyboard.type("/clear ");
+	await page.keyboard.press("Enter");
+	await expect(view.getByTestId("chat-empty")).toBeVisible();
+	await openChatOptions(view);
+	await picker(view, "Agent").click();
+	await menu(page, "Agent").getByRole("menuitemradio", { name: "Codex" }).click();
+	await expect(page.getByRole("tab", { name: /Codex \(GUI\)/ })).toBeVisible({
+		timeout: 15_000,
+	});
+	await expect(page.getByTestId(`chat-view-${id}`)).toHaveCount(0);
+	await expect(page.getByRole("tab", { name: /Claude Code/ })).toHaveCount(0);
+	const codex = page.locator('[data-testid^="chat-view-"]');
+	await expect(codex.getByTestId("chat-composer-input")).toHaveAttribute(
+		"aria-label",
+		"Message Codex",
+		{ timeout: 15_000 },
+	);
+});

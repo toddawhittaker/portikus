@@ -22,6 +22,8 @@ import { AgentCallError, type AgentClient, agentClientFor } from "../agent-clien
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, sendWorkspaceNotFound } from "../http.js";
 import { toEditorSettings } from "../users/editor-settings.js";
+import { switchChatAgent } from "../workspaces/chat-agent-switch.js";
+import { launcherFields } from "../workspaces/launcher-env.js";
 import {
 	createPendingWork,
 	dropPresence,
@@ -54,38 +56,6 @@ const GIT_OBJECT_ID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
 function gitObjectOrNull(value: string | null): string | null {
 	if (value !== null && GIT_OBJECT_ID.test(value)) return value;
 	return null;
-}
-
-/**
- * The one institutional key this agent kind may receive (SPEC.md §10.6).
- * Only a variable this process actually has is forwarded, and only for the
- * launcher that uses it. The value is never stored or logged.
- */
-function institutionalEnv(
-	agent: "claude" | "codex" | undefined,
-): { ANTHROPIC_API_KEY: string } | { OPENAI_API_KEY: string } | undefined {
-	if (agent === "claude") {
-		const key = process.env.ANTHROPIC_API_KEY;
-		if (key) return { ANTHROPIC_API_KEY: key };
-	}
-	if (agent === "codex") {
-		const key = process.env.OPENAI_API_KEY;
-		if (key) return { OPENAI_API_KEY: key };
-	}
-	return undefined;
-}
-
-/**
- * The API does not choose the CLI. It forwards the launcher kind and, when
- * this process has it, the matching institutional key (SPEC.md §10.2,
- * §10.6, §24.8).
- */
-function launcherFields(agent: "claude" | "codex" | undefined) {
-	const keys = institutionalEnv(agent);
-	return {
-		...(agent === undefined ? {} : { agent }),
-		...(keys === undefined ? {} : { institutionalEnv: keys }),
-	};
 }
 
 function toTerminal(row: {
@@ -228,23 +198,49 @@ async function createRefs(
 	db: Kysely<Database>,
 	workspaceId: string,
 	body: CreateTerminalRequest,
-	rows: Array<{ id: string; kind: string; ended_at: unknown }>,
+	rows: Array<{ id: string; kind: string; agent: string | null; ended_at: unknown }>,
 ): Promise<
 	| { ok: true; project: TerminalProject | null }
-	| { ok: false; code: "PROJECT_NOT_FOUND" | "TERMINAL_NOT_FOUND"; message: string }
+	| {
+			ok: false;
+			status: 400 | 404;
+			code: "PROJECT_NOT_FOUND" | "TERMINAL_NOT_FOUND" | "VALIDATION_FAILED";
+			message: string;
+	  }
 > {
 	const project = body.projectId
 		? await terminalProject(db, workspaceId, body.projectId)
 		: null;
 	if (project === undefined) {
-		return { ok: false, code: "PROJECT_NOT_FOUND", message: "Project not found" };
+		return {
+			ok: false,
+			status: 404,
+			code: "PROJECT_NOT_FOUND",
+			message: "Project not found",
+		};
 	}
-	const resumable = rows.some(
-		(row) =>
-			row.id === body.resumeChatOf && row.kind === "chat" && row.ended_at !== null,
-	);
-	if (body.resumeChatOf !== undefined && !resumable) {
-		return { ok: false, code: "TERMINAL_NOT_FOUND", message: "Terminal not found" };
+	if (body.resumeChatOf !== undefined) {
+		const old = rows.find(
+			(row) =>
+				row.id === body.resumeChatOf && row.kind === "chat" && row.ended_at !== null,
+		);
+		if (!old) {
+			return {
+				ok: false,
+				status: 404,
+				code: "TERMINAL_NOT_FOUND",
+				message: "Terminal not found",
+			};
+		}
+		// Each agent keeps its own session, so one cannot continue the other's.
+		if (old.agent !== body.agent) {
+			return {
+				ok: false,
+				status: 400,
+				code: "VALIDATION_FAILED",
+				message: "A chat can only continue a chat of the same agent.",
+			};
+		}
 	}
 	return { ok: true, project };
 }
@@ -459,7 +455,7 @@ export function registerTerminalRoutes(
 		}
 
 		const refs = await createRefs(db, params.id, body, rows);
-		if (!refs.ok) return sendError(reply, 404, refs.code, refs.message);
+		if (!refs.ok) return sendError(reply, refs.status, refs.code, refs.message);
 		const { project } = refs;
 
 		const id = crypto.randomUUID();
@@ -535,16 +531,46 @@ export function registerTerminalRoutes(
 			return sendWorkspaceNotFound(reply);
 		}
 
-		const updated = await db
-			.updateTable("terminals")
-			.set({
-				...(body.name === undefined ? {} : { name: body.name }),
-				...(body.theme === undefined ? {} : { theme: body.theme }),
-			})
-			.where("id", "=", params.tid)
-			.where("workspace_id", "=", params.id)
-			.returningAll()
-			.executeTakeFirst();
+		if (body.agent !== undefined) {
+			// A swap launches an agent, so it gets the same point a launch does (SPEC.md §15.6, §15.10).
+			const refused = await switchChatAgent(
+				db,
+				config,
+				workspace,
+				params.tid,
+				body.agent,
+				async (agent, projectId) => {
+					const project = projectId
+						? await terminalProject(db, params.id, projectId)
+						: undefined;
+					if (project)
+						await agentSessionPoint(request, agent, params.id, project, user.id);
+				},
+			);
+			if (refused)
+				return sendError(reply, refused.status, refused.code, refused.message);
+		}
+
+		// The swap set the agent itself, only if no other swap had.
+		const changes = {
+			...(body.name === undefined ? {} : { name: body.name }),
+			...(body.theme === undefined ? {} : { theme: body.theme }),
+		};
+		const updated =
+			Object.keys(changes).length === 0
+				? await db
+						.selectFrom("terminals")
+						.selectAll()
+						.where("id", "=", params.tid)
+						.where("workspace_id", "=", params.id)
+						.executeTakeFirst()
+				: await db
+						.updateTable("terminals")
+						.set(changes)
+						.where("id", "=", params.tid)
+						.where("workspace_id", "=", params.id)
+						.returningAll()
+						.executeTakeFirst();
 		if (!updated) {
 			return sendError(reply, 404, "TERMINAL_NOT_FOUND", "Terminal not found");
 		}

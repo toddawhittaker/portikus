@@ -2,14 +2,13 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { ChatServerEvent } from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
 import {
-	buildSnapshot,
 	REPLAY_IMAGE_TURNS,
 	REPLAY_SUBAGENT_ENTRIES,
 	REPLAY_SUBAGENT_IMAGE_ENTRIES,
-	REPLAY_TURNS,
 	replayHistory,
 	replaySubagent,
 } from "./snapshot.js";
+import { REPLAY_TURNS } from "./wire.js";
 
 const SESSION = "0b7e0a8e-3c1e-4c38-9a4e-2f0f6f7d1a11";
 const PNG =
@@ -246,21 +245,6 @@ describe("replayed turns", () => {
 			},
 			{ role: "user", markdown: "" },
 		]);
-	});
-});
-
-describe("snapshot", () => {
-	test("holds cards, the turn state and truncated, and never messages", () => {
-		const snapshot = buildSnapshot({
-			sessionId: SESSION,
-			seq: 4,
-			cards: [],
-			turnRunning: true,
-			truncated: true,
-		});
-		expect(snapshot).toMatchObject({ turnRunning: true, truncated: true });
-		expect(snapshot).not.toHaveProperty("messages");
-		expect(ChatServerEvent.safeParse(snapshot).success).toBe(true);
 	});
 });
 

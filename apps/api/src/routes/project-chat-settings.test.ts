@@ -13,7 +13,8 @@ import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * A new chat starts with the picker values the owner last used in that
- * project; a last-used Bypass comes back as Auto (SPEC.md §10.8).
+ * project, kept for each agent; a last-used Bypass or Full access comes back
+ * as the agent's default mode (SPEC.md §10.8).
  */
 
 const skip = !hasTestDb();
@@ -156,8 +157,8 @@ test.skipIf(skip)(
 			.set({
 				chat_settings: JSON.stringify({
 					model: "Retired Model",
-					effort: "huge",
-					mode: "low",
+					effort: "Huge!",
+					mode: "low mode",
 				}),
 			})
 			.where("id", "=", one)
@@ -260,6 +261,178 @@ test.skipIf(skip)(
 		]) {
 			expect((await save(alice, one, payload)).statusCode).toBe(400);
 		}
+		expect((await read(alice, one)).statusCode).toBe(204);
+	},
+);
+
+const CODEX_ON_REQUEST = { model: "gpt-5.5", effort: "ultra", mode: "onRequest" };
+
+/** What a Codex chat sends: the flat keys are Claude's, the agent's own are under `codex`. */
+function codexSave(
+	codex: object,
+	claude = { model: "opus", effort: "low", mode: "plan" },
+) {
+	return { ...claude, agent: "codex", codex };
+}
+
+test.skipIf(skip)(
+	"each agent keeps its own picker values, and agent says which was used last",
+	async () => {
+		const one = await newProject("one");
+		await save(alice, one, { model: "opus", effort: "low", mode: "plan" });
+		expect((await read(alice, one)).json()).not.toHaveProperty("agent");
+
+		// A Codex chat's save changes `codex` and `agent`, never Claude's keys,
+		// whatever flat keys the body carries.
+		expect(
+			(
+				await save(
+					alice,
+					one,
+					codexSave(CODEX_ON_REQUEST, {
+						model: "haiku",
+						effort: "max",
+						mode: "default",
+					}),
+				)
+			).statusCode,
+		).toBe(204);
+		expect((await read(alice, one)).json()).toEqual({
+			model: "opus",
+			effort: "low",
+			mode: "plan",
+			readAloud: false,
+			agent: "codex",
+			codex: CODEX_ON_REQUEST,
+		});
+
+		// A later Claude save keeps Codex's values and makes Claude the last agent.
+		await save(alice, one, { model: "sonnet", effort: "high", mode: "acceptEdits" });
+		expect((await read(alice, one)).json()).toEqual({
+			model: "sonnet",
+			effort: "high",
+			mode: "acceptEdits",
+			readAloud: false,
+			codex: CODEX_ON_REQUEST,
+		});
+
+		// Said outright, Claude is the same as absent.
+		await save(alice, one, codexSave({ ...CODEX_ON_REQUEST, effort: "low" }));
+		await save(alice, one, {
+			model: "sonnet",
+			effort: "high",
+			mode: "acceptEdits",
+			agent: "claude",
+		});
+		const back = (await read(alice, one)).json();
+		expect(back).not.toHaveProperty("agent");
+		expect(back.codex).toEqual({ ...CODEX_ON_REQUEST, effort: "low" });
+	},
+);
+
+test.skipIf(skip)(
+	"a Codex save keeps read aloud, and read aloud keeps both agents",
+	async () => {
+		const one = await newProject("one");
+		await save(alice, one, { readAloud: true });
+		await save(alice, one, codexSave(CODEX_ON_REQUEST));
+		await save(alice, one, { readAloud: false });
+		expect((await read(alice, one)).json()).toMatchObject({
+			readAloud: false,
+			agent: "codex",
+			codex: CODEX_ON_REQUEST,
+		});
+	},
+);
+
+test.skipIf(skip)("a last-used Codex Full access comes back as Auto", async () => {
+	const one = await newProject("one");
+	await save(alice, one, codexSave({ ...CODEX_ON_REQUEST, mode: "fullAccess" }));
+	const row = await testDb.db
+		.selectFrom("projects")
+		.select("chat_settings")
+		.where("id", "=", one)
+		.executeTakeFirstOrThrow();
+	expect(row.chat_settings).toMatchObject({
+		codex: { ...CODEX_ON_REQUEST, mode: "onRequest" },
+	});
+	expect((await read(alice, one)).json().codex.mode).toBe("onRequest");
+
+	// A row written some other way is reset on the way out as well.
+	await testDb.db
+		.updateTable("projects")
+		.set({
+			chat_settings: JSON.stringify({
+				model: "opus",
+				effort: "low",
+				mode: "bypassPermissions",
+				agent: "codex",
+				codex: { ...CODEX_ON_REQUEST, mode: "fullAccess" },
+			}),
+		})
+		.where("id", "=", one)
+		.execute();
+	expect((await read(alice, one)).json()).toMatchObject({
+		mode: "auto",
+		codex: { ...CODEX_ON_REQUEST, mode: "onRequest" },
+	});
+});
+
+test.skipIf(skip)("other Codex modes are carried as they were", async () => {
+	const one = await newProject("one");
+	for (const mode of ["untrusted", "readOnly", "plan", "onRequest"]) {
+		await save(alice, one, codexSave({ ...CODEX_ON_REQUEST, mode }));
+		expect((await read(alice, one)).json().codex.mode).toBe(mode);
+	}
+});
+
+test.skipIf(skip)(
+	"a stored Codex object that cannot be read, or an unknown agent, reads as absent",
+	async () => {
+		const one = await newProject("one");
+		await testDb.db
+			.updateTable("projects")
+			.set({
+				chat_settings: JSON.stringify({
+					model: "opus",
+					effort: "low",
+					mode: "plan",
+					agent: "gemini",
+					codex: { model: "GPT 5", effort: "ultra", mode: "onRequest" },
+				}),
+			})
+			.where("id", "=", one)
+			.execute();
+		const back = (await read(alice, one)).json();
+		expect(back).not.toHaveProperty("agent");
+		expect(back).not.toHaveProperty("codex");
+	},
+);
+
+test.skipIf(skip)(
+	"a Codex save needs its codex values, and only well-formed ones",
+	async () => {
+		const one = await newProject("one");
+		for (const payload of [
+			{ model: "opus", effort: "low", mode: "plan", agent: "codex" },
+			codexSave({ model: "GPT 5", effort: "low", mode: "onRequest" }),
+			codexSave({ model: "gpt-5.5", effort: "low" }),
+			codexSave({ ...CODEX_ON_REQUEST, prompt: "hello" }),
+			{ model: "opus", effort: "low", mode: "plan", agent: "gemini" },
+		]) {
+			expect((await save(alice, one, payload)).statusCode).toBe(400);
+		}
+		expect((await read(alice, one)).statusCode).toBe(204);
+	},
+);
+
+test.skipIf(skip)(
+	"another student cannot change a project's Codex values",
+	async () => {
+		const one = await newProject("one");
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		expect((await save(bob, one, codexSave(CODEX_ON_REQUEST))).statusCode).toBe(404);
 		expect((await read(alice, one)).statusCode).toBe(204);
 	},
 );

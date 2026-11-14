@@ -1,6 +1,6 @@
 /**
  * The conversation, oldest first. What the student wrote sits on the right;
- * each of Claude's turns is one entry under a "Claude" byline. A running
+ * each of the agent's turns is one entry under its byline ("Claude", "Codex"). A running
  * turn shows its work as it happens and a line naming the step in hand,
  * "Running pnpm build · 3m 43s"; a finished one
  * folds its tool work and middle narration into "Worked for 3m 43s"
@@ -13,7 +13,9 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { displayName } from "../files/paths.js";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CopyButton } from "./CopyButton.js";
+import { useChatAgent } from "./chatAgent.js";
 import type {
+	ChatHandoffItem,
 	ChatItem,
 	ChatMessageItem,
 	ChatShellItem,
@@ -29,11 +31,12 @@ import {
 	groupTools,
 	type ToolRun,
 } from "./fold.js";
+import { firstSpeaker, HandoffDivider, spokenBy } from "./HandoffDivider.js";
 import { useChatImages } from "./ImageViewer.js";
-import { askedQuestions, readAnswers } from "./questionAnswer.js";
+import { askedQuestions, readAnswers, secretQuestions } from "./questionAnswer.js";
 import { SpeakButton } from "./SpeakButton.js";
 import { ToolBlock } from "./ToolBlock.js";
-import { projectPath, toolLine } from "./toolView.js";
+import { projectPath, toolLabel, toolLine } from "./toolView.js";
 import "./messages.css";
 import "./turn.css";
 
@@ -45,6 +48,7 @@ import "./turn.css";
 type Entry =
 	| { kind: "user"; item: ChatMessageItem }
 	| { kind: "shell"; item: ChatShellItem }
+	| { kind: "handoff"; item: ChatHandoffItem }
 	| { kind: "turn"; turnId: string; items: ChatItem[] }
 	| { kind: "loose"; key: string; items: ChatItem[] };
 
@@ -62,6 +66,10 @@ function groupByTurn(
 		// The student ran it, so it sits where it happened, under no byline.
 		if (item.kind === "shell") {
 			entries.push({ kind: "shell", item });
+			continue;
+		}
+		if (item.kind === "handoff") {
+			entries.push({ kind: "handoff", item });
 			continue;
 		}
 		if (item.turnId === null) {
@@ -129,6 +137,7 @@ function SentFile({ path }: { path: string }) {
 
 /** What the student wrote, drawn as the Markdown the composer sent (SPEC.md §10.8). */
 function UserMessage({ message }: { message: ChatMessageItem }) {
+	const { name } = useChatAgent();
 	return (
 		<li
 			className="pk-chat-entry pk-chat-entry--user pk-chat-copy-host"
@@ -150,7 +159,7 @@ function UserMessage({ message }: { message: ChatMessageItem }) {
 			</div>
 			{message.whileWorking ? (
 				<p className="pk-turn-sent-note" data-testid="chat-sent-while-working">
-					Sent while Claude was working
+					Sent while {name} was working
 				</p>
 			) : null}
 		</li>
@@ -245,6 +254,9 @@ const AssistantMessage = memo(function AssistantMessage({
 	);
 });
 
+/** What the conversation says in place of a secret answer. */
+const SECRET_ANSWERED = "Answered (not shown)";
+
 /** An AskUserQuestion call, which the conversation shows as what was asked and answered. */
 function isAsked(item: ChatItem): item is ChatToolItem {
 	return (
@@ -267,7 +279,13 @@ function AskedSummary({ tool }: { tool: ChatToolItem }) {
 	// Claude Code writes the result once the student answers; until then the card is open.
 	const waiting =
 		tool.status === "running" || (tool.status === "done" && result === "");
-	const asked = readAnswers(questions, result);
+	// A secret is never drawn: not its answer, and not the result text it is in.
+	const secrets = secretQuestions(tool.input);
+	const asked = readAnswers(questions, result).map((one) =>
+		secrets.has(one.question) && one.answer !== null
+			? { ...one, answer: SECRET_ANSWERED }
+			: one,
+	);
 	const answered = asked.some((one) => one.answer !== null);
 	// A result in a form not read here is shown as it came, so nothing is lost.
 	const unread =
@@ -299,7 +317,7 @@ function AskedSummary({ tool }: { tool: ChatToolItem }) {
 								// biome-ignore lint/suspicious/noArrayIndexKey: questions never change once asked
 								<dt key={at}>{one.question}</dt>
 							))}
-							<dd>{result}</dd>
+							<dd>{secrets.size > 0 ? SECRET_ANSWERED : result}</dd>
 						</div>
 					) : (
 						asked.map((one, at) => (
@@ -346,6 +364,8 @@ function Step({ item }: { item: ChatItem }) {
 			);
 		case "shell":
 			return <ShellCommand shell={item} />;
+		case "handoff":
+			return <HandoffDivider handoff={item} />;
 		case "error":
 			return (
 				<li className="pk-chat-step">
@@ -401,7 +421,7 @@ function ToolGroup({ run }: { run: ToolRun }) {
 	const stopped = tools.filter((tool) => tool.status === "stopped").length;
 	const what = running
 		? doingLine(running)
-		: [...new Set(tools.map((tool) => tool.name))].join(", ");
+		: [...new Set(tools.map((tool) => toolLabel(tool.name, tool.input)))].join(", ");
 	const [was] = useState(() => loneRow(tools[0]?.id));
 	const group = useRef<HTMLDetailsElement>(null);
 	// The row the student opened or was on stays open and keeps the keyboard nearby (SPEC.md §25.8).
@@ -624,11 +644,12 @@ function TurnSteps({ turn, items, asking, opener }: TurnProps) {
 }
 
 function Turn({ turn, items, asking, opener }: TurnProps) {
+	const { name } = useChatAgent();
 	return (
 		<li className="pk-chat-entry pk-chat-turn" data-testid="chat-turn">
 			<p className="pk-chat-author">
 				<Icon name="agent" size="sm" />
-				Claude
+				{name}
 			</p>
 			<ol className="pk-chat-steps">
 				<TurnSteps turn={turn} items={items} asking={asking} opener={opener} />
@@ -716,6 +737,7 @@ export function MessageList({
 	asking,
 	opener = null,
 }: MessageListProps) {
+	let speaker = firstSpeaker(items);
 	return (
 		<ol className="pk-chat-log" aria-label="Conversation">
 			{truncated ? (
@@ -726,15 +748,21 @@ export function MessageList({
 				</li>
 			) : null}
 			{groupByTurn(items, currentTurnId).map((entry) => {
+				if (entry.kind === "handoff") {
+					speaker = entry.item.to;
+					return <HandoffDivider key={entry.item.key} handoff={entry.item} />;
+				}
 				if (entry.kind === "turn") {
-					return (
+					return spokenBy(
+						speaker,
+						entry.turnId,
 						<Turn
 							key={entry.turnId}
 							turn={turns[entry.turnId]}
 							items={entry.items}
 							asking={asking}
 							opener={opener}
-						/>
+						/>,
 					);
 				}
 				if (entry.kind === "user") {
@@ -744,14 +772,16 @@ export function MessageList({
 					return <ShellCommand key={entry.item.key} shell={entry.item} />;
 				}
 				// Claude's words outside a turn still carry its byline.
-				return (
+				return spokenBy(
+					speaker,
+					entry.key,
 					<Turn
 						key={entry.key}
 						turn={undefined}
 						items={entry.items}
 						asking={asking}
 						opener={opener}
-					/>
+					/>,
 				);
 			})}
 		</ol>

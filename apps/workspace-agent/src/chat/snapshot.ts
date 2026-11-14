@@ -1,17 +1,15 @@
 import type { SDKMessage, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
-	type ChatOpenCard,
-	type ChatServerEvent,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	MAX_CHAT_SHELL_COMMAND_CHARS,
 	MAX_CHAT_SHELL_OUTPUT_CHARS,
 } from "@portikus/contracts";
 import { splitAttachmentLines } from "./attachments.js";
 import { type ChatEventBody, ClaudeMessageMapper } from "./claude-adapter.js";
+import { splitHandoff } from "./handoff.js";
 import { parseBashInput, parseBashOutput } from "./shell-command.js";
+import { REPLAY_TURNS } from "./wire.js";
 
-/** Most turns replayed on attach (SPEC.md §10.8). */
-export const REPLAY_TURNS = 20;
 /** Only the newest turns keep their tool images on replay. */
 export const REPLAY_IMAGE_TURNS = 5;
 /** Room for the session id and sequence number the host stamps on. */
@@ -128,7 +126,9 @@ function entryEvents(
 	maxBytes: number,
 ): ChatEventBody[] {
 	if (isTyped(entry)) {
-		const { text, attachments } = splitAttachmentLines(userText(entry) ?? "");
+		const { text, attachments } = splitAttachmentLines(
+			splitHandoff(userText(entry) ?? "").text,
+		);
 		return [
 			{
 				type: "message",
@@ -174,6 +174,7 @@ export function replayHistory(
 	entries: readonly SessionMessage[],
 	turnRunning: boolean,
 	maxBytes = MAX_CHAT_SERVER_FRAME_BYTES,
+	maxTurns = REPLAY_TURNS,
 ): { events: ChatEventBody[]; truncated: boolean } {
 	// A `!` command is a group of its own, outside any turn, as it ran.
 	const turns: SessionMessage[][] = [];
@@ -187,7 +188,7 @@ export function replayHistory(
 		if (opens) turns.push([]);
 		turns.at(-1)?.push(entry);
 	}
-	const kept = turns.slice(-REPLAY_TURNS);
+	const kept = turns.slice(-maxTurns);
 	const mapper = new ClaudeMessageMapper();
 	const events: ChatEventBody[] = [];
 	let lastAt = 0;
@@ -252,20 +253,21 @@ export function replaySubagent(
 	return { events, truncated };
 }
 
-/** The snapshot sent first on every attach (SPEC.md §10.8). History follows it as replayed events. */
-export function buildSnapshot(input: {
-	sessionId: string;
-	seq: number;
-	cards: readonly ChatOpenCard[];
-	turnRunning: boolean;
-	truncated: boolean;
-}): Extract<ChatServerEvent, { type: "snapshot" }> {
-	return {
-		type: "snapshot",
-		sessionId: input.sessionId,
-		seq: input.seq,
-		cards: [...input.cards],
-		turnRunning: input.turnRunning,
-		truncated: input.truncated,
-	};
+/**
+ * The part of a Claude transcript since a swap handed it the conversation:
+ * from the prompt that carried handoff `id`, or nothing while that prompt
+ * is unsent. Without a handoff, the whole transcript.
+ */
+export function sinceHandoff(
+	entries: readonly SessionMessage[],
+	id: string | null,
+): readonly SessionMessage[] {
+	if (id === null) return entries;
+	const at = entries.findIndex((entry) => carriesHandoff(entry, id));
+	return at < 0 ? [] : entries.slice(at);
+}
+
+/** Whether this entry is the prompt that carried handoff `id`. */
+export function carriesHandoff(entry: SessionMessage, id: string): boolean {
+	return entry.type === "user" && splitHandoff(userText(entry) ?? "").id === id;
 }

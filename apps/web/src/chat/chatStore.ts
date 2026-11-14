@@ -12,19 +12,22 @@ import {
 	ChatClientMessage,
 	type ChatCommand,
 	type ChatEffort,
-	type ChatLastSettings,
+	type ChatMcpServer,
+	type ChatModeInfo,
 	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatPermissionMode,
 	ChatServerEvent,
 	type ChatSessionRule,
+	type ChatSignIn,
 	type ChatToolOutputPart,
+	type CodingAgent,
 	chatStartMode,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { offeredModel, sameModel } from "./models.js";
+import { isWorking, sentWhileWorking, takeInSentMessage } from "./sentWhileWorking.js";
 
 export interface ChatMessageItem {
 	kind: "message";
@@ -36,7 +39,7 @@ export interface ChatMessageItem {
 	/** Deltas are still arriving for it. */
 	streaming: boolean;
 	turnId: string | null;
-	/** The student sent it while Claude was working; only live, a reload does not know. */
+	/** The student sent it while the agent was working; only live, a reload does not know. */
 	whileWorking?: boolean;
 }
 
@@ -72,7 +75,25 @@ export interface ChatShellItem extends Omit<ShellFields, "kind"> {
 	turnId: null;
 }
 
-export type ChatItem = ChatMessageItem | ChatToolItem | ChatShellItem | ChatErrorItem;
+/** Where the chat changed agents: a divider in the conversation (SPEC.md §10.8). */
+export interface ChatHandoffItem {
+	kind: "handoff";
+	key: string;
+	from: CodingAgent;
+	to: CodingAgent;
+	/** The oldest turns that did not fit the new agent's context window. */
+	droppedTurns: number;
+	/** The new agent could not take the conversation in, so it started without it. */
+	failed: boolean;
+	turnId: null;
+}
+
+export type ChatItem =
+	| ChatMessageItem
+	| ChatToolItem
+	| ChatShellItem
+	| ChatErrorItem
+	| ChatHandoffItem;
 
 export interface ChatTurn {
 	id: string;
@@ -131,10 +152,18 @@ export interface ChatState {
 	truncated: boolean;
 	/** The latest `settings` event; null until one arrives. */
 	settings: ChatSettings | null;
-	/** The models Claude Code offers, as the host last listed them; empty until it does. */
+	/** The models the agent offers, as the host last listed them; empty until it does. */
 	models: ChatModelInfo[];
+	/** The permission modes the host offers; empty until it lists them, or when it never does. */
+	modes: ChatModeInfo[];
+	/** The student's MCP servers and how each stands, as the host last listed them. */
+	mcp: ChatMcpServer[];
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
+	/** Whether the student is signed in to the agent, as the host last said; `unknown` warns of nothing. */
+	signIn: ChatSignIn;
+	/** A Check again was sent and the host has not answered yet. */
+	signInChecking: boolean;
 	/** The slash commands on offer, as the host last listed them; empty until it does. */
 	commands: ChatCommand[];
 	/** How full the context is and when the prompt cache goes cold; null until the host says. */
@@ -182,7 +211,11 @@ export const initialChatState: ChatState = {
 	truncated: false,
 	settings: null,
 	models: [],
+	modes: [],
+	mcp: [],
 	sessionRules: [],
+	signIn: "unknown",
+	signInChecking: false,
 	commands: [],
 	context: null,
 	invalidFrames: 0,
@@ -257,6 +290,9 @@ function applySnapshot(
 		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
+		// Or a new agent after a swap; its host says where it stands after the snapshot.
+		signIn: "unknown",
+		signInChecking: false,
 		turns: turnId
 			? {
 					[turnId]: {
@@ -351,8 +387,14 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			};
 		case "models":
 			return { ...state, models: event.models };
+		case "modes":
+			return { ...state, modes: event.modes };
+		case "mcp":
+			return { ...state, mcp: event.servers };
 		case "rules":
 			return { ...state, sessionRules: event.rules };
+		case "signIn":
+			return { ...state, signIn: event.state, signInChecking: false };
 		case "shell": {
 			const { type: _type, sessionId: _session, seq: _seq, ...fields } = event;
 			const key = `shell:${event.id}`;
@@ -365,6 +407,18 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return { ...state, commands: event.commands };
 		case "context":
 			return { ...state, context: contextUsage(event, now) };
+		case "handoff": {
+			const item: ChatHandoffItem = {
+				kind: "handoff",
+				key: `handoff:${event.seq}`,
+				from: event.from,
+				to: event.to,
+				droppedTurns: event.droppedTurns,
+				failed: event.failed === true,
+				turnId: null,
+			};
+			return { ...state, items: [...state.items, item] };
+		}
 	}
 }
 
@@ -564,118 +618,33 @@ function contextUsage(
 	};
 }
 
-/** A turn is running and has already shown some work. */
-function isWorking(state: ChatState): boolean {
-	const turnId = state.currentTurnId;
-	if (turnId === null || state.turns[turnId]?.status !== "running") return false;
-	return state.items.some((item) => item.turnId === turnId);
-}
-
-/**
- * A message the student sent while Claude worked (SPEC.md §10.8). It shows at
- * once, but the turn goes on until Claude takes it in at its next step, so a
- * tool still running stays on the Working line.
- */
-function sentWhileWorking(
-	state: ChatState,
-	message: Pick<ChatMessageItem, "id" | "markdown" | "attachments">,
-	seq: number,
-): ChatState {
-	return {
-		...state,
-		lastUserMessageSeq: seq,
-		pendingSplit: state.pendingSplit ?? seq,
-		items: [
-			...state.items,
-			{
-				kind: "message",
-				key: `message:${message.id}`,
-				role: "user",
-				streaming: false,
-				turnId: null,
-				whileWorking: true,
-				...message,
-			},
-		],
-	};
-}
-
-/**
- * Claude's next step after a sent-while-working message: the work so far is
- * done, and what follows is a new turn below the message, as a reload replays
- * it from the transcript. If the turn ends first, `turn.finished` drops the
- * split, so its end state lands on the work it describes.
- */
-function takeInSentMessage(state: ChatState, now: number): ChatState {
-	const before = state.currentTurnId;
-	if (state.pendingSplit === null || before === null) return state;
-	const turn = state.turns[before] as ChatTurn;
-	const next = `turn-${state.pendingSplit}`;
-	return {
-		...state,
-		pendingSplit: null,
-		currentTurnId: next,
-		turns: {
-			...state.turns,
-			[before]: { ...turn, finishedAt: now, status: "done" },
-			[next]: {
-				id: next,
-				startedAt: now,
-				finishedAt: null,
-				status: "running",
-				estimated: false,
-			},
-		},
-	};
-}
-
 /** Session rules are letting some tools run without a card. */
 export function selectSessionRulesActive(state: ChatState): boolean {
 	return state.sessionRules.length > 0;
 }
 
+/** Nothing has been said or run in the chat. */
+export function isEmptyChat(state: ChatState): boolean {
+	return (
+		state.loaded && state.items.length === 0 && Object.keys(state.turns).length === 0
+	);
+}
+
 /**
- * A chat nobody has used yet: no turn has run and the host still reports
- * its start values, so the last-used settings may be applied (SPEC.md §10.8).
+ * A chat nobody has used yet: no turn has run and, for Claude Code, the host
+ * still reports its start values, so the last-used settings may be applied
+ * (SPEC.md §10.8). Codex starts at the student's own Codex defaults, which
+ * the web cannot know, so an empty Codex chat counts as new.
  */
 export function isNewChat(state: ChatState): boolean {
 	const { settings } = state;
+	if (!isEmptyChat(state) || settings === null) return false;
+	if (settings.agent !== "claude") return true;
 	return (
-		state.loaded &&
-		settings !== null &&
-		state.items.length === 0 &&
-		Object.keys(state.turns).length === 0 &&
 		settings.model === CHAT_START_SETTINGS.model &&
 		settings.effort === CHAT_START_SETTINGS.effort &&
 		settings.mode === chatStartMode(state.models, settings.model)
 	);
-}
-
-/** The values worth keeping from what the host confirmed. */
-export function lastSettingsOf(settings: ChatSettings): ChatLastSettings {
-	return {
-		model: settings.model,
-		effort: settings.effort,
-		mode: settings.mode,
-	};
-}
-
-/**
- * The change that brings a new chat to the last-used values; null when
- * there is none. A saved model the list no longer offers is replaced by its
- * family's newest version, or the default.
- */
-export function changeToward(
-	settings: ChatSettings,
-	last: ChatLastSettings,
-	models: readonly ChatModelInfo[],
-): Partial<ChatLastSettings> | null {
-	const change: Partial<ChatLastSettings> = {};
-	const model = offeredModel(models, last.model);
-	if (!sameModel(models, settings.model, model)) change.model = model;
-	if (settings.effort !== last.effort) change.effort = last.effort;
-	if (settings.mode !== last.mode) change.mode = last.mode;
-	return Object.keys(change).length > 0 ? change : null;
 }
 
 /** What a tool still running becomes when its turn ends. */
@@ -730,6 +699,8 @@ interface ChatActions {
 	/** Ask for a subagent's conversation as `subagentFrame`s; a new watch replaces the last. */
 	watchSubagent: (toolUseId: string) => boolean;
 	unwatchSubagent: (toolUseId: string) => boolean;
+	/** Ask the host to check the student's sign-in again; a `signIn` event answers. */
+	checkSignIn: () => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -757,6 +728,11 @@ export function createChatStore(
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		watchSubagent: (toolUseId) => deliver({ type: "subagent.watch", toolUseId }),
 		unwatchSubagent: (toolUseId) => deliver({ type: "subagent.unwatch", toolUseId }),
+		checkSignIn: () => {
+			const sent = deliver({ type: "signIn.check" });
+			if (sent) set({ signInChecking: true });
+			return sent;
+		},
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

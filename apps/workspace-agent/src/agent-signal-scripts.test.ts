@@ -375,6 +375,86 @@ test("SubagentStop sends only the agent id", async () => {
 	});
 });
 
+/** What Codex hands SubagentStart: the prompt, reply and transcript paths must never travel. */
+const CODEX_SUBAGENT_INPUT = {
+	session_id: "019a-session",
+	turn_id: "turn-1",
+	transcript_path: "/home/student/.codex/sessions/2027/01/15/rollout.jsonl",
+	agent_transcript_path: "/home/student/.codex/sessions/2027/01/15/child.jsonl",
+	cwd: "/home/student/secret-project",
+	hook_event_name: "SubagentStart",
+	model: "gpt-6",
+	permission_mode: "default",
+	agent_id: "019a1b2c-3d4e-7f50-8a6b-7c8d9e0f1a2b",
+	agent_type: "explorer",
+	last_assistant_message: "secret reply",
+};
+
+test("SubagentStart from Codex sends only the agent id and its type", async () => {
+	const { code, stdout } = await run(
+		SUBAGENT_SCRIPT,
+		["subagent_start"],
+		JSON.stringify(CODEX_SUBAGENT_INPUT),
+		subagentEnv(),
+	);
+	expect(code).toBe(0);
+	expect(stdout).toBe("");
+	expect(received).toHaveLength(1);
+	expect(received[0]?.path).toBe("/coding-agent-subagent");
+	const { at: _at, ...rest } = parsedBody();
+	expect(rest).toEqual({
+		terminal: TERMINAL_ID,
+		event: "subagent_start",
+		agent_id: "019a1b2c-3d4e-7f50-8a6b-7c8d9e0f1a2b",
+		subagent_type: "explorer",
+	});
+	for (const secret of ["secret", ".codex", "rollout", "gpt-6", "turn-1"]) {
+		expect(received[0]?.body).not.toContain(secret);
+	}
+});
+
+test("SubagentStop from Codex sends only the agent id, never the reply or transcripts", async () => {
+	await run(
+		SUBAGENT_SCRIPT,
+		["subagent_stop"],
+		JSON.stringify({ ...CODEX_SUBAGENT_INPUT, hook_event_name: "SubagentStop" }),
+		subagentEnv(),
+	);
+	const { at: _at, ...rest } = parsedBody();
+	expect(rest).toEqual({
+		terminal: TERMINAL_ID,
+		event: "subagent_stop",
+		agent_id: "019a1b2c-3d4e-7f50-8a6b-7c8d9e0f1a2b",
+	});
+	expect(received[0]?.body).not.toContain("secret");
+	expect(received[0]?.body).not.toContain(".codex");
+});
+
+test("SubagentStart leaves out a wrong-typed field and keeps the rest", async () => {
+	await run(
+		SUBAGENT_SCRIPT,
+		["subagent_start"],
+		JSON.stringify({
+			...CODEX_SUBAGENT_INPUT,
+			agent_id: "agent-1",
+			agent_type: { nested: "secret" },
+		}),
+		subagentEnv(),
+	);
+	const { at: _at, ...rest } = parsedBody();
+	expect(rest).toEqual({
+		terminal: TERMINAL_ID,
+		event: "subagent_start",
+		agent_id: "agent-1",
+	});
+});
+
+test("SubagentStart sends nothing for input that is not JSON, and exits 0", async () => {
+	const { code } = await run(SUBAGENT_SCRIPT, ["subagent_start"], "no", subagentEnv());
+	expect(code).toBe(0);
+	expect(received).toHaveLength(0);
+});
+
 test.each(["user_prompt_submit", "stop"])(
 	"%s sends the event alone, never its prompt or reply",
 	async (event) => {

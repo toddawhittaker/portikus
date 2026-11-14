@@ -1,14 +1,15 @@
 /**
- * Claude's AskUserQuestion, one question at a time (SPEC.md §10.8): the
- * question with a pager, its options as full-width rows with any preview
- * inside the row, "Other" last, and a quiet "Add a note". Skip declines a
+ * The agent's question, one at a time (SPEC.md §10.8): the question with a
+ * pager, its options as full-width rows with any preview inside the row,
+ * "Other" last, and a quiet "Add a note". A question with no options is a
+ * text field alone, and a secret one masks what is typed. Skip declines a
  * question, Skip all the whole card; a skipped question is sent without an
  * answer. Only the body scrolls, so the buttons stay in view. Enter on an
  * option or Ctrl+Enter anywhere goes on; Enter in a note adds a line.
  * Focus moves only with the student's own action inside the card, and never
  * scrolls anything but the card (SPEC.md §25.8).
  */
-import type { ChatOpenCard, ChatQuestion } from "@portikus/contracts";
+import type { ChatCardQuestion, ChatOpenCard } from "@portikus/contracts";
 import { Button, IconButton, ShortcutHint } from "@portikus/ui";
 import {
 	type FormEvent,
@@ -20,6 +21,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useChatAgent } from "./chatAgent.js";
 import { NeedsInputTag } from "./NeedsInputTag.js";
 import {
 	buildQuestionAnswer,
@@ -76,6 +78,7 @@ export function QuestionCard({
 	failedSends = 0,
 }: QuestionCardProps) {
 	const id = useId();
+	const { name } = useChatAgent();
 	const form = useRef<HTMLFormElement | null>(null);
 	const body = useRef<HTMLDivElement | null>(null);
 	const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
@@ -94,7 +97,7 @@ export function QuestionCard({
 	/** Set by the student's own move to another question, so focus follows it. */
 	const moved = useRef(false);
 	const count = card.questions.length;
-	const question = card.questions[page] as ChatQuestion;
+	const question = card.questions[page] as ChatCardQuestion;
 	const draft = drafts[page] ?? emptyDraft;
 	const last = page === count - 1;
 	const answered = draftAnswer(question, draft) !== "";
@@ -110,7 +113,7 @@ export function QuestionCard({
 	/** Focus the current question's chosen option, or its first. */
 	function focusOption() {
 		const options = body.current?.querySelectorAll<HTMLInputElement>(
-			"input[type=radio], input[type=checkbox]",
+			"input[type=radio], input[type=checkbox], input[data-answer]",
 		);
 		const target =
 			Array.from(options ?? []).find((input) => input.checked) ?? options?.[0];
@@ -209,8 +212,8 @@ export function QuestionCard({
 		}
 		if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
 			return;
-		// Ctrl+Enter goes on from anywhere, a note included; Enter does from an option.
-		if (event.ctrlKey || event.metaKey || box) {
+		// Ctrl+Enter goes on from anywhere, a note included; Enter does from an option or the answer field.
+		if (event.ctrlKey || event.metaKey || box || target.dataset.answer !== undefined) {
 			event.preventDefault();
 			advance();
 		}
@@ -219,7 +222,7 @@ export function QuestionCard({
 	return (
 		<section
 			className="pk-chat-card pk-chat-qcard"
-			aria-label={count === 1 ? "Claude's question" : "Claude's questions"}
+			aria-label={count === 1 ? `${name}'s question` : `${name}'s questions`}
 			data-testid="chat-question-card"
 		>
 			<form
@@ -287,6 +290,7 @@ export function QuestionCard({
 						onChange={update}
 						last={last}
 						bodyRef={body}
+						agentName={name}
 					/>
 				</div>
 				<p className="pk-chat-card-error" role="alert">
@@ -341,6 +345,15 @@ export function QuestionCard({
 	);
 }
 
+/** What a secret question's field says: hidden as typed, and kept out of the conversation. */
+function SecretHint({ id, agentName }: { id: string; agentName: string }) {
+	return (
+		<p id={id} className="pk-chat-hint">
+			Hidden as you type. It goes to {agentName} and is not shown in the conversation.
+		</p>
+	);
+}
+
 function QuestionFields({
 	id,
 	question,
@@ -348,13 +361,15 @@ function QuestionFields({
 	onChange,
 	last,
 	bodyRef,
+	agentName,
 }: {
 	id: string;
-	question: ChatQuestion;
+	question: ChatCardQuestion;
 	draft: QuestionDraft;
 	onChange: (change: Partial<QuestionDraft>) => void;
 	last: boolean;
 	bodyRef: RefObject<HTMLDivElement | null>;
+	agentName: string;
 }) {
 	const otherField = useRef<HTMLInputElement | null>(null);
 	const notesField = useRef<HTMLTextAreaElement | null>(null);
@@ -384,6 +399,29 @@ function QuestionFields({
 							.filter((l) => l === label || draft.picked.includes(l))
 					: draft.picked.filter((l) => l !== label),
 			});
+	}
+
+	// Nothing to pick: the answer is the student's own words, hidden when secret.
+	if (question.options.length === 0) {
+		return (
+			<div className="pk-chat-question" data-testid="chat-question">
+				<input
+					className="pk-chat-input pk-chat-answer-input pk-focus-ring"
+					type={question.secret ? "password" : "text"}
+					// A password manager has nothing to offer for an agent's question.
+					autoComplete="off"
+					aria-labelledby={`${id}-q`}
+					aria-describedby={question.secret ? `${id}-secret` : undefined}
+					value={draft.other}
+					data-answer=""
+					data-testid="chat-question-answer"
+					onChange={(event) => onChange({ other: event.target.value })}
+				/>
+				{question.secret ? (
+					<SecretHint id={`${id}-secret`} agentName={agentName} />
+				) : null}
+			</div>
+		);
 	}
 
 	return (
@@ -443,16 +481,24 @@ function QuestionFields({
 						}}
 					/>
 					{draft.otherPicked ? (
-						<input
-							ref={otherField}
-							className="pk-chat-input pk-chat-other-input pk-focus-ring"
-							type="text"
-							aria-label="Your own answer"
-							value={draft.other}
-							placeholder="Write your own answer"
-							data-testid="chat-question-other"
-							onChange={(event) => onChange({ other: event.target.value })}
-						/>
+						<>
+							<input
+								ref={otherField}
+								className="pk-chat-input pk-chat-other-input pk-focus-ring"
+								type={question.secret ? "password" : "text"}
+								// A password manager has nothing to offer for an agent's question.
+								autoComplete="off"
+								aria-label="Your own answer"
+								aria-describedby={question.secret ? `${id}-secret` : undefined}
+								value={draft.other}
+								placeholder="Write your own answer"
+								data-testid="chat-question-other"
+								onChange={(event) => onChange({ other: event.target.value })}
+							/>
+							{question.secret ? (
+								<SecretHint id={`${id}-secret`} agentName={agentName} />
+							) : null}
+						</>
 					) : null}
 				</li>
 			</ul>

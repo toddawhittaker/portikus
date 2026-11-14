@@ -1,7 +1,8 @@
 /**
  * What this chat tab has used up, on the line under its pickers (SPEC.md §10.8): how full
- * Claude's context is, always, as "34.2k / 1M" with a bar, and the time until the prompt
- * cache goes cold, while the host reports one. Both come from the
+ * the agent's context is, always, as "34.2k / 1M" with a bar, and the time until the prompt
+ * cache goes cold, while the host reports one (Claude does; Codex gives no cache timing,
+ * so a Codex chat shows the tokens alone). Both come from the
  * `context` event, so each chat tab shows its own conversation. The look steps
  * up as the window fills, at 25, 50 and 75%, and turns to the error look from 90%.
  *
@@ -143,7 +144,7 @@ function ContextUse({
 	);
 }
 
-/** The used count alone, when Claude Code has not yet said how large the window is. */
+/** The used count alone, when the agent has not yet said how large the window is. */
 function ContextCount({ usedTokens }: { usedTokens: number }) {
 	return (
 		<span

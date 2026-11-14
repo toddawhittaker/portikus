@@ -1518,10 +1518,13 @@ files:
 # Codex has no updater environment variable.  This is the system config
 # layer it reads on Linux, and the platform owns the version.
 # A student's own ~/.codex stays untouched; nothing here copies auth.json.
-# The workspace controller rewrites this whole file at every start, adding
-# the platform's agent instructions (SPEC.md 3), so a setting
-# added here is lost: put it in codexSystemConfig in the controller's
-# apps/workspace-controller/src/agent-instructions.ts.
+# The workspace controller rewrites this whole file at every start, so a
+# setting added here is lost: put it in codexSystemConfig in the controller's
+# apps/workspace-controller/src/agent-instructions.ts. The platform's agent
+# instructions (SPEC.md 3), hooks and metrics settings go to
+# /etc/codex/managed_config.toml instead (codexManagedConfig), because a
+# student's own ~/.codex/config.toml replaces developer_instructions in this
+# file but not in that one.
 - path: /etc/codex/config.toml
   generator: dump
   mode: "0644"
