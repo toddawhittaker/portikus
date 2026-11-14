@@ -17,3 +17,16 @@
 	flex: 0 1 auto;
 	max-width: 48ch;
 }
+
+/* A handoff that failed is a warning, not a quiet note. */
+.pk-chat-handoff.is-failed > p {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-1);
+	color: var(--status-warning);
+}
+
+.pk-chat-handoff.is-failed > p > svg {
+	flex: none;
+	block-size: 1lh;
+}

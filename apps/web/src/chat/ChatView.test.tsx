@@ -1003,6 +1003,22 @@ test("after a swap the divider says what changed, and each stretch keeps its own
 	expect(bylines).toEqual(["Claude", "Codex"]);
 });
 
+test("a handoff that failed says the new agent started without the conversation, in the warning style", () => {
+	draw();
+	snapshot();
+	replayTurn(1_000, 1_000, "hi", "from claude");
+	emit("handoff", { from: "claude", to: "codex", droppedTurns: 0, failed: true });
+	codexSettings();
+	const divider = screen.getByTestId("chat-handoff");
+	expect(divider.textContent).toBe(
+		"Switched from Claude Code to Codex. Codex started fresh, but the earlier conversation could not be passed to it.",
+	);
+	expect(divider.classList.contains("is-failed")).toBe(true);
+	expect(divider.querySelector("svg[data-icon='alert']")).not.toBeNull();
+	// The success text is not said as well.
+	expect(divider.textContent).not.toContain("with this conversation as context");
+});
+
 test("a card carrying a plan is announced as the agent's plan, and the byline names the chat's agent", () => {
 	draw();
 	snapshot();

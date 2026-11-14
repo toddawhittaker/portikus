@@ -4,6 +4,7 @@
  * the agent that wrote them (SPEC.md §10.8).
  */
 import type { CodingAgent } from "@portikus/contracts";
+import { Icon } from "@portikus/ui";
 import type { ReactNode } from "react";
 import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { ChatAgentContext } from "./chatAgent.js";
@@ -12,12 +13,30 @@ import "./handoff.css";
 
 /**
  * Where the chat changed agents (SPEC.md §10.8). It says what the new agent
- * was given, and when the oldest turns did not fit its context window.
+ * was given, and when the oldest turns did not fit its context window. When
+ * the handoff failed, in the warning colour and icon as a risky choice has,
+ * it says the new agent started without the earlier conversation.
  */
 export function HandoffDivider({ handoff }: { handoff: ChatHandoffItem }) {
 	const from = CODING_AGENT_NAME[handoff.from];
 	const to = CODING_AGENT_NAME[handoff.to];
 	const dropped = handoff.droppedTurns;
+	if (handoff.failed) {
+		return (
+			<li
+				className="pk-chat-entry pk-chat-handoff is-failed"
+				data-testid="chat-handoff"
+			>
+				<p className="pk-text-caption">
+					<Icon name="alert" size="sm" />
+					<span>
+						Switched from {from} to {to}. {to} started fresh, but the earlier
+						conversation could not be passed to it.
+					</span>
+				</p>
+			</li>
+		);
+	}
 	return (
 		<li className="pk-chat-entry pk-chat-handoff" data-testid="chat-handoff">
 			<p className="pk-chat-muted pk-text-caption">

@@ -949,8 +949,22 @@ test("the modes and MCP lists the host reports are kept, replaced by the next, a
 		from: "claude",
 		to: "codex",
 		droppedTurns: 2,
+		failed: false,
 		turnId: null,
 	});
+	// A handoff the new agent could not take in says so.
+	const failed = feed(
+		[
+			frame("handoff", 7, {
+				from: "claude",
+				to: "codex",
+				droppedTurns: 0,
+				failed: true,
+			}),
+		],
+		next,
+	);
+	expect(failed.items.at(-1)).toMatchObject({ kind: "handoff", failed: true });
 });
 
 test("an empty Codex chat is new whatever it starts at, since Codex starts at the student's own defaults", () => {

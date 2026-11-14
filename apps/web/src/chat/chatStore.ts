@@ -81,6 +81,8 @@ export interface ChatHandoffItem {
 	to: CodingAgent;
 	/** The oldest turns that did not fit the new agent's context window. */
 	droppedTurns: number;
+	/** The new agent could not take the conversation in, so it started without it. */
+	failed: boolean;
 	turnId: null;
 }
 
@@ -399,6 +401,7 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 				from: event.from,
 				to: event.to,
 				droppedTurns: event.droppedTurns,
+				failed: event.failed === true,
 				turnId: null,
 			};
 			return { ...state, items: [...state.items, item] };
