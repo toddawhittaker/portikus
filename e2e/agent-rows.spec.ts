@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { makeChatTab, scriptedChat } from "./chat-helpers";
+import { launchChat, makeChatTab, scriptedChat } from "./chat-helpers";
 import {
 	createProject,
 	createStudent,
@@ -31,6 +31,7 @@ interface AgentTab {
 	agent: "claude" | "codex";
 	state: "working" | "needs-input" | "finished";
 	since?: string;
+	title?: string;
 	subagents?: Subagent[];
 }
 
@@ -47,11 +48,16 @@ function minutesAgo(minutes: number): string {
 	return new Date(Date.now() - minutes * 60_000 - 5_000).toISOString();
 }
 
-/** Start Claude Code in the project open on the page; returns its terminal id. */
-async function startClaude(page: Page, workspaceId: string, projectId: string) {
+/** Start an agent from the New tab menu entry `entry` in the project open on the page; returns its terminal id. */
+async function startAgent(
+	page: Page,
+	workspaceId: string,
+	projectId: string,
+	entry: string,
+) {
 	const before = await terminalIds(workspaceId, projectId);
 	await page.getByTestId("launcher").click();
-	await page.getByTestId("launcher-claude").click();
+	await page.getByTestId(entry).click();
 	await expect
 		.poll(async () => (await terminalIds(workspaceId, projectId)).length)
 		.toBe(before.length + 1);
@@ -60,6 +66,11 @@ async function startClaude(page: Page, workspaceId: string, projectId: string) {
 	);
 	if (!id) throw new Error("the agent's terminal was not created");
 	return id;
+}
+
+/** Start Claude Code in the project open on the page; returns its terminal id. */
+function startClaude(page: Page, workspaceId: string, projectId: string) {
+	return startAgent(page, workspaceId, projectId, "launcher-claude");
 }
 
 /** The URL carries no selection once the work area has acted on it. */
@@ -257,6 +268,146 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(row.locator("> summary")).toBeFocused();
 			await expect(row).toBeInViewport();
 			await expect(view.getByText("It posts to /api/session.")).toBeVisible();
+			await expectPlainUrl(page, project.id);
+		});
+
+		test("Codex chat and terminal rows are named for their agent, and only the chat can be renamed", async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			const project = await createProject(student.workspaceId, { name: "Codex rows" });
+			await page.goto(workspacePath(student.workspaceId, project.id));
+			await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+			const chat = await launchChat(page, student.workspaceId, project.id, "codex");
+			const tui = await startAgent(
+				page,
+				student.workspaceId,
+				project.id,
+				"launcher-codex",
+			);
+			await setAgentTabs(student.workspaceId, [
+				{
+					terminalId: chat.id,
+					agent: "codex",
+					state: "working",
+					since: minutesAgo(3),
+					title: "Fix the answer",
+				},
+				{ terminalId: tui, agent: "codex", state: "needs-input", since: minutesAgo(9) },
+			]);
+			const rows = page.getByRole("list", { name: "Agents in Codex rows" });
+			const chatRow = page.getByTestId(`agent-row-${chat.id}`);
+			await expect(chatRow).toContainText("Fix the answer");
+			await expect(chatRow).toContainText("Codex (GUI)");
+			await expect(chatRow).toContainText("Working 3m");
+			const tuiRow = page.getByTestId(`agent-row-${tui}`);
+			await expect(tuiRow).toContainText("Codex (TUI)");
+			await expect(tuiRow).toContainText("Needs input 9m");
+			// The tab strip says the same words.
+			await expect(page.getByRole("tab", { name: /^Fix the answer/ })).toBeVisible();
+			await expect(page.getByRole("tab", { name: /^Codex \(TUI\)/ })).toBeVisible();
+			await expect(page.getByTestId(`agent-rename-${tui}`)).toHaveCount(0);
+			await expect(rows.getByRole("link")).toHaveCount(2);
+			await expectNoViolations(page, '[data-testid="project-list"]');
+
+			// The pencil retitles a Codex chat as it does Claude's.
+			await page.getByRole("button", { name: "Rename Fix the answer" }).click();
+			const title = page.getByRole("textbox", { name: /Rename|title/i });
+			await title.fill("Fix the answer, then the docs");
+			await title.press("Enter");
+			await expect(chatRow).toContainText("Fix the answer, then the docs");
+			await expectNoViolations(page, '[data-testid="project-list"]');
+		});
+
+		test("a Codex subagent's row shows its type and opens the panel by the child's thread id", async ({
+			page,
+			context,
+		}) => {
+			test.setTimeout(90_000);
+			const child = "0192b4c6-1111-7000-8000-000000000001";
+			const { student, project, id } = await makeChatTab(page, context, "codex");
+			const watched: { type: string; toolUseId: string }[] = [];
+			await page.routeWebSocket(/\/chat$/, (ws) => {
+				const send = scriptedChat(ws, "00000000-0000-4000-8000-000000000000");
+				send("snapshot", { cards: [], turnRunning: false, truncated: false });
+				send("settings", {
+					agent: "codex",
+					model: "gpt-5.5",
+					effort: "medium",
+					mode: "onRequest",
+				});
+				const at = Date.now() - 120_000;
+				send("message", { id: "u1", role: "user", markdown: "Check the tests" });
+				send("turn.started", { at });
+				send("tool.started", {
+					id: "cx-spawn",
+					name: "collabAgentToolCall",
+					title: "spawnAgent",
+					input: { tool: "spawnAgent", receivers: [child], prompt: "Check" },
+				});
+				send("tool.finished", { id: "cx-spawn", isError: false });
+				send("message", { id: "a1", role: "assistant", markdown: "Started it." });
+				send("turn.finished", { at: at + 30_000, status: "done" });
+				let seq = 0;
+				ws.onMessage((raw) => {
+					const message = JSON.parse(String(raw)) as {
+						type: string;
+						toolUseId: string;
+					};
+					if (!message.type.startsWith("subagent.")) return;
+					watched.push(message);
+					if (message.type !== "subagent.watch") return;
+					for (const [type, body] of [
+						["snapshot", { cards: [], turnRunning: false, truncated: false }],
+						["message", { id: "s1", role: "assistant", markdown: "The tests pass." }],
+					] as const) {
+						send("subagent", {
+							toolUseId: message.toolUseId,
+							event: {
+								type,
+								sessionId: "00000000-0000-4000-8000-000000000000",
+								seq: seq++,
+								...body,
+							},
+						});
+					}
+				});
+			});
+			await page.reload();
+			const view = page.getByTestId(`chat-view-${id}`);
+			await expect(view.getByText("Started it.")).toBeVisible({ timeout: 15_000 });
+			// A shell takes the screen, so the chat is out of sight.
+			await newTerminal(page);
+			await expect(view).toBeHidden();
+
+			// Codex gives a subagent no description, so its row shows the type.
+			await setAgentTabs(student.workspaceId, [
+				{
+					terminalId: id,
+					agent: "codex",
+					state: "working",
+					subagents: [
+						{ id: child, type: "explorer", description: "", state: "working" },
+					],
+				},
+			]);
+			const rows = page.getByRole("list", { name: "Agents in Dashboard" });
+			await expect(rows.getByRole("link", { name: /Codex \(GUI\)/ })).toBeVisible();
+			const sub = rows.getByRole("link", { name: /^explorer explorer \(working\)/ });
+			await expect(sub).toBeVisible();
+			await expectNoViolations(page, '[data-testid="project-list"]');
+			await sub.click();
+
+			await expect(view).toBeVisible();
+			const panel = view.getByTestId("subagent-panel");
+			await expect(panel).toBeVisible();
+			await expect(panel.getByText("The tests pass.")).toBeVisible();
+			await expect(panel.getByTestId("subagent-note")).toContainText("ask Codex");
+			expect(watched[0]).toEqual({ type: "subagent.watch", toolUseId: child });
+			await expectNoViolations(page);
+			await page.keyboard.press("Escape");
+			await expect(panel).toHaveCount(0);
 			await expectPlainUrl(page, project.id);
 		});
 
