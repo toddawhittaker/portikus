@@ -144,8 +144,8 @@ export function StartLiveHelpDialog({
 							</dd>
 							<dt>If they type</dt>
 							<dd data-testid="live-help-typing-risk">
-								They have a full shell as you. That includes your Git, Claude and SSH
-								credentials, every file in your workspace, and your other terminals.
+								They have a full shell as you. That includes your Git, Claude, Codex and
+								SSH credentials, every file in your workspace, and your other terminals.
 								Turn typing on only while you are watching.
 							</dd>
 							<dt>How long</dt>

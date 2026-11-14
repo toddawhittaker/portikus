@@ -1,7 +1,9 @@
 import { tabFocusKey } from "../../platform.js";
 import type { HelpPart } from "./part.js";
 import { AGENT_STATUS_TOPIC } from "./studentAgentStatus.js";
+import { AGENT_TOOLS_TOPIC } from "./studentAgentTools.js";
 import { CLAUDE_CHAT_TOPIC } from "./studentClaudeChat.js";
+import { CODEX_CHAT_TOPIC } from "./studentCodexChat.js";
 
 /** The keys that are hard to discover (moved here from Settings). */
 const KEYS: readonly { keys: string; what: string }[] = [
@@ -96,14 +98,13 @@ export const STUDENT_HELP: HelpPart = {
 							In the middle of the screen, choose <strong>Open a terminal</strong> or{" "}
 							<strong>Start Claude Code</strong>, which opens Claude Code in a terminal.
 							The <strong>+</strong> at the end of the tab bar, named New tab, offers
-							five choices: <strong>Terminal</strong>;{" "}
-							<strong>Claude Code (TUI)</strong>, a text interface in a terminal;{" "}
-							<strong>Claude Code (GUI)</strong>, a chat tab; <strong>Codex</strong>
-							{"; and "}
-							<strong>Preview</strong>, which opens a running web app in a tab. If your
-							course uses the Traditional profile, it hides the Claude Code and Codex
-							choices, and only <strong>Terminal</strong> and <strong>Preview</strong>{" "}
-							are there.
+							six choices: <strong>Terminal</strong>; <strong>Claude Code (TUI)</strong>{" "}
+							and <strong>Codex (TUI)</strong>, text interfaces in a terminal;{" "}
+							<strong>Claude Code (GUI)</strong> and <strong>Codex (GUI)</strong>, chat
+							tabs; and <strong>Preview</strong>, which opens a running web app in a
+							tab. If your course uses the Traditional profile, it hides the Claude Code
+							and Codex choices, and only <strong>Terminal</strong> and{" "}
+							<strong>Preview</strong> are there.
 						</li>
 						<li>
 							Your files are listed on the right. Choose a file to open it in the
@@ -128,8 +129,9 @@ export const STUDENT_HELP: HelpPart = {
 					<li>
 						<strong>The work area</strong>, in the middle, holds tabs: terminals, files,
 						diffs and previews. The <strong>+</strong> at the end of the tab bar, named
-						New tab, opens a terminal, Claude Code (GUI), Claude Code (TUI), Codex or a
-						preview in the project's folder. Your course may hide Claude Code and Codex.
+						New tab, opens a terminal, Claude Code (GUI), Claude Code (TUI), Codex
+						(GUI), Codex (TUI) or a preview in the project's folder. Your course may
+						hide Claude Code and Codex.
 					</li>
 					<li>
 						<strong>The right pane</strong> has up to five tabs. <strong>Files</strong>{" "}
@@ -247,6 +249,8 @@ export const STUDENT_HELP: HelpPart = {
 			),
 		},
 		CLAUDE_CHAT_TOPIC,
+		CODEX_CHAT_TOPIC,
+		AGENT_TOOLS_TOPIC,
 		AGENT_STATUS_TOPIC,
 		{
 			id: "student-voice",
@@ -626,8 +630,8 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>
 							Letting them type gives them a full shell as you. That includes your Git,
-							Claude and SSH credentials, every file in your workspace, and your other
-							terminals. Turn it on only while you are watching.
+							Claude, Codex and SSH credentials, every file in your workspace, and your
+							other terminals. Turn it on only while you are watching.
 						</li>
 						<li>
 							Live help lasts at most 60 minutes. <strong>End live help</strong> in the
