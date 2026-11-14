@@ -64,6 +64,12 @@ export interface FreshStartActions {
 	resend: (id: string) => boolean;
 	/** Start fresh from an automatic note, named by its notice. */
 	startFresh: (id: string) => boolean;
+	/**
+	 * The first message to copy for an automatic note, read from its file
+	 * by the host; null when nothing is to be copied, such as when the file
+	 * changed and the review card shows it instead.
+	 */
+	copyPrompt: (id: string) => Promise<string | null>;
 }
 
 export const FreshStartContext = createContext<FreshStartActions | null>(null);

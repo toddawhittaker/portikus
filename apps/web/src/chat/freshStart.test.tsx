@@ -164,7 +164,12 @@ describe("the divider and the first message", () => {
 		const resend = vi.fn(() => true);
 		render(
 			<FreshStartContext.Provider
-				value={{ openNote, resend, startFresh: vi.fn(() => true) }}
+				value={{
+					openNote,
+					resend,
+					startFresh: vi.fn(() => true),
+					copyPrompt: vi.fn(async () => null),
+				}}
 			>
 				<ol>
 					<HandoffDivider

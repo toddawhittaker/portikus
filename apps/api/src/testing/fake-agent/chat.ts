@@ -430,7 +430,12 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
-	const { handoff, auto: autoHandoff } = fakeHandoff({
+	const {
+		handoff,
+		auto: autoHandoff,
+		editNote,
+		failNext,
+	} = fakeHandoff({
 		chatOf,
 		emit,
 		record,
@@ -445,7 +450,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		from: WebSocket,
 	): void {
 		const chat = chatOf(id);
-		if (handoff(id, key, message)) return;
+		if (handoff(id, key, message, from)) return;
 		switch (message.type) {
 			case "send": {
 				// Claude Code's /rename retitles the session; the host reads it back after the result.
@@ -748,8 +753,24 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 
 	// Write an automatic handoff note and post its notice, as the host does
 	// when the student has been away until shortly before the cache goes cold.
+	// The host writes one only while nothing runs, so an open card refuses it.
 	app.post("/__test/chats/:id/auto-handoff", async (request, reply) => {
-		autoHandoff((request.params as { id: string }).id);
+		const id = (request.params as { id: string }).id;
+		if (chatOf(id).openCards.length > 0) return reply.status(409).send();
+		autoHandoff(id);
+		return reply.status(204).send();
+	});
+
+	// Change the newest automatic note's file, as an agent might.
+	app.post("/__test/chats/:id/auto-handoff/note", async (request, reply) => {
+		const body = request.body as { markdown: string };
+		editNote((request.params as { id: string }).id, body.markdown);
+		return reply.status(204).send();
+	});
+
+	// Make the chat's next fresh start fail.
+	app.post("/__test/chats/:id/handoff-fail", async (request, reply) => {
+		failNext((request.params as { id: string }).id);
 		return reply.status(204).send();
 	});
 

@@ -16,7 +16,7 @@ import {
 	rmdir,
 	writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { HANDOFF_NOTES_DIR } from "@portikus/contracts";
 
 /** Everything under `.portikus/` is working data except these two files. */
@@ -238,15 +238,38 @@ export async function writeHandoffNote(
 	}
 }
 
-/** Read a saved handoff note, never through a symlink. */
+/**
+ * The absolute path of a handoff note, refusing any path that is absolute,
+ * climbs with `..`, or lands outside `<project>/.portikus/handoffs/`, since
+ * a recorded path could have been planted (SPEC.md §24).
+ */
+function handoffNoteFile(projectPath: string, relPath: string): string {
+	if (isAbsolute(relPath) || relPath.split(/[\\/]/).includes("..")) {
+		throw new Error("not a handoff note path");
+	}
+	const dir = resolve(projectPath, HANDOFF_NOTES_DIR);
+	const file = resolve(projectPath, relPath);
+	if (!file.startsWith(`${dir}${sep}`)) throw new Error("not a handoff note path");
+	return file;
+}
+
+/** `.portikus` and `handoffs` are real directories, not symlinks out of the project. */
+async function realNotesDir(projectPath: string): Promise<void> {
+	for (const dir of [".portikus", HANDOFF_NOTES_DIR]) {
+		if (!(await lstat(join(projectPath, dir))).isDirectory()) {
+			throw new Error("not a directory");
+		}
+	}
+}
+
+/** Read a saved handoff note, never through a symlink or outside the notes directory. */
 export async function readHandoffNote(
 	projectPath: string,
 	relPath: string,
 ): Promise<string> {
-	const file = await open(
-		join(projectPath, relPath),
-		constants.O_RDONLY | constants.O_NOFOLLOW,
-	);
+	const path = handoffNoteFile(projectPath, relPath);
+	await realNotesDir(projectPath);
+	const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
 		return await file.readFile("utf8");
 	} finally {
@@ -254,7 +277,7 @@ export async function readHandoffNote(
 	}
 }
 
-/** Replace a saved handoff note's text, never through a symlink. */
+/** Replace a saved handoff note's text, never through a symlink or outside the notes directory. */
 export async function rewriteHandoffNote(
 	projectPath: string,
 	relPath: string,
@@ -263,7 +286,7 @@ export async function rewriteHandoffNote(
 	await realDirectory(join(projectPath, ".portikus"));
 	await realDirectory(join(projectPath, HANDOFF_NOTES_DIR));
 	const file = await open(
-		join(projectPath, relPath),
+		handoffNoteFile(projectPath, relPath),
 		constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
 		0o644,
 	);

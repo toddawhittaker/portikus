@@ -51,10 +51,11 @@ function cacheColdAt(figures: ContextFigures): number | null {
 
 /**
  * Whether a chat this size is worth a note: twice the size a fresh chat
- * would start at, the same start the fresh-chat estimate uses.
+ * would start at, the same start the fresh-chat estimate uses. With no
+ * known start, as after a restart that lost it, nothing is worth one.
  */
 function bigEnough(usedTokens: number, startTokens: number): boolean {
-	return usedTokens >= 2 * (startTokens + HANDOFF_TOKENS);
+	return startTokens > 0 && usedTokens >= 2 * (startTokens + HANDOFF_TOKENS);
 }
 
 export class AutoHandoff {

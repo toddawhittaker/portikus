@@ -5,10 +5,12 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import {
 	type ChatSwapState,
 	chatSessionsDir,
+	readAutoHandoff,
 	readChatSession,
 	readSwapState,
 	recordChatSession,
 	takeSwapState,
+	writeAutoHandoff,
 	writeChatSession,
 	writePendingSwitch,
 	writeSwapState,
@@ -140,4 +142,53 @@ test("forgetting the swaps, as /clear does, removes them; a damaged file reads a
 	expect(await readSwapState(home, A)).toBeNull();
 	await writeFile(join(chatSessionsDir(home), `${A}.swap.json`), '{"sessions":{}}');
 	expect(await readSwapState(home, A)).toBeNull();
+});
+
+test("a fresh-start divider is checked on load: a planted path is dropped, a good one kept", async () => {
+	const good = {
+		type: "handoff.fresh",
+		id: B,
+		path: ".portikus/handoffs/2026-11-14T10-20-30Z.md",
+		hash: "a".repeat(64),
+		failed: true,
+	};
+	const message = { type: "message", id: "u-1", role: "user", markdown: "hi" };
+	await writeSwapState(home, A, {
+		...STATE,
+		earlier: [
+			message,
+			{ ...good, id: C, path: "../../.codex/auth.json" },
+			{ ...good, id: D, path: "/etc/passwd" },
+			{ ...good, hash: "not a hash" },
+			good,
+		] as never,
+	});
+	expect((await readSwapState(home, A))?.earlier).toEqual([message, good]);
+});
+
+test("the automatic handoff state holds paths, hashes and growth, and refuses more than 20 notices or a planted path", async () => {
+	const notice = {
+		id: B,
+		path: ".portikus/handoffs/2026-11-14T10-20-30Z.md",
+		hash: "b".repeat(64),
+		after: null,
+	};
+	const record = {
+		written: false,
+		figures: null,
+		growth: { startTokens: 20_000, messages: 2, requests: 3 },
+		notices: [notice],
+	};
+	await writeAutoHandoff(home, A, record);
+	expect(await readAutoHandoff(home, A)).toEqual(record);
+	await writeAutoHandoff(home, A, {
+		...record,
+		notices: Array.from({ length: 21 }, () => notice),
+	});
+	expect(await readAutoHandoff(home, A)).toBeNull();
+	await writeAutoHandoff(home, A, {
+		...record,
+		notices: [{ ...notice, path: "../../.codex/auth.json" }],
+	});
+	expect(await readAutoHandoff(home, A)).toBeNull();
 });

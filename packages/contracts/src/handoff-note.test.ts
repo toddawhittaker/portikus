@@ -98,14 +98,8 @@ describe("handoff messages", () => {
 describe("automatic handoff messages", () => {
 	const envelope = { sessionId: SESSION, seq: 4 };
 
-	test("the notice parses with a saved path and its note, and nothing else", () => {
-		const notice = {
-			type: "handoff.auto",
-			...envelope,
-			id: ID,
-			path: PATH,
-			markdown: "## Goal",
-		};
+	test("the notice parses with a saved path and nothing else", () => {
+		const notice = { type: "handoff.auto", ...envelope, id: ID, path: PATH };
 		expect(ChatServerEvent.safeParse(notice).success).toBe(true);
 		expect(
 			ChatServerEvent.safeParse({ ...notice, path: "../../etc/passwd" }).success,
@@ -113,12 +107,27 @@ describe("automatic handoff messages", () => {
 		expect(ChatServerEvent.safeParse({ ...notice, id: "not-a-uuid" }).success).toBe(
 			false,
 		);
+	});
+
+	test("a copied prompt answers with no seq, and a copy names a notice", () => {
 		expect(
-			ChatServerEvent.safeParse({
-				...notice,
-				markdown: "x".repeat(MAX_HANDOFF_NOTE_CHARS + 1),
-			}).success,
+			ChatServerEvent.safeParse({ type: "handoff.prompt", id: ID, text: "P" }).success,
+		).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({ type: "handoff.auto.copy", id: ID }).success,
+		).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({ type: "handoff.auto.copy", id: ID, path: PATH })
+				.success,
 		).toBe(false);
+	});
+
+	test("a fresh start's divider may carry its note's hash, and only a SHA-256 one", () => {
+		const divider = { type: "handoff.fresh", ...envelope, id: ID, path: PATH };
+		expect(
+			ChatServerEvent.safeParse({ ...divider, hash: "a".repeat(64) }).success,
+		).toBe(true);
+		expect(ChatServerEvent.safeParse({ ...divider, hash: "nope" }).success).toBe(false);
 	});
 
 	test("starting fresh from a notice may carry the student's message and files", () => {

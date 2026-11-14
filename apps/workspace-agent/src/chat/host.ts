@@ -446,6 +446,10 @@ class ClaudeAgent implements ChatAgent {
 			if (message.permissionMode) this.modeChanged(message.permissionMode);
 			return true;
 		}
+		if (message.type === "system" && message.subtype === "compact_boundary") {
+			this.sink.compacted();
+			return true;
+		}
 		if (message.type === "system" && message.subtype === "commands_changed") {
 			if (this.session) this.commands.changed(message.commands);
 			return true;

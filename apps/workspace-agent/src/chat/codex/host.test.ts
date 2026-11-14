@@ -102,6 +102,7 @@ function recordingSink() {
 		cards: new Map<string, OpenCard>(),
 		resets: 0,
 		resetContexts: [] as (ContextFigures | null)[],
+		compactions: 0,
 	};
 	const sink = {
 		emit: (event: ChatEventBody) => got.events.push(event),
@@ -118,6 +119,9 @@ function recordingSink() {
 			signal?.addEventListener("abort", () => {
 				if (got.cards.delete(card.id)) void settle({ type: "closed" });
 			});
+		},
+		compacted: () => {
+			got.compactions += 1;
 		},
 		conversationReset: (context: ContextFigures | null) => {
 			got.resets += 1;
@@ -1035,6 +1039,22 @@ describe("Plan mode and questions", () => {
 		}
 		expect(states.at(-1)).toBe("finished");
 		expect(got.settings.at(-1)?.mode).toBe("plan");
+	});
+
+	test("a completed context compaction item tells the core the conversation was compacted", async () => {
+		const { agent, server, got } = await setup();
+		await agent.send("go", []);
+		server().push({
+			method: "item/started",
+			params: { threadId: MAIN, item: { type: "contextCompaction", id: "k" } },
+		});
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(got.compactions).toBe(0);
+		server().push({
+			method: "item/completed",
+			params: { threadId: MAIN, item: { type: "contextCompaction", id: "k" } },
+		});
+		await vi.waitFor(() => expect(got.compactions).toBe(1));
 	});
 
 	test("the plan card has its own row, which its answer finishes, and the tab goes back to working", async () => {

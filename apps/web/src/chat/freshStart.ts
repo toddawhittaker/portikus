@@ -4,7 +4,7 @@
  * started fresh from one.
  */
 import type { ChatServerEvent, CodingAgent } from "@portikus/contracts";
-import type { ChatState } from "./chatStore.js";
+import type { ChatState, ChatStore } from "./chatStore.js";
 
 /** Where the chat changed agents: a divider in the conversation (SPEC.md §10.8). */
 export interface ChatHandoffItem {
@@ -42,7 +42,6 @@ export interface ChatAutoHandoffItem {
 	/** The notice's id, which Start fresh names. */
 	id: string;
 	path: string;
-	markdown: string;
 	/** A newer note was written since. */
 	superseded: boolean;
 	turnId: null;
@@ -83,7 +82,6 @@ function addNotice(
 		key,
 		id: event.id,
 		path: event.path,
-		markdown: event.markdown,
 		superseded: false,
 		turnId: null,
 	};
@@ -105,4 +103,35 @@ export function selectSendableNote(state: ChatState): ChatAutoHandoffItem | null
 		if (item?.kind === "shell") return null;
 	}
 	return null;
+}
+
+/** Longer than the host takes to read a note. */
+const PROMPT_WITHIN_MS = 10_000;
+
+/**
+ * Ask the host for an automatic note's first message and wait for it. Null
+ * when the host shows the review card instead, says why it could not, the
+ * connection drops, or no answer comes in time.
+ */
+export function askNotePrompt(store: ChatStore, id: string): Promise<string | null> {
+	const before = store.getState();
+	if (!before.copyNotePrompt(id)) return Promise.resolve(null);
+	return new Promise((settle) => {
+		const timer = setTimeout(() => done(null), PROMPT_WITHIN_MS);
+		const stop = store.subscribe((now) => {
+			if (now.handoffPrompt !== before.handoffPrompt && now.handoffPrompt?.id === id)
+				done(now.handoffPrompt.text);
+			else if (
+				now.handoffReview !== before.handoffReview ||
+				now.lastError !== before.lastError ||
+				now.connection !== before.connection
+			)
+				done(null);
+		});
+		function done(text: string | null) {
+			clearTimeout(timer);
+			stop();
+			settle(text);
+		}
+	});
 }

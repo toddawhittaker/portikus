@@ -21,10 +21,14 @@ import {
 	START_FRESH_WITH_IT,
 } from "./AutoHandoffNotice.js";
 import { SEND_FRESH, SEND_HERE } from "./ColdSendChoice.js";
-import { Composer } from "./Composer.js";
+import { Composer, HELD_BACK } from "./Composer.js";
 import { type ChatStore, createChatStore } from "./chatStore.js";
 import { setText } from "./composerTesting.js";
-import { type ChatAutoHandoffItem, selectSendableNote } from "./freshStart.js";
+import {
+	askNotePrompt,
+	type ChatAutoHandoffItem,
+	selectSendableNote,
+} from "./freshStart.js";
 import { FreshStartContext } from "./HandoffDivider.js";
 import { UserMessage } from "./UserMessage.js";
 
@@ -55,7 +59,7 @@ function emit(type: string, body: Record<string, unknown> = {}) {
 }
 
 function notice(id = NOTICE_ID) {
-	emit("handoff.auto", { id, path: PATH, markdown: NOTE });
+	emit("handoff.auto", { id, path: PATH });
 }
 
 /** A Claude chat whose one-hour cache was written `agoMinutes` ago. */
@@ -120,11 +124,17 @@ describe("the store", () => {
 });
 
 describe("the notice", () => {
-	function draw(item: Partial<ChatAutoHandoffItem> = {}) {
+	const PROMPT = handoffFirstMessage(PATH, NOTE);
+
+	function draw(
+		item: Partial<ChatAutoHandoffItem> = {},
+		prompt: string | null = PROMPT,
+	) {
 		const actions = {
 			openNote: vi.fn(),
 			resend: vi.fn(() => true),
 			startFresh: vi.fn(() => true),
+			copyPrompt: vi.fn(async () => prompt),
 		};
 		render(
 			<FreshStartContext.Provider value={actions}>
@@ -135,7 +145,6 @@ describe("the notice", () => {
 							key: "k",
 							id: NOTICE_ID,
 							path: PATH,
-							markdown: NOTE,
 							superseded: false,
 							turnId: null,
 							...item,
@@ -173,12 +182,13 @@ describe("the notice", () => {
 		expect(screen.queryByRole("button", { name: COPY_PROMPT })).toBeNull();
 	});
 
-	test("Copy prompt puts the note and the first-message prompt on the clipboard", async () => {
+	test("Copy prompt copies the first message the host read from the note", async () => {
 		const writeText = vi.fn(async () => undefined);
 		vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
-		draw();
+		const actions = draw();
 		fireEvent.click(screen.getByRole("button", { name: COPY_PROMPT }));
-		expect(writeText).toHaveBeenCalledWith(handoffFirstMessage(PATH, NOTE));
+		expect(actions.copyPrompt).toHaveBeenCalledWith(NOTICE_ID);
+		await waitFor(() => expect(writeText).toHaveBeenCalledWith(PROMPT));
 		await waitFor(() =>
 			expect(screen.getByTestId("chat-auto-handoff-status").textContent).toBe(
 				"Prompt copied.",
@@ -197,12 +207,55 @@ describe("the notice", () => {
 		const field = (await screen.findByTestId(
 			"chat-auto-handoff-prompt",
 		)) as HTMLTextAreaElement;
-		expect(field.value).toBe(handoffFirstMessage(PATH, NOTE));
+		expect(field.value).toBe(PROMPT);
 		expect(document.activeElement).toBe(field);
 		expect(field.selectionEnd - field.selectionStart).toBe(field.value.length);
 		expect(screen.getByTestId("chat-auto-handoff-status").textContent).toMatch(
 			/Could not copy/,
 		);
+	});
+
+	test("when the note changed, nothing is copied: the host shows the review card instead", async () => {
+		const writeText = vi.fn(async () => undefined);
+		vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+		const actions = draw({}, null);
+		fireEvent.click(screen.getByRole("button", { name: COPY_PROMPT }));
+		await waitFor(() => expect(actions.copyPrompt).toHaveBeenCalled());
+		await act(async () => undefined);
+		expect(writeText).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("chat-auto-handoff-prompt")).toBeNull();
+		expect(screen.getByTestId("chat-auto-handoff-status").textContent).toBe("");
+	});
+});
+
+describe("asking the host for the prompt to copy", () => {
+	test("resolves with the prompt the host sends back for this notice", async () => {
+		notice();
+		const asked = askNotePrompt(store, NOTICE_ID);
+		expect(sent).toEqual([{ type: "handoff.auto.copy", id: NOTICE_ID }]);
+		// The answer carries no seq: it never enters the chat's sequence.
+		act(() => {
+			store
+				.getState()
+				.receive(JSON.stringify({ type: "handoff.prompt", id: NOTICE_ID, text: "P" }));
+		});
+		await expect(asked).resolves.toBe("P");
+	});
+
+	test("resolves with nothing when the review card shows instead", async () => {
+		notice();
+		const asked = askNotePrompt(store, NOTICE_ID);
+		emit("handoff.review", {
+			review: { id: OLDER_ID, path: PATH, markdown: "changed" },
+		});
+		await expect(asked).resolves.toBeNull();
+	});
+
+	test("resolves with nothing when the host says why it could not", async () => {
+		notice();
+		const asked = askNotePrompt(store, NOTICE_ID);
+		emit("error", { message: "The note could not be read." });
+		await expect(asked).resolves.toBeNull();
 	});
 });
 
@@ -277,6 +330,40 @@ describe("sending into a cold chat with a saved note", () => {
 			},
 		]);
 		expect(screen.queryByTestId("chat-cold-send")).toBeNull();
+	});
+
+	test("a fresh start that fails leaves the message in the box and says why", () => {
+		context(70);
+		notice();
+		draw();
+		sendDraft("Hold me");
+		fireEvent.click(screen.getByRole("button", { name: SEND_FRESH }));
+		// The note's own first message is not the student's, so the draft stays.
+		emit("handoff.fresh", { id: OLDER_ID, path: PATH });
+		emit("message", {
+			id: "u-note",
+			role: "user",
+			markdown: handoffFirstMessage(PATH, NOTE),
+		});
+		expect(screen.getByTestId("chat-composer-input").textContent).toBe("Hold me");
+		emit("error", { message: "The handoff could not be sent." });
+		expect(screen.getByTestId("chat-composer-input").textContent).toBe("Hold me");
+		expect(screen.getByText(HELD_BACK)).toBeTruthy();
+	});
+
+	test("the message leaves the box once it is sent after the note", () => {
+		context(70);
+		notice();
+		draw();
+		sendDraft("Then me");
+		fireEvent.click(screen.getByRole("button", { name: SEND_FRESH }));
+		emit("message", {
+			id: "u-note",
+			role: "user",
+			markdown: handoffFirstMessage(PATH, NOTE),
+		});
+		emit("message", { id: "u-then", role: "user", markdown: "Then me" });
+		expect(screen.getByTestId("chat-composer-input").textContent).toBe("");
 	});
 
 	test("Send here anyway sends to this chat", () => {

@@ -459,3 +459,46 @@ test("a Codex chat on the 30-minute cache goes cold too", () => {
 		`${RESTART_EXPLAINED} ${CACHE_EXPIRED}`,
 	);
 });
+
+test("after a compaction the host's restarted counts bring the estimate back to a sane count", () => {
+	const SESSION = "11111111-1111-4111-8111-111111111111";
+	let seq = 0;
+	const receive = (body: Record<string, unknown>) =>
+		act(() =>
+			store
+				.getState()
+				.receive(JSON.stringify({ sessionId: SESSION, seq: seq++, ...body })),
+		);
+	receive({ type: "snapshot", cards: [], turnRunning: false, truncated: false });
+	receive({
+		type: "settings",
+		agent: "claude",
+		model: "claude-opus-5-5",
+		effort: "medium",
+		mode: "default",
+	});
+	const cache = { at: START, ttlSeconds: 3600 };
+	receive({
+		type: "context",
+		usedTokens: 400_000,
+		windowTokens: 1_000_000,
+		cache,
+		now: START,
+		growth: { startTokens: 58_000, messages: 10, requests: 140 },
+	});
+	expect(screen.getByTestId("composer-restart").textContent).toContain(RESTART_NOW);
+	// Compacted to 60k: below the old start, with the counts begun again from there.
+	receive({
+		type: "context",
+		usedTokens: 60_000,
+		windowTokens: 1_000_000,
+		cache,
+		now: START,
+		growth: { startTokens: 60_000, messages: 0, requests: 0 },
+	});
+	const hint = screen.getByTestId("composer-restart");
+	expect(hint.classList.contains("is-warning")).toBe(false);
+	expect(hint.textContent).toContain(
+		"About 5 more messages before a fresh chat saves usage",
+	);
+});

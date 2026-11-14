@@ -665,4 +665,45 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			requests: 0,
 		});
 	});
+
+	test("a reported compaction restarts the counts from the figures after it, keeping everything else", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 900 }, true);
+		agent.sink.compacted();
+		agent.sink.context({ ...FIGURES, usedTokens: 600 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 650 }, true);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(4),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 600,
+			messages: 0,
+			requests: 1,
+		});
+		// The conversation itself is untouched: no new snapshot.
+		expect(client.events.filter((event) => event.type === "snapshot")).toHaveLength(1);
+	});
+
+	test("an unreported drop of more than half counts as a compaction; a smaller one does not", async () => {
+		const client = await attached();
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 1000 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 600 }, true);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(3),
+		);
+		expect(growthOf(client)?.growth).toMatchObject({ startTokens: 300, requests: 3 });
+		agent.sink.context({ ...FIGURES, usedTokens: 250 }, true);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(4),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 250,
+			messages: 0,
+			requests: 0,
+		});
+	});
 });

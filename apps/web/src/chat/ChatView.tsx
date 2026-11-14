@@ -37,6 +37,7 @@ import { Composer } from "./Composer.js";
 import { AgentSwitchReported } from "./ComposerPickers.js";
 import { ChatAgentContext } from "./chatAgent.js";
 import { type ChatState, isEmptyChat } from "./chatStore.js";
+import { askNotePrompt } from "./freshStart.js";
 import { type FreshStartActions, FreshStartContext } from "./HandoffDivider.js";
 import { HandoffReviewCard } from "./HandoffReviewCard.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
@@ -241,6 +242,7 @@ function useFreshStartActions(
 				layout === null ? null : (path: string) => layout.getState().openFile(path),
 			resend: (id: string) => store.getState().resendHandoff(id),
 			startFresh: (id: string) => store.getState().startFreshFromNote(id),
+			copyPrompt: (id: string) => askNotePrompt(store, id),
 		}),
 		[layout, store],
 	);

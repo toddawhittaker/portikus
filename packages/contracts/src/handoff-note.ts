@@ -26,6 +26,12 @@ export const HandoffNotePath = z
 export const HandoffNoteText = z.string().max(MAX_HANDOFF_NOTE_CHARS);
 
 /**
+ * The SHA-256 of a note's text as Portikus saved it or the student saw it,
+ * in hex. A note whose file no longer matches is shown before it is sent.
+ */
+export const HandoffNoteHash = z.string().regex(/^[0-9a-f]{64}$/);
+
+/**
  * What a fresh chat adds by reading a handoff note, in tokens. The
  * fresh-chat estimate and the automatic handoff's size test both use it.
  */
@@ -55,12 +61,12 @@ export type HandoffReview = z.infer<typeof HandoffReview>;
 
 /**
  * A note the host wrote on its own while the student was away, before the
- * prompt cache went cold (SPEC.md §10.8). The chat shows it as a notice.
+ * prompt cache went cold (SPEC.md §10.8). The chat shows it as a notice
+ * with its path only; the host reads the note when a button needs it.
  */
 export const HandoffNotice = z.object({
 	id: z.uuid(),
 	path: HandoffNotePath,
-	markdown: HandoffNoteText,
 });
 export type HandoffNotice = z.infer<typeof HandoffNotice>;
 

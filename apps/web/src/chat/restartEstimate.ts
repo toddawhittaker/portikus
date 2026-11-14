@@ -18,12 +18,13 @@ export interface PriceRatios {
 }
 
 /**
- * Price ratios by model. Claude: the Claude pricing page. Codex: a cache
- * write is 1.25 times the input price for OpenAI's default 30-minute cache
- * (OpenAI's prompt-caching guide), and a cache read is a tenth of it, as on
- * the ChatGPT rate card that subscriptions are metered by
- * (https://github.com/openai/codex/issues/41875); GPT-6.1 doubles every
- * price past 272k tokens. Checked 14 November 2026.
+ * Price ratios by model. Claude: the Claude pricing page. Codex: OpenAI's
+ * API prices, since subscription metering is not published. A cache write
+ * is 1.25 times the input price for the default 30-minute cache (OpenAI's
+ * prompt-caching guide). A cache read is a twentieth of the input price for
+ * GPT-6.1 ($0.10 cached against $2 input on OpenAI's API pricing page) and
+ * a tenth for older models; GPT-6.1 doubles every price past 272k tokens.
+ * Checked 14 November 2026.
  */
 const PRICE_TABLE = {
 	claude: {
@@ -40,6 +41,7 @@ const PRICE_TABLE = {
 	},
 	codex: {
 		prefix: "gpt-6.1",
+		prefixRead: 0.05,
 		read: 0.1,
 		write: 1.25,
 		prefixSurcharge: { above: 272_000, factor: 2 },
@@ -62,10 +64,11 @@ export function priceRatios(
 ): PriceRatios {
 	if (agent === "codex") {
 		const t = PRICE_TABLE.codex;
+		const newest = model.startsWith(t.prefix);
 		return {
-			read: t.read,
+			read: newest ? t.prefixRead : t.read,
 			write: t.write,
-			surcharge: model.startsWith(t.prefix) ? t.prefixSurcharge : null,
+			surcharge: newest ? t.prefixSurcharge : null,
 		};
 	}
 	const t = PRICE_TABLE.claude;

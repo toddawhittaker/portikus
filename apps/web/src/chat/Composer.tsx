@@ -82,6 +82,8 @@ import { isShellCommand } from "./shellCommand.js";
 import "./composer.css";
 
 const NOT_SENT = "Your message was not sent because the chat is not connected.";
+export const HELD_BACK =
+	"The fresh chat did not start, so your message was not sent. It is still here, and the conversation says why.";
 const COUNT = new Intl.NumberFormat();
 const tooLong = (length: number) =>
 	`Your message was not sent because it is ${COUNT.format(length)} characters long, over the limit of ${COUNT.format(MAX_CHAT_TEXT_CHARS)}. Shorten it and send again.`;
@@ -119,6 +121,20 @@ interface Sending {
 	keys: string[];
 	/** The newest `!` command in the conversation when it was sent. */
 	shell: string;
+	/**
+	 * Held to follow a fresh start's note: only its own echo ends the send,
+	 * not the note's, and a failure leaves it in the box.
+	 */
+	fresh: boolean;
+}
+
+/** The text of the newest message the student sent, as the conversation shows it. */
+function newestUserText(state: ChatState): string | null {
+	for (let at = state.items.length - 1; at >= 0; at--) {
+		const item = state.items[at];
+		if (item?.kind === "message" && item.role === "user") return item.markdown;
+	}
+	return null;
 }
 
 /** The line under the box that fits what the box is doing now. */
@@ -233,16 +249,20 @@ export function Composer({
 		if (!sending) return;
 		// A `!` command is never echoed as a message: the host accepts it by adding it.
 		const ran = isShellCommand(sending.text) && lastShell !== sending.shell;
-		if (echoed > sending.seq || ran) {
+		const own =
+			echoed > sending.seq &&
+			(!sending.fresh || newestUserText(store.getState()) === sending.text);
+		if (own || ran) {
 			const box = editor.current;
 			if (box && composerText(box) === sending.text) box.commands.clearContent(true);
 			clearFiles(sending.keys);
 			setSending(null);
 		} else if (lastError && lastError.seq > sending.seq) {
 			// The error shows in the conversation; the draft stays to send again.
+			if (sending.fresh) setError(HELD_BACK);
 			setSending(null);
 		}
-	}, [echoed, lastShell, lastError, sending, clearFiles]);
+	}, [echoed, lastShell, lastError, sending, clearFiles, store]);
 
 	// A new socket may never echo a send the old one carried.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only when the connection changes
@@ -350,6 +370,7 @@ export function Composer({
 			text,
 			keys: files.items.map((item) => item.key),
 			shell: newestShell(store.getState()),
+			fresh: to === "fresh" && coldNote !== null,
 		});
 	}
 

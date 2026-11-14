@@ -34,8 +34,12 @@ interface FakeHandoffDeps {
 export function fakeHandoff(deps: FakeHandoffDeps) {
 	/** Each chat's caller key, from its last message, for a note written with no message. */
 	const keys = new Map<string, string>();
-	/** Each chat's newest automatic note. */
-	const notices = new Map<string, HandoffNotice>();
+	/** Each chat's newest automatic note, with the text it was saved with. */
+	const notices = new Map<string, HandoffNotice & { saved: string }>();
+	/** A student's message held while a changed note is under review. */
+	const held = new Map<string, string | undefined>();
+	/** Chats whose next fresh start fails, as a test set it. */
+	const failing = new Set<string>();
 
 	function newPath(): string {
 		const stamp = new Date()
@@ -53,6 +57,40 @@ export function fakeHandoff(deps: FakeHandoffDeps) {
 		const tree = deps.filesForKey(key);
 		addParents(tree, slug, path);
 		tree.set(nodeKey(slug, path), { type: "file", content: Buffer.from(markdown) });
+	}
+
+	/** A note's text as saved in the project's tree now; null when it is gone. */
+	function read(id: string, path: string): string | null {
+		const cwd = deps.cwdOf(id);
+		if (!cwd) return null;
+		const node = deps.filesForKey(keys.get(id) ?? "").get(nodeKey(basename(cwd), path));
+		return node?.type === "file" ? node.content.toString("utf8") : null;
+	}
+
+	/**
+	 * The host's check before an unreviewed note is used: unchanged, it is
+	 * used; changed, the review card shows the file's text and nothing else
+	 * happens. False when the note is not to be used now.
+	 */
+	function unchanged(
+		id: string,
+		notice: { path: string; saved: string },
+		then?: string,
+	): boolean {
+		const text = read(id, notice.path);
+		if (text === notice.saved) return true;
+		const chat = deps.chatOf(id);
+		if (text === null) {
+			deps.record(id, chat.sockets, {
+				type: "error",
+				message: `The note at ${notice.path} could not be read.`,
+			});
+			return false;
+		}
+		held.set(id, then);
+		chat.review = { id: randomUUID(), path: notice.path, markdown: text };
+		deps.emit(id, chat.sockets, { type: "handoff.review", review: chat.review });
+		return false;
 	}
 
 	/** A scripted turn: the student's message and one reply. */
@@ -83,6 +121,14 @@ export function fakeHandoff(deps: FakeHandoffDeps) {
 	): void {
 		const chat = deps.chatOf(id);
 		if (!review) return;
+		if (failing.delete(id)) {
+			deps.record(id, chat.sockets, {
+				type: "error",
+				message:
+					"A fresh conversation could not be started. Your note is still saved, and the conversation is unchanged.",
+			});
+			return;
+		}
 		if (chat.review) {
 			chat.review = null;
 			deps.emit(id, chat.sockets, { type: "handoff.review", review: null });
@@ -123,19 +169,50 @@ export function fakeHandoff(deps: FakeHandoffDeps) {
 		const path = newPath();
 		reply(id, HANDOFF_PROMPT, FAKE_HANDOFF_NOTE);
 		save(id, keys.get(id) ?? "", path, FAKE_HANDOFF_NOTE);
-		const notice = { id: randomUUID(), path, markdown: FAKE_HANDOFF_NOTE };
-		notices.set(id, notice);
+		const notice = { id: randomUUID(), path };
+		notices.set(id, { ...notice, saved: FAKE_HANDOFF_NOTE });
 		deps.record(id, chat.sockets, { type: "handoff.auto", ...notice });
 	}
 
+	/** Change the newest automatic note's file, as an agent or the editor might. */
+	function editNote(id: string, markdown: string): void {
+		const notice = notices.get(id);
+		if (notice) save(id, keys.get(id) ?? "", notice.path, markdown);
+	}
+
+	/** Make the chat's next fresh start fail. */
+	function failNext(id: string): void {
+		failing.add(id);
+	}
+
 	/** Run a handoff message, or a typed `/handoff`; false for any other message. */
-	function handoff(id: string, key: string, message: ChatClientMessage): boolean {
+	function handoff(
+		id: string,
+		key: string,
+		message: ChatClientMessage,
+		from: WebSocket,
+	): boolean {
 		keys.set(id, key);
 		const chat = deps.chatOf(id);
 		const typed = message.type === "send" && message.text.trim() === "/handoff";
 		if (message.type === "handoff.auto.continue") {
 			const notice = notices.get(id);
-			if (notice?.id === message.id) continueFrom(id, notice, message.text);
+			if (notice?.id === message.id && unchanged(id, notice, message.text))
+				continueFrom(id, { path: notice.path, markdown: notice.saved }, message.text);
+			return true;
+		}
+		if (message.type === "handoff.auto.copy") {
+			const notice = notices.get(id);
+			if (notice?.id === message.id && unchanged(id, notice)) {
+				// To the asker alone, with no seq, as the host sends it.
+				from.send(
+					JSON.stringify({
+						type: "handoff.prompt",
+						id: notice.id,
+						text: handoffFirstMessage(notice.path, notice.saved),
+					}),
+				);
+			}
 			return true;
 		}
 		if (typed || message.type === "handoff.start") {
@@ -152,17 +229,26 @@ export function fakeHandoff(deps: FakeHandoffDeps) {
 		} else if (chat.review?.id !== message.id) {
 			return true;
 		} else if (message.type === "handoff.continue") {
-			continueFrom(id, chat.review);
+			const then = held.get(id);
+			held.delete(id);
+			continueFrom(id, chat.review, then);
 			return true;
 		} else if (message.type === "handoff.edit") {
 			chat.review = { ...chat.review, markdown: message.markdown };
 			save(id, key, chat.review.path, message.markdown);
 		} else {
 			chat.review = null;
+			if (held.get(id) !== undefined) {
+				deps.record(id, chat.sockets, {
+					type: "error",
+					message: "The handoff was cancelled, so your message was not sent.",
+				});
+			}
+			held.delete(id);
 		}
 		deps.emit(id, chat.sockets, { type: "handoff.review", review: chat.review });
 		return true;
 	}
 
-	return { handoff, auto };
+	return { handoff, auto, editNote, failNext };
 }

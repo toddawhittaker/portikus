@@ -2,10 +2,11 @@
  * The notice an automatic handoff leaves in the conversation (SPEC.md §10.8):
  * the host saved a note while the student was away, before the prompt cache
  * went cold. The newest notice offers to start fresh from the note, as
- * Continue does, or to copy the prompt the fresh chat would get; an older
- * one keeps only its words and link.
+ * Continue does, or to copy the prompt the fresh chat would get, which the
+ * host reads from the note's file; an older one keeps only its words and
+ * link. If the file changed since it was saved, either button shows the
+ * review card instead, so the student sees what would be sent.
  */
-import { handoffFirstMessage } from "@portikus/contracts";
 import { Button, CONTROL_CLASS, Icon } from "@portikus/ui";
 import { useContext, useEffect, useRef, useState } from "react";
 import type { ChatAutoHandoffItem } from "./freshStart.js";
@@ -23,8 +24,8 @@ export function AutoHandoffNotice({ notice }: { notice: ChatAutoHandoffItem }) {
 	const actions = useContext(FreshStartContext);
 	const [said, setSaid] = useState("");
 	const [manual, setManual] = useState(false);
+	const [prompt, setPrompt] = useState("");
 	const field = useRef<HTMLTextAreaElement | null>(null);
-	const prompt = handoffFirstMessage(notice.path, notice.markdown);
 
 	useEffect(() => {
 		if (!manual) return;
@@ -34,8 +35,11 @@ export function AutoHandoffNotice({ notice }: { notice: ChatAutoHandoffItem }) {
 
 	async function copy() {
 		setSaid("");
+		const text = await actions?.copyPrompt(notice.id);
+		if (!text) return;
+		setPrompt(text);
 		try {
-			await navigator.clipboard.writeText(prompt);
+			await navigator.clipboard.writeText(text);
 			setManual(false);
 			setSaid(COPIED);
 		} catch {

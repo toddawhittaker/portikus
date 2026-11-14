@@ -9,7 +9,9 @@ import { FAKE_AGENT_URL } from "./ports";
  * chat shows a notice. Start fresh with it goes straight to the new
  * conversation; Copy prompt copies the first message. A send into the
  * cold chat afterwards asks whether to send it to a fresh chat instead.
- * The fake agent stands in for the host's timer.
+ * A note whose file changed since it was saved is shown for review before
+ * anything is sent. The fake agent stands in for the host's timer, which
+ * fires only while nothing waits for the student.
  */
 
 const NOTICE =
@@ -26,6 +28,8 @@ async function post(id: string, what: string, body?: object) {
 	});
 	expect(sent.ok).toBe(true);
 }
+
+const CHANGED = "## Goal\n\nSomething the student never wrote.";
 
 /** Figures whose cache was used `agoMinutes` ago; long enough to be worth a note. */
 function figures(agoMinutes: number, ttlSeconds: 1800 | 3600) {
@@ -51,6 +55,23 @@ async function awayAndNoted(
 	await expect(
 		chat.view.getByText("Here is the", { exact: false }).first(),
 	).toBeVisible();
+	// The scripted turn asks cards; the timer waits until nothing does.
+	const cards = chat.view.getByTestId("chat-cards");
+	await expect(cards).toBeVisible();
+	// Skip all on a question card, or a permission or plan card's first choice.
+	const answer = chat.view
+		.getByTestId("chat-question-card")
+		.getByRole("button", { name: "Skip all" })
+		.or(
+			chat.view
+				.getByTestId("chat-permission-card")
+				.getByRole("button", { name: /^(Allow|Allow once|Yes, in Auto)$/ }),
+		);
+	await expect(async () => {
+		if ((await cards.count()) > 0) await answer.first().click({ timeout: 2000 });
+		await expect(cards).toHaveCount(0, { timeout: 1000 });
+	}).toPass({ timeout: 20_000 });
+	await expect(chat.view.getByTestId("chat-cards")).toHaveCount(0);
 	await post(chat.id, "auto-handoff");
 	const notice = chat.view.getByTestId("chat-auto-handoff");
 	await expect(notice).toContainText(NOTICE);
@@ -81,8 +102,9 @@ for (const colorScheme of ["dark", "light"] as const) {
 			"Sent by Portikus to write a handoff note",
 		);
 		await expectNoViolations(page, '[data-testid="chat-auto-handoff"]');
-		if (colorScheme === "dark")
-			await page.screenshot({ path: "screenshots/auto-handoff-notice-dark.png" });
+		await page.screenshot({
+			path: `screenshots/auto-handoff-notice-${colorScheme}.png`,
+		});
 
 		await page.reload();
 		const again = page.locator('[data-testid^="chat-view-"]').first();
@@ -225,4 +247,97 @@ test("at phone width the notice and the choice fit", async ({ page, context }) =
 	await page.screenshot({ path: "screenshots/auto-handoff-cold-send-phone-dark.png" });
 	await page.emulateMedia({ colorScheme: "light" });
 	await page.screenshot({ path: "screenshots/auto-handoff-cold-send-phone-light.png" });
+});
+
+test("Start fresh from a note changed since it was saved shows it first, and Continue sends what is shown", async ({
+	page,
+	context,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	const { id, view, notice } = await awayAndNoted(page, context);
+	await post(id, "auto-handoff/note", { markdown: CHANGED });
+	await notice.getByRole("button", { name: "Start fresh with it" }).click();
+	const card = view.getByTestId("chat-handoff-card");
+	await expect(card).toContainText("Something the student never wrote.");
+	await expect(view.getByTestId("chat-fresh-start")).toHaveCount(0);
+	await expect(card.getByTestId("chat-handoff-continue")).toBeFocused();
+	await expectNoViolations(page, '[data-testid="chat-handoff-card"]');
+	await page.screenshot({ path: "screenshots/auto-handoff-changed-note-dark.png" });
+	await card.getByTestId("chat-handoff-continue").click();
+	await expect(view.getByTestId("chat-fresh-start")).toBeVisible();
+	await expect(view.getByTestId("chat-user-message").first()).toContainText(
+		"Something the student never wrote.",
+	);
+});
+
+test("Copy prompt of a changed note copies nothing and shows it for review", async ({
+	page,
+	context,
+}) => {
+	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+	await page.emulateMedia({ colorScheme: "dark" });
+	const { id, view, notice } = await awayAndNoted(page, context);
+	await page.evaluate(() => navigator.clipboard.writeText("untouched"));
+	await post(id, "auto-handoff/note", { markdown: CHANGED });
+	await notice.getByRole("button", { name: "Copy prompt" }).click();
+	await expect(view.getByTestId("chat-handoff-card")).toContainText(
+		"Something the student never wrote.",
+	);
+	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("untouched");
+});
+
+for (const colorScheme of ["dark", "light"] as const) {
+	test(`a cold send to a fresh chat from a changed note shows it first, then sends the message after it (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const { id, view } = await awayAndNoted(page, context);
+		await post(id, "context", figures(70, 3600));
+		await post(id, "auto-handoff/note", { markdown: CHANGED });
+		await sendMessage(view, "Now write the parser tests");
+		await view
+			.getByRole("button", { name: "Send in a fresh chat from the saved note" })
+			.click();
+		const card = view.getByTestId("chat-handoff-card");
+		await expect(card).toContainText("Something the student never wrote.");
+		// The message waits in the box until it is sent after the note.
+		await expect(view.getByTestId("chat-composer-input")).toHaveText(
+			"Now write the parser tests",
+		);
+		await page.screenshot({
+			path: `screenshots/auto-handoff-cold-send-changed-${colorScheme}.png`,
+		});
+		await card.getByTestId("chat-handoff-continue").click();
+		await expect(view.getByTestId("chat-user-message").first()).toContainText(
+			"Something the student never wrote.",
+		);
+		await expect(view.getByTestId("chat-user-message").nth(1)).toContainText(
+			"Now write the parser tests",
+		);
+		await expect(view.getByTestId("chat-composer-input")).toHaveText("");
+	});
+}
+
+test("a fresh start from the cold-send choice that fails puts the message back and says why", async ({
+	page,
+	context,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	const { id, view } = await awayAndNoted(page, context);
+	await post(id, "context", figures(70, 3600));
+	await post(id, "handoff-fail");
+	await sendMessage(view, "Do not lose me");
+	await view
+		.getByRole("button", { name: "Send in a fresh chat from the saved note" })
+		.click();
+	await expect(
+		view.getByText(/A fresh conversation could not be started/),
+	).toBeVisible();
+	await expect(view.getByTestId("chat-composer-input")).toHaveText("Do not lose me");
+	await expect(view.getByTestId("chat-composer-error")).toHaveText(
+		"The fresh chat did not start, so your message was not sent. It is still here, and the conversation says why.",
+	);
+	await expectNoViolations(page, '[data-testid="chat-composer"]');
+	await page.screenshot({ path: "screenshots/auto-handoff-draft-restored-dark.png" });
 });

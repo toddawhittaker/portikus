@@ -13,7 +13,7 @@ import {
 const ONE_HOUR: PriceRatios = { read: 0.05, write: 2, surcharge: null };
 const FIVE_MINUTES: PriceRatios = { read: 0.05, write: 1.25, surcharge: null };
 const GPT: PriceRatios = {
-	read: 0.1,
+	read: 0.05,
 	write: 1.25,
 	surcharge: { above: 272_000, factor: 2 },
 };
@@ -27,11 +27,15 @@ test("the reference values", () => {
 		bestRun: 4,
 		restartAt: 138_000,
 	});
-	// Codex at read 0.1 and write 1.25 (it was 0.05 and 1: 4 messages, 56,000).
+	// GPT-6.1 at API prices: read 0.05 and write 1.25.
 	expect(bestRestart(24_000, 8000, 6, 475_000, GPT)).toEqual({
-		bestRun: 3,
-		restartAt: 48_000,
+		bestRun: 5,
+		restartAt: 64_000,
 	});
+	// An older Codex model reads at 0.1.
+	expect(
+		bestRestart(24_000, 8000, 6, 475_000, { ...GPT, read: 0.1, surcharge: null }),
+	).toEqual({ bestRun: 3, restartAt: 48_000 });
 });
 
 test("price ratios by agent, model and cache length", () => {

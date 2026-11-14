@@ -65,3 +65,41 @@ describe("handoff notes", () => {
 		}
 	});
 });
+
+describe("a handoff note path is checked before it is read or written", () => {
+	test.each([
+		"../../.codex/auth.json",
+		".portikus/handoffs/../../.codex/auth.json",
+		"/etc/passwd",
+		".portikus/other.md",
+		"README.md",
+	])("%s is refused", async (path) => {
+		await mkdir(join(project, ".portikus", "handoffs"), { recursive: true });
+		await mkdir(join(project, ".codex"), { recursive: true });
+		await writeFile(join(project, ".codex", "auth.json"), "secret");
+		await writeFile(join(project, "README.md"), "readme");
+		await expect(readHandoffNote(project, path)).rejects.toThrow(
+			"not a handoff note path",
+		);
+		await expect(rewriteHandoffNote(project, path, "x")).rejects.toThrow(
+			"not a handoff note path",
+		);
+		await expect(readFile(join(project, ".codex", "auth.json"), "utf8")).resolves.toBe(
+			"secret",
+		);
+	});
+
+	test("a symlinked handoffs directory is not read through", async () => {
+		const outside = await mkdtemp(join(tmpdir(), "pk-outside-"));
+		try {
+			await mkdir(join(project, ".portikus"));
+			await writeFile(join(outside, "2026-11-14T10-20-30Z.md"), "elsewhere");
+			await symlink(outside, join(project, ".portikus", "handoffs"));
+			await expect(
+				readHandoffNote(project, ".portikus/handoffs/2026-11-14T10-20-30Z.md"),
+			).rejects.toThrow();
+		} finally {
+			await rm(outside, { recursive: true, force: true });
+		}
+	});
+});

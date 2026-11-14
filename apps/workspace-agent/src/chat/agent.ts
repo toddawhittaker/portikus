@@ -134,4 +134,9 @@ export interface ChatSink {
 	 * attachment gets a fresh, empty snapshot.
 	 */
 	conversationReset(context: ContextFigures | null): void;
+	/**
+	 * The agent compacted the conversation: it goes on, but its context
+	 * shrank, so the fresh-chat estimate counts again from the next figures.
+	 */
+	compacted(): void;
 }

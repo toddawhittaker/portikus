@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+	HandoffNoteHash,
 	HandoffNotePath,
 	HandoffNoteText,
 	HandoffNotice,
@@ -553,6 +554,16 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 	 * The answer to a `rename`, sent only to the attachment that asked. Like a
 	 * subagent frame it carries no `seq`, so other attachments see no gap.
 	 */
+	/**
+	 * The answer to a `handoff.auto.copy` whose note is unchanged: the new
+	 * conversation's first message, to copy. Sent only to the attachment
+	 * that asked, with no `seq`, as `rename.result` is.
+	 */
+	z.object({
+		type: z.literal("handoff.prompt"),
+		id: z.uuid(),
+		text: z.string(),
+	}),
 	z.object({
 		type: z.literal("rename.result"),
 		ok: z.boolean(),
@@ -616,6 +627,8 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		...Envelope,
 		id: z.uuid(),
 		path: HandoffNotePath,
+		/** The hash of the note as sent, which a resend checks the file against. */
+		hash: HandoffNoteHash.optional(),
 		failed: z.literal(true).optional(),
 	}),
 	/**
@@ -771,6 +784,8 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 			attachments: Attachments.optional(),
 		})
 		.strict(),
+	/** Copy an automatic note's first message, named by its notice; `handoff.prompt` answers. */
+	z.object({ type: z.literal("handoff.auto.copy"), id: z.uuid() }).strict(),
 	/** Send a failed fresh start's first message again, naming its divider. */
 	z.object({ type: z.literal("handoff.resend"), id: z.uuid() }).strict(),
 	/** Retitle the conversation; the host cleans the title (ADR 0074). */

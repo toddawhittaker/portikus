@@ -4,7 +4,8 @@ import { join } from "node:path";
 import {
 	ChatCacheFigures,
 	CodingAgent,
-	HandoffNotice,
+	HandoffNoteHash,
+	HandoffNotePath,
 	TerminalId,
 } from "@portikus/contracts";
 import { z } from "zod";
@@ -71,6 +72,27 @@ export async function writeChatSession(
 }
 
 /**
+ * A fresh start's divider as kept in `earlier`. Its path is read again by a
+ * resend, so a planted one is dropped on load (SPEC.md §24).
+ */
+const StoredFreshDivider = z.object({
+	type: z.literal("handoff.fresh"),
+	id: z.uuid(),
+	path: HandoffNotePath,
+	hash: HandoffNoteHash.optional(),
+	failed: z.literal(true).optional(),
+});
+
+/** What the chat shows before the running agent's part; a malformed divider is left out. */
+const EarlierEvents = z.array(z.looseObject({ type: z.string() })).transform((events) =>
+	events.flatMap((event) => {
+		if (event.type !== "handoff.fresh") return [event];
+		const divider = StoredFreshDivider.safeParse(event);
+		return divider.success ? [divider.data] : [];
+	}),
+);
+
+/**
  * A chat's state across agent swaps, beside its session record (SPEC.md
  * §10.8). Absent until the first swap. It holds the student's conversation,
  * so it stays in this private directory and is never logged (ADR 0012).
@@ -79,7 +101,7 @@ export const ChatSwapState = z.object({
 	/** Claude's own session, kept while Codex runs; Codex always starts a fresh thread. */
 	sessions: z.object({ claude: TerminalId.optional() }),
 	/** What the chat shows before the running agent's part, ending in a divider. */
-	earlier: z.array(z.looseObject({ type: z.string() })),
+	earlier: EarlierEvents,
 	/** Older turns than `earlier` holds exist. */
 	truncated: z.boolean(),
 	/** Each finished stretch of the conversation, oldest first, for the next handoff. */
@@ -200,11 +222,16 @@ export async function takeSwapState(
 	return { state: await readSwapState(homeDir, tab), switched: false };
 }
 
+/** Most notices kept for replay; older ones drop out of the reload. */
+export const MAX_AUTO_NOTICES = 20;
+
 /**
  * The automatic handoff's state (SPEC.md §10.8): whether a note was written
- * in this idle period, and the notices to replay, each placed after the
- * message that asked for its note. It holds the student's notes, so it
- * stays in this private directory and is never logged (ADR 0012).
+ * in this idle period, the cache figures and conversation growth the timer
+ * needs after a restart, and the notices to replay, each placed after the
+ * message that asked for its note. A notice keeps its note's path and hash,
+ * never its text. It stays in this private directory and is never logged
+ * (ADR 0012).
  */
 export const AutoHandoffRecord = z.object({
 	written: z.boolean(),
@@ -216,13 +243,25 @@ export const AutoHandoffRecord = z.object({
 			cache: ChatCacheFigures.nullable(),
 		})
 		.nullable(),
-	notices: z.array(
-		z.object({
-			notice: HandoffNotice,
-			/** The id of the message that asked for the note; null when it was not seen. */
-			after: z.string().nullable(),
-		}),
-	),
+	/** How the conversation has grown since it began; a file from before this was kept has none. */
+	growth: z
+		.object({
+			startTokens: z.number().int().nonnegative(),
+			messages: z.number().int().nonnegative(),
+			requests: z.number().int().nonnegative(),
+		})
+		.optional(),
+	notices: z
+		.array(
+			z.object({
+				id: z.uuid(),
+				path: HandoffNotePath,
+				hash: HandoffNoteHash,
+				/** The id of the message that asked for the note; null when it was not seen. */
+				after: z.string().nullable(),
+			}),
+		)
+		.max(MAX_AUTO_NOTICES),
 });
 export type AutoHandoffRecord = z.infer<typeof AutoHandoffRecord>;
 

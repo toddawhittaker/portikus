@@ -486,6 +486,9 @@ export class CodexAgent implements ChatAgent {
 		}
 		// The student's own message was shown when it was sent.
 		if (base.type === "userMessage") return;
+		if (base.type === "contextCompaction" && method === "item/completed") {
+			this.sink.compacted();
+		}
 		if (method === "item/started") {
 			for (const event of this.mapper.started(item)) this.sink.emit(event);
 			return;

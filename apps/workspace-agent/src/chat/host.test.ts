@@ -1396,6 +1396,24 @@ describe("context usage", () => {
 		});
 	});
 
+	test("a compact boundary restarts the growth counts from the next figures (SPEC.md 10.8)", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+		fake.emit(assistant({ input_tokens: 1000, output_tokens: 15 }));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(1));
+		expect(ofType(a, "context")[0]?.growth?.startTokens).toBe(1015);
+		fake.emit({ type: "system", subtype: "compact_boundary" } as never);
+		// Under the old start, but not half the last figure: only the signal says it was a compaction.
+		fake.emit(assistant({ input_tokens: 690, output_tokens: 10 }));
+		await vi.waitFor(() => expect(ofType(a, "context")).toHaveLength(2));
+		expect(ofType(a, "context")[1]?.growth).toEqual({
+			startTokens: 700,
+			messages: 0,
+			requests: 0,
+		});
+	});
+
 	test("the repeats the SDK sends for each content block of one response count once", async () => {
 		const fake = queries[0] as FakeQuery;
 		const a = await attach();

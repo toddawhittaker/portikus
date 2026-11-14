@@ -123,9 +123,14 @@ export class ChatCore {
 	private closing: Promise<void> = Promise.resolve();
 	/**
 	 * How this conversation has grown, counted here so a reloading browser
-	 * keeps it (SPEC.md section 10.8). A resumed session counts from the resume.
+	 * keeps it (SPEC.md section 10.8). A resumed session counts from the resume;
+	 * a restarted host takes it up from the automatic handoff's state.
 	 */
 	private growth = { startTokens: 0, messages: 0, requests: 0 };
+	/** The last used-token figure, to see a compaction no driver reported. */
+	private lastUsedTokens = 0;
+	/** A compaction happened; the next figures restart the growth counts (SPEC.md §10.8). */
+	private compacted = false;
 	/** Conversation resets so far, so a fresh start can see its own arrive. */
 	private resets = 0;
 	private readonly fresh: FreshStart;
@@ -163,12 +168,24 @@ export class ChatCore {
 			this.broadcast({ type: "mcp", servers });
 		},
 		context: (figures, request) => {
-			if (request && figures.usedTokens > 0) {
+			// A drop of more than half with no reset is a compaction the agent did not report.
+			const last = this.lastUsedTokens;
+			if (figures.usedTokens > 0 && figures.usedTokens < last / 2)
+				this.compacted = true;
+			if (figures.usedTokens > 0) this.lastUsedTokens = figures.usedTokens;
+			if (this.compacted && figures.usedTokens > 0) {
+				this.compacted = false;
+				this.growth = { startTokens: figures.usedTokens, messages: 0, requests: 0 };
+				this.auto.growthChanged();
+			} else if (request && figures.usedTokens > 0) {
 				if (this.growth.startTokens === 0) this.growth.startTokens = figures.usedTokens;
 				this.growth.requests += 1;
 			}
 			this.auto.update(figures);
 			this.broadcast(this.contextEvent(figures));
+		},
+		compacted: () => {
+			this.compacted = true;
 		},
 		signIn: (state) => {
 			this.signIn = state;
@@ -205,7 +222,7 @@ export class ChatCore {
 			clock: this.options.clock ?? systemClock,
 			fresh: this.fresh,
 			idle: () => !this.busy() && !this.switching && this.fresh.idle,
-			startTokens: () => this.growth.startTokens,
+			growth: () => this.growth,
 			broadcast: (event) => this.broadcast(event),
 		});
 	}
@@ -220,7 +237,10 @@ export class ChatCore {
 		await unlink(this.socketPath).catch(() => undefined);
 		await this.agent.start(this.sink);
 		await this.adoptHandoff();
-		await this.auto.load();
+		// A restarted host keeps the conversation's start size, which the automatic
+		// note needs; a swap's new agent starts its own count.
+		const growth = await this.auto.load();
+		if (growth && !this.options.swap?.switched) this.growth = growth;
 		await this.listen();
 	}
 
@@ -458,7 +478,10 @@ export class ChatCore {
 		// Counted from arrival, so a swap cannot start while a turn is still starting.
 		this.sends += 1;
 		// A `!` command reaches no model, so it is not a message to it.
-		if (!isShellCommand(text)) this.growth.messages += 1;
+		if (!isShellCommand(text)) {
+			this.growth.messages += 1;
+			this.auto.growthChanged();
+		}
 		try {
 			await this.agent.send(text, attachments);
 		} finally {
@@ -470,6 +493,8 @@ export class ChatCore {
 		this.resets += 1;
 		this.partial = null;
 		this.growth = { startTokens: 0, messages: 0, requests: 0 };
+		this.lastUsedTokens = 0;
+		this.compacted = false;
 		this.auto.reset();
 		// A new conversation starts with nothing from before a swap.
 		if (this.swap) {
@@ -678,6 +703,15 @@ export class ChatCore {
 				return this.fresh.continue(message.id);
 			case "handoff.auto.continue":
 				return this.auto.continue(message);
+			case "handoff.auto.copy": {
+				const text = await this.auto.copy(message.id);
+				if (text === null) return;
+				// To the asker alone, with no seq, as `rename.result` is.
+				return writeLine(
+					client.socket,
+					JSON.stringify({ type: "handoff.prompt", id: message.id, text }),
+				);
+			}
 			case "handoff.resend":
 				return this.fresh.resend(message.id);
 			default:

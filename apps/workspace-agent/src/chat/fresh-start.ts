@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	type ChatAttachment,
 	type ChatCommand,
 	HANDOFF_COMMAND,
 	HANDOFF_PROMPT,
+	HandoffNotePath,
 	type HandoffReview,
 	handoffFirstMessage,
 	MAX_HANDOFF_NOTE_CHARS,
@@ -20,7 +21,10 @@ import type { ChatEventBody } from "./agent.js";
  * Starting fresh with a handoff note (SPEC.md §10.8), the same for every
  * agent. The agent is asked for the note as its reply; the host saves the
  * reply under `.portikus/handoffs/`, the student reviews it, and Continue
- * resets the conversation and sends the note as its first message. The
+ * resets the conversation and sends the note as its first message. A note
+ * sent with no review is checked against the hash recorded when it was
+ * saved; if its file changed since, the student sees the review card with
+ * the file's text first, so nothing they never saw is sent as theirs. The
  * note is the student's conversation, so none of it is ever logged
  * (ADR 0012).
  */
@@ -46,11 +50,18 @@ const HANDOFF_SAVE_FAILED_MESSAGE =
 	"The handoff note could not be saved, so the conversation is unchanged.";
 export const HANDOFF_RESET_FAILED_MESSAGE =
 	"A fresh conversation could not be started. Your note is still saved, and the conversation is unchanged.";
+export const HELD_MESSAGE_KEPT =
+	"The handoff was cancelled, so your message was not sent.";
 export const HANDOFF_SEND_FAILED_MESSAGE =
 	"The handoff could not be sent to the new conversation. Your note is still saved; use Send the handoff again.";
 
 /** A fresh start's divider, as the chat records and replays it. */
 export type FreshDivider = Extract<ChatEventBody, { type: "handoff.fresh" }>;
+
+/** The SHA-256 of a note's text, recorded so a later change to its file shows. */
+export function noteHash(text: string): string {
+	return createHash("sha256").update(text, "utf8").digest("hex");
+}
 
 /** What the handoff needs of the chat core. */
 export interface FreshStartHost {
@@ -80,12 +91,28 @@ interface Turn {
 export interface SavedNote {
 	path: string;
 	markdown: string;
+	hash: string;
 	promptId: string | null;
+}
+
+/** The student's message held back to send after the note, from the cold-send choice. */
+export interface HeldMessage {
+	text: string;
+	attachments: ChatAttachment[];
+}
+
+/** The note under review, and what Continue does with it. */
+interface Waiting {
+	shown: HandoffReview;
+	/** Sent after the note, as the second message. */
+	held: HeldMessage | null;
+	/** A failed fresh start to send again, with no new conversation. */
+	resendOf: FreshDivider | null;
 }
 
 export class FreshStart {
 	private stage: "idle" | "asking" | "review" | "continuing" = "idle";
-	private review: HandoffReview | null = null;
+	private review: Waiting | null = null;
 	private turn: {
 		reply: string;
 		promptId: string | null;
@@ -101,7 +128,7 @@ export class FreshStart {
 
 	/** The review event an attach needs; null when no note waits. */
 	reviewEvent(): ChatEventBody | null {
-		return this.review ? { type: "handoff.review", review: this.review } : null;
+		return this.review ? { type: "handoff.review", review: this.review.shown } : null;
 	}
 
 	/** No note is being asked for, waits for review, or is being sent. */
@@ -127,7 +154,11 @@ export class FreshStart {
 	async start(): Promise<void> {
 		if (this.stage === "review") throw new Error(HANDOFF_WAITING_MESSAGE);
 		const note = await this.writeNote();
-		this.show({ id: randomUUID(), path: note.path, markdown: note.markdown });
+		this.show({
+			shown: { id: randomUUID(), path: note.path, markdown: note.markdown },
+			held: null,
+			resendOf: null,
+		});
 	}
 
 	/**
@@ -156,7 +187,7 @@ export class FreshStart {
 				throw new Error(HANDOFF_SAVE_FAILED_MESSAGE);
 			});
 			this.host.log.info("handoff note saved");
-			return { path, markdown: reply, promptId };
+			return { path, markdown: reply, hash: noteHash(reply), promptId };
 		} catch (error) {
 			this.stage = "idle";
 			throw error;
@@ -166,55 +197,73 @@ export class FreshStart {
 	/** Replace the note under review, rewriting its file. */
 	async edit(id: string, markdown: string): Promise<void> {
 		const review = this.waiting(id);
-		await rewriteHandoffNote(this.host.projectDir, review.path, markdown).catch(() => {
-			throw new Error("The edit could not be saved.");
-		});
-		this.show({ ...review, markdown });
+		await rewriteHandoffNote(this.host.projectDir, review.shown.path, markdown).catch(
+			() => {
+				throw new Error("The edit could not be saved.");
+			},
+		);
+		this.show({ ...review, shown: { ...review.shown, markdown } });
 	}
 
-	/** Keep the conversation as it is; the saved note stays. */
+	/** Keep the conversation as it is; the saved note stays, and a held message goes back. */
 	cancel(id: string): void {
-		this.waiting(id);
+		const review = this.waiting(id);
 		this.show(null);
+		if (review.held) throw new Error(HELD_MESSAGE_KEPT);
 	}
 
-	/** Start the new conversation and send it the note. */
+	/**
+	 * Start the new conversation and send it the note as the card shows it,
+	 * then any held message; the divider records that text's hash.
+	 */
 	async continue(id: string): Promise<void> {
 		const review = this.waiting(id);
 		if (this.host.busy()) throw new Error(HANDOFF_BUSY_MESSAGE);
+		const { shown, held, resendOf } = review;
 		this.stage = "continuing";
 		this.show(null);
-		try {
-			await this.host.reset();
-		} catch {
-			this.show(review);
-			throw new Error(HANDOFF_RESET_FAILED_MESSAGE);
+		if (!resendOf) {
+			try {
+				await this.host.reset();
+			} catch {
+				this.show(review);
+				throw new Error(HANDOFF_RESET_FAILED_MESSAGE);
+			}
+			this.host.log.info("chat started fresh from a handoff");
 		}
-		this.host.log.info("chat started fresh from a handoff");
 		await this.sendFirst(
-			{ type: "handoff.fresh", id: randomUUID(), path: review.path },
-			review.markdown,
+			{
+				type: "handoff.fresh",
+				id: resendOf?.id ?? randomUUID(),
+				path: shown.path,
+				hash: noteHash(shown.markdown),
+			},
+			shown.markdown,
 		);
+		if (held) await this.host.send(held.text, held.attachments);
 	}
 
 	/**
 	 * Start the new conversation from a saved note with no review, as
-	 * Continue does, then send `then` as its second message. The note is
-	 * read as saved now, so an edit in the editor counts.
+	 * Continue does, then send `then` as its second message. If the file
+	 * no longer matches `hash`, nothing is sent: the review card shows the
+	 * file's text, and its Continue sends that and then `then`.
 	 */
 	async continueFromNote(
 		path: string,
-		then: { text: string; attachments: ChatAttachment[] } | null,
+		hash: string,
+		then: HeldMessage | null,
 	): Promise<void> {
-		if (this.stage !== "idle" || this.host.busy())
-			throw new Error(HANDOFF_BUSY_MESSAGE);
+		this.ready();
 		this.stage = "continuing";
-		let note: string;
-		try {
-			note = await readHandoffNote(this.host.projectDir, path);
-		} catch {
-			this.stage = "idle";
-			throw new Error(`The note at ${path} could not be read.`);
+		const note = await this.check(path, hash);
+		if (!note.same) {
+			this.show({
+				shown: { id: randomUUID(), path, markdown: note.text },
+				held: then,
+				resendOf: null,
+			});
+			return;
 		}
 		try {
 			await this.host.reset();
@@ -223,28 +272,86 @@ export class FreshStart {
 			throw new Error(HANDOFF_RESET_FAILED_MESSAGE);
 		}
 		this.host.log.info("chat started fresh from a handoff");
-		await this.sendFirst({ type: "handoff.fresh", id: randomUUID(), path }, note);
+		await this.sendFirst(
+			{ type: "handoff.fresh", id: randomUUID(), path, hash },
+			note.text,
+		);
 		if (then) await this.host.send(then.text, then.attachments);
 	}
 
-	/** Send a failed fresh start's first message again, from the note as saved now. */
+	/**
+	 * The new conversation's first message from a saved note, to copy; null
+	 * when the file changed, and the review card shows it instead.
+	 */
+	async promptFromNote(path: string, hash: string): Promise<string | null> {
+		this.ready();
+		this.stage = "continuing";
+		const note = await this.check(path, hash);
+		if (!note.same) {
+			this.show({
+				shown: { id: randomUUID(), path, markdown: note.text },
+				held: null,
+				resendOf: null,
+			});
+			return null;
+		}
+		this.stage = "idle";
+		return handoffFirstMessage(path, note.text);
+	}
+
+	/**
+	 * Send a failed fresh start's first message again, from the note as
+	 * saved now if it still matches the divider's hash, else through the
+	 * review card.
+	 */
 	async resend(id: string): Promise<void> {
 		const divider = this.host.divider(id);
 		if (!divider?.failed) throw new Error("That handoff was already sent.");
-		if (this.stage !== "idle" || this.host.busy())
-			throw new Error(HANDOFF_BUSY_MESSAGE);
+		const path = HandoffNotePath.safeParse(divider.path);
+		if (!path.success) throw new Error("That handoff note could not be read.");
+		this.ready();
 		this.stage = "continuing";
-		let note: string;
-		try {
-			note = await readHandoffNote(this.host.projectDir, divider.path);
-		} catch {
-			this.stage = "idle";
-			throw new Error(`The note at ${divider.path} could not be read.`);
+		// A divider recorded before hashes were kept has none to match.
+		const note = await this.check(path.data, divider.hash ?? "");
+		if (!note.same) {
+			this.show({
+				shown: { id: randomUUID(), path: path.data, markdown: note.text },
+				held: null,
+				resendOf: divider,
+			});
+			return;
 		}
 		await this.sendFirst(
-			{ type: "handoff.fresh", id: divider.id, path: divider.path },
-			note,
+			{ type: "handoff.fresh", id: divider.id, path: path.data, hash: divider.hash },
+			note.text,
 		);
+	}
+
+	/** Nothing else is under way, so a note can be sent. */
+	private ready(): void {
+		if (this.stage === "review") throw new Error(HANDOFF_WAITING_MESSAGE);
+		if (this.stage !== "idle" || this.host.busy())
+			throw new Error(HANDOFF_BUSY_MESSAGE);
+	}
+
+	/** Read a saved note and say whether it is still the text `hash` names. */
+	private async check(
+		path: string,
+		hash: string,
+	): Promise<{ text: string; same: boolean }> {
+		let text: string;
+		try {
+			text = await readHandoffNote(this.host.projectDir, path);
+		} catch {
+			this.stage = "idle";
+			throw new Error(`The note at ${path} could not be read.`);
+		}
+		const same = noteHash(text) === hash;
+		if (!same && text.length > MAX_HANDOFF_NOTE_CHARS) {
+			this.stage = "idle";
+			throw new Error(HANDOFF_TOO_LONG_MESSAGE);
+		}
+		return { text, same };
 	}
 
 	private async sendFirst(divider: FreshDivider, note: string): Promise<void> {
@@ -284,17 +391,17 @@ export class FreshStart {
 		return finished;
 	}
 
-	private waiting(id: string): HandoffReview {
-		if (this.stage !== "review" || this.review?.id !== id) {
+	private waiting(id: string): Waiting {
+		if (this.stage !== "review" || this.review?.shown.id !== id) {
 			throw new Error(HANDOFF_GONE_MESSAGE);
 		}
 		return this.review;
 	}
 
-	private show(review: HandoffReview | null): void {
+	private show(review: Waiting | null): void {
 		this.review = review;
 		if (review) this.stage = "review";
 		else if (this.stage === "review") this.stage = "idle";
-		this.host.broadcast({ type: "handoff.review", review });
+		this.host.broadcast({ type: "handoff.review", review: review?.shown ?? null });
 	}
 }

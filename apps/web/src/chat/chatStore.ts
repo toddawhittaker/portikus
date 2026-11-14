@@ -177,6 +177,8 @@ export interface ChatState {
 	growth: ChatGrowth;
 	/** The handoff note waiting for review (SPEC.md §10.8); null when none waits. */
 	handoffReview: HandoffReview | null;
+	/** The first message the host sent to copy for an automatic note, after Copy prompt. */
+	handoffPrompt: { id: string; text: string } | null;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -197,8 +199,11 @@ export interface ChatState {
 }
 
 type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
-/** Every event but a subagent's or a rename's answer, which never enter the chat's own sequence. */
-type ChatEvent = Exclude<ChatServerEvent, SubagentFrame | { type: "rename.result" }>;
+/** Every event but a subagent's, a rename's answer or a copied prompt, which never enter the chat's own sequence. */
+type ChatEvent = Exclude<
+	ChatServerEvent,
+	SubagentFrame | { type: "rename.result" } | { type: "handoff.prompt" }
+>;
 
 type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
@@ -229,6 +234,7 @@ export const initialChatState: ChatState = {
 	context: null,
 	growth: NO_GROWTH,
 	handoffReview: null,
+	handoffPrompt: null,
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -272,6 +278,9 @@ export function receiveChatEvent(
 	if (event.type === "subagent") return { ...state, subagentFrame: event };
 	// Only the left pane's rename reads its answer.
 	if (event.type === "rename.result") return state;
+	// A new object each time, so a second copy of the same prompt copies again.
+	if (event.type === "handoff.prompt")
+		return { ...state, handoffPrompt: { id: event.id, text: event.text } };
 	if (event.type === "snapshot") return applySnapshot(state, event, now);
 	// The contract puts the snapshot first, so anything earlier is stale.
 	if (state.awaitingSnapshot) return state;
@@ -737,6 +746,8 @@ interface ChatActions {
 	cancelHandoff: (id: string) => boolean;
 	/** Send a failed fresh start's first message again, naming its divider. */
 	resendHandoff: (id: string) => boolean;
+	/** Ask for an automatic note's first message to copy; `handoff.prompt` answers. */
+	copyNotePrompt: (id: string) => boolean;
 	/** Start fresh from an automatic note, then send `then` as the second message. */
 	startFreshFromNote: (
 		id: string,
@@ -779,6 +790,7 @@ export function createChatStore(
 		editHandoff: (id, markdown) => deliver({ type: "handoff.edit", id, markdown }),
 		cancelHandoff: (id) => deliver({ type: "handoff.cancel", id }),
 		resendHandoff: (id) => deliver({ type: "handoff.resend", id }),
+		copyNotePrompt: (id) => deliver({ type: "handoff.auto.copy", id }),
 		startFreshFromNote: (id, then) =>
 			deliver({ type: "handoff.auto.continue", id, ...then }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),

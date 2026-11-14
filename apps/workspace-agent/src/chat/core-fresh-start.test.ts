@@ -19,6 +19,7 @@ import {
 	HANDOFF_RESET_FAILED_MESSAGE,
 	HANDOFF_SEND_FAILED_MESSAGE,
 	HANDOFF_WAITING_MESSAGE,
+	noteHash,
 } from "./fresh-start.js";
 import { readSwapState } from "./session-record.js";
 import {
@@ -292,7 +293,12 @@ describe.each(["claude", "codex"] as const)("a handoff in a %s chat", (name) => 
 		// The divider is replayed before the new conversation on a reattach.
 		const state = await readSwapState(dir, ID);
 		expect(state?.earlier).toEqual([
-			{ type: "handoff.fresh", id: divider?.id, path: review.path },
+			{
+				type: "handoff.fresh",
+				id: divider?.id,
+				path: review.path,
+				hash: noteHash("## Goal\n\nEdited."),
+			},
 		]);
 		// The estimate counts the new conversation alone: the first message.
 		agent.sink.context({ usedTokens: 10, windowTokens: 100, cache: null }, true);
@@ -317,19 +323,98 @@ describe.each(["claude", "codex"] as const)("a handoff in a %s chat", (name) => 
 		const failed = last(asker, "handoff.fresh");
 		expect(failed?.failed).toBe(true);
 		expect(await notes()).toHaveLength(1);
-		// The note as saved now goes, so an edit in the editor is kept.
-		await writeFile(join(dir, review.path), "## Goal\n\nFrom the editor.");
+		// Unchanged since it was sent, the note goes again at once.
 		play.firstStatus = "done";
 		asker.send({ type: "handoff.resend", id: failed?.id ?? "" });
 		await vi.waitFor(() =>
 			expect(last(asker, "handoff.fresh")?.failed).toBeUndefined(),
 		);
-		expect(sent().at(-1)).toBe(
-			handoffFirstMessage(review.path, "## Goal\n\nFrom the editor."),
-		);
+		expect(sent().at(-1)).toBe(handoffFirstMessage(review.path, NOTE));
+		expect(sent().filter((text) => text === "/clear")).toHaveLength(1);
 		expect(last(asker, "handoff.fresh")?.id).toBe(failed?.id);
 		const state = await readSwapState(dir, ID);
 		expect(state?.earlier).toHaveLength(1);
+	});
+
+	test("a resend whose note changed shows it for review first, and Continue sends what is shown", async () => {
+		await startCore(name, { firstStatus: "error" });
+		const asker = await attached();
+		asker.send({ type: "handoff.start" });
+		const review = await reviewed(asker);
+		asker.send({ type: "handoff.continue", id: review.id });
+		expect(await errorText(asker)).toBe(HANDOFF_SEND_FAILED_MESSAGE);
+		const failed = last(asker, "handoff.fresh");
+		await writeFile(join(dir, review.path), "## Goal\n\nChanged by someone.");
+		play.firstStatus = "done";
+		const before = sent().length;
+		asker.send({ type: "handoff.resend", id: failed?.id ?? "" });
+		await vi.waitFor(() =>
+			expect(last(asker, "handoff.review")?.review?.markdown).toBe(
+				"## Goal\n\nChanged by someone.",
+			),
+		);
+		// Nothing was sent: the student sees the text first.
+		expect(sent()).toHaveLength(before);
+		const shown = last(asker, "handoff.review")?.review;
+		asker.send({ type: "handoff.continue", id: shown?.id ?? "" });
+		await vi.waitFor(() =>
+			expect(last(asker, "handoff.fresh")?.failed).toBeUndefined(),
+		);
+		expect(sent().slice(before)).toEqual([
+			handoffFirstMessage(review.path, "## Goal\n\nChanged by someone."),
+		]);
+		const state = await readSwapState(dir, ID);
+		expect(state?.earlier).toEqual([
+			{
+				type: "handoff.fresh",
+				id: failed?.id,
+				path: review.path,
+				hash: noteHash("## Goal\n\nChanged by someone."),
+			},
+		]);
+	});
+
+	test("a resend naming a divider with a planted path reads nothing", async () => {
+		await startCore(name);
+		await core.stop();
+		const planted = "99999999-9999-4999-8999-999999999999";
+		await mkdir(join(dir, ".codex"), { recursive: true });
+		await writeFile(join(dir, ".codex", "auth.json"), "secret");
+		core = new ChatCore(
+			{
+				terminalId: ID,
+				socketDir: dir,
+				homeDir: dir,
+				projectDir: join(dir, "project"),
+				log: silentLogger(),
+				resetWithinMs: 300,
+				swap: {
+					state: {
+						sessions: {},
+						earlier: [
+							{
+								type: "handoff.fresh",
+								id: planted,
+								path: "../.codex/auth.json",
+								failed: true,
+							},
+						],
+						truncated: false,
+						log: [],
+						handoff: null,
+					},
+					switched: false,
+				},
+			},
+			agent,
+			name,
+		);
+		await core.start();
+		const asker = await attached();
+		const before = sent().length;
+		asker.send({ type: "handoff.resend", id: planted });
+		expect(await errorText(asker)).toBe("That handoff note could not be read.");
+		expect(sent()).toHaveLength(before);
 	});
 
 	test("a new conversation that never comes leaves the note waiting", async () => {
