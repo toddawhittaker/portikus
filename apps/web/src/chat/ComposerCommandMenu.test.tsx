@@ -578,3 +578,32 @@ test("/model with an argument is sent to the agent as written", async () => {
 	key(box, "Enter");
 	expect(sent).toEqual([{ type: "send", text: "/model gpt-5.4", attachments: [] }]);
 });
+
+test("with a menu open the arrows move the menu, and Up and Down leave the history alone", async () => {
+	emit("message", { id: "u1", role: "user", markdown: "older message" });
+	const box = draw();
+	typeInto(box, "/");
+	await screen.findByRole("listbox");
+	key(box, "ArrowDown");
+	expect(box.getAttribute("aria-activedescendant")).toBe(options()[1]?.id);
+	key(box, "ArrowUp");
+	key(box, "ArrowUp");
+	expect(box.getAttribute("aria-activedescendant")).toBe(options()[4]?.id);
+	expect(boxText(box)).toBe("/");
+	// A menu with no match still holds the arrows: the typed text stays.
+	typeInto(box, "zzz");
+	await waitFor(() => expect(screen.queryAllByRole("option")).toEqual([]));
+	key(box, "ArrowUp");
+	expect(boxText(box)).toBe("/zzz");
+});
+
+test("a recalled slash command does not open the menu, so Up goes on through the history", () => {
+	emit("message", { id: "u1", role: "user", markdown: "first" });
+	emit("message", { id: "u2", role: "user", markdown: "/compact now" });
+	const box = draw();
+	key(box, "ArrowUp");
+	expect(boxText(box)).toBe("/compact now");
+	expect(screen.queryByRole("listbox")).toBeNull();
+	key(box, "ArrowUp");
+	expect(boxText(box)).toBe("first");
+});
