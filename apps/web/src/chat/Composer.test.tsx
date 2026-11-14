@@ -246,7 +246,7 @@ test("while a turn runs the foot says Enter sends without stopping, and Esc stop
 	draw();
 	const hint = () => screen.getByTestId("chat-composer-hint").textContent;
 	expect(hint()).toBe(
-		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.",
 	);
 	emit("turn.started", { at: 0 });
 	expect(hint()).toBe("Enter sends without stopping Claude. Esc stops it.");
@@ -1014,7 +1014,7 @@ test("the box is a labelled combobox, for its menus, described by the key hint",
 		.filter(Boolean);
 	expect(hint).toEqual([
 		"Type / for commands or @ for files. Paste or drop images to attach them.",
-		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.",
 	]);
 });
 
@@ -1222,7 +1222,7 @@ test("the bypass warning shows only while Bypass is the host's mode", () => {
 	draw();
 	expect(
 		screen.getByText(
-			"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+			"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.",
 		),
 	).toBeTruthy();
 	settings({ mode: "bypassPermissions" });
@@ -1232,7 +1232,7 @@ test("the bypass warning shows only while Bypass is the host's mode", () => {
 	// The warning takes the hint's line, so the box above does not move.
 	expect(
 		screen.queryByText(
-			"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+			"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.",
 		),
 	).toBeNull();
 	settings({ mode: "default" });

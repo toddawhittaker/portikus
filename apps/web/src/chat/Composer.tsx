@@ -93,7 +93,7 @@ const tips = (agent: CodingAgent) =>
 		? "Type / for commands, $ for skills or @ for files. Paste or drop images to attach them."
 		: "Type / for commands or @ for files. Paste or drop images to attach them.";
 const KEY_HINT =
-	"Enter sends, Shift+Enter adds a line, Up brings back your last message.";
+	"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.";
 const runningHint = (name: string) =>
 	`Enter sends without stopping ${name}. Esc stops it.`;
 const SHELL_RUNNING_HINT = "The command is running. Esc stops it.";

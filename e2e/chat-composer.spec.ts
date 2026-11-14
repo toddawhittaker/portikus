@@ -735,7 +735,7 @@ test("Markdown typed in the box shows formatted and is sent as the same Markdown
 		]);
 	await expect(box).toHaveText("");
 	await expect(view.getByTestId("chat-composer-hint")).toHaveText(
-		"Enter sends, Shift+Enter adds a line, Up brings back your last message.",
+		"Enter sends, Shift+Enter adds a line, Up and Down step through your sent messages.",
 	);
 });
 
