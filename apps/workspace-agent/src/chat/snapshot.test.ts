@@ -5,10 +5,10 @@ import {
 	REPLAY_IMAGE_TURNS,
 	REPLAY_SUBAGENT_ENTRIES,
 	REPLAY_SUBAGENT_IMAGE_ENTRIES,
-	REPLAY_TURNS,
 	replayHistory,
 	replaySubagent,
 } from "./snapshot.js";
+import { REPLAY_TURNS } from "./wire.js";
 
 const SESSION = "0b7e0a8e-3c1e-4c38-9a4e-2f0f6f7d1a11";
 const PNG =

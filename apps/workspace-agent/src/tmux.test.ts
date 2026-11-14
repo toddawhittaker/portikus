@@ -21,6 +21,7 @@ import {
 	hasSession,
 	listPanes,
 	listSessions,
+	respawnChatHost,
 	SHELL_WRAPPER,
 	serverPid,
 	sessionName,
@@ -553,3 +554,50 @@ test("the chat host reads back its agent and the chat it resumes", () => {
 	expect(() => chatHostArgs(["../x"])).toThrow();
 	expect(() => chatHostArgs([id, "--agent=codex", "nope"])).toThrow();
 });
+
+test.skipIf(!haveTmux)(
+	"a chat swap runs the other agent's host in the same session, and the old agent's key leaves it",
+	async () => {
+		const id = "00000000-0000-4000-8000-000000009020";
+		const name = `pk-${id}`;
+		await createSession(id, homeDir, homeDir, "dark", "UTC", SERVER, {
+			command: ["sleep", "60"],
+			institutionalEnv: { ANTHROPIC_API_KEY: "claude-key" },
+		});
+		// The host itself does not run here; keep the pane to read what was started.
+		await run("tmux", [
+			"-L",
+			SOCKET_NAME,
+			"set-option",
+			"-t",
+			name,
+			"remain-on-exit",
+			"on",
+		]);
+		try {
+			await respawnChatHost(id, "codex", { OPENAI_API_KEY: "codex-key" }, SERVER);
+			expect(await hasSession(id, SERVER)).toBe(true);
+			const { stdout: started } = await run("tmux", [
+				"-L",
+				SOCKET_NAME,
+				"display-message",
+				"-p",
+				"-t",
+				name,
+				"#{pane_start_command}",
+			]);
+			expect(started).toContain(id);
+			expect(started).toContain("--agent=codex");
+			const { stdout: env } = await run("tmux", [
+				"-L",
+				SOCKET_NAME,
+				"show-environment",
+				"-t",
+				name,
+			]);
+			expect(env).not.toContain("claude-key");
+		} finally {
+			await closeSession(id, SERVER).catch(() => undefined);
+		}
+	},
+);

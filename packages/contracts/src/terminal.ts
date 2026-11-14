@@ -136,16 +136,18 @@ export type CreateTerminalRequest = z.infer<typeof CreateTerminalRequest>;
 
 /**
  * Request body for `PATCH /workspaces/:id/terminals/:terminalId`
- * (SPEC.md §9.6). It changes the display name, the colour scheme, or both;
- * a request that changes nothing is rejected.
+ * (SPEC.md §9.6). It changes the display name, the colour scheme, or a
+ * chat's coding agent (SPEC.md §10.8); a request that changes nothing is
+ * rejected.
  */
 export const UpdateTerminalRequest = z
 	.object({
 		name: z.string().min(1).max(64).optional(),
 		theme: TerminalTheme.optional(),
+		agent: CodingAgent.optional(),
 	})
 	.strict()
-	.refine((body) => body.name !== undefined || body.theme !== undefined, {
+	.refine((body) => Object.values(body).some((value) => value !== undefined), {
 		message: "At least one field must be given",
 	});
 export type UpdateTerminalRequest = z.infer<typeof UpdateTerminalRequest>;

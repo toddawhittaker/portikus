@@ -15,6 +15,7 @@ import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CopyButton } from "./CopyButton.js";
 import { useChatAgent } from "./chatAgent.js";
 import type {
+	ChatHandoffItem,
 	ChatItem,
 	ChatMessageItem,
 	ChatShellItem,
@@ -30,6 +31,7 @@ import {
 	groupTools,
 	type ToolRun,
 } from "./fold.js";
+import { firstSpeaker, HandoffDivider, spokenBy } from "./HandoffDivider.js";
 import { useChatImages } from "./ImageViewer.js";
 import { askedQuestions, readAnswers, secretQuestions } from "./questionAnswer.js";
 import { SpeakButton } from "./SpeakButton.js";
@@ -46,6 +48,7 @@ import "./turn.css";
 type Entry =
 	| { kind: "user"; item: ChatMessageItem }
 	| { kind: "shell"; item: ChatShellItem }
+	| { kind: "handoff"; item: ChatHandoffItem }
 	| { kind: "turn"; turnId: string; items: ChatItem[] }
 	| { kind: "loose"; key: string; items: ChatItem[] };
 
@@ -63,6 +66,10 @@ function groupByTurn(
 		// The student ran it, so it sits where it happened, under no byline.
 		if (item.kind === "shell") {
 			entries.push({ kind: "shell", item });
+			continue;
+		}
+		if (item.kind === "handoff") {
+			entries.push({ kind: "handoff", item });
 			continue;
 		}
 		if (item.turnId === null) {
@@ -357,6 +364,8 @@ function Step({ item }: { item: ChatItem }) {
 			);
 		case "shell":
 			return <ShellCommand shell={item} />;
+		case "handoff":
+			return <HandoffDivider handoff={item} />;
 		case "error":
 			return (
 				<li className="pk-chat-step">
@@ -728,6 +737,7 @@ export function MessageList({
 	asking,
 	opener = null,
 }: MessageListProps) {
+	let speaker = firstSpeaker(items);
 	return (
 		<ol className="pk-chat-log" aria-label="Conversation">
 			{truncated ? (
@@ -738,15 +748,21 @@ export function MessageList({
 				</li>
 			) : null}
 			{groupByTurn(items, currentTurnId).map((entry) => {
+				if (entry.kind === "handoff") {
+					speaker = entry.item.to;
+					return <HandoffDivider key={entry.item.key} handoff={entry.item} />;
+				}
 				if (entry.kind === "turn") {
-					return (
+					return spokenBy(
+						speaker,
+						entry.turnId,
 						<Turn
 							key={entry.turnId}
 							turn={turns[entry.turnId]}
 							items={entry.items}
 							asking={asking}
 							opener={opener}
-						/>
+						/>,
 					);
 				}
 				if (entry.kind === "user") {
@@ -756,14 +772,16 @@ export function MessageList({
 					return <ShellCommand key={entry.item.key} shell={entry.item} />;
 				}
 				// Claude's words outside a turn still carry its byline.
-				return (
+				return spokenBy(
+					speaker,
+					entry.key,
 					<Turn
 						key={entry.key}
 						turn={undefined}
 						items={entry.items}
 						asking={asking}
 						opener={opener}
-					/>
+					/>,
 				);
 			})}
 		</ol>

@@ -1,12 +1,15 @@
 import type { WebSocket } from "@fastify/websocket";
 import {
 	AgentCreateTerminalRequest,
+	AgentSwitchChatRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
 	TerminalAttachMode,
 	TerminalId,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { askHostToSwitch } from "./chat/switch-request.js";
+import { CHAT_SOCKET_DIR } from "./chat/wire.js";
 import { AgentFailure, sendError } from "./errors.js";
 import { recordBaseline } from "./git-baseline.js";
 import type { PanePipes } from "./pane-pipes.js";
@@ -18,6 +21,7 @@ import {
 	createSession,
 	hasSession,
 	listSessions,
+	respawnChatHost,
 	type TmuxServer,
 } from "./tmux.js";
 
@@ -37,6 +41,8 @@ interface TerminalsRouteOptions {
 	panePipes?: PanePipes;
 	terminalsExitPath?: string;
 	build?: string;
+	/** Where the chat hosts listen; CHAT_SOCKET_DIR unless a test says otherwise. */
+	chatSocketDir?: string;
 }
 
 /** The terminal routes and the attach socket (SPEC.md §9.7). */
@@ -122,6 +128,39 @@ export async function terminalsRoutes(
 				baselineObjectId: created.baselineObjectId,
 				baselineHead: created.baselineHead,
 			});
+		} catch (error) {
+			return sendError(request, reply, error, "TMUX_FAILED");
+		}
+	});
+
+	// Swap a chat tab's agent: the running host writes the handoff, then the
+	// other agent's host takes its place in the same session (SPEC.md §10.8).
+	instance.post("/terminals/:terminalId/chat-agent", async (request, reply) => {
+		const params = IdParam.safeParse(request.params);
+		const body = AgentSwitchChatRequest.safeParse(request.body);
+		if (!params.success || !body.success) {
+			return reply.code(400).send({
+				error: { code: "BAD_REQUEST", message: "invalid chat agent request" },
+			});
+		}
+		const { terminalId } = params.data;
+		try {
+			if (!(await hasSession(terminalId, tmuxServer))) {
+				throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
+			}
+			await askHostToSwitch(
+				options.chatSocketDir ?? CHAT_SOCKET_DIR,
+				terminalId,
+				body.data.agent,
+			);
+			await respawnChatHost(
+				terminalId,
+				body.data.agent,
+				body.data.institutionalEnv,
+				tmuxServer,
+			);
+			request.log.info({ terminalId, agent: body.data.agent }, "chat agent switched");
+			return reply.code(204).send();
 		} catch (error) {
 			return sendError(request, reply, error, "TMUX_FAILED");
 		}

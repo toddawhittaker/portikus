@@ -81,22 +81,51 @@ const AGENT_DESCRIPTION: Record<CodingAgent, string> = {
 	codex: "OpenAI's coding agent.",
 };
 
+/** What swapping agents in a chat with history costs, said before it is chosen (SPEC.md §10.8). */
+function swapWarning(agent: CodingAgent): string {
+	const name = CODING_AGENT_NAME[agent];
+	return `${name} starts fresh with this conversation as context; the cache is lost. If the conversation is too long for ${name}, its oldest turns are left out.`;
+}
+
 /**
  * The agent picker's rows. In an empty chat the other agent takes this
- * chat's place at once. A chat with history keeps its agent: the other is
- * shown but cannot be chosen, and says how to start it. Switching there,
- * with a warning and a handoff of the conversation, belongs here when built.
+ * chat's place at once. In a chat with history it swaps in after a warning,
+ * in the warning colour and icon as Bypass has, and is handed the
+ * conversation. Where the chat cannot swap, the other agent is shown but
+ * cannot be chosen, and says how to start it.
  */
-function agentChoices(current: CodingAgent, canSwitch: boolean): Choice[] {
+function agentChoices(
+	current: CodingAgent,
+	canSwitch: boolean,
+	empty: boolean,
+): Choice[] {
 	return AGENTS.map((agent) => {
-		const locked = agent !== current && !canSwitch;
+		if (agent === current) {
+			return {
+				value: agent,
+				label: CODING_AGENT_NAME[agent],
+				description: AGENT_DESCRIPTION[agent],
+			};
+		}
+		if (!canSwitch) {
+			return {
+				value: agent,
+				label: CODING_AGENT_NAME[agent],
+				description: `To use ${CODING_AGENT_NAME[agent]} now, start a new chat from the New tab menu.`,
+				unavailable: true,
+			};
+		}
 		return {
 			value: agent,
 			label: CODING_AGENT_NAME[agent],
-			description: locked
-				? `To use ${CODING_AGENT_NAME[agent]} now, start a new chat from the New tab menu.`
-				: AGENT_DESCRIPTION[agent],
-			...(locked ? { unavailable: true } : {}),
+			description: empty ? (
+				AGENT_DESCRIPTION[agent]
+			) : (
+				<span className="pk-picker-warning">
+					<Icon name="alert" size="sm" />
+					<span>{swapWarning(agent)}</span>
+				</span>
+			),
 		};
 	});
 }
@@ -262,9 +291,10 @@ interface PickersProps {
 	onMcpOpenChange: (open: boolean) => void;
 	/**
 	 * Put the other agent in this chat's place; absent where the chat has no
-	 * work area to swap it in.
+	 * work area to swap it in. It settles when the swap is asked for, and a
+	 * refusal rejects with what to tell the student.
 	 */
-	onSwitchAgent?: (agent: CodingAgent) => void;
+	onSwitchAgent?: (agent: CodingAgent) => Promise<void>;
 }
 
 /** The short summary on the Options button: agent or model, effort, permissions. */
@@ -301,6 +331,8 @@ export function ComposerPickers({
 	pendingNow.current = pending;
 	const errorAtAsk = useRef<number>(-1);
 	const rulesActive = useStore(store, selectSessionRulesActive);
+	/** The agent asked for, shown until the host reports it runs. */
+	const [agentAsked, setAgentAsked] = useState<CodingAgent | null>(null);
 	const hintId = useId();
 	const panelId = useId();
 	const panel = useRef<HTMLFieldSetElement>(null);
@@ -309,7 +341,8 @@ export function ComposerPickers({
 	// The host's report is the truth; it ends any wait.
 	useEffect(() => {
 		if (settings) setPending({});
-	}, [settings]);
+		if (settings && settings.agent === agentAsked) setAgentAsked(null);
+	}, [settings, agentAsked]);
 
 	// An error while a change waits means the host refused it.
 	useEffect(() => {
@@ -335,13 +368,25 @@ export function ComposerPickers({
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [open, onOpenChange]);
 
+	function chooseAgent(next: CodingAgent) {
+		if (!onSwitchAgent) return;
+		setAgentAsked(next);
+		onAnnounce(`Starting a ${CODING_AGENT_NAME[next]} chat\u2026`);
+		onSwitchAgent(next).catch((error: unknown) => {
+			setAgentAsked(null);
+			const reason = error instanceof Error ? ` ${error.message}` : "";
+			onAnnounce(`The agent did not change.${reason}`);
+		});
+	}
+
 	function ask(change: Change) {
 		errorAtAsk.current = lastError?.seq ?? -1;
 		if (onSet(change)) setPending((waiting) => ({ ...waiting, ...change }));
 	}
 
-	const shown = settings ? { ...settings, ...pending } : null;
-	const agent = settings?.agent ?? "claude";
+	// While another agent starts, the old agent's pickers mean nothing.
+	const shown = settings && agentAsked === null ? { ...settings, ...pending } : null;
+	const agent = agentAsked ?? settings?.agent ?? "claude";
 	const warning = shown ? modeOf(modes, shown.mode)?.warning === true : false;
 	const firstMode = shown ? startMode(agent, models, shown.model) : null;
 	const firstEffort = shown ? startEffort(models, shown.model) : null;
@@ -391,8 +436,12 @@ export function ComposerPickers({
 						label="Agent"
 						testId="composer-agent"
 						value={agent}
-						choices={agentChoices(agent, empty && onSwitchAgent !== undefined)}
-						onChoose={(next) => onSwitchAgent?.(next === "codex" ? "codex" : "claude")}
+						choices={agentChoices(
+							agent,
+							onSwitchAgent !== undefined && agentAsked === null,
+							empty,
+						)}
+						onChoose={(next) => chooseAgent(next === "codex" ? "codex" : "claude")}
 					/>
 					{shown ? (
 						<>

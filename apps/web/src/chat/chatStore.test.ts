@@ -938,12 +938,19 @@ test("the modes and MCP lists the host reports are kept, replaced by the next, a
 	const next = feed([frame("mcp", 4, { servers: [] })], state);
 	expect(next.mcp).toEqual([]);
 	expect(feed([snapshot(5)], next).modes).toHaveLength(3);
-	// The swap's divider changes nothing yet.
+	// The swap's divider is an item of the conversation, outside any turn.
 	const handoff = feed(
-		[frame("handoff", 6, { from: "claude", to: "codex", droppedTurns: 0 })],
+		[frame("handoff", 6, { from: "claude", to: "codex", droppedTurns: 2 })],
 		next,
 	);
-	expect(handoff.items).toEqual(next.items);
+	expect(handoff.items.at(-1)).toEqual({
+		kind: "handoff",
+		key: "handoff:6",
+		from: "claude",
+		to: "codex",
+		droppedTurns: 2,
+		turnId: null,
+	});
 });
 
 test("an empty Codex chat is new whatever it starts at, since Codex starts at the student's own defaults", () => {

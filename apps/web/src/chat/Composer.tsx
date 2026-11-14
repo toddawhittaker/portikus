@@ -146,7 +146,7 @@ export interface ComposerProps {
 	projectId: string;
 	terminalId: string;
 	/** Put the other agent in this chat's place (ComposerPickers.tsx). */
-	onSwitchAgent?: (agent: CodingAgent) => void;
+	onSwitchAgent?: (agent: CodingAgent) => Promise<void>;
 }
 
 /** The permission mode in force when it is one that warns, else null. */

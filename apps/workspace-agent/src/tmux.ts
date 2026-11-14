@@ -508,6 +508,42 @@ async function createTmuxSession(
 }
 
 /**
+ * Run the other coding agent's chat host in a chat tab's session, in place
+ * of the one running, after that one has prepared the handoff (SPEC.md
+ * §10.8). The session, its id and its directory stay; the old agent's key
+ * leaves the session and only the new agent's arrives (§10.6).
+ */
+export async function respawnChatHost(
+	id: string,
+	agent: CodingAgent,
+	institutionalEnv: SessionLaunch["institutionalEnv"],
+	server: TmuxServer,
+): Promise<void> {
+	const name = sessionName(id);
+	const command = chatHostCommand(id, undefined, agent);
+	const cwd = (
+		await tmux(["display-message", "-p", "-t", name, "#{session_path}"], server)
+	).trim();
+	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]) {
+		await tmux(["set-environment", "-t", name, "-u", key], server).catch(
+			() => undefined,
+		);
+	}
+	await tmux(
+		[
+			"respawn-pane",
+			"-k",
+			"-t",
+			name,
+			...(cwd === "" ? [] : ["-c", cwd]),
+			...credentialArgs(institutionalEnv),
+			...command,
+		],
+		server,
+	);
+}
+
+/**
  * Let the attach client running as `clientPid` size the window, and make it
  * the session's latest so its size wins under `window-size latest` (SPEC.md
  * §9.7). tmux only moves `latest` on input or a changed size, so a browser
