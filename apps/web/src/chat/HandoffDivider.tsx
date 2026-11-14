@@ -20,7 +20,7 @@ export function HandoffDivider({ handoff }: { handoff: ChatHandoffItem }) {
 	const dropped = handoff.droppedTurns;
 	return (
 		<li className="pk-chat-entry pk-chat-handoff" data-testid="chat-handoff">
-			<p className="pk-chat-muted">
+			<p className="pk-chat-muted pk-text-caption">
 				Switched from {from} to {to}. {to} started fresh with this conversation as
 				context.
 				{dropped > 0

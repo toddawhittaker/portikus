@@ -34,6 +34,7 @@ import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { useTerminals } from "../terminal/useTerminals.js";
 import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
+import { AgentSwitchReported } from "./ComposerPickers.js";
 import { ChatAgentContext } from "./chatAgent.js";
 import { type ChatState, isEmptyChat } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
@@ -193,8 +194,10 @@ function useAgentSwitch(
 		};
 	}
 	return async (agent) => {
-		// A failed create is also the hook's toast; this chat stays.
-		const created = await terminals.create({ kind: "chat", agent });
+		// A failed create is the hook's toast; this chat stays, and says no more.
+		const created = await terminals
+			.create({ kind: "chat", agent })
+			.catch(() => Promise.reject(new AgentSwitchReported()));
 		layout.getState().replaceLeaf(terminalId, created.id);
 		layout.getState().setFocused(created.id);
 		void terminals.close(terminalId).catch(() => {});
