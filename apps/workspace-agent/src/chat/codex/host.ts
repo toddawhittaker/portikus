@@ -65,6 +65,7 @@ import {
 	turnStartParams,
 } from "./settings.js";
 import { CodexShell } from "./shell.js";
+import { codexSignInUpdate, readCodexSignIn } from "./sign-in.js";
 import { CodexSubagents } from "./subagents.js";
 
 export type { PostedState };
@@ -263,6 +264,13 @@ export class CodexAgent implements ChatAgent {
 		this.broadcastSettings();
 		void this.readSkills(client, false);
 		void this.mcp.read(client);
+		void this.checkSignIn();
+	}
+
+	/** A send never waits on it; an app-server that cannot start gives unknown. */
+	async checkSignIn(): Promise<void> {
+		const client = await this.ready().catch(() => null);
+		this.sink.signIn(client ? await readCodexSignIn(client) : "unknown");
 	}
 
 	/** Resume the tab's thread, or start one when it has none Codex can find. */
@@ -375,6 +383,11 @@ export class CodexAgent implements ChatAgent {
 			case "serverRequest/resolved":
 				this.requests.resolved(params);
 				return;
+			case "account/updated": {
+				const state = codexSignInUpdate(params);
+				if (state) this.sink.signIn(state);
+				return;
+			}
 		}
 		const threadId = (params as { threadId?: unknown } | null)?.threadId;
 		if (typeof threadId !== "string") return;
@@ -433,7 +446,7 @@ export class CodexAgent implements ChatAgent {
 				const error = parsed(ErrorNotification, params);
 				if (!error || error.willRetry) return;
 				this.turnErrorShown = true;
-				this.sink.emit({ type: "error", message: errorText(error.error) });
+				this.turnFailed(error.error);
 			}
 		}
 	}
@@ -490,9 +503,7 @@ export class CodexAgent implements ChatAgent {
 		this.turnRunning = false;
 		this.turnId = null;
 		this.turnStart = null;
-		if (error && !this.turnErrorShown) {
-			this.sink.emit({ type: "error", message: errorText(error) });
-		}
+		if (error && !this.turnErrorShown) this.turnFailed(error);
 		this.sink.emit({ type: "turn.finished", status, at: Date.now() });
 		const plan = this.plan;
 		this.plan = null;
@@ -500,6 +511,12 @@ export class CodexAgent implements ChatAgent {
 		for (const message of this.afterTurn.splice(0)) {
 			void this.send(message, []).catch(() => undefined);
 		}
+	}
+
+	/** Show a turn's error; one that says the student is signed out also shows the warning. */
+	private turnFailed(error: TurnError | null | undefined): void {
+		if (error?.codexErrorInfo === "unauthorized") this.sink.signIn("signedOut");
+		this.sink.emit({ type: "error", message: errorText(error) });
 	}
 
 	/** The item mapper of the thread a request is about. */

@@ -49,6 +49,7 @@ import {
 } from "./readAloud.js";
 import { useToolReveal } from "./revealTool.js";
 import { SessionRules } from "./SessionRules.js";
+import { SignInBanner } from "./SignInBanner.js";
 import { SubagentPanel } from "./SubagentPanel.js";
 import {
 	SubagentOpenerContext,
@@ -205,6 +206,27 @@ function useAgentSwitch(
 	};
 }
 
+/**
+ * Open the agent's own terminal in a new tab with the keyboard in it, where
+ * the student signs in (SPEC.md §10.2). Null outside a work area.
+ */
+function useAgentTerminal(
+	workspaceId: string,
+	projectId: string,
+): ((agent: CodingAgent) => Promise<void>) | null {
+	const layout = useContext(LayoutStoreContext);
+	const terminals = useTerminals(workspaceId, projectId, false);
+	if (layout === null) return null;
+	return async (agent) => {
+		// A failed create is the hook's toast.
+		const created = await terminals.create({ agent }).catch(() => null);
+		if (!created) return;
+		layout.getState().addTab(created.id);
+		layout.getState().setFocused(created.id);
+		terminals.refetch();
+	};
+}
+
 function ChatViewBody({
 	workspaceId,
 	projectId,
@@ -223,6 +245,7 @@ function ChatViewBody({
 		terminalId,
 		isEmptyChat(state),
 	);
+	const openAgentTerminal = useAgentTerminal(workspaceId, projectId);
 	const program = CODING_AGENT_NAME[agentOf(state)];
 	useReadNewReplies(store, readAloud.on, visible);
 	useStopWhenLeaving(store, visible);
@@ -518,6 +541,20 @@ function ChatViewBody({
 				) : null}
 				<SessionRules store={store} />
 				<div className="pk-chat-composer">
+					{state.signIn === "signedOut" && state.settings ? (
+						<SignInBanner
+							store={store}
+							agent={state.settings.agent}
+							onOpenTerminal={
+								openAgentTerminal
+									? () => {
+											const agent = state.settings?.agent;
+											if (agent) void openAgentTerminal(agent);
+										}
+									: undefined
+							}
+						/>
+					) : null}
 					<Composer
 						store={store}
 						readAloud={readAloud}

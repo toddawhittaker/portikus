@@ -10,6 +10,7 @@ import type {
 	ChatOpenCard,
 	ChatServerEvent,
 	ChatSessionRule,
+	ChatSignIn,
 } from "@portikus/contracts";
 import type { Handoff } from "./handoff.js";
 
@@ -102,6 +103,11 @@ export interface ChatAgent {
 	 * hand to the other agent at a swap.
 	 */
 	transcript(): Promise<ChatEventBody[]>;
+	/**
+	 * Ask the agent whether the student is signed in, and tell the sink.
+	 * Never throws: an agent that cannot say reports `unknown`.
+	 */
+	checkSignIn(): Promise<void>;
 }
 
 export interface ChatSink {
@@ -114,6 +120,8 @@ export interface ChatSink {
 	/** Each MCP server's name and status, for the read-only MCP list. */
 	mcp(list: ChatMcpServer[]): void;
 	context(figures: ContextFigures): void;
+	/** Whether the student is signed in to the agent; sent even when unchanged, as a check's answer. */
+	signIn(state: ChatSignIn): void;
 	rules(list: ChatSessionRule[]): void;
 	/**
 	 * Show a card until the first answer. An abort closes it unanswered,

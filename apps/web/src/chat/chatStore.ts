@@ -19,6 +19,7 @@ import {
 	type ChatPermissionMode,
 	ChatServerEvent,
 	type ChatSessionRule,
+	type ChatSignIn,
 	type ChatToolOutputPart,
 	type CodingAgent,
 	chatStartMode,
@@ -158,6 +159,10 @@ export interface ChatState {
 	mcp: ChatMcpServer[];
 	/** Rules granted with Always allow that last for this session, as the host reports them. */
 	sessionRules: ChatSessionRule[];
+	/** Whether the student is signed in to the agent, as the host last said; `unknown` warns of nothing. */
+	signIn: ChatSignIn;
+	/** A Check again was sent and the host has not answered yet. */
+	signInChecking: boolean;
 	/** The slash commands on offer, as the host last listed them; empty until it does. */
 	commands: ChatCommand[];
 	/** How full the context is and when the prompt cache goes cold; null until the host says. */
@@ -208,6 +213,8 @@ export const initialChatState: ChatState = {
 	modes: [],
 	mcp: [],
 	sessionRules: [],
+	signIn: "unknown",
+	signInChecking: false,
 	commands: [],
 	context: null,
 	invalidFrames: 0,
@@ -282,6 +289,9 @@ function applySnapshot(
 		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
+		// Or a new agent after a swap; its host says where it stands after the snapshot.
+		signIn: "unknown",
+		signInChecking: false,
 		turns: turnId
 			? {
 					[turnId]: {
@@ -382,6 +392,8 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return { ...state, mcp: event.servers };
 		case "rules":
 			return { ...state, sessionRules: event.rules };
+		case "signIn":
+			return { ...state, signIn: event.state, signInChecking: false };
 		case "shell": {
 			const { type: _type, sessionId: _session, seq: _seq, ...fields } = event;
 			const key = `shell:${event.id}`;
@@ -751,6 +763,8 @@ interface ChatActions {
 	/** Ask for a subagent's conversation as `subagentFrame`s; a new watch replaces the last. */
 	watchSubagent: (toolUseId: string) => boolean;
 	unwatchSubagent: (toolUseId: string) => boolean;
+	/** Ask the host to check the student's sign-in again; a `signIn` event answers. */
+	checkSignIn: () => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -778,6 +792,11 @@ export function createChatStore(
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		watchSubagent: (toolUseId) => deliver({ type: "subagent.watch", toolUseId }),
 		unwatchSubagent: (toolUseId) => deliver({ type: "subagent.unwatch", toolUseId }),
+		checkSignIn: () => {
+			const sent = deliver({ type: "signIn.check" });
+			if (sent) set({ signInChecking: true });
+			return sent;
+		},
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

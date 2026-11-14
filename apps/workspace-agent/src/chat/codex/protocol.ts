@@ -263,3 +263,13 @@ export const McpStatusList = z.object({
 	),
 	nextCursor: MaybeText,
 });
+
+/** `account/read`: only whether an account is signed in, never its email (ADR 0012). */
+export const AccountRead = z.object({
+	account: z.object({ type: z.string() }).nullable(),
+	requiresOpenaiAuth: z.boolean(),
+});
+export type AccountRead = z.infer<typeof AccountRead>;
+
+/** `account/updated`: a null auth mode means signed out. */
+export const AccountUpdated = z.object({ authMode: z.string().nullable() });

@@ -324,6 +324,61 @@ describe("modes and MCP servers", () => {
 	});
 });
 
+describe("sign-in", () => {
+	test("each answer is broadcast, even unchanged, and the latest goes to a later browser", async () => {
+		const a = await attached();
+		agent.sink.signIn("signedOut");
+		agent.sink.signIn("signedOut");
+		await vi.waitFor(() =>
+			expect(a.events.filter((e) => e.type === "signIn")).toHaveLength(2),
+		);
+		agent.sink.signIn("signedIn");
+		const late = await attached();
+		expect(late.events.filter((e) => e.type === "signIn")).toMatchObject([
+			{ state: "signedIn" },
+		]);
+	});
+
+	test("a browser attaching before the agent has answered is sent none", async () => {
+		const client = await attached();
+		expect(types(client)).not.toContain("signIn");
+	});
+
+	test("an answer that arrived during the read is not sent twice", async () => {
+		let release!: () => void;
+		agent.gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const client = await attach();
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["history", false]));
+		agent.sink.signIn("signedOut");
+		release();
+		await vi.waitFor(() => expect(types(client)).toContain("rules"));
+		expect(types(client).filter((type) => type === "signIn")).toHaveLength(1);
+	});
+
+	test("Check again goes to the driver", async () => {
+		const client = await attached();
+		client.send({ type: "signIn.check" });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["checkSignIn"]));
+	});
+
+	test("a conversation reset sends it again after the snapshot", async () => {
+		const client = await attached();
+		agent.sink.signIn("signedOut");
+		await vi.waitFor(() => expect(types(client)).toContain("signIn"));
+		const before = client.events.length;
+		agent.sink.conversationReset(null);
+		await vi.waitFor(() => expect(client.events.length).toBe(before + 4));
+		expect(types(client).slice(before)).toEqual([
+			"snapshot",
+			"settings",
+			"rules",
+			"signIn",
+		]);
+	});
+});
+
 describe("browser messages", () => {
 	test("each goes to the driver", async () => {
 		const client = await attached();

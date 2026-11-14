@@ -83,6 +83,9 @@ export class FakeAgent implements ChatAgent {
 		if (this.transcriptGate) await this.transcriptGate;
 		return this.transcriptEvents;
 	}
+	async checkSignIn(): Promise<void> {
+		this.calls.push(["checkSignIn"]);
+	}
 }
 
 export interface Client {
