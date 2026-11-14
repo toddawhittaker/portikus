@@ -1,5 +1,36 @@
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
-import { ChatModel, type ChatModelInfo, MAX_CHAT_MODELS } from "@portikus/contracts";
+import {
+	CHAT_START_SETTINGS,
+	ChatEffort,
+	ChatModel,
+	type ChatModelInfo,
+	MAX_CHAT_EFFORTS,
+	MAX_CHAT_MODELS,
+} from "@portikus/contracts";
+
+/** The efforts Claude supports today, for a model whose row names none. */
+const CLAUDE_EFFORTS: readonly ChatEffort[] = ["low", "medium", "high", "xhigh", "max"];
+
+/**
+ * The efforts one model row offers: the SDK's own list when it gives one,
+ * else the five Claude supports. The default is the chat's start effort
+ * when the model offers it, since the SDK names no per-model default.
+ */
+function effortsOf(row: ModelInfo): Pick<ChatModelInfo, "efforts" | "defaultEffort"> {
+	const reported = (row.supportedEffortLevels ?? []).filter(
+		(effort) => ChatEffort.safeParse(effort).success,
+	);
+	const efforts = (reported.length > 0 ? reported : [...CLAUDE_EFFORTS]).slice(
+		0,
+		MAX_CHAT_EFFORTS,
+	);
+	return {
+		efforts,
+		...(efforts.includes(CHAT_START_SETTINGS.effort)
+			? { defaultEffort: CHAT_START_SETTINGS.effort }
+			: {}),
+	};
+}
 
 /**
  * The rows of `supportedModels()` as the chat sends them: a row whose value
@@ -17,6 +48,7 @@ export function chatModels(rows: readonly ModelInfo[]): ChatModelInfo[] {
 			displayName: row.displayName.slice(0, 100),
 			description: row.description.slice(0, 300),
 			supportsAutoMode: row.supportsAutoMode === true,
+			...effortsOf(row),
 		});
 	}
 	return models.slice(0, MAX_CHAT_MODELS);

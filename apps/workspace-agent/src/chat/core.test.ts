@@ -23,6 +23,13 @@ import { ChatCore } from "./core.js";
 import { readLines } from "./wire.js";
 
 const ID = "00000000-0000-4000-8000-000000000001";
+const MODE = {
+	id: "default",
+	label: "Ask",
+	description: "Asks first.",
+	warning: false,
+	plan: false,
+};
 const FIGURES: ContextFigures = { usedTokens: 10, windowTokens: 100, cache: null };
 
 /** A driver the tests steer by hand; it records what the core asked of it. */
@@ -144,8 +151,8 @@ function permissionCard(id: string): ChatOpenCard {
 }
 
 describe("the core stays agent-neutral", () => {
-	test("core.ts, agent.ts and open-cards.ts import nothing from the Claude SDK or adapter", async () => {
-		for (const file of ["core.ts", "agent.ts", "open-cards.ts"]) {
+	test("core.ts, agent.ts, open-cards.ts and decisions.ts import nothing from the Claude SDK or adapter", async () => {
+		for (const file of ["core.ts", "agent.ts", "open-cards.ts", "decisions.ts"]) {
 			const source = await readFile(new URL(`./${file}`, import.meta.url), "utf8");
 			const imports = [...source.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
 			expect(imports.length).toBeGreaterThan(0);
@@ -201,6 +208,8 @@ describe("attach order", () => {
 		agent.sink.commands([
 			{ name: "help", description: "", argumentHint: "", terminalOnly: false },
 		]);
+		agent.sink.modes([MODE]);
+		agent.sink.mcp([{ name: "docs", status: "connected" }]);
 		agent.sink.rules([{ rule: "Bash(ls)", label: "ls" }] as never);
 		agent.sink.emit({ type: "turn.started", at: 1 });
 		agent.sink.emit({ type: "text.delta", messageId: "m1", text: "Hel" });
@@ -229,9 +238,11 @@ describe("attach order", () => {
 			"shell",
 			"text.delta",
 			"models",
+			"modes",
 			"settings",
 			"rules",
 			"commands",
+			"mcp",
 			"context",
 		]);
 		const [snapshot, , partial, running, held] = client.events;
@@ -260,6 +271,27 @@ describe("attach order", () => {
 		expect(types(client).filter((type) => type === "context")).toHaveLength(1);
 	});
 
+	test("modes or MCP servers that arrived during the read are not sent twice", async () => {
+		let release!: () => void;
+		agent.gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const client = await attach();
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["history", false]));
+		agent.sink.modes([MODE]);
+		agent.sink.mcp([{ name: "docs", status: "starting" }]);
+		release();
+		await vi.waitFor(() => expect(types(client)).toContain("rules"));
+		expect(types(client).filter((type) => type === "modes")).toHaveLength(1);
+		expect(types(client).filter((type) => type === "mcp")).toHaveLength(1);
+	});
+
+	test("a browser attaching before any modes or MCP list exists is sent neither", async () => {
+		const client = await attached();
+		expect(types(client)).not.toContain("modes");
+		expect(types(client)).not.toContain("mcp");
+	});
+
 	test("a finished turn forgets its streamed reply", async () => {
 		agent.sink.emit({ type: "turn.started", at: 1 });
 		agent.sink.emit({ type: "text.delta", messageId: "m1", text: "Hi" });
@@ -280,6 +312,39 @@ describe("attach order", () => {
 			expect(client.events.at(-1)).toMatchObject({ message: "small" }),
 		);
 		expect(client.events.filter((event) => event.type === "error")).toHaveLength(1);
+	});
+});
+
+describe("modes and MCP servers", () => {
+	test("each change is broadcast to every browser, and the latest is kept for a later one", async () => {
+		const a = await attached();
+		agent.sink.modes([MODE]);
+		agent.sink.mcp([{ name: "docs", status: "failed" }]);
+		agent.sink.mcp([{ name: "docs", status: "connected" }]);
+		await vi.waitFor(() =>
+			expect(a.events.filter((e) => e.type === "mcp")).toHaveLength(2),
+		);
+		expect(a.events.find((e) => e.type === "modes")).toMatchObject({ modes: [MODE] });
+		const late = await attach();
+		await vi.waitFor(() => expect(types(late)).toContain("mcp"));
+		expect(late.events.find((e) => e.type === "mcp")).toMatchObject({
+			servers: [{ name: "docs", status: "connected" }],
+		});
+		expect(late.events.find((e) => e.type === "modes")).toMatchObject({
+			modes: [MODE],
+		});
+	});
+
+	test("an unchanged list is not broadcast again", async () => {
+		const a = await attached();
+		agent.sink.modes([MODE]);
+		agent.sink.modes([{ ...MODE }]);
+		agent.sink.mcp([]);
+		agent.sink.mcp([]);
+		agent.sink.emit({ type: "error", message: "marker" });
+		await vi.waitFor(() => expect(types(a)).toContain("error"));
+		expect(types(a).filter((t) => t === "modes")).toHaveLength(1);
+		expect(types(a).filter((t) => t === "mcp")).toHaveLength(1);
 	});
 });
 

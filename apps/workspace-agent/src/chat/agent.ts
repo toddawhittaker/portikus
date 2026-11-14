@@ -4,6 +4,8 @@ import type {
 	ChatCardDecision,
 	ChatClientMessage,
 	ChatCommand,
+	ChatMcpServer,
+	ChatModeInfo,
 	ChatModelInfo,
 	ChatOpenCard,
 	ChatServerEvent,
@@ -93,6 +95,10 @@ export interface ChatSink {
 	models(list: ChatModelInfo[]): void;
 	settings(settings: ChatSettings): void;
 	commands(list: ChatCommand[]): void;
+	/** The permission modes the picker offers; sent on attach before the settings. */
+	modes(list: ChatModeInfo[]): void;
+	/** Each MCP server's name and status, for the read-only MCP list. */
+	mcp(list: ChatMcpServer[]): void;
 	context(figures: ContextFigures): void;
 	rules(list: ChatSessionRule[]): void;
 	/**
