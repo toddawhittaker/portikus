@@ -24,6 +24,31 @@ test("rows the contract would refuse are left out and the rest are trimmed", () 
 	expect(models[1]?.supportsAutoMode).toBe(false);
 });
 
+test("a model lists the efforts the SDK reports, with the start effort as its default", () => {
+	const [model] = chatModels([
+		row("opus", { supportedEffortLevels: ["low", "medium", "high"] }),
+	]);
+	expect(model?.efforts).toEqual(["low", "medium", "high"]);
+	expect(model?.defaultEffort).toBe("medium");
+});
+
+test("a model whose row names no efforts gets the five Claude supports today", () => {
+	const [plain, empty] = chatModels([
+		row("opus"),
+		row("sonnet", { supportedEffortLevels: [] }),
+	]);
+	for (const model of [plain, empty]) {
+		expect(model?.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+		expect(model?.defaultEffort).toBe("medium");
+	}
+});
+
+test("no default is claimed when the model does not offer the start effort", () => {
+	const [model] = chatModels([row("opus", { supportedEffortLevels: ["high", "max"] })]);
+	expect(model?.efforts).toEqual(["high", "max"]);
+	expect(model).not.toHaveProperty("defaultEffort");
+});
+
 test("a list is told once, and a failed read keeps the last list", async () => {
 	const told = vi.fn();
 	const list = new ModelList(told);

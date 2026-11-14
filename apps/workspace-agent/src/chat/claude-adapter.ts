@@ -7,14 +7,17 @@ import type {
 	SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+	type ChatCardDecision,
 	ChatCommand,
 	ChatImageMediaType,
+	type ChatModeInfo,
 	type ChatOpenCard,
 	ChatQuestion,
 	type ChatToolOutputPart,
 	decodedBase64Bytes,
 	MAX_CHAT_COMMANDS,
 	MAX_CHAT_IMAGE_BYTES,
+	MAX_CHAT_PLAN_CHARS,
 	MAX_CHAT_QUESTIONS,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 } from "@portikus/contracts";
@@ -270,7 +273,6 @@ const MENU_COMMANDS = new Set([
 	"ide",
 	"login",
 	"logout",
-	"mcp",
 	"memory",
 	"model",
 	"permissions",
@@ -298,6 +300,7 @@ export function chatCommands(
 			description: (command.description ?? "").slice(0, 200),
 			...(argumentHint === "" ? {} : { argumentHint }),
 			terminalOnly: MENU_COMMANDS.has(name) || terminalOnly.has(name),
+			prefix: "/",
 		});
 		if (item.success && !listed.some((known) => known.name === name)) {
 			listed.push(item.data);
@@ -355,6 +358,22 @@ export const PERMISSION_OPTION = {
 	planAskEdits: "allow-ask-edits",
 } as const;
 
+/**
+ * The fixed word for a permission option. Approving a plan counts as
+ * "allowed" and keeping planning as "denied"; the card's tool tells a reader
+ * which kind of card it was.
+ */
+export function decisionForOption(optionId: string): ChatCardDecision {
+	if (optionId === PERMISSION_OPTION.allowAlways) return "allowedAlways";
+	if (optionId === PERMISSION_OPTION.deny) return "denied";
+	return "allowed";
+}
+
+/** A permission card's button, saying which decision it is (SPEC.md §10.8). */
+function button(id: string, label: string) {
+	return { id, label, decision: decisionForOption(id) };
+}
+
 /** The mode each plan approval option continues in. */
 const PLAN_OPTION_MODE: Record<string, "acceptEdits" | "default"> = {
 	[PERMISSION_OPTION.planAcceptEdits]: "acceptEdits",
@@ -396,23 +415,23 @@ export function cardForTool(
 			toolName,
 			title: "Claude has a plan. Start working on it?",
 			input: shortenedInput(input),
+			...(typeof input.plan === "string"
+				? { plan: input.plan.slice(0, MAX_CHAT_PLAN_CHARS) }
+				: {}),
 			options: [
-				{ id: PERMISSION_OPTION.planAcceptEdits, label: "Yes, and accept edits" },
-				{ id: PERMISSION_OPTION.planAskEdits, label: "Yes, and ask before edits" },
-				{ id: PERMISSION_OPTION.deny, label: "No, keep planning" },
+				button(PERMISSION_OPTION.planAcceptEdits, "Yes, and accept edits"),
+				button(PERMISSION_OPTION.planAskEdits, "Yes, and ask before edits"),
+				button(PERMISSION_OPTION.deny, "No, keep planning"),
 			],
 		};
 	}
-	const options: { id: string; label: string }[] = [
-		{ id: PERMISSION_OPTION.allowOnce, label: "Allow once" },
-	];
+	const options = [button(PERMISSION_OPTION.allowOnce, "Allow once")];
 	if (ask.suggestions && ask.suggestions.length > 0 && !ask.suppressAlwaysAllowRule) {
-		options.push({
-			id: PERMISSION_OPTION.allowAlways,
-			label: alwaysAllowLabel(ask.suggestions),
-		});
+		options.push(
+			button(PERMISSION_OPTION.allowAlways, alwaysAllowLabel(ask.suggestions)),
+		);
 	}
-	options.push({ id: PERMISSION_OPTION.deny, label: "Deny" });
+	options.push(button(PERMISSION_OPTION.deny, "Deny"));
 	return {
 		type: "permission",
 		id: ask.toolUseID,
@@ -506,3 +525,46 @@ export function questionResult(
 		},
 	};
 }
+
+/**
+ * The five permission modes Claude offers, in the picker's order, with the
+ * wording the student reads (SPEC.md §10.8). Bypass warns; Plan plans.
+ */
+export const CLAUDE_MODES: readonly ChatModeInfo[] = [
+	{
+		id: "default",
+		label: "Ask",
+		description: "Asks before it edits files or runs commands.",
+		warning: false,
+		plan: false,
+	},
+	{
+		id: "acceptEdits",
+		label: "Accept edits",
+		description: "Edits files on its own. Asks before commands.",
+		warning: false,
+		plan: false,
+	},
+	{
+		id: "plan",
+		label: "Plan",
+		description: "Reads and plans. Changes nothing.",
+		warning: false,
+		plan: true,
+	},
+	{
+		id: "auto",
+		label: "Auto",
+		description: "Runs what it judges safe. Asks about the rest.",
+		warning: false,
+		plan: false,
+	},
+	{
+		id: "bypassPermissions",
+		label: "Bypass permissions",
+		description:
+			"Bypass permissions lets Claude run every tool without asking you first.",
+		warning: true,
+		plan: false,
+	},
+];

@@ -228,23 +228,49 @@ async function createRefs(
 	db: Kysely<Database>,
 	workspaceId: string,
 	body: CreateTerminalRequest,
-	rows: Array<{ id: string; kind: string; ended_at: unknown }>,
+	rows: Array<{ id: string; kind: string; agent: string | null; ended_at: unknown }>,
 ): Promise<
 	| { ok: true; project: TerminalProject | null }
-	| { ok: false; code: "PROJECT_NOT_FOUND" | "TERMINAL_NOT_FOUND"; message: string }
+	| {
+			ok: false;
+			status: 400 | 404;
+			code: "PROJECT_NOT_FOUND" | "TERMINAL_NOT_FOUND" | "VALIDATION_FAILED";
+			message: string;
+	  }
 > {
 	const project = body.projectId
 		? await terminalProject(db, workspaceId, body.projectId)
 		: null;
 	if (project === undefined) {
-		return { ok: false, code: "PROJECT_NOT_FOUND", message: "Project not found" };
+		return {
+			ok: false,
+			status: 404,
+			code: "PROJECT_NOT_FOUND",
+			message: "Project not found",
+		};
 	}
-	const resumable = rows.some(
-		(row) =>
-			row.id === body.resumeChatOf && row.kind === "chat" && row.ended_at !== null,
-	);
-	if (body.resumeChatOf !== undefined && !resumable) {
-		return { ok: false, code: "TERMINAL_NOT_FOUND", message: "Terminal not found" };
+	if (body.resumeChatOf !== undefined) {
+		const old = rows.find(
+			(row) =>
+				row.id === body.resumeChatOf && row.kind === "chat" && row.ended_at !== null,
+		);
+		if (!old) {
+			return {
+				ok: false,
+				status: 404,
+				code: "TERMINAL_NOT_FOUND",
+				message: "Terminal not found",
+			};
+		}
+		// Each agent keeps its own session, so one cannot continue the other's.
+		if (old.agent !== body.agent) {
+			return {
+				ok: false,
+				status: 400,
+				code: "VALIDATION_FAILED",
+				message: "A chat can only continue a chat of the same agent.",
+			};
+		}
 	}
 	return { ok: true, project };
 }
@@ -459,7 +485,7 @@ export function registerTerminalRoutes(
 		}
 
 		const refs = await createRefs(db, params.id, body, rows);
-		if (!refs.ok) return sendError(reply, 404, refs.code, refs.message);
+		if (!refs.ok) return sendError(reply, refs.status, refs.code, refs.message);
 		const { project } = refs;
 
 		const id = crypto.randomUUID();

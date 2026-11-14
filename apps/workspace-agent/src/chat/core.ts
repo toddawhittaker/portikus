@@ -4,6 +4,8 @@ import {
 	ChatClientMessage,
 	type ChatClientMessage as ChatClientMessageType,
 	type ChatCommand,
+	type ChatMcpServer,
+	type ChatModeInfo,
 	type ChatModelInfo,
 	type ChatOpenCard,
 	type ChatServerEvent,
@@ -58,6 +60,8 @@ export class ChatCore {
 	private models: ChatModelInfo[] | null = null;
 	private settings: ChatSettings | null = null;
 	private commands: ChatCommand[] | null = null;
+	private modes: ChatModeInfo[] | null = null;
+	private mcp: ChatMcpServer[] | null = null;
 	private rules: ChatSessionRule[] = [];
 
 	private readonly sink: ChatSink = {
@@ -73,6 +77,16 @@ export class ChatCore {
 		commands: (commands) => {
 			this.commands = commands;
 			this.broadcast({ type: "commands", commands });
+		},
+		modes: (modes) => {
+			if (JSON.stringify(modes) === JSON.stringify(this.modes)) return;
+			this.modes = modes;
+			this.broadcast({ type: "modes", modes });
+		},
+		mcp: (servers) => {
+			if (JSON.stringify(servers) === JSON.stringify(this.mcp)) return;
+			this.mcp = servers;
+			this.broadcast({ type: "mcp", servers });
 		},
 		context: (figures) => this.broadcast(this.contextEvent(figures)),
 		rules: (rules) => {
@@ -201,10 +215,18 @@ export class ChatCore {
 		if (models && !held.some((event) => event.type === "models")) {
 			writeLine(socket, this.frame({ type: "models", models }));
 		}
+		const modes = this.modes;
+		if (modes && !held.some((event) => event.type === "modes")) {
+			writeLine(socket, this.frame({ type: "modes", modes }));
+		}
 		if (this.settings) writeLine(socket, this.frame(this.settingsEvent(this.settings)));
 		writeLine(socket, this.frame({ type: "rules", rules: this.rules }));
 		const commands = this.commands;
 		if (commands) writeLine(socket, this.frame({ type: "commands", commands }));
+		const servers = this.mcp;
+		if (servers && !held.some((event) => event.type === "mcp")) {
+			writeLine(socket, this.frame({ type: "mcp", servers }));
+		}
 		// A figure that arrived during the read was already sent, held.
 		const context = history.context;
 		if (context && !held.some((event) => event.type === "context")) {

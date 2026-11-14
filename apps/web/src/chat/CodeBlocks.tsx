@@ -117,16 +117,27 @@ const DIFF_LIMIT = 30;
  * file's language, and the language is named above the lines. The scrolling
  * box is named by that label and its own word ("TypeScript diff").
  */
-export function DiffBlock({ changes, path }: { changes: EditChange[]; path?: string }) {
+export function DiffBlock({
+	changes = [],
+	lines: given,
+	path,
+}: {
+	changes?: EditChange[];
+	/** Lines already diffed, as a unified diff gives them; `changes` is then unused. */
+	lines?: DiffLine[];
+	path?: string;
+}) {
 	const [open, setOpen] = useState(false);
 	const language = path ? languageForPath(path) : null;
 	const labelId = useId();
 	const preId = useId();
 	const highlight = useHighlighter(language !== null);
-	const lines = changes.flatMap((change, at) => {
-		const diff = diffLines(change.before, change.after);
-		return at === 0 ? diff : [{ kind: "same" as const, text: "…" }, ...diff];
-	});
+	const lines =
+		given ??
+		changes.flatMap((change, at) => {
+			const diff = diffLines(change.before, change.after);
+			return at === 0 ? diff : [{ kind: "same" as const, text: "…" }, ...diff];
+		});
 	const hidden = Math.max(0, lines.length - DIFF_LIMIT);
 	const shown = open ? lines : lines.slice(0, DIFF_LIMIT);
 	return (

@@ -1,19 +1,8 @@
 import type { ChatCardDecision } from "@portikus/contracts";
-import { type ChatEventBody, PERMISSION_OPTION } from "./claude-adapter.js";
+import type { ChatEventBody } from "./agent.js";
 
 /** How many answered permission cards the chat host remembers. */
 export const MAX_REMEMBERED_DECISIONS = 500;
-
-/**
- * The fixed word for a permission option. Approving a plan counts as
- * "allowed" and keeping planning as "denied"; the card's tool tells a reader
- * which kind of card it was.
- */
-export function decisionForOption(optionId: string): ChatCardDecision {
-	if (optionId === PERMISSION_OPTION.allowAlways) return "allowedAlways";
-	if (optionId === PERMISSION_OPTION.deny) return "denied";
-	return "allowed";
-}
 
 /**
  * The answers the student gave to permission cards, by tool call id, for the

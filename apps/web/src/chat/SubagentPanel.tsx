@@ -2,9 +2,10 @@
  * A subagent's own conversation, read-only, in a panel over its chat's log
  * (SPEC.md §8.3, §10.8). It watches the subagent through the chat's socket
  * and keeps a store of its own, so the chat's conversation is untouched. A
- * subagent the subagent started opens in the same panel, with Back. Claude
- * Code cannot send a subagent a message, so the panel says to ask Claude in
- * the chat instead. The keyboard moves into the panel as it opens and Escape
+ * subagent the subagent started opens in the same panel, with Back. A
+ * subagent cannot be sent a message from here, so the panel says to ask the
+ * agent in the chat instead. A Codex subagent is keyed by its child thread
+ * id, where a Claude one is keyed by its Agent tool call. The keyboard moves into the panel as it opens and Escape
  * closes it (SPEC.md §25.8).
  */
 import { Button, IconButton, Skeleton } from "@portikus/ui";
@@ -17,6 +18,7 @@ import {
 	useState,
 } from "react";
 import { useStore } from "zustand";
+import { useChatAgent } from "./chatAgent.js";
 import {
 	type ChatState,
 	type ChatStore,
@@ -131,6 +133,7 @@ export function SubagentPanel({
 	opener: FileOpener | null;
 	onClose: () => void;
 }) {
+	const { agent, name, program } = useChatAgent();
 	const [stack, setStack] = useState<SubagentTarget[]>([target]);
 	const heading = useRef<HTMLHeadingElement | null>(null);
 	const headingId = useId();
@@ -199,8 +202,9 @@ export function SubagentPanel({
 					/>
 				</div>
 				<p className="pk-subagent-note" data-testid="subagent-note">
-					Read only. Claude Code cannot send a subagent a message; to pass one on, ask
-					Claude in the chat below.
+					{agent === "claude"
+						? `Read only. ${program} cannot send a subagent a message; to pass one on, ask ${name} in the chat below.`
+						: `Read only. You cannot send a subagent a message here; to pass one on, ask ${name} in the chat below.`}
 				</p>
 				<SubagentConversation
 					key={current.toolUseId}

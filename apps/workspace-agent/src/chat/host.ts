@@ -31,9 +31,11 @@ import type {
 } from "./agent.js";
 import { userContent } from "./attachments.js";
 import {
+	CLAUDE_MODES,
 	type ClaudeLimitWindows,
 	ClaudeMessageMapper,
 	cardForTool,
+	decisionForOption,
 	PERMISSION_OPTION,
 	permissionResult,
 	questionResult,
@@ -46,8 +48,8 @@ import {
 	windowFromModelUsage,
 } from "./context-usage.js";
 import { ChatCore } from "./core.js";
-import { decisionForOption } from "./decisions.js";
 import { InputQueue } from "./input-queue.js";
+import { ELICITATION_NOTICE, refreshMcp } from "./mcp-status.js";
 import { ModelList } from "./model-list.js";
 import { splitSuggestions } from "./permission-rules.js";
 import { PlanUsage } from "./plan-usage.js";
@@ -69,6 +71,9 @@ import { ChatTitle } from "./titles.js";
 
 /** The longest the host waits to read the model list before it opens its socket. */
 const MODELS_WAIT_MS = 3000;
+
+/** The chat command that reads the MCP servers instead of reaching Claude. */
+const MCP_COMMAND = /^\/mcp\s*$/;
 
 /** The shared, unmodified Claude Code binary (SPEC.md §10.1). */
 const CLAUDE_PATH = "/opt/portikus/coding-agents/bin/claude";
@@ -170,6 +175,7 @@ class ClaudeAgent implements ChatAgent {
 
 	async start(sink: ChatSink): Promise<void> {
 		this.sink = sink;
+		sink.modes([...CLAUDE_MODES]);
 		this.broadcastSettings();
 		await this.ensureSession();
 		// The socket opens once the model list is read (or has taken too long), so a
@@ -220,6 +226,11 @@ class ClaudeAgent implements ChatAgent {
 				...(this.settings.model === "default" ? {} : { model: this.settings.model }),
 				canUseTool: (toolName, toolInput, ask) =>
 					this.ask(toolName, toolInput, ask, ended.signal),
+				// The chat has no form for an MCP server's request for input.
+				onElicitation: async () => {
+					this.sink.emit({ type: "error", message: ELICITATION_NOTICE });
+					return { action: "decline" };
+				},
 				// Claude Code's own messages may quote the student's work.
 				stderr: () => undefined,
 			},
@@ -232,6 +243,7 @@ class ClaudeAgent implements ChatAgent {
 		this.rules.reset();
 		void this.pump(session);
 		void this.refreshCommands(session);
+		void this.refreshMcpServers(session);
 		void this.refreshPlanUsage(session);
 		void this.refreshWindow(session, undefined);
 		void this.refreshModels(session);
@@ -351,6 +363,15 @@ class ClaudeAgent implements ChatAgent {
 		if (next) this.sink.context(next);
 	}
 
+	/** Read the MCP servers' status; a failed read keeps the last list. */
+	private refreshMcpServers(session: Query): Promise<boolean> {
+		return refreshMcp(
+			() => session.mcpServerStatus(),
+			() => this.session === session,
+			(servers) => this.sink.mcp(servers),
+		);
+	}
+
 	private refreshPlanUsage(session: Query): Promise<void> {
 		return this.planUsage.refresh(session, () => this.session === session);
 	}
@@ -433,6 +454,7 @@ class ClaudeAgent implements ChatAgent {
 		this.finishTurn(status);
 		if (this.session) {
 			void this.refreshPlanUsage(this.session);
+			void this.refreshMcpServers(this.session);
 			void this.refreshWindow(this.session, message.modelUsage);
 		}
 	}
@@ -444,7 +466,10 @@ class ClaudeAgent implements ChatAgent {
 		);
 		this.reportSkipped = message.capabilities?.includes(UNANSWERED_CAPABILITY) ?? false;
 		this.commands.initKnown(message.slash_commands, message.terminal_slash_commands);
-		if (this.session) void this.refreshCommands(this.session);
+		if (this.session) {
+			void this.refreshCommands(this.session);
+			void this.refreshMcpServers(this.session);
+		}
 		this.settings.mode =
 			message.permissionMode === "dontAsk" ? "default" : message.permissionMode;
 		this.broadcastSettings();
@@ -556,6 +581,7 @@ class ClaudeAgent implements ChatAgent {
 	}
 
 	async send(text: string, attachments: ChatAttachment[]): Promise<void> {
+		if (MCP_COMMAND.test(text)) return this.runMcpCommand();
 		if (this.shell) throw new Error("Wait for the shell command to finish.");
 		if (isShellCommand(text)) return this.runShell(shellCommandText(text), attachments);
 		this.sending = true;
@@ -563,6 +589,15 @@ class ClaudeAgent implements ChatAgent {
 			await this.sendMessage(text, attachments);
 		} finally {
 			this.sending = false;
+		}
+	}
+
+	/** `/mcp`: read the servers afresh and send the list; no turn, no model. */
+	private async runMcpCommand(): Promise<void> {
+		await this.ensureSession();
+		const session = this.session;
+		if (!session || !(await this.refreshMcpServers(session))) {
+			throw new Error("Could not read the MCP servers.");
 		}
 	}
 
