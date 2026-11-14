@@ -3,9 +3,7 @@ import type { Socket } from "node:net";
 import {
 	type ChatAttachment,
 	ChatEffort,
-	type ChatMcpServer,
 	type ChatMcpStatus,
-	type ChatModeInfo,
 	ChatModelInfo,
 	type ChatShellItem,
 	isShellCommand,
@@ -131,12 +129,6 @@ export interface CodexHostOptions {
 	spawn?: (cwd: string) => AppServerProcess;
 }
 
-/** The sink with the two lists a host sends besides models and commands. */
-type CodexSink = ChatSink & {
-	modes(list: ChatModeInfo[]): void;
-	mcp(list: ChatMcpServer[]): void;
-};
-
 /** A chat tab's host running Codex through `codex app-server` (SPEC.md §10.8). */
 export class CodexChatHost extends ChatCore {
 	constructor(options: CodexHostOptions) {
@@ -180,7 +172,7 @@ function errorText(error: TurnError | null | undefined): string {
 
 /** The Codex driver behind the chat core: app-server in, chat events out. */
 export class CodexAgent implements ChatAgent {
-	private sink!: CodexSink;
+	private sink!: ChatSink;
 	private client: Client | null = null;
 	private starting: Promise<void> | null = null;
 	private stopping = false;
@@ -239,7 +231,7 @@ export class CodexAgent implements ChatAgent {
 	}
 
 	async start(sink: ChatSink): Promise<void> {
-		this.sink = sink as CodexSink;
+		this.sink = sink;
 		this.sink.modes(CODEX_MODES);
 		this.publishCommands();
 		// The socket opens either way; a send tries again and tells the student why it failed.

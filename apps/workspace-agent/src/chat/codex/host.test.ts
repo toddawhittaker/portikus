@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import type { Socket } from "node:net";
+import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -19,8 +19,14 @@ import type {
 	ContextFigures,
 } from "../agent.js";
 import { chatSessionsDir } from "../session-record.js";
+import { readLines } from "../wire.js";
 import { FakeAppServer, Refuse, recordedResult, segment } from "./fake-app-server.js";
-import { CodexAgent, type PostedState, SIGN_IN_MESSAGE } from "./host.js";
+import {
+	CodexAgent,
+	CodexChatHost,
+	type PostedState,
+	SIGN_IN_MESSAGE,
+} from "./host.js";
 
 /** The recorded first thread of every fixture, which the stand-in also starts. */
 const MAIN = "00000000-0000-7000-8000-000000000002";
@@ -1217,5 +1223,88 @@ describe("when app-server stops", () => {
 		expect(await agent.history(false)).toMatchObject({ events: [] });
 		await agent.interrupt();
 		await agent.revokeRule("x");
+	});
+});
+
+describe("through the chat core", () => {
+	test("a browser attaches, sees the Codex chat, sends, and answers a question", async () => {
+		home = await mkdtemp(join(tmpdir(), "pk-codex-core-"));
+		const projectDir = join(home, "projects", "demo");
+		await mkdir(projectDir, { recursive: true });
+		const servers: FakeAppServer[] = [];
+		const host = new CodexChatHost({
+			terminalId: randomUUID(),
+			sessionId: MAIN,
+			projectDir,
+			homeDir: home,
+			socketDir: join(home, "sock"),
+			log: collectingLogger().logger,
+			postTitle: async () => undefined,
+			postState: async () => undefined,
+			spawn: () => {
+				const server = new FakeAppServer(defaultHandlers());
+				servers.push(server);
+				return server;
+			},
+		});
+		await host.start();
+		try {
+			const socket = connect(host.socketPath);
+			const frames: Record<string, unknown>[] = [];
+			readLines(socket, 16 * 1024 * 1024, (line) => frames.push(JSON.parse(line)));
+			await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+			await vi.waitFor(() =>
+				expect(frames.map((frame) => frame.type)).toContain("mcp"),
+			);
+			const kinds = frames.map((frame) => frame.type);
+			expect(kinds.slice(0, 5)).toEqual([
+				"snapshot",
+				"turn.started",
+				"message",
+				"message",
+				"turn.finished",
+			]);
+			expect(kinds.slice(5)).toEqual([
+				"models",
+				"modes",
+				"settings",
+				"rules",
+				"commands",
+				"mcp",
+			]);
+			expect(frames.find((frame) => frame.type === "settings")).toMatchObject({
+				agent: "codex",
+				mode: "onRequest",
+			});
+			const server = servers[0] as FakeAppServer;
+			socket.write(
+				`${JSON.stringify({ type: "send", text: "hi", attachments: [] })}\n`,
+			);
+			await vi.waitFor(() => expect(server.requests("turn/start")).toHaveLength(1));
+			server.push({
+				method: "item/tool/requestUserInput",
+				id: 50,
+				params: {
+					threadId: MAIN,
+					turnId: "t",
+					itemId: "q1",
+					questions: [{ id: "k", header: "Pick", question: "Which?", options: null }],
+				},
+			});
+			await vi.waitFor(() =>
+				expect(frames.some((frame) => frame.type === "question.requested")).toBe(true),
+			);
+			socket.write(
+				`${JSON.stringify({ type: "question.answer", id: "q1", answers: { "Which?": "This one" } })}\n`,
+			);
+			await vi.waitFor(() =>
+				expect(server.reply(50)?.result).toEqual({
+					answers: { k: { answers: ["This one"] } },
+				}),
+			);
+			socket.destroy();
+		} finally {
+			await host.stop();
+		}
 	});
 });
