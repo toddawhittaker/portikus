@@ -59,7 +59,7 @@ export async function userContent(
 	attachments: readonly ChatAttachment[],
 ): Promise<UserContentBlock[]> {
 	const images: UserContentBlock[] = [];
-	const lines: string[] = [];
+	const paths: string[] = [];
 	for (const { path } of attachments) {
 		const resolved = await resolveInProject(homeDir, basename(projectDir), path, {
 			mustExist: true,
@@ -68,7 +68,7 @@ export async function userContent(
 		if (extension === ".svg") {
 			throw new AgentFailure("BAD_REQUEST", "SVG images cannot be attached");
 		}
-		lines.push(`${ATTACHED_FILE}${path}`);
+		paths.push(path);
 		const mediaType = IMAGE_TYPES[extension];
 		if (!mediaType) continue;
 		const info = await stat(resolved.path);
@@ -84,8 +84,24 @@ export async function userContent(
 			source: { type: "base64", media_type: mediaType, data: data.toString("base64") },
 		});
 	}
-	const body = [text, ...lines].filter((line) => line !== "").join(PARAGRAPH);
+	const body = promptBody(text, paths);
 	return [...(body === "" ? [] : [{ type: "text" as const, text: body }]), ...images];
+}
+
+/**
+ * The prompt text for a message: what the student typed, then a line
+ * naming each attached file, which the agent can read itself and a replay
+ * splits back out with `splitAttachmentLines`.
+ */
+export function promptBody(text: string, paths: readonly string[]): string {
+	return [text, ...paths.map((path) => `${ATTACHED_FILE}${path}`)]
+		.filter((line) => line !== "")
+		.join(PARAGRAPH);
+}
+
+/** True for an attachment the chat sends as an image. */
+export function isImagePath(path: string): boolean {
+	return extname(path).toLowerCase() in IMAGE_TYPES;
 }
 
 /**

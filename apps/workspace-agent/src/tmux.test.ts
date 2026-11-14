@@ -13,6 +13,8 @@ import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { keepTmuxServerAlive } from "./test-support/tmux-keep-alive.js";
 import {
 	attachArgs,
+	chatHostArgs,
+	chatHostCommand,
 	claimWindowSize,
 	closeSession,
 	createSession,
@@ -508,3 +510,46 @@ test.skipIf(!haveTmux)(
 		}
 	},
 );
+
+test("a Codex chat tab's command names its agent before the chat it resumes", () => {
+	const id = "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b";
+	const old = "0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d";
+	expect(chatHostCommand(id, undefined, "codex").slice(2)).toEqual([
+		id,
+		"--agent=codex",
+	]);
+	expect(chatHostCommand(id, old, "codex").slice(2)).toEqual([
+		id,
+		"--agent=codex",
+		old,
+	]);
+	expect(chatHostCommand(id, old, "claude").slice(2)).toEqual([id, old]);
+	expect(() => chatHostCommand(id, "../x", "codex")).toThrow();
+});
+
+test("the chat host reads back its agent and the chat it resumes", () => {
+	const id = "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b";
+	const old = "0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d";
+	expect(chatHostArgs([id])).toEqual({
+		terminalId: id,
+		agent: "claude",
+		resumeChatOf: undefined,
+	});
+	expect(chatHostArgs([id, old])).toEqual({
+		terminalId: id,
+		agent: "claude",
+		resumeChatOf: old,
+	});
+	expect(chatHostArgs([id, "--agent=codex"])).toEqual({
+		terminalId: id,
+		agent: "codex",
+		resumeChatOf: undefined,
+	});
+	expect(chatHostArgs([id, "--agent=codex", old])).toEqual({
+		terminalId: id,
+		agent: "codex",
+		resumeChatOf: old,
+	});
+	expect(() => chatHostArgs(["../x"])).toThrow();
+	expect(() => chatHostArgs([id, "--agent=codex", "nope"])).toThrow();
+});

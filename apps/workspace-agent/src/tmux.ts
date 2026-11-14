@@ -278,17 +278,43 @@ export function commandForAgent(agent: CodingAgent): string[] {
  */
 const CHAT_HOST_ENTRY = fileURLToPath(new URL("./chat/main.js", import.meta.url));
 
+/** Names Codex as a chat tab's agent; a chat without it runs Claude. */
+const CODEX_CHAT_FLAG = "--agent=codex";
+
 /**
  * The command of a chat tab's tmux session: the chat host on the agent's
- * own Node, in place of the CLI (SPEC.md §10.2, §10.8). `resumeChatOf`
- * names the ended chat whose Claude session this one continues.
+ * own Node, in place of the CLI (SPEC.md §10.2, §10.8):
+ * `<id> [--agent=codex] [<ended id>]`. `resumeChatOf` names the ended chat
+ * whose conversation this one continues.
  */
-export function chatHostCommand(id: string, resumeChatOf?: string): string[] {
+export function chatHostCommand(
+	id: string,
+	resumeChatOf?: string,
+	agent: CodingAgent = "claude",
+): string[] {
 	const ids = resumeChatOf === undefined ? [id] : [id, resumeChatOf];
 	if (!ids.every((each) => TerminalId.safeParse(each).success)) {
 		throw new AgentFailure("TERMINAL_NOT_FOUND", "invalid terminal id");
 	}
-	return [process.execPath, CHAT_HOST_ENTRY, ...ids];
+	const flag = agent === "codex" ? [CODEX_CHAT_FLAG] : [];
+	return [process.execPath, CHAT_HOST_ENTRY, id, ...flag, ...ids.slice(1)];
+}
+
+/** The chat host's own arguments, as `chatHostCommand` wrote them. */
+export function chatHostArgs(args: readonly string[]): {
+	terminalId: string;
+	agent: CodingAgent;
+	resumeChatOf: string | undefined;
+} {
+	const [terminalId, ...rest] = args;
+	const codex = rest[0] === CODEX_CHAT_FLAG;
+	const resumeChatOf = codex ? rest[1] : rest[0];
+	return {
+		terminalId: TerminalId.parse(terminalId),
+		agent: codex ? "codex" : "claude",
+		resumeChatOf:
+			resumeChatOf === undefined ? undefined : TerminalId.parse(resumeChatOf),
+	};
 }
 
 export interface SessionBaseline {
