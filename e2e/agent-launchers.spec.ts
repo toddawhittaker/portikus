@@ -3,10 +3,13 @@
  * BROWSER-HANDLING.md §18, §25.2).
  */
 import { expect, test } from "@playwright/test";
+import { join, newCourse } from "./course-profile-helpers";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	pushEvent,
+	terminalIds,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -151,4 +154,89 @@ test("the New menu offers each agent's GUI and TUI, and Codex (GUI) opens a Code
 		agent: "codex",
 	});
 	await expect(page.getByRole("tab", { name: /Codex \(GUI\)/ })).toBeVisible();
+});
+
+test("Codex (TUI) starts a Codex terminal, and Codex (GUI) a chat that names Codex", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Codex launch" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+
+	const posted = page.waitForRequest(
+		(request) => request.method() === "POST" && request.url().includes("/terminals"),
+	);
+	await page.getByTestId("launcher").click();
+	await page.getByTestId("launcher-codex").click();
+	// A terminal runs the program with no kind, and no command of the page's own.
+	const body = (await posted).postDataJSON();
+	expect(body).toEqual({ projectId: project.id, agent: "codex" });
+	await expect(page.getByRole("tab", { name: /Codex \(TUI\)/ })).toBeVisible();
+	await expect(page.locator('[data-testid^="chat-view-"]')).toHaveCount(0);
+
+	await page.getByTestId("launcher").click();
+	await page.getByTestId("launcher-codex-gui").click();
+	await expect(page.getByRole("tab", { name: /Codex \(GUI\)/ })).toBeVisible();
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(2);
+	const chat = page.locator('[data-testid^="chat-view-"]');
+	await expect(chat).toBeVisible({ timeout: 15_000 });
+	await expect(chat.getByTestId("chat-composer-input")).toHaveAttribute(
+		"aria-label",
+		"Message Codex",
+	);
+	await expect(page.getByRole("region", { name: /^Chat: / })).toBeVisible();
+});
+
+for (const colorScheme of ["dark", "light"] as const) {
+	test(`the New menu reads well and each agent launcher is a menu item (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Menu look" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+		await page.getByTestId("launcher").click();
+		const menu = page.getByRole("menu", { name: "New tab" });
+		for (const name of [
+			"Claude Code (GUI)",
+			"Claude Code (TUI)",
+			"Codex (GUI)",
+			"Codex (TUI)",
+		]) {
+			await expect(menu.getByRole("menuitem", { name })).toBeVisible();
+		}
+		await expectNoViolations(page, '[role="menu"]');
+	});
+}
+
+test("the Traditional profile hides all four agent launchers", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await join((await newCourse("traditional")).id, student.userId, "student");
+	const project = await createProject(student.workspaceId, { name: "No agents" });
+	const settings = page.waitForResponse(
+		(response) => new URL(response.url()).pathname === "/me/settings",
+	);
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await settings;
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("launcher").click();
+	const menu = page.getByRole("menu", { name: "New tab" });
+	await expect(menu.getByRole("menuitem")).toHaveText([/Terminal/, "Preview"]);
+	for (const testId of [
+		"launcher-claude-gui",
+		"launcher-claude",
+		"launcher-codex-gui",
+		"launcher-codex",
+	]) {
+		await expect(page.getByTestId(testId)).toHaveCount(0);
+	}
 });
