@@ -9,6 +9,7 @@
  */
 import { AgentStateMark, Icon } from "@portikus/ui";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AutoHandoffNotice } from "./AutoHandoffNotice.js";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CopyButton } from "./CopyButton.js";
 import { useChatAgent } from "./chatAgent.js";
@@ -29,7 +30,7 @@ import {
 	groupTools,
 	type ToolRun,
 } from "./fold.js";
-import type { ChatFreshStartItem } from "./freshStart.js";
+import type { ChatAutoHandoffItem, ChatFreshStartItem } from "./freshStart.js";
 import { firstSpeaker, HandoffDivider, spokenBy } from "./HandoffDivider.js";
 import { askedQuestions, readAnswers, secretQuestions } from "./questionAnswer.js";
 import { SpeakButton } from "./SpeakButton.js";
@@ -48,6 +49,7 @@ type Entry =
 	| { kind: "user"; item: ChatMessageItem }
 	| { kind: "shell"; item: ChatShellItem }
 	| { kind: "handoff"; item: ChatHandoffItem | ChatFreshStartItem }
+	| { kind: "notice"; item: ChatAutoHandoffItem }
 	| { kind: "turn"; turnId: string; items: ChatItem[] }
 	| { kind: "loose"; key: string; items: ChatItem[] };
 
@@ -69,6 +71,10 @@ function groupByTurn(
 		}
 		if (item.kind === "handoff" || item.kind === "freshStart") {
 			entries.push({ kind: "handoff", item });
+			continue;
+		}
+		if (item.kind === "autoHandoff") {
+			entries.push({ kind: "notice", item });
 			continue;
 		}
 		if (item.turnId === null) {
@@ -294,6 +300,8 @@ function Step({ item }: { item: ChatItem }) {
 		case "handoff":
 		case "freshStart":
 			return <HandoffDivider handoff={item} />;
+		case "autoHandoff":
+			return <AutoHandoffNotice notice={item} />;
 		case "error":
 			return (
 				<li className="pk-chat-step">
@@ -698,6 +706,9 @@ export function MessageList({
 				}
 				if (entry.kind === "shell") {
 					return <ShellCommand key={entry.item.key} shell={entry.item} />;
+				}
+				if (entry.kind === "notice") {
+					return <AutoHandoffNotice key={entry.item.key} notice={entry.item} />;
 				}
 				// Claude's words outside a turn still carry its byline.
 				return spokenBy(

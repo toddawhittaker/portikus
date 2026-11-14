@@ -25,6 +25,26 @@ export const HandoffNotePath = z
 
 export const HandoffNoteText = z.string().max(MAX_HANDOFF_NOTE_CHARS);
 
+/**
+ * What a fresh chat adds by reading a handoff note, in tokens. The
+ * fresh-chat estimate and the automatic handoff's size test both use it.
+ */
+export const HANDOFF_TOKENS = 8000;
+
+/** The fixed request for the note, sent as a message Portikus writes for the student. */
+export const HANDOFF_PROMPT = `Write a handoff note so that a fresh conversation can pick up this work. Reply with the note only, in Markdown, in about 1,500 words at most. Use these level-2 headings, in this order:
+
+## Goal
+## Current state
+## Decisions and why
+## Files involved
+## Tried and failed
+## Open questions
+## Next steps
+## How to check the work
+
+Do not run tools or write files for this. Portikus saves your reply as the note.`;
+
 /** A saved note waiting for the student to continue, edit or cancel. */
 export const HandoffReview = z.object({
 	id: z.uuid(),
@@ -32,6 +52,17 @@ export const HandoffReview = z.object({
 	markdown: HandoffNoteText,
 });
 export type HandoffReview = z.infer<typeof HandoffReview>;
+
+/**
+ * A note the host wrote on its own while the student was away, before the
+ * prompt cache went cold (SPEC.md §10.8). The chat shows it as a notice.
+ */
+export const HandoffNotice = z.object({
+	id: z.uuid(),
+	path: HandoffNotePath,
+	markdown: HandoffNoteText,
+});
+export type HandoffNotice = z.infer<typeof HandoffNotice>;
 
 /** The last line of the new conversation's first message. */
 export const HANDOFF_CONTINUE_LINE =

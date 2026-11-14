@@ -240,6 +240,7 @@ function useFreshStartActions(
 			openNote:
 				layout === null ? null : (path: string) => layout.getState().openFile(path),
 			resend: (id: string) => store.getState().resendHandoff(id),
+			startFresh: (id: string) => store.getState().startFreshFromNote(id),
 		}),
 		[layout, store],
 	);

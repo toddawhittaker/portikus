@@ -26,6 +26,8 @@ import type {
 	ChatSink,
 	ContextFigures,
 } from "./agent.js";
+import { type Clock, systemClock } from "./auto-handoff.js";
+import { AutoHandoffNotes } from "./auto-handoff-notes.js";
 import { type FreshDivider, FreshStart, HANDOFF_COMMAND_INFO } from "./fresh-start.js";
 import { capLog, lastTurns, newHandoffId, turnsFromEvents } from "./handoff.js";
 import { OpenCards } from "./open-cards.js";
@@ -54,6 +56,8 @@ export interface ChatCoreOptions {
 	replacedWithinMs?: number;
 	/** How long a fresh start waits for the agent's new conversation; a test shortens it. */
 	resetWithinMs?: number;
+	/** The automatic handoff's clock; a test's never sleeps. */
+	clock?: Clock;
 }
 
 /** Why a chat cannot swap agents now; one sentence the student can act on. */
@@ -125,6 +129,7 @@ export class ChatCore {
 	/** Conversation resets so far, so a fresh start can see its own arrive. */
 	private resets = 0;
 	private readonly fresh: FreshStart;
+	private readonly auto: AutoHandoffNotes;
 
 	private readonly sink: ChatSink = {
 		emit: (event) => this.relay(event),
@@ -162,6 +167,7 @@ export class ChatCore {
 				if (this.growth.startTokens === 0) this.growth.startTokens = figures.usedTokens;
 				this.growth.requests += 1;
 			}
+			this.auto.update(figures);
 			this.broadcast(this.contextEvent(figures));
 		},
 		signIn: (state) => {
@@ -186,11 +192,21 @@ export class ChatCore {
 			projectDir: this.options.projectDir,
 			log: this.options.log,
 			busy: () => this.busy() || this.switching,
-			send: (text) => this.sendText(text, []),
+			send: (text, attachments) => this.sendText(text, attachments ?? []),
 			reset: () => this.newConversation(),
 			broadcast: (event) => this.broadcast(event),
 			recordDivider: (divider) => this.recordDivider(divider),
 			divider: (id) => this.freshDivider(id),
+		});
+		this.auto = new AutoHandoffNotes({
+			homeDir: this.options.homeDir,
+			terminalId: this.options.terminalId,
+			log: this.options.log,
+			clock: this.options.clock ?? systemClock,
+			fresh: this.fresh,
+			idle: () => !this.busy() && !this.switching && this.fresh.idle,
+			startTokens: () => this.growth.startTokens,
+			broadcast: (event) => this.broadcast(event),
 		});
 	}
 
@@ -204,6 +220,7 @@ export class ChatCore {
 		await unlink(this.socketPath).catch(() => undefined);
 		await this.agent.start(this.sink);
 		await this.adoptHandoff();
+		await this.auto.load();
 		await this.listen();
 	}
 
@@ -223,6 +240,7 @@ export class ChatCore {
 	/** Stop the agent and close every attachment. The conversation stays. */
 	async stop(): Promise<void> {
 		if (this.takeBackTimer) clearTimeout(this.takeBackTimer);
+		this.auto.stop();
 		await this.agent.stop();
 		for (const client of this.clients) client.socket.destroy();
 		this.clients.clear();
@@ -314,7 +332,10 @@ export class ChatCore {
 		try {
 			const [own, shown, session] = await Promise.all([
 				this.agent.transcript(),
-				this.agent.history(false),
+				this.agent.history(false).then((history) => ({
+					...history,
+					events: this.auto.place(history.events),
+				})),
 				readChatSession(this.options.homeDir, this.options.terminalId),
 			]);
 			// A turn the agent began during the read would be missing from it.
@@ -449,6 +470,7 @@ export class ChatCore {
 		this.resets += 1;
 		this.partial = null;
 		this.growth = { startTokens: 0, messages: 0, requests: 0 };
+		this.auto.reset();
 		// A new conversation starts with nothing from before a swap.
 		if (this.swap) {
 			this.swap = null;
@@ -503,7 +525,8 @@ export class ChatCore {
 		const partial = this.partial;
 		const cards = this.cards.current;
 		const turnRunning = this.turnRunning;
-		const history = this.withEarlier(await this.agent.history(turnRunning));
+		const own = await this.agent.history(turnRunning);
+		const history = this.withEarlier({ ...own, events: this.auto.place(own.events) });
 		writeLine(
 			socket,
 			JSON.stringify(this.snapshot(cards, turnRunning, history.truncated)),
@@ -619,6 +642,7 @@ export class ChatCore {
 			case "send":
 				if (message.text.trim() === `/${HANDOFF_COMMAND_INFO.name}`)
 					return this.fresh.start();
+				if (!isShellCommand(message.text)) this.auto.studentSent();
 				return this.sendText(message.text, message.attachments ?? []);
 			case "permission.answer":
 				return this.cards.answer(message.id, {
@@ -652,6 +676,8 @@ export class ChatCore {
 				return this.fresh.cancel(message.id);
 			case "handoff.continue":
 				return this.fresh.continue(message.id);
+			case "handoff.auto.continue":
+				return this.auto.continue(message);
 			case "handoff.resend":
 				return this.fresh.resend(message.id);
 			default:

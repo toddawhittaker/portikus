@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import { ChatClientMessage, ChatServerEvent } from "./chat.js";
 import {
 	HANDOFF_CONTINUE_LINE,
+	HANDOFF_PROMPT,
+	HANDOFF_TOKENS,
 	handoffFirstMessage,
 	isHandoffFirstMessage,
 	MAX_HANDOFF_NOTE_CHARS,
@@ -90,5 +92,55 @@ describe("handoff messages", () => {
 		expect(isHandoffFirstMessage(text)).toBe(true);
 		expect(isHandoffFirstMessage("Continue from Next steps.")).toBe(false);
 		expect(isHandoffFirstMessage(`Hello\n\n${HANDOFF_CONTINUE_LINE}`)).toBe(false);
+	});
+});
+
+describe("automatic handoff messages", () => {
+	const envelope = { sessionId: SESSION, seq: 4 };
+
+	test("the notice parses with a saved path and its note, and nothing else", () => {
+		const notice = {
+			type: "handoff.auto",
+			...envelope,
+			id: ID,
+			path: PATH,
+			markdown: "## Goal",
+		};
+		expect(ChatServerEvent.safeParse(notice).success).toBe(true);
+		expect(
+			ChatServerEvent.safeParse({ ...notice, path: "../../etc/passwd" }).success,
+		).toBe(false);
+		expect(ChatServerEvent.safeParse({ ...notice, id: "not-a-uuid" }).success).toBe(
+			false,
+		);
+		expect(
+			ChatServerEvent.safeParse({
+				...notice,
+				markdown: "x".repeat(MAX_HANDOFF_NOTE_CHARS + 1),
+			}).success,
+		).toBe(false);
+	});
+
+	test("starting fresh from a notice may carry the student's message and files", () => {
+		const bare = { type: "handoff.auto.continue", id: ID };
+		expect(ChatClientMessage.safeParse(bare).success).toBe(true);
+		expect(
+			ChatClientMessage.safeParse({
+				...bare,
+				text: "Now add tests",
+				attachments: [{ path: "src/a.ts" }],
+			}).success,
+		).toBe(true);
+		expect(ChatClientMessage.safeParse({ ...bare, text: "" }).success).toBe(false);
+		expect(ChatClientMessage.safeParse({ ...bare, path: PATH }).success).toBe(false);
+		expect(
+			ChatClientMessage.safeParse({ ...bare, attachments: [{ path: "/etc/passwd" }] })
+				.success,
+		).toBe(false);
+	});
+
+	test("the note prompt and the fresh chat's handoff size are shared constants", () => {
+		expect(HANDOFF_TOKENS).toBe(8000);
+		expect(HANDOFF_PROMPT).toContain("## Next steps");
 	});
 });

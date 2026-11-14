@@ -6,6 +6,8 @@
  * tracks API prices, so it is an estimate.
  */
 
+import { HANDOFF_TOKENS } from "@portikus/contracts";
+
 export interface PriceRatios {
 	/** A cache read, as a multiple of the model's input price. */
 	read: number;
@@ -16,8 +18,12 @@ export interface PriceRatios {
 }
 
 /**
- * Price ratios by model. Sources: the Claude pricing page, and secondary
- * sources for OpenAI's prices; checked 14 November 2026.
+ * Price ratios by model. Claude: the Claude pricing page. Codex: a cache
+ * write is 1.25 times the input price for OpenAI's default 30-minute cache
+ * (OpenAI's prompt-caching guide), and a cache read is a tenth of it, as on
+ * the ChatGPT rate card that subscriptions are metered by
+ * (https://github.com/openai/codex/issues/41875); GPT-6.1 doubles every
+ * price past 272k tokens. Checked 14 November 2026.
  */
 const PRICE_TABLE = {
 	claude: {
@@ -34,15 +40,13 @@ const PRICE_TABLE = {
 	},
 	codex: {
 		prefix: "gpt-6.1",
-		prefixRead: 0.05,
 		read: 0.1,
-		write: 1,
+		write: 1.25,
 		prefixSurcharge: { above: 272_000, factor: 2 },
 	},
 } as const;
 
-/** What a fresh chat adds by reading a handoff note. */
-export const HANDOFF_TOKENS = 8000;
+export { HANDOFF_TOKENS };
 /** Context growth per message until two messages have been seen. */
 export const FALLBACK_GROWTH = 18_000;
 /** Requests to the model per message until two messages have been seen. */
@@ -58,11 +62,10 @@ export function priceRatios(
 ): PriceRatios {
 	if (agent === "codex") {
 		const t = PRICE_TABLE.codex;
-		const newer = model.startsWith(t.prefix);
 		return {
-			read: newer ? t.prefixRead : t.read,
+			read: t.read,
 			write: t.write,
-			surcharge: newer ? t.prefixSurcharge : null,
+			surcharge: model.startsWith(t.prefix) ? t.prefixSurcharge : null,
 		};
 	}
 	const t = PRICE_TABLE.claude;
@@ -85,6 +88,8 @@ export interface RestartInputs {
 	messagesSent: number;
 	contextEvents: number;
 	prices: PriceRatios;
+	/** The prompt cache is known to have expired, so the next message re-writes it. */
+	cold?: boolean;
 }
 
 export interface RestartEstimate {
@@ -170,9 +175,33 @@ export function estimateRestart(inputs: RestartInputs): RestartEstimate {
 		inputs.windowTokens,
 		inputs.prices,
 	);
+	if (
+		inputs.cold &&
+		coldCostsMore(inputs.usedTokens, start, growth, requests, inputs.prices)
+	) {
+		return { messagesLeft: 0, restartAt, bestRun };
+	}
 	const messagesLeft = Math.max(
 		0,
 		Math.floor((restartAt - inputs.usedTokens) / growth),
 	);
 	return { messagesLeft, restartAt, bestRun };
+}
+
+/**
+ * With the cache cold, the next message here re-writes the whole chat, as a
+ * fresh chat's first message writes its start. A fresh chat now saves usage
+ * when the extra cost of that write here is more than it is there.
+ */
+function coldCostsMore(
+	used: number,
+	start: number,
+	growth: number,
+	requests: number,
+	prices: PriceRatios,
+): boolean {
+	const extra = (size: number) =>
+		messageCost(size, true, growth, requests, prices) -
+		messageCost(size, false, growth, requests, prices);
+	return extra(used) > extra(start);
 }

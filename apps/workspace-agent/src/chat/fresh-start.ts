@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
+	type ChatAttachment,
 	type ChatCommand,
 	HANDOFF_COMMAND,
+	HANDOFF_PROMPT,
 	type HandoffReview,
 	handoffFirstMessage,
 	MAX_HANDOFF_NOTE_CHARS,
@@ -22,20 +24,6 @@ import type { ChatEventBody } from "./agent.js";
  * note is the student's conversation, so none of it is ever logged
  * (ADR 0012).
  */
-
-/** The fixed request for the note. */
-export const HANDOFF_PROMPT = `Write a handoff note so that a fresh conversation can pick up this work. Reply with the note only, in Markdown, in about 1,500 words at most. Use these level-2 headings, in this order:
-
-## Goal
-## Current state
-## Decisions and why
-## Files involved
-## Tried and failed
-## Open questions
-## Next steps
-## How to check the work
-
-Do not run tools or write files for this. Portikus saves your reply as the note.`;
 
 export const HANDOFF_COMMAND_INFO: ChatCommand = {
 	name: HANDOFF_COMMAND,
@@ -71,7 +59,7 @@ export interface FreshStartHost {
 	/** A reply, a card or a `!` command is running. */
 	busy(): boolean;
 	/** Send a message the student would have typed. */
-	send(text: string): Promise<void>;
+	send(text: string, attachments?: ChatAttachment[]): Promise<void>;
 	/** Move the agent to a new conversation, as /clear does, and wait until it is idle. */
 	reset(): Promise<void>;
 	broadcast(event: ChatEventBody): void;
@@ -84,12 +72,25 @@ export interface FreshStartHost {
 interface Turn {
 	reply: string;
 	status: "done" | "interrupted" | "error";
+	/** The id of the message that started the turn, as the chat shows it. */
+	promptId: string | null;
+}
+
+/** A note the agent wrote and the host saved, and the message that asked for it. */
+export interface SavedNote {
+	path: string;
+	markdown: string;
+	promptId: string | null;
 }
 
 export class FreshStart {
 	private stage: "idle" | "asking" | "review" | "continuing" = "idle";
 	private review: HandoffReview | null = null;
-	private turn: { reply: string; done: (turn: Turn) => void } | null = null;
+	private turn: {
+		reply: string;
+		promptId: string | null;
+		done: (turn: Turn) => void;
+	} | null = null;
 
 	constructor(private readonly host: FreshStartHost) {}
 
@@ -103,26 +104,50 @@ export class FreshStart {
 		return this.review ? { type: "handoff.review", review: this.review } : null;
 	}
 
+	/** No note is being asked for, waits for review, or is being sent. */
+	get idle(): boolean {
+		return this.stage === "idle";
+	}
+
 	/** Each event the agent sends, so a turn the handoff started can be read. */
 	observe(event: ChatEventBody): void {
 		const turn = this.turn;
 		if (!turn) return;
 		if (event.type === "message" && event.role === "assistant") {
 			if (event.markdown.trim() !== "") turn.reply = event.markdown;
+		} else if (event.type === "message" && turn.promptId === null) {
+			turn.promptId = event.id;
 		} else if (event.type === "turn.finished") {
 			this.turn = null;
-			turn.done({ reply: turn.reply, status: event.status });
+			turn.done({ reply: turn.reply, status: event.status, promptId: turn.promptId });
 		}
 	}
 
 	/** Ask the agent for the note, save its reply and show it for review. */
 	async start(): Promise<void> {
 		if (this.stage === "review") throw new Error(HANDOFF_WAITING_MESSAGE);
+		const note = await this.writeNote();
+		this.show({ id: randomUUID(), path: note.path, markdown: note.markdown });
+	}
+
+	/**
+	 * Ask for the note and save it with no review, for the automatic
+	 * handoff; the core shows it as a notice.
+	 */
+	async writeUnreviewed(): Promise<SavedNote> {
+		if (this.stage !== "idle") throw new Error(HANDOFF_BUSY_MESSAGE);
+		const note = await this.writeNote();
+		this.stage = "idle";
+		return note;
+	}
+
+	/** The note step both handoffs share: ask, check the reply, save it. */
+	private async writeNote(): Promise<SavedNote> {
 		if (this.stage !== "idle" || this.host.busy())
 			throw new Error(HANDOFF_BUSY_MESSAGE);
 		this.stage = "asking";
 		try {
-			const { reply, status } = await this.sendAndWait(HANDOFF_PROMPT);
+			const { reply, status, promptId } = await this.sendAndWait(HANDOFF_PROMPT);
 			if (status !== "done") throw new Error(HANDOFF_NOT_FINISHED_MESSAGE);
 			if (reply.trim() === "") throw new Error(HANDOFF_EMPTY_MESSAGE);
 			if (reply.length > MAX_HANDOFF_NOTE_CHARS)
@@ -131,7 +156,7 @@ export class FreshStart {
 				throw new Error(HANDOFF_SAVE_FAILED_MESSAGE);
 			});
 			this.host.log.info("handoff note saved");
-			this.show({ id: randomUUID(), path, markdown: reply });
+			return { path, markdown: reply, promptId };
 		} catch (error) {
 			this.stage = "idle";
 			throw error;
@@ -170,6 +195,36 @@ export class FreshStart {
 			{ type: "handoff.fresh", id: randomUUID(), path: review.path },
 			review.markdown,
 		);
+	}
+
+	/**
+	 * Start the new conversation from a saved note with no review, as
+	 * Continue does, then send `then` as its second message. The note is
+	 * read as saved now, so an edit in the editor counts.
+	 */
+	async continueFromNote(
+		path: string,
+		then: { text: string; attachments: ChatAttachment[] } | null,
+	): Promise<void> {
+		if (this.stage !== "idle" || this.host.busy())
+			throw new Error(HANDOFF_BUSY_MESSAGE);
+		this.stage = "continuing";
+		let note: string;
+		try {
+			note = await readHandoffNote(this.host.projectDir, path);
+		} catch {
+			this.stage = "idle";
+			throw new Error(`The note at ${path} could not be read.`);
+		}
+		try {
+			await this.host.reset();
+		} catch {
+			this.stage = "idle";
+			throw new Error(HANDOFF_RESET_FAILED_MESSAGE);
+		}
+		this.host.log.info("chat started fresh from a handoff");
+		await this.sendFirst({ type: "handoff.fresh", id: randomUUID(), path }, note);
+		if (then) await this.host.send(then.text, then.attachments);
 	}
 
 	/** Send a failed fresh start's first message again, from the note as saved now. */
@@ -218,7 +273,7 @@ export class FreshStart {
 	/** Send, and resolve once the turn it starts has finished. */
 	private async sendAndWait(text: string): Promise<Turn> {
 		const finished = new Promise<Turn>((done) => {
-			this.turn = { reply: "", done };
+			this.turn = { reply: "", promptId: null, done };
 		});
 		try {
 			await this.host.send(text);

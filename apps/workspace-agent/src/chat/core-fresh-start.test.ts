@@ -5,6 +5,7 @@ import {
 	type ChatServerEvent,
 	type CodingAgent,
 	HANDOFF_CONTINUE_LINE,
+	HANDOFF_PROMPT,
 	handoffFirstMessage,
 } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
@@ -15,7 +16,6 @@ import {
 	HANDOFF_BUSY_MESSAGE,
 	HANDOFF_EMPTY_MESSAGE,
 	HANDOFF_NOT_FINISHED_MESSAGE,
-	HANDOFF_PROMPT,
 	HANDOFF_RESET_FAILED_MESSAGE,
 	HANDOFF_SEND_FAILED_MESSAGE,
 	HANDOFF_WAITING_MESSAGE,

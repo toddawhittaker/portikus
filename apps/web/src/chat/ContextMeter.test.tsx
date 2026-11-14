@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { stopTime } from "../shell/useCountdown.js";
 import {
+	CACHE_EXPIRED,
 	COMPACT_HINT,
 	ContextMeter,
 	contextLevel,
@@ -419,4 +420,42 @@ test("only once a fresh chat would save usage, a button starts fresh with a hand
 	expect(button.closest('[data-testid="composer-meters"]')).not.toBeNull();
 	fireEvent.click(button);
 	expect(sent).toEqual([{ type: "handoff.start" }]);
+});
+
+test("once the cache expires, the next message is priced as a re-write and the title says so", () => {
+	// 100k used with a fresh chat at 66k: a few messages left while warm.
+	growing(100_000);
+	const warm = screen.getByTestId("composer-restart");
+	expect(warm.textContent).not.toContain(RESTART_NOW);
+	expect(warm.getAttribute("title")).toBe(RESTART_EXPLAINED);
+	tick(3600);
+	const cold = screen.getByTestId("composer-restart");
+	expect(cold.textContent).toContain(RESTART_NOW);
+	expect(cold.getAttribute("title")).toBe(`${RESTART_EXPLAINED} ${CACHE_EXPIRED}`);
+	expect(cold.querySelector(".sr-only")?.textContent).toContain(CACHE_EXPIRED);
+});
+
+test("a Codex chat on the 30-minute cache goes cold too", () => {
+	act(() =>
+		store.setState({
+			settings: {
+				agent: "codex",
+				model: "gpt-6.1-sol",
+				effort: "medium",
+				mode: "default",
+			},
+			growth: { firstUsedTokens: 58_000, messagesSent: 1, contextEvents: 1 },
+			context: {
+				...report(100_000, 475_000, null),
+				cache: { at: START, ttlSeconds: 1800 },
+			},
+		}),
+	);
+	expect(screen.getByTestId("composer-restart").getAttribute("title")).toBe(
+		RESTART_EXPLAINED,
+	);
+	tick(1800);
+	expect(screen.getByTestId("composer-restart").getAttribute("title")).toBe(
+		`${RESTART_EXPLAINED} ${CACHE_EXPIRED}`,
+	);
 });

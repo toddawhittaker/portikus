@@ -21,7 +21,6 @@ import {
 	type ChatSessionRule,
 	type ChatSignIn,
 	type ChatToolOutputPart,
-	type CodingAgent,
 	chatStartMode,
 	type HandoffReview,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -35,7 +34,15 @@ import {
 	NO_GROWTH,
 	sentOne,
 } from "./chatGrowth.js";
-import { applyFreshStart, type ChatFreshStartItem } from "./freshStart.js";
+import {
+	applyFreshStart,
+	type ChatAutoHandoffItem,
+	type ChatFreshStartItem,
+	type ChatHandoffItem,
+} from "./freshStart.js";
+
+export type { ChatHandoffItem };
+
 import { isWorking, sentWhileWorking, takeInSentMessage } from "./sentWhileWorking.js";
 
 export interface ChatMessageItem {
@@ -84,26 +91,14 @@ export interface ChatShellItem extends Omit<ShellFields, "kind"> {
 	turnId: null;
 }
 
-/** Where the chat changed agents: a divider in the conversation (SPEC.md §10.8). */
-export interface ChatHandoffItem {
-	kind: "handoff";
-	key: string;
-	from: CodingAgent;
-	to: CodingAgent;
-	/** The oldest turns that did not fit the new agent's context window. */
-	droppedTurns: number;
-	/** The new agent could not take the conversation in, so it started without it. */
-	failed: boolean;
-	turnId: null;
-}
-
 export type ChatItem =
 	| ChatMessageItem
 	| ChatToolItem
 	| ChatShellItem
 	| ChatErrorItem
 	| ChatHandoffItem
-	| ChatFreshStartItem;
+	| ChatFreshStartItem
+	| ChatAutoHandoffItem;
 
 export interface ChatTurn {
 	id: string;
@@ -447,6 +442,7 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 		}
 		case "handoff.review":
 		case "handoff.fresh":
+		case "handoff.auto":
 			return applyFreshStart(state, event);
 	}
 }
@@ -741,6 +737,11 @@ interface ChatActions {
 	cancelHandoff: (id: string) => boolean;
 	/** Send a failed fresh start's first message again, naming its divider. */
 	resendHandoff: (id: string) => boolean;
+	/** Start fresh from an automatic note, then send `then` as the second message. */
+	startFreshFromNote: (
+		id: string,
+		then?: { text: string; attachments: ChatAttachment[] },
+	) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -778,6 +779,8 @@ export function createChatStore(
 		editHandoff: (id, markdown) => deliver({ type: "handoff.edit", id, markdown }),
 		cancelHandoff: (id) => deliver({ type: "handoff.cancel", id }),
 		resendHandoff: (id) => deliver({ type: "handoff.resend", id }),
+		startFreshFromNote: (id, then) =>
+			deliver({ type: "handoff.auto.continue", id, ...then }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

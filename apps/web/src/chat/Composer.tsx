@@ -17,6 +17,8 @@
  * chat's own agent.
  * While the text starts with `!` it is a shell command: the box wears a
  * "Shell" label and monospace text, says so once, and opens neither menu.
+ * A send into a cold chat with a saved automatic note asks first whether it
+ * goes to a fresh chat from the note (ColdSendChoice.tsx).
  */
 import {
 	type ChatModeInfo,
@@ -44,6 +46,7 @@ import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { stop as stopReading } from "../voice/speak.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
+import { ColdSendChoice, useColdSendNote } from "./ColdSendChoice.js";
 import { ComposerChips } from "./ComposerChips.js";
 import {
 	ComposerCommandMenu,
@@ -181,6 +184,9 @@ export function Composer({
 	const connection = useStore(store, (state) => state.connection);
 	const commands = useStore(store, selectCommands);
 	const [sending, setSending] = useState<Sending | null>(null);
+	const coldNote = useColdSendNote(store);
+	/** A send held while the student chooses where it goes (ColdSendChoice.tsx). */
+	const [choosing, setChoosing] = useState(false);
 	const [announced, setAnnounced] = useState("");
 	const [error, setError] = useState("");
 	const [dragging, setDragging] = useState(false);
@@ -300,7 +306,7 @@ export function Composer({
 		if (editor.current) showInterim(editor.current, speech.interim);
 	}, [speech.interim]);
 
-	function submit(event?: FormEvent) {
+	function submit(event?: FormEvent, to: "ask" | "here" | "fresh" = "ask") {
 		event?.preventDefault();
 		if (files.saving > 0 || sending) return;
 		const text = editor.current ? composerText(editor.current) : "";
@@ -316,8 +322,19 @@ export function Composer({
 			return;
 		}
 		const attachments = files.items.map((item) => ({ path: item.path }));
+		// Into a cold chat with a saved note, the student first chooses where it goes.
+		const askable = coldNote !== null && text.trim() !== "" && !isShellCommand(text);
+		if (to === "ask" && askable) {
+			setChoosing(true);
+			return;
+		}
+		setChoosing(false);
 		const seq = store.getState().lastSeq;
-		if (!store.getState().send(text, attachments)) {
+		const sent =
+			to === "fresh" && coldNote
+				? store.getState().startFreshFromNote(coldNote.id, { text, attachments })
+				: store.getState().send(text, attachments);
+		if (!sent) {
 			setError(NOT_SENT);
 			return;
 		}
@@ -588,6 +605,16 @@ export function Composer({
 
 	return (
 		<>
+			{choosing && coldNote ? (
+				<ColdSendChoice
+					onFresh={() => submit(undefined, "fresh")}
+					onHere={() => submit(undefined, "here")}
+					onClose={() => {
+						setChoosing(false);
+						editor.current?.view.focus();
+					}}
+				/>
+			) : null}
 			<form
 				className={`pk-composer ${dragging ? "is-dragging" : ""} ${shell ? "is-shell" : ""}`}
 				data-testid="chat-composer"

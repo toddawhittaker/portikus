@@ -1,9 +1,13 @@
 /**
  * What the student wrote, and the files they sent with it (SPEC.md §10.8).
  * The first message of a chat started fresh from a handoff note was sent by
- * Portikus, so it says so.
+ * Portikus, so it says so, and so was the request for a handoff note.
  */
-import { chatImageType, isHandoffFirstMessage } from "@portikus/contracts";
+import {
+	chatImageType,
+	HANDOFF_PROMPT,
+	isHandoffFirstMessage,
+} from "@portikus/contracts";
 import { Icon } from "@portikus/ui";
 import { useState } from "react";
 import { displayName } from "../files/paths.js";
@@ -57,13 +61,17 @@ function SentFile({ path }: { path: string }) {
 /** What the student wrote, drawn as the Markdown the composer sent (SPEC.md §10.8). */
 export function UserMessage({ message }: { message: ChatMessageItem }) {
 	const { name } = useChatAgent();
-	const fromHandoff = isHandoffFirstMessage(message.markdown);
+	const sentBy = isHandoffFirstMessage(message.markdown)
+		? "Sent by Portikus from the handoff"
+		: message.markdown === HANDOFF_PROMPT
+			? "Sent by Portikus to write a handoff note"
+			: null;
 	return (
 		<li
 			className="pk-chat-entry pk-chat-entry--user pk-chat-copy-host"
 			data-testid="chat-user-message"
 		>
-			<p className="sr-only">{fromHandoff ? "Portikus sent for you:" : "You said:"}</p>
+			<p className="sr-only">{sentBy ? "Portikus sent for you:" : "You said:"}</p>
 			{message.markdown !== "" ? (
 				<CopyButton label="Copy message" text={message.markdown} />
 			) : null}
@@ -77,9 +85,9 @@ export function UserMessage({ message }: { message: ChatMessageItem }) {
 					</ul>
 				) : null}
 			</div>
-			{fromHandoff ? (
+			{sentBy ? (
 				<p className="pk-turn-sent-note" data-testid="chat-sent-by-portikus">
-					Sent by Portikus from the handoff
+					{sentBy}
 				</p>
 			) : null}
 			{message.whileWorking ? (

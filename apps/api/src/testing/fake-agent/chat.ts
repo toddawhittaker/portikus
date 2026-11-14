@@ -430,7 +430,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
-	const handoff = fakeHandoff({
+	const { handoff, auto: autoHandoff } = fakeHandoff({
 		chatOf,
 		emit,
 		record,
@@ -743,6 +743,13 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		chat.context = request.body as Record<string, unknown>;
 		emit(id, chat.sockets, { ...chat.context, type: "context" });
+		return reply.status(204).send();
+	});
+
+	// Write an automatic handoff note and post its notice, as the host does
+	// when the student has been away until shortly before the cache goes cold.
+	app.post("/__test/chats/:id/auto-handoff", async (request, reply) => {
+		autoHandoff((request.params as { id: string }).id);
 		return reply.status(204).send();
 	});
 

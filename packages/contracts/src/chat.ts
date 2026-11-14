@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { HandoffNotePath, HandoffNoteText, HandoffReview } from "./handoff-note.js";
+import {
+	HandoffNotePath,
+	HandoffNoteText,
+	HandoffNotice,
+	HandoffReview,
+} from "./handoff-note.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
@@ -187,6 +192,16 @@ const ProjectRelativePath = z
 	.refine((p) => !p.startsWith("/") && !p.split("/").includes(".."), {
 		message: "Path must be project-relative",
 	});
+
+/**
+ * When the prompt cache was last used and how long it lives: Claude's five
+ * minutes or one hour, or Codex's 30 minutes (SPEC.md §10.8).
+ */
+export const ChatCacheFigures = z.object({
+	/** Epoch milliseconds the cache was last written or read. */
+	at: z.number().int().nonnegative(),
+	ttlSeconds: z.union([z.literal(300), z.literal(1800), z.literal(3600)]),
+});
 
 export const ChatAttachment = z.object({ path: ProjectRelativePath }).strict();
 export type ChatAttachment = z.infer<typeof ChatAttachment>;
@@ -603,6 +618,16 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		path: HandoffNotePath,
 		failed: z.literal(true).optional(),
 	}),
+	/**
+	 * A handoff note the host wrote on its own while the student was idle,
+	 * shown as a notice where it was written and replayed on attach. Only
+	 * the newest notice in a conversation offers its buttons.
+	 */
+	z.object({
+		type: z.literal("handoff.auto"),
+		...Envelope,
+		...HandoffNotice.shape,
+	}),
 	z.object({
 		type: z.literal("settings"),
 		...Envelope,
@@ -627,13 +652,7 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		...Envelope,
 		usedTokens: z.number().int().nonnegative(),
 		windowTokens: z.number().int().positive().nullable(),
-		cache: z
-			.object({
-				/** Epoch milliseconds the cache was last written or read. */
-				at: z.number().int().nonnegative(),
-				ttlSeconds: z.union([z.literal(300), z.literal(3600)]),
-			})
-			.nullable(),
+		cache: ChatCacheFigures.nullable(),
 		/** The host's clock, epoch milliseconds, when it sent this; older hosts leave it out. */
 		now: z.number().int().nonnegative().optional(),
 		/**
@@ -740,6 +759,18 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 		.strict(),
 	/** Keep the current conversation; the saved note stays. */
 	z.object({ type: z.literal("handoff.cancel"), id: z.uuid() }).strict(),
+	/**
+	 * Start the fresh conversation from an automatic note, named by its
+	 * notice, as Continue does; `text` is then sent as its second message.
+	 */
+	z
+		.object({
+			type: z.literal("handoff.auto.continue"),
+			id: z.uuid(),
+			text: z.string().min(1).max(MAX_CHAT_TEXT_CHARS).optional(),
+			attachments: Attachments.optional(),
+		})
+		.strict(),
 	/** Send a failed fresh start's first message again, naming its divider. */
 	z.object({ type: z.literal("handoff.resend"), id: z.uuid() }).strict(),
 	/** Retitle the conversation; the host cleans the title (ADR 0074). */

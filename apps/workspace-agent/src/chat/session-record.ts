@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CodingAgent, TerminalId } from "@portikus/contracts";
+import {
+	ChatCacheFigures,
+	CodingAgent,
+	HandoffNotice,
+	TerminalId,
+} from "@portikus/contracts";
 import { z } from "zod";
 import type { ChatEventBody } from "./agent.js";
 import { HandoffSegment } from "./handoff.js";
@@ -193,4 +198,56 @@ export async function takeSwapState(
 		return { state, switched: false };
 	}
 	return { state: await readSwapState(homeDir, tab), switched: false };
+}
+
+/**
+ * The automatic handoff's state (SPEC.md §10.8): whether a note was written
+ * in this idle period, and the notices to replay, each placed after the
+ * message that asked for its note. It holds the student's notes, so it
+ * stays in this private directory and is never logged (ADR 0012).
+ */
+export const AutoHandoffRecord = z.object({
+	written: z.boolean(),
+	/** The latest context figures, whose cache the timer aims at. */
+	figures: z
+		.object({
+			usedTokens: z.number().int().nonnegative(),
+			windowTokens: z.number().int().positive().nullable(),
+			cache: ChatCacheFigures.nullable(),
+		})
+		.nullable(),
+	notices: z.array(
+		z.object({
+			notice: HandoffNotice,
+			/** The id of the message that asked for the note; null when it was not seen. */
+			after: z.string().nullable(),
+		}),
+	),
+});
+export type AutoHandoffRecord = z.infer<typeof AutoHandoffRecord>;
+
+const autoFile = (dir: string, tab: string) => join(dir, `${tab}.auto-handoff.json`);
+
+/** The tab's automatic handoff state, or null when it has none or it is unreadable. */
+export function readAutoHandoff(
+	homeDir: string,
+	tabId: string,
+): Promise<AutoHandoffRecord | null> {
+	const tab = TerminalId.parse(tabId);
+	return readJson(autoFile(chatSessionsDir(homeDir), tab), AutoHandoffRecord);
+}
+
+/** Save the tab's automatic handoff state; null forgets it, as a new conversation does. */
+export async function writeAutoHandoff(
+	homeDir: string,
+	tabId: string,
+	record: AutoHandoffRecord | null,
+): Promise<void> {
+	const tab = TerminalId.parse(tabId);
+	const dir = chatSessionsDir(homeDir);
+	if (record === null) {
+		await unlink(autoFile(dir, tab)).catch(() => undefined);
+		return;
+	}
+	await writePrivate(dir, autoFile(dir, tab), JSON.stringify(record));
 }

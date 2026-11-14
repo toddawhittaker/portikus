@@ -28,6 +28,7 @@ import {
 	type AppServerClient as Client,
 	spawnAppServer,
 } from "./app-server.js";
+import { codexCache } from "./cache.js";
 import { codexCommands, slashCommand } from "./commands.js";
 import { CodexContextWindows } from "./context-window.js";
 import { CodexHandoff, codexTranscript } from "./handoff.js";
@@ -437,7 +438,7 @@ export class CodexAgent implements ChatAgent {
 				this.context = {
 					usedTokens: Math.max(0, Math.round(usage.last.totalTokens)),
 					windowTokens,
-					cache: null,
+					cache: codexCache(this.settings.model, Date.now()),
 				};
 				this.sink.context(this.context, true);
 				return;

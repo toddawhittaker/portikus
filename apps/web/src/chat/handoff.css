@@ -1,3 +1,9 @@
+/* An automatic handoff notice's icon sits on its first line. */
+.pk-chat-auto-handoff-text > svg {
+	flex: none;
+	block-size: 1lh;
+}
+
 /* Where the chat changed agents: a rule either side of one quiet line. */
 .pk-chat-handoff {
 	display: flex;
@@ -71,4 +77,52 @@
 
 .pk-chat-handoff-card .pk-chat-plan {
 	max-block-size: max(12rem, 50cqb);
+}
+
+/* An automatic handoff's notice: a quiet note with its buttons below, not a divider. */
+.pk-chat-auto-handoff {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+}
+
+.pk-chat-auto-handoff-text {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-1);
+	overflow-wrap: anywhere;
+}
+
+.pk-chat-auto-handoff-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.pk-chat-auto-handoff-prompt {
+	block-size: 8rem;
+	padding-block: var(--space-2);
+	resize: vertical;
+	font-family: var(--font-mono);
+}
+
+/* The choice a send into a cold chat offers, above the message box. */
+.pk-cold-send {
+	min-inline-size: 0;
+	margin: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin-block-end: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+}
+
+.pk-cold-send-text {
+	flex: 1 1 20ch;
 }

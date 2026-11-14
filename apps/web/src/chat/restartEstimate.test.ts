@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import {
 	bestRestart,
 	estimateRestart,
@@ -13,8 +13,8 @@ import {
 const ONE_HOUR: PriceRatios = { read: 0.05, write: 2, surcharge: null };
 const FIVE_MINUTES: PriceRatios = { read: 0.05, write: 1.25, surcharge: null };
 const GPT: PriceRatios = {
-	read: 0.05,
-	write: 1,
+	read: 0.1,
+	write: 1.25,
 	surcharge: { above: 272_000, factor: 2 },
 };
 
@@ -27,9 +27,10 @@ test("the reference values", () => {
 		bestRun: 4,
 		restartAt: 138_000,
 	});
+	// Codex at read 0.1 and write 1.25 (it was 0.05 and 1: 4 messages, 56,000).
 	expect(bestRestart(24_000, 8000, 6, 475_000, GPT)).toEqual({
-		bestRun: 4,
-		restartAt: 56_000,
+		bestRun: 3,
+		restartAt: 48_000,
 	});
 });
 
@@ -48,9 +49,9 @@ test("price ratios by agent, model and cache length", () => {
 		factor: 5,
 	});
 	expect(priceRatios("codex", "gpt-6.1-codex", null)).toEqual(GPT);
-	expect(priceRatios("codex", "gpt-5", null)).toEqual({
+	expect(priceRatios("codex", "gpt-5.6", 1800)).toEqual({
 		read: 0.1,
-		write: 1,
+		write: 1.25,
 		surcharge: null,
 	});
 });
@@ -137,4 +138,30 @@ test("messages left is never negative", () => {
 		prices: ONE_HOUR,
 	});
 	expect(late.messagesLeft).toBe(0);
+});
+
+describe("a cold cache", () => {
+	// Used 300k, a fresh chat starting at S = 48k + 8k = 56k, read 0.05, write 2.
+	const inputs = {
+		usedTokens: 300_000,
+		windowTokens: 1_000_000,
+		firstUsedTokens: 48_000,
+		messagesSent: 1,
+		contextEvents: 14,
+		prices: ONE_HOUR,
+	};
+
+	test("prices the next message here as a re-write, so a fresh chat saves usage now", () => {
+		// Extra here: 1.95 x 300k = 585k; extra in a fresh chat: 1.95 x 56k = 109.2k.
+		expect(estimateRestart({ ...inputs, cold: true }).messagesLeft).toBe(0);
+	});
+
+	test("a warm or unknown cache keeps the renewal estimate", () => {
+		const small = { ...inputs, usedTokens: 56_000 };
+		const warm = estimateRestart(small);
+		expect(warm.messagesLeft).toBeGreaterThan(0);
+		// At the fresh chat's own size, a cold write costs the same either way.
+		expect(estimateRestart({ ...small, cold: true })).toEqual(warm);
+		expect(estimateRestart({ ...small, cold: false })).toEqual(warm);
+	});
 });

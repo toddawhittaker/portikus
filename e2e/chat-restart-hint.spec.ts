@@ -131,6 +131,8 @@ test("a reload keeps the estimate, from the counts the host keeps", async ({
 	await expect(view.getByText("second", { exact: true })).toBeVisible();
 	// Three requests a message, which a reloaded browser could not count itself.
 	await setUsed(id, 70_000, { startTokens: 30_000, messages: 2, requests: 7 });
+	// Read the estimate only once the new figures have reached the page.
+	await expect(view.getByTestId("composer-context")).toContainText("70.0k");
 	const sight = view.getByTestId("composer-restart").locator(".pk-ctx-sight");
 	await expect(sight).toHaveText(/^About \d+ more messages? before/);
 	const before = await sight.textContent();

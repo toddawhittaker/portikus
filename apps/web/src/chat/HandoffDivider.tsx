@@ -62,6 +62,8 @@ export interface FreshStartActions {
 	openNote: ((path: string) => void) | null;
 	/** Send a failed fresh start's first message again; false when it could not be sent. */
 	resend: (id: string) => boolean;
+	/** Start fresh from an automatic note, named by its notice. */
+	startFresh: (id: string) => boolean;
 }
 
 export const FreshStartContext = createContext<FreshStartActions | null>(null);

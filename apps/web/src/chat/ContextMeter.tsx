@@ -7,7 +7,8 @@
  * up as the window fills, at 25, 50 and 75%, and turns to the error look from 90%.
  *
  * A third item estimates how many more messages are worth sending before a
- * fresh chat would use less of the student's plan (restartEstimate.ts). Once
+ * fresh chat would use less of the student's plan (restartEstimate.ts), counting
+ * a cold cache's re-write when the cache has expired. Once
  * it would, a button beside it starts fresh with a handoff note, as
  * `/handoff` does.
  *
@@ -19,6 +20,7 @@ import { Button, Icon, Meter } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { stopTime } from "../shell/useCountdown.js";
+import { useCacheCold } from "./cacheCold.js";
 import type { ChatState, ChatStore } from "./chatStore.js";
 import { estimateRestart, priceRatios } from "./restartEstimate.js";
 
@@ -225,6 +227,7 @@ function CacheClock({
 export const RESTART_EXPLAINED =
 	"An estimate from API prices, assuming your plan's usage tracks them, based on how this chat has grown so far.";
 export const RESTART_NOW = "A fresh chat would now save usage";
+export const CACHE_EXPIRED = "The cache has expired.";
 export const HANDOFF_BUTTON = "Start fresh with a handoff";
 
 /** The visible words for this many messages left. */
@@ -235,7 +238,7 @@ export function restartText(messagesLeft: number): string {
 }
 
 /** Messages left before a fresh chat saves usage; null until there is enough to say. */
-function selectMessagesLeft(state: ChatState): number | null {
+function selectMessagesLeft(state: ChatState, cold: boolean): number | null {
 	const { context, growth, settings } = state;
 	if (!context || context.windowTokens === null || !settings) return null;
 	if (growth.firstUsedTokens === null) return null;
@@ -245,6 +248,7 @@ function selectMessagesLeft(state: ChatState): number | null {
 		firstUsedTokens: growth.firstUsedTokens,
 		messagesSent: growth.messagesSent,
 		contextEvents: growth.contextEvents,
+		cold,
 		prices: priceRatios(
 			settings.agent,
 			settings.model,
@@ -256,10 +260,13 @@ function selectMessagesLeft(state: ChatState): number | null {
 /** Mounted afresh for each conversation, so it announces at most once in one. */
 function RestartHint({
 	messagesLeft,
+	cold,
 	onAnnounce,
 	onHandoff,
 }: {
 	messagesLeft: number;
+	/** The cache has gone cold, so the next message here re-writes it. */
+	cold: boolean;
 	onAnnounce: (text: string) => void;
 	onHandoff: () => void;
 }) {
@@ -277,7 +284,7 @@ function RestartHint({
 			<span
 				className={`pk-ctx pk-ctx-restart${now ? " is-warning" : ""}`}
 				data-state={now ? "now" : "later"}
-				title={RESTART_EXPLAINED}
+				title={cold ? `${RESTART_EXPLAINED} ${CACHE_EXPIRED}` : RESTART_EXPLAINED}
 				data-testid="composer-restart"
 			>
 				<span className="pk-ctx-sight" aria-hidden={true}>
@@ -288,6 +295,7 @@ function RestartHint({
 				<span className="sr-only">
 					{now ? `${RESTART_NOW}. ` : "Fresh chat estimate. "}
 					{RESTART_EXPLAINED}
+					{cold ? ` ${CACHE_EXPIRED}` : null}
 				</span>
 			</span>
 			{now ? (
@@ -312,7 +320,8 @@ interface Props {
 
 export function ContextMeter({ store, onAnnounce }: Props) {
 	const context = useStore(store, (state) => state.context);
-	const messagesLeft = useStore(store, selectMessagesLeft);
+	const cold = useCacheCold(store);
+	const messagesLeft = useStore(store, (state) => selectMessagesLeft(state, cold));
 	// Always rendered, so its place is a line of the composer's bar only while it holds something.
 	return (
 		<div className="pk-ctx-row" data-testid="composer-meters">
@@ -339,6 +348,7 @@ export function ContextMeter({ store, onAnnounce }: Props) {
 					{messagesLeft === null ? null : (
 						<RestartHint
 							messagesLeft={messagesLeft}
+							cold={cold}
 							onAnnounce={onAnnounce}
 							onHandoff={() => store.getState().startHandoff()}
 						/>
