@@ -212,6 +212,7 @@ export const ElicitationRequest = z.object({
 		.object({
 			codex_approval_kind: z.string().optional(),
 			tool_name: z.string().optional(),
+			tool_params: z.unknown().optional(),
 		})
 		.nullable()
 		.optional(),

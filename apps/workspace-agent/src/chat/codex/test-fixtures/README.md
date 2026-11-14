@@ -2,8 +2,8 @@
 
 Recorded from a real `codex app-server` (Codex **0.167.1**, model
 `gpt-6.1-sol`, effort `low` unless noted) on the development host on
-2026-11-13, for Epic 66 task T0a (docs/EPIC-66.md). The Codex driver's tests
-replay these instead of a live Codex.
+2026-11-13, for the Codex chat driver (SPEC.md section 10.8). The driver's
+tests replay these instead of a live Codex.
 
 ## Format
 
@@ -42,7 +42,7 @@ Threads are `ephemeral: true` unless noted.
 
 ## What was scrubbed
 
-`scrub.py` (kept with the T0a notes, not in the repo) rewrote each raw
+A scrubbing script, not kept in the repo, rewrote each raw
 recording; the structure, field names, ordering, item types, statuses and
 numbers are unchanged.
 

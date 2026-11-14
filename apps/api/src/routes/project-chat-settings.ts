@@ -1,15 +1,15 @@
-import { ChatLastSettings, StoredChatSettings } from "@portikus/contracts";
+import {
+	ChatLastSettings,
+	CODEX_DEFAULT_MODE,
+	CODEX_FULL_ACCESS_MODE,
+	StoredChatSettings,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import type { OwnedProject, OwnedScope } from "../workspaces/project-scope.js";
-
-/** Codex's default mode: what a stored Full access falls to (SPEC.md §10.8). */
-const CODEX_DEFAULT_MODE = "onRequest";
-/** The Codex mode that switches its safety checks off, so it is never carried. */
-const CODEX_FULL_ACCESS = "fullAccess";
 
 /**
  * A stored value as a new chat reads it: Claude's Bypass permissions is
@@ -19,7 +19,7 @@ const CODEX_FULL_ACCESS = "fullAccess";
 function carriedSettings(stored: unknown) {
 	const settings = StoredChatSettings.parse(stored);
 	const { codex } = settings;
-	if (codex?.mode !== CODEX_FULL_ACCESS) return settings;
+	if (codex?.mode !== CODEX_FULL_ACCESS_MODE) return settings;
 	return { ...settings, codex: { ...codex, mode: CODEX_DEFAULT_MODE } };
 }
 

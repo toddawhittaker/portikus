@@ -263,8 +263,54 @@ describe("Codex items as chat rows", () => {
 		const steps = [{ step: "Read", status: "completed" }];
 		const first = valid(mapper.planSteps("t", steps));
 		const second = mapper.planSteps("t", steps);
-		expect(first[0]).toMatchObject({ name: "plan", input: { steps } });
+		expect(first[0]).toMatchObject({ name: "planSteps", input: { steps } });
 		expect(first[0]).not.toEqual(second[0]);
+	});
+
+	test("a replayed plan is Codex's words and a finished plan row with the same id", () => {
+		const events = replayTurns([
+			{
+				id: "t",
+				status: "completed",
+				items: [{ type: "plan", id: "p", text: "1. Do" }],
+			},
+		] as never);
+		expect(valid(events.slice(1, -1))).toEqual([
+			{ type: "message", id: "p", role: "assistant", markdown: "1. Do" },
+			{
+				type: "tool.started",
+				id: "p",
+				name: "plan",
+				title: "Plan",
+				input: { plan: "1. Do" },
+			},
+			{ type: "tool.finished", id: "p", isError: false },
+		]);
+	});
+
+	test("an MCP approval finds the running call with its arguments, skipping rows that hold a card", () => {
+		const mapper = new CodexItemMapper();
+		const call = (id: string, word: string, status = "inProgress") => ({
+			type: "mcpToolCall",
+			id,
+			server: "echo",
+			tool: "echo_word",
+			status,
+			arguments: { word },
+		});
+		mapper.started(call("done", "a"));
+		mapper.completed(call("done", "a", "completed"));
+		mapper.started(call("one", "a"));
+		mapper.started(call("two", "b"));
+		mapper.started(call("three", "a"));
+		const none = new Set<string>();
+		expect(mapper.mcpRow("echo", "echo_word", { word: "b" }, none)?.id).toBe("two");
+		expect(mapper.mcpRow("echo", "echo_word", { word: "a" }, none)?.id).toBe("one");
+		expect(
+			mapper.mcpRow("echo", "echo_word", { word: "a" }, new Set(["one"]))?.id,
+		).toBe("three");
+		expect(mapper.mcpRow("echo", "echo_word", undefined, none)?.id).toBe("one");
+		expect(mapper.mcpRow("echo", "other", undefined, none)).toBeUndefined();
 	});
 
 	test("the shell wrapper Codex adds is taken off", () => {

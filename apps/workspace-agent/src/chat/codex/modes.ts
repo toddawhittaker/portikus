@@ -1,4 +1,8 @@
-import type { ChatModeInfo } from "@portikus/contracts";
+import {
+	type ChatModeInfo,
+	CODEX_DEFAULT_MODE,
+	CODEX_FULL_ACCESS_MODE,
+} from "@portikus/contracts";
 
 /**
  * Codex's permission modes in the picker's five places, in Codex's own
@@ -30,7 +34,7 @@ export const CODEX_MODES: ChatModeInfo[] = [
 		plan: true,
 	},
 	{
-		id: "onRequest",
+		id: CODEX_DEFAULT_MODE,
 		label: "Auto",
 		description:
 			"Codex works in the project on its own and asks before going outside it.",
@@ -38,7 +42,7 @@ export const CODEX_MODES: ChatModeInfo[] = [
 		plan: false,
 	},
 	{
-		id: "fullAccess",
+		id: CODEX_FULL_ACCESS_MODE,
 		label: "Full access",
 		description: "Codex runs anything without asking and without a sandbox.",
 		warning: true,
@@ -50,11 +54,8 @@ export type CodexModeId =
 	| "untrusted"
 	| "readOnly"
 	| "plan"
-	| "onRequest"
-	| "fullAccess";
-
-/** What a chat starts at: Codex's own default. */
-export const CODEX_START_MODE: CodexModeId = "onRequest";
+	| typeof CODEX_DEFAULT_MODE
+	| typeof CODEX_FULL_ACCESS_MODE;
 
 export function isCodexMode(id: string): id is CodexModeId {
 	return CODEX_MODES.some((mode) => mode.id === id);
@@ -103,7 +104,7 @@ export function modePolicy(mode: CodexModeId, workspace: SandboxPolicy): ModePol
 				sandbox: "read-only",
 				sandboxPolicy: { type: "readOnly", networkAccess: false },
 			};
-		case "fullAccess":
+		case CODEX_FULL_ACCESS_MODE:
 			return {
 				approvalPolicy: "never",
 				sandbox: "danger-full-access",

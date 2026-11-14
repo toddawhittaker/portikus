@@ -68,6 +68,12 @@ export const CHAT_START_SETTINGS: {
 	mode: ChatPermissionMode;
 } = { model: "opus", effort: "medium", mode: "auto" };
 
+/** Codex's own default mode, Auto: where a Codex chat starts (SPEC.md §10.8). */
+export const CODEX_DEFAULT_MODE = "onRequest";
+
+/** Codex's Full access mode, which switches its safety checks off, so it is never carried into a new chat. */
+export const CODEX_FULL_ACCESS_MODE = "fullAccess";
+
 /** Most models one `models` event lists. */
 export const MAX_CHAT_MODELS = 50;
 

@@ -6,6 +6,7 @@ import {
 	type ChatMcpStatus,
 	ChatModelInfo,
 	type ChatShellItem,
+	CODEX_DEFAULT_MODE,
 	isShellCommand,
 	MAX_CHAT_MCP_SERVERS,
 	MAX_CHAT_MODELS,
@@ -23,8 +24,10 @@ import type {
 	ContextFigures,
 } from "../agent.js";
 import { ChatCore } from "../core.js";
+import { ELICITATION_NOTICE } from "../mcp-status.js";
 import { writeChatSession } from "../session-record.js";
 import { runningShell, shellRefusal, withoutKind } from "../shell-command.js";
+import { REPLAY_TURNS } from "../snapshot.js";
 import { ChatTitle } from "../titles.js";
 import {
 	AppServerClient,
@@ -44,18 +47,11 @@ import {
 	questionCard,
 } from "./cards.js";
 import { codexCommands, slashCommand } from "./commands.js";
-import {
-	REPLAYED_TURNS,
-	replayTurns,
-	shellItem,
-	turnStatus,
-	userShell,
-} from "./history.js";
+import { replayTurns, shellItem, turnStatus, userShell } from "./history.js";
 import { codexInput } from "./input.js";
-import { CodexItemMapper, type ToolRow, toolRow } from "./mapper.js";
+import { CodexItemMapper, planRow, type ToolRow, toolRow } from "./mapper.js";
 import {
 	CODEX_MODES,
-	CODEX_START_MODE,
 	type CodexModeId,
 	DEFAULT_WORKSPACE_SANDBOX,
 	isCodexMode,
@@ -100,8 +96,6 @@ const CODEX_APPS_SERVER = "codex_apps";
 
 export const SIGN_IN_MESSAGE =
 	"Sign in to Codex in a Codex (TUI) tab, or run codex login --device-auth";
-const ELICITATION_MESSAGE =
-	"An MCP server asked for input. Use a terminal tab to answer it.";
 const STOPPED_MESSAGE = "Codex stopped. Send a message to resume.";
 const START_FAILED_MESSAGE = "Codex could not start. Send a message to try again.";
 const BUSY_MESSAGE = "Wait for Codex to finish, or stop it first.";
@@ -180,6 +174,8 @@ export class CodexAgent implements ChatAgent {
 	private threadName: string | null = null;
 	private turnId: string | null = null;
 	private turnRunning = false;
+	/** A send is reading its attachments before its turn starts; a second send steers. */
+	private sending: Promise<void> | null = null;
 	/** Resolves once the running turn's id is known, for a steer. */
 	private turnStart: Promise<void> | null = null;
 	/** The turn has shown its error already. */
@@ -194,7 +190,7 @@ export class CodexAgent implements ChatAgent {
 	private readonly subagents: CodexSubagents;
 	private readonly title: ChatTitle;
 	private models: ChatModelInfo[] = [];
-	private settings: Settings = { model: "", effort: "", mode: CODEX_START_MODE };
+	private settings: Settings = { model: "", effort: "", mode: CODEX_DEFAULT_MODE };
 	private workspace: SandboxPolicy = DEFAULT_WORKSPACE_SANDBOX;
 	private context: ContextFigures | null = null;
 	private skills: SkillsList | null = null;
@@ -205,7 +201,10 @@ export class CodexAgent implements ChatAgent {
 	/** Aborted when the conversation ends, which closes its open cards. */
 	private ended = new AbortController();
 	/** Open cards by the app-server request they answer, so Codex can withdraw one. */
-	private readonly requests = new Map<RequestId, AbortController>();
+	private readonly requests = new Map<
+		RequestId,
+		{ cardId: string; withdrawn: AbortController }
+	>();
 
 	constructor(private readonly options: CodexHostOptions) {
 		this.subagents = new CodexSubagents({
@@ -242,12 +241,15 @@ export class CodexAgent implements ChatAgent {
 
 	async stop(): Promise<void> {
 		this.stopping = true;
-		this.client?.stop();
+		const client = this.client;
+		// Cleared first, so the exit it causes is not taken for a crash.
 		this.client = null;
+		client?.stop();
 	}
 
 	/** The app-server, started and on its thread; a stopped one is started again. */
 	private async ready(): Promise<Client> {
+		if (this.stopping) throw new Error(STOPPED_MESSAGE);
 		if (!this.client?.running) {
 			this.starting ??= this.boot().finally(() => {
 				this.starting = null;
@@ -256,7 +258,7 @@ export class CodexAgent implements ChatAgent {
 				throw new Error(START_FAILED_MESSAGE);
 			});
 		}
-		if (!this.client) throw new Error(STOPPED_MESSAGE);
+		if (!this.client || this.stopping) throw new Error(STOPPED_MESSAGE);
 		return this.client;
 	}
 
@@ -482,7 +484,7 @@ export class CodexAgent implements ChatAgent {
 				const open = resolved ? this.requests.get(resolved.requestId) : undefined;
 				if (resolved && open) {
 					this.requests.delete(resolved.requestId);
-					open.abort();
+					open.withdrawn.abort();
 				}
 				return;
 			}
@@ -686,8 +688,12 @@ export class CodexAgent implements ChatAgent {
 		card: Parameters<ChatSink["openCard"]>[0],
 		settle: (answer: CardAnswer, answerCodex: (result: unknown) => void) => CardOutcome,
 	): void {
+		// A card shows one request per id: an older one for the same item is declined first.
+		for (const open of [...this.requests.values()]) {
+			if (open.cardId === card.id) open.withdrawn.abort();
+		}
 		const withdrawn = new AbortController();
-		this.requests.set(requestId, withdrawn);
+		this.requests.set(requestId, { cardId: card.id, withdrawn });
 		const answerCodex = (result: unknown) => {
 			if (this.requests.delete(requestId)) client.respond(requestId, result);
 		};
@@ -752,10 +758,16 @@ export class CodexAgent implements ChatAgent {
 		const tool = request?._meta?.tool_name;
 		if (request?._meta?.codex_approval_kind !== "mcp_tool_call" || !tool) {
 			client.respond(requestId, { action: "decline", content: null, _meta: null });
-			this.sink.emit({ type: "error", message: ELICITATION_MESSAGE });
+			this.sink.emit({ type: "error", message: ELICITATION_NOTICE });
 			return;
 		}
-		const row = this.mapperOf(request.threadId).mcpRow(request.serverName, tool);
+		const taken = new Set([...this.requests.values()].map((open) => open.cardId));
+		const row = this.mapperOf(request.threadId).mcpRow(
+			request.serverName,
+			tool,
+			request._meta?.tool_params,
+			taken,
+		);
 		const card = mcpCard(row?.id ?? `mcp-${requestId}`, request.serverName, tool, row);
 		this.openCard(client, requestId, card, (answer, answerCodex) => {
 			const optionId = answer.type === "permission" ? answer.optionId : "decline";
@@ -780,12 +792,14 @@ export class CodexAgent implements ChatAgent {
 			return;
 		}
 		this.postState("needs-input");
+		const ended = this.ended.signal;
 		this.openCard(client, requestId, card, (answer, answerCodex) => {
 			// The answers may be secret: they go to Codex and nowhere else.
 			answerCodex(
 				questionAnswer(request, answer.type === "question" ? answer.answers : {}),
 			);
-			this.postState("working");
+			if (answer.type === "question") this.postState("working");
+			else if (ended.aborted) this.postState("finished");
 			return {};
 		});
 	}
@@ -793,20 +807,29 @@ export class CodexAgent implements ChatAgent {
 	/** A Plan turn ended with a plan: ask whether to carry it out. */
 	private askAboutPlan(plan: { id: string; text: string }): void {
 		this.postState("needs-input");
+		// The card's own row, so its decision has a row to land on.
+		this.sink.emit(planRow(plan.id, plan.text));
 		const card = planCard(plan.id, plan.text);
 		this.sink.openCard(
 			card,
 			(answer) => {
-				if (answer.type !== "permission") return {};
+				this.sink.emit({ type: "tool.finished", id: plan.id, isError: false });
+				if (answer.type !== "permission") {
+					this.postState("finished");
+					return {};
+				}
 				const decision = card.options.find(
 					(option) => option.id === answer.optionId,
 				)?.decision;
-				if (answer.optionId === PLAN_OPTION.keepPlanning) {
-					if (answer.message) void this.send(answer.message, []).catch(() => undefined);
-					else this.postState("finished");
+				if (answer.optionId === PLAN_OPTION.keepPlanning && !answer.message) {
+					this.postState("finished");
+				} else if (answer.optionId === PLAN_OPTION.keepPlanning) {
+					this.postState("working");
+					void this.send(answer.message ?? "", []).catch(() => undefined);
 				} else {
+					this.postState("working");
 					this.settings.mode =
-						answer.optionId === PLAN_OPTION.ask ? "untrusted" : "onRequest";
+						answer.optionId === PLAN_OPTION.ask ? "untrusted" : CODEX_DEFAULT_MODE;
 					this.broadcastSettings();
 					void this.send(IMPLEMENT_PLAN, []).catch(() => undefined);
 				}
@@ -838,6 +861,8 @@ export class CodexAgent implements ChatAgent {
 	}
 
 	async history(_turnRunning: boolean): ReturnType<ChatAgent["history"]> {
+		// An app-server that stopped is started again, so an attach still shows the conversation.
+		await this.ready().catch(() => null);
 		if (!this.threadId || !this.client) {
 			return { events: [], truncated: false, context: this.context };
 		}
@@ -860,7 +885,7 @@ export class CodexAgent implements ChatAgent {
 			TurnsList,
 			await client.request("thread/turns/list", {
 				threadId,
-				limit: REPLAYED_TURNS,
+				limit: REPLAY_TURNS,
 				sortDirection: "desc",
 				itemsView: "full",
 			}),
@@ -910,6 +935,25 @@ export class CodexAgent implements ChatAgent {
 		const command = attachments.length === 0 ? slashCommand(text) : null;
 		if (command) return this.runCommand(command.name, command.rest, text);
 		if (this.turnRunning) return this.steer(text, attachments);
+		while (this.sending) {
+			// An earlier send is still starting its turn; this one joins it.
+			await this.sending;
+			if (this.turnRunning) return this.steer(text, attachments);
+		}
+		const started = this.startTurn(text, attachments);
+		const sending = started.then(
+			() => undefined,
+			() => undefined,
+		);
+		this.sending = sending;
+		try {
+			await started;
+		} finally {
+			if (this.sending === sending) this.sending = null;
+		}
+	}
+
+	private async startTurn(text: string, attachments: ChatAttachment[]): Promise<void> {
 		const input = await codexInput(
 			this.options.homeDir,
 			this.options.projectDir,
@@ -930,7 +974,8 @@ export class CodexAgent implements ChatAgent {
 			sandboxPolicy: policy.sandboxPolicy,
 			...(model ? { model } : {}),
 			...(effort ? { effort } : {}),
-			// Sent only on a change, with Codex's own instructions for the mode.
+			// Sent only on a change. A null leaves Codex's own text for the mode, and
+			// the platform's managed developer instructions still apply.
 			...(collaboration !== this.collaboration
 				? {
 						collaborationMode: {
@@ -999,7 +1044,7 @@ export class CodexAgent implements ChatAgent {
 		command: string,
 		attachments: ChatAttachment[],
 	): Promise<void> {
-		if (this.turnRunning) {
+		if (this.turnRunning || this.sending) {
 			throw new Error(
 				"A shell command cannot run while Codex is working. Wait, or stop it first.",
 			);

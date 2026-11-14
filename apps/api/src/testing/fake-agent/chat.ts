@@ -329,7 +329,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		});
 		toolRow(id, {
 			id: "cx-7",
-			name: "plan",
+			name: "planSteps",
 			title: "Plan",
 			input: {
 				steps: [
@@ -346,6 +346,13 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			name: CODEX_MCP_CARD.toolName,
 			title: CODEX_MCP_CARD.title,
 			input: CODEX_MCP_CARD.input,
+		});
+		record(id, all, {
+			type: "tool.started",
+			id: CODEX_PLAN_CARD.id,
+			name: "plan",
+			title: "Plan",
+			input: { plan: CODEX_PLAN_CARD.plan ?? "" },
 		});
 		chat.openCards.push(CODEX_MCP_CARD, CODEX_PLAN_CARD, CODEX_QUESTION_CARD);
 		emit(id, all, { type: "permission.requested", ...withoutType(CODEX_MCP_CARD) });
@@ -380,6 +387,10 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			id: message.id,
 			...(decision ? { decision } : {}),
 		});
+		// The plan's row ends with its answer, as on the real host.
+		if (card.id === CODEX_PLAN_CARD.id) {
+			record(id, chat.sockets, { type: "tool.finished", id: card.id, isError: false });
+		}
 		// Only a question with a tool row (Claude's) has a result to show.
 		if (message.type === "question.answer" && card.id === QUESTION_CARD.id) {
 			record(id, chat.sockets, {
