@@ -36,7 +36,7 @@ import { ChatAgentContext } from "./chatAgent.js";
 import type { ChatState } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { type FileOpener, MessageList } from "./MessageList.js";
-import { PermissionCard } from "./PermissionCard.js";
+import { PermissionCard, permissionHeading } from "./PermissionCard.js";
 import { QuestionCard } from "./QuestionCard.js";
 import {
 	overlayOpen,
@@ -53,7 +53,6 @@ import {
 	takeSubagentRequest,
 	useSubagentRequest,
 } from "./subagentView.js";
-import { toolLabel } from "./toolView.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -102,9 +101,9 @@ function announcement(state: ChatState): string {
 
 function cardAnnouncement(card: ChatOpenCard, name: string): string {
 	if (card.type === "permission") {
-		return card.plan !== undefined
-			? `${name} has a plan for you to review.`
-			: `${name} wants to use ${toolLabel(card.toolName, card.input)}.`;
+		// The words of the card's heading, said as a sentence unless it asks.
+		const heading = permissionHeading(card, name);
+		return heading.endsWith("?") ? heading : `${heading}.`;
 	}
 	return card.questions.length === 1
 		? `${name} has a question: ${card.questions[0]?.question ?? ""}`

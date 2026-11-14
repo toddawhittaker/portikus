@@ -20,10 +20,12 @@ import { useAgentStatus } from "../terminal/codingAgentStatus.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
 import type { ChatToolItem } from "./chatStore.js";
 import { useChatImages } from "./ImageViewer.js";
+import { PlanText } from "./PermissionCard.js";
 import { SubagentOpenerContext } from "./subagentView.js";
 import {
 	collabReceivers,
 	type FileChangeView,
+	type PlanStepView,
 	type ToolDetail,
 	type ToolLine,
 	toolLine,
@@ -69,15 +71,44 @@ const FILE_CHANGE_WORD = {
 	move: "Moved",
 } as const;
 
-/** A file a call changed, headed by its name and drawn as its diff. */
+/**
+ * A file a call changed, headed by its name and drawn as its diff. The group
+ * is named by its path line, which says in words what happened to the file;
+ * it is not a region, so a long change does not fill the landmark list.
+ */
 function FileChange({ file }: { file: FileChangeView }) {
+	const pathId = useId();
 	return (
-		<section aria-label={`${FILE_CHANGE_WORD[file.kind]} ${file.path}`}>
-			<p className="pk-chat-tool-path pk-mono-body">
+		// biome-ignore lint/a11y/useSemanticElements: a fieldset is a form control's group; this names a file's diff
+		<div role="group" aria-labelledby={pathId}>
+			<p id={pathId} className="pk-chat-tool-path pk-mono-body">
+				<span className="sr-only">{FILE_CHANGE_WORD[file.kind]} </span>
 				{file.movePath ? `${file.path} \u2192 ${file.movePath}` : file.path}
 			</p>
 			<DiffBlock lines={file.lines} path={file.movePath ?? file.path} />
-		</section>
+		</div>
+	);
+}
+
+const STEP_WORD: Record<PlanStepView["state"], string> = {
+	done: "Done",
+	inProgress: "In progress",
+	todo: "To do",
+};
+
+/** A plan's steps as a list, each with its state in words. */
+function PlanSteps({ steps }: { steps: PlanStepView[] }) {
+	return (
+		<ol className="pk-chat-steps">
+			{steps.map((step, at) => (
+				// A plan's steps keep their order, so position is their identity.
+				// biome-ignore lint/suspicious/noArrayIndexKey: see above
+				<li key={at} className={`is-${step.state}`}>
+					<span className="pk-chat-step-state">{STEP_WORD[step.state]}</span>{" "}
+					{step.step}
+				</li>
+			))}
+		</ol>
 	);
 }
 
@@ -95,8 +126,10 @@ function Detail({ detail }: { detail: ToolDetail }) {
 			return (
 				<CodeBlock text={JSON.stringify(detail.value, null, 2) ?? ""} limit={40} />
 			);
-		case "text":
-			return <CodeBlock text={detail.text} />;
+		case "steps":
+			return <PlanSteps steps={detail.steps} />;
+		case "markdown":
+			return <PlanText text={detail.text} />;
 	}
 }
 
@@ -194,7 +227,13 @@ function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string 
 					: `Show subagent ${at + 1}'s conversation`
 			}
 			titleId={titleId}
-			onOpen={() => openSubagent({ toolUseId: child, title: SUBAGENT_TITLE })}
+			onOpen={() =>
+				openSubagent({
+					toolUseId: child,
+					// Numbered as the row numbers its buttons, so panels tell apart.
+					title: children.length === 1 ? SUBAGENT_TITLE : `${SUBAGENT_TITLE} ${at + 1}`,
+				})
+			}
 		/>
 	));
 }
@@ -273,7 +312,8 @@ export const ToolBlock = memo(function ToolBlock({ tool }: { tool: ChatToolItem 
 		detail?.kind === "edit" ||
 		detail?.kind === "write" ||
 		detail?.kind === "files" ||
-		detail?.kind === "text";
+		detail?.kind === "steps" ||
+		detail?.kind === "markdown";
 	const launch = isBackgroundLaunch(tool);
 	const titleId = useId();
 

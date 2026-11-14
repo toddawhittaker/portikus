@@ -81,9 +81,7 @@ export function McpServers({
 								className="pk-mcp-row"
 								data-testid={`composer-mcp-${server.name}`}
 							>
-								<span className="pk-mcp-name" title={server.name}>
-									{server.name}
-								</span>{" "}
+								<span className="pk-mcp-name">{server.name}</span>{" "}
 								<span className="pk-mcp-status" data-status={server.status}>
 									<span className="pk-mcp-dot" aria-hidden={true} />
 									{MCP_STATUS_WORDS[server.status]}

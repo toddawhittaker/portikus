@@ -36,7 +36,15 @@ export type ToolDetail =
 	| { kind: "files"; files: FileChangeView[] }
 	/** What a tool was called with, when that is the part worth reading. */
 	| { kind: "arguments"; value: unknown }
-	| { kind: "text"; text: string };
+	/** A Codex plan's steps, each with where it stands. */
+	| { kind: "steps"; steps: PlanStepView[] }
+	/** Text written in Markdown, such as a plan the agent proposed. */
+	| { kind: "markdown"; text: string };
+
+export interface PlanStepView {
+	step: string;
+	state: "done" | "inProgress" | "todo";
+}
 
 export interface ToolView {
 	/** One line for the collapsed row; empty when nothing better than the title exists. */
@@ -228,22 +236,24 @@ function fileChangeView(input: Record<string, unknown>): ToolView | null {
 	};
 }
 
+function stepState(status: unknown): PlanStepView["state"] {
+	if (status === "completed") return "done";
+	return status === "inProgress" ? "inProgress" : "todo";
+}
+
 function planStepsView(input: Record<string, unknown>): ToolView | null {
 	if (!Array.isArray(input.steps)) return null;
-	const steps = input.steps.flatMap((step) =>
+	const steps = input.steps.flatMap((step): PlanStepView[] =>
 		isRecord(step) && typeof step.step === "string"
-			? [{ step: step.step, done: step.status === "completed" }]
+			? [{ step: step.step, state: stepState(step.status) }]
 			: [],
 	);
 	if (steps.length === 0) return null;
-	const done = steps.filter((step) => step.done).length;
+	const done = steps.filter((step) => step.state === "done").length;
 	return {
 		summary: `${done} of ${steps.length} steps done`,
 		literal: false,
-		detail: {
-			kind: "text",
-			text: steps.map((step) => `${step.done ? "[x]" : "[ ]"} ${step.step}`).join("\n"),
-		},
+		detail: { kind: "steps", steps },
 	};
 }
 
@@ -251,7 +261,7 @@ function planStepsView(input: Record<string, unknown>): ToolView | null {
 function planCardView(input: Record<string, unknown>): ToolView | null {
 	const plan = text(input, "plan");
 	if (plan === null) return null;
-	return { summary: "", literal: false, detail: { kind: "text", text: plan } };
+	return { summary: "", literal: false, detail: { kind: "markdown", text: plan } };
 }
 
 /** What a subagent tool acts on: "a subagent", "2 subagents", or all of them. */

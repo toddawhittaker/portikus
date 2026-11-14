@@ -427,12 +427,10 @@
 	font-size: var(--text-sm);
 }
 
-/* A long server name gives way before its state does. */
+/* A long server name wraps, whole, before its state gives way. */
 .pk-mcp-name {
 	min-inline-size: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 	color: var(--ink);
 }
 

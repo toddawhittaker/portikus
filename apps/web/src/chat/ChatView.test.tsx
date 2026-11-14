@@ -379,7 +379,7 @@ test("a card resolved elsewhere goes, and the next waiting card shows", () => {
 		"1 more request is waiting.",
 	);
 	expect(screen.getByTestId("chat-announcer").textContent).toBe(
-		"Claude wants to use Bash. 1 more request is waiting.",
+		"Claude wants to run a command. 1 more request is waiting.",
 	);
 	emit("card.resolved", { id: "p1" });
 	expect(screen.getAllByTestId("chat-permission-card")).toHaveLength(1);
@@ -438,7 +438,7 @@ test("typing in the composer keeps the keyboard when a card arrives", () => {
 	fireEvent.keyDown(box, { key: "Enter" });
 	expect(latest().sent).toEqual([{ type: "send", text: "and also", attachments: [] }]);
 	expect(screen.getByTestId("chat-announcer").textContent).toBe(
-		"Claude wants to use Bash.",
+		"Claude wants to run a command.",
 	);
 });
 
@@ -963,6 +963,37 @@ test("a card carrying a plan is announced as the agent's plan, and the byline na
 		options: [{ id: "allow", label: "Allow", decision: "allowed" }],
 	});
 	expect(screen.getByTestId("chat-announcer").textContent).toBe(
-		"Codex wants to use Bash.",
+		"Codex wants to run a command.",
 	);
+});
+
+test("a permission card is announced in the words of its heading, for both agents", () => {
+	draw();
+	snapshot();
+	const cases: [string, string, unknown][] = [
+		["claude", "Bash", { command: "ls" }],
+		["claude", "mcp__github__create_issue", { title: "Bug" }],
+		["codex", "commandExecution", { command: "ls", actions: [] }],
+		["codex", "mcpToolCall", { server: "github", tool: "create_issue", arguments: {} }],
+		["codex", "fileChange", { changes: [{ path: "a", kind: "add", diff: "x\n" }] }],
+		["codex", "dynamicToolCall", { tool: "lookup" }],
+	];
+	for (const [agent, toolName, input] of cases) {
+		emit("settings", { agent, model: "m", effort: "medium", mode: "auto" });
+		emit("permission.requested", {
+			id: "p",
+			toolName,
+			title: "",
+			input,
+			options: [{ id: "allow", label: "Allow" }],
+		});
+		const heading =
+			within(screen.getByTestId("chat-permission-card")).getByRole("heading")
+				.textContent ?? "";
+		// A heading with no ending mark is said as a sentence.
+		expect(screen.getByTestId("chat-announcer").textContent).toBe(
+			heading.endsWith("?") ? heading : `${heading}.`,
+		);
+		emit("card.resolved", { id: "p" });
+	}
 });
