@@ -203,7 +203,7 @@ the terminal are greyed out; `/model` and `/effort` open the pickers
 instead. The `@` list shows files only, and skips files your `.gitignore`
 leaves out.
 
-![The message box with the / menu open above the model, effort and permission pickers](images/student-chat-composer.png)
+![The message box with the / menu open above the Chat options button, which summarises the model, effort and permission mode](images/student-chat-composer.png)
 
 **Shell commands.** Start a message with `!` to run it as a shell command
 in the project folder. The box shows a Shell label while you type it. The
