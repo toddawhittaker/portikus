@@ -228,7 +228,7 @@ function fileChangeView(input: Record<string, unknown>): ToolView | null {
 	};
 }
 
-function planView(input: Record<string, unknown>): ToolView | null {
+function planStepsView(input: Record<string, unknown>): ToolView | null {
 	if (!Array.isArray(input.steps)) return null;
 	const steps = input.steps.flatMap((step) =>
 		isRecord(step) && typeof step.step === "string"
@@ -245,6 +245,13 @@ function planView(input: Record<string, unknown>): ToolView | null {
 			text: steps.map((step) => `${step.done ? "[x]" : "[ ]"} ${step.step}`).join("\n"),
 		},
 	};
+}
+
+/** The plan a plan card asked the student to approve, kept on its row once decided. */
+function planCardView(input: Record<string, unknown>): ToolView | null {
+	const plan = text(input, "plan");
+	if (plan === null) return null;
+	return { summary: "", literal: false, detail: { kind: "text", text: plan } };
 }
 
 /** What a subagent tool acts on: "a subagent", "2 subagents", or all of them. */
@@ -330,7 +337,9 @@ function knownView(name: string, input: unknown): ToolView | null {
 			return skill ? { summary: skill, literal: false, detail: null } : null;
 		}
 		case "plan":
-			return planView(input);
+			return planCardView(input);
+		case "planSteps":
+			return planStepsView(input);
 		case "collabAgentToolCall":
 			return collabView(input);
 		case "Read":
@@ -370,6 +379,8 @@ const TOOL_LABEL: Record<string, string> = {
 	imageView: "Image",
 	dynamicToolCall: "Tool",
 	collabAgentToolCall: "Subagent",
+	plan: "Plan",
+	planSteps: "Plan steps",
 };
 
 /** A tool's name for a list of the tools a run of calls used. */
@@ -381,8 +392,10 @@ export function toolLabel(name: string, input: unknown): string {
 
 /**
  * A call whose permission card asked for a plan to be approved, so its
- * decision reads "Plan approved". A card says so with its `plan`, which a
+ * decision reads "Plan approved": Claude's ExitPlanMode, or Codex's `plan`
+ * row, which carries the card's id. A card says so with its `plan`, which a
  * finished call no longer holds, so the call's own name stands in for it.
+ * Codex's `planSteps` row is a progress list and asks nothing.
  */
 export function isPlanCall(name: string): boolean {
 	return name === "ExitPlanMode" || name === "plan";
@@ -480,6 +493,14 @@ const VERBS: Record<string, { icon: ToolLine["icon"]; verb: Verb }> = {
 		verb: { done: "Used skill", doing: "Using skill", pending: "Use skill" },
 	},
 	plan: {
+		icon: "clipboard-list",
+		verb: {
+			done: "Proposed a plan",
+			doing: "Proposing a plan",
+			pending: "Propose a plan",
+		},
+	},
+	planSteps: {
 		icon: "clipboard-list",
 		verb: {
 			done: "Updated the plan",

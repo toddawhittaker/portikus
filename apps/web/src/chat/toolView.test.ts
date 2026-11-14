@@ -443,7 +443,7 @@ test("Codex's web search, image view, dynamic tool and plan read like their Clau
 		toolLine("dynamicToolCall", { tool: "lookup", arguments: {} }, "").detail,
 	).toBeNull();
 	const plan = toolLine(
-		"plan",
+		"planSteps",
 		{
 			steps: [
 				{ step: "Write a test", status: "completed" },
@@ -462,8 +462,27 @@ test("Codex's web search, image view, dynamic tool and plan read like their Clau
 		kind: "text",
 		text: "[x] Write a test\n[ ] Fix it\n[ ] Ship",
 	});
-	expect(toolLine("plan", { steps: [] }, "Plan").verb).toBeNull();
+	expect(toolLine("planSteps", { steps: [] }, "Plan").verb).toBeNull();
+	expect(toolLine("planSteps", {}, "Plan").verb).toBeNull();
+	// A steps input on the plan-card row is not a plan to read.
+	expect(
+		toolLine("plan", { steps: [{ step: "a", status: "pending" }] }, "").verb,
+	).toBeNull();
+});
+
+test("a plan card's own row shows the plan text, not a steps list", () => {
+	const plan = toolLine("plan", { plan: "## Steps\n\n1. Write a test" }, "");
+	expect([plan.verb?.done, plan.verb?.doing, plan.icon]).toEqual([
+		"Proposed a plan",
+		"Proposing a plan",
+		"clipboard-list",
+	]);
+	expect(plan.target).toBe("");
+	expect(plan.detail).toEqual({ kind: "text", text: "## Steps\n\n1. Write a test" });
+	expect(toolLine("plan", { plan: "" }, "Plan").verb).toBeNull();
 	expect(toolLine("plan", {}, "Plan").verb).toBeNull();
+	expect(toolLabel("plan", {})).toBe("Plan");
+	expect(toolLabel("planSteps", {})).toBe("Plan steps");
 });
 
 test("a Codex subagent tool is told in verbs like Claude's Agent rows", () => {
@@ -560,5 +579,6 @@ test("a group of calls names Codex's tools as a student reads them", () => {
 test("a plan decision is told for either agent's plan call", () => {
 	expect(isPlanCall("ExitPlanMode")).toBe(true);
 	expect(isPlanCall("plan")).toBe(true);
+	expect(isPlanCall("planSteps")).toBe(false);
 	expect(isPlanCall("Bash")).toBe(false);
 });
