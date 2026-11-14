@@ -198,6 +198,18 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					in this session" shows each rule and lets you revoke it.
 				</li>
 				<li>
+					Your Claude Code skills appear in the <code className="pk-mono-body">/</code>{" "}
+					menu, and <code className="pk-mono-body">/mcp</code> lists your MCP servers.
+					Servers and plugins are set up in a terminal; see{" "}
+					<a href="#student-agent-tools">Skills, MCP servers and plugins</a>.
+				</li>
+				<li>
+					To use Codex in the same chat, open <strong>Chat options</strong> and choose
+					Codex in the <strong>Agent</strong> menu. Portikus warns you first, and the
+					conversation goes with you. See{" "}
+					<a href="#student-codex-chat">Codex (GUI) and Codex (TUI)</a>.
+				</li>
+				<li>
 					Do not run a GUI tab and a TUI terminal on the same Claude session at once.
 					After a chat tab is closed, running{" "}
 					<code className="pk-mono-body">claude --resume</code> in a terminal continues

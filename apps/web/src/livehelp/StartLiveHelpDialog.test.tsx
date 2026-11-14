@@ -66,7 +66,7 @@ test("the consent text says what they see, that typing is off, and what typing g
 	expect(terms.textContent).toContain("Off. They can only watch");
 	expect(terms.textContent).toContain("Only you can turn typing on or off");
 	expect(screen.getByTestId("live-help-typing-risk").textContent).toContain(
-		"full shell as you. That includes your Git, Claude and SSH credentials",
+		"full shell as you. That includes your Git, Claude, Codex and SSH credentials",
 	);
 	expect(screen.getByTestId("live-help-typing-risk").textContent).toContain(
 		"your other terminals",

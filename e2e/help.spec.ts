@@ -342,6 +342,8 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Keep your workspace running while you are away",
 		"Terminals",
 		"Claude Code (GUI) and Claude Code (TUI)",
+		"Codex (GUI) and Codex (TUI)",
+		"Skills, MCP servers and plugins",
 		"Coding agent status, alerts and usage",
 		"Voice input in a terminal",
 		"Files and the editor",

@@ -702,9 +702,11 @@ If profiling later shows that the Node workspace agent uses excessive memory or 
 
 Do not introduce Go in P0 without a measured reason.
 
-### Chat host and the Claude Agent SDK
+### Chat host, the Claude Agent SDK and Codex app-server
 
 The chat tab (SPEC.md section 9.7, ADR 0069) uses `@anthropic-ai/claude-agent-sdk`, pinned exactly in `apps/workspace-agent/package.json`. It is pointed at the shared CLI with `pathToClaudeCodeExecutable=/opt/portikus/coding-agents/bin/claude`, so the tested CLI runs. `ignoredOptionalDependencies` in `pnpm-workspace.yaml` keeps the SDK's per-platform CLI binaries out of the lockfile and the package, and the .deb build fails if one appears.
+
+Since Epic 66 (ADR 0076) the chat host is one agent-neutral core (`apps/workspace-agent/src/chat/core.ts`) with a driver for each agent behind the `ChatAgent` interface (`chat/agent.ts`); the Claude driver is `chat/host.ts` and the Codex driver is `chat/codex/`. Codex is driven through `codex app-server`, a mode of the unmodified shared CLI (`/opt/portikus/coding-agents/bin/codex`) that speaks JSON-RPC over standard input and output. The driver starts one per chat tab over a private stdio pipe, so there is no network port, no WebSocket listener, no shared daemon and nothing to authenticate. It uses no SDK: the JSON-RPC client is a small file of our own (`chat/codex/app-server.ts`) with narrow Zod schemas for only the fields it reads, on the spawn pattern `codex-limits.ts` already uses. Recorded Codex 0.167.1 traffic in `chat/codex/test-fixtures/` is replayed by the tests (section 13), and a live check against a real Codex runs by hand, since CI has no sign-in. A third harness that speaks the Agent Client Protocol (ACP) would be a new driver behind the same interface.
 
 ## 11. Coding agents
 
@@ -1873,6 +1875,10 @@ Not selected: sending scores to the LMS gradebook through the LTI Assignment and
 ### Other ways to drive Claude Code for the chat tab
 
 Not selected (ADR 0069): Claude Code's raw stream-json mode, because we would re-implement its undocumented permission control protocol; ACP through `claude-agent-acp`, a third-party layer on the same SDK; and a hook-only question card, which cannot render a full chat. The hook-based card remains a possible addition for terminals.
+
+### Other ways to drive Codex for the chat tab, and ACP adapters for Claude and Codex
+
+Not selected (ADR 0076): the Codex TypeScript SDK, because it has no approvals, so a permission card, a question or a plan card cannot work; the app-server WebSocket listener and shared daemon, because a network port needs authentication and a shared daemon keeps the environment of the first terminal that started it; and ACP adapters (`claude-agent-acp` and a Codex adapter) for Claude and Codex, because ACP's common protocol loses features Portikus ships (revocable session rules, plan limits, the cache countdown, titles, `!` commands, `/review` and the handoff between agents) and the Codex adapter runs about two weeks behind Codex releases. ACP stays the path for later harnesses (Oh My Pi, DeepSeek Harness, Kimi Code, OpenCode and Gemini CLI all speak it), as a new driver behind the `ChatAgent` interface.
 
 ## 36. Portability requirement
 

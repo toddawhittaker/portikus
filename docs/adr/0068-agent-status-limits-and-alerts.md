@@ -81,6 +81,10 @@ prompts, replies or terminal output to learn any of this (STACK.md section
   minute's poll.
 - Turning the Codex daemon off gives up whatever the daemon would have
   shared between sessions. Nothing Portikus uses depends on it.
+- Since Epic 66 (ADR 0076), the Codex hooks, the daemon switch and the metrics
+  settings live in `/etc/codex/managed_config.toml`, because a student's own
+  `~/.codex/config.toml` overrides the system config but not the managed one.
+  "Codex's system config" in items 1 and 3 now means the managed file.
 - Unread marks and the 85 percent warning memory do not survive a reload or
   move between browsers. Both are kept in the page or in the browser.
 
