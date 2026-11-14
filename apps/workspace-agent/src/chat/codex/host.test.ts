@@ -315,6 +315,23 @@ describe("a turn", () => {
 		});
 	});
 
+	test("a second message sent before the first turn starts steers it", async () => {
+		const { agent, server } = await setup();
+		const first = agent.send("one", []);
+		const shell = agent.send("!ls", []);
+		await Promise.all([first, agent.send("two", []), agent.send("three", [])]);
+		await expect(shell).rejects.toThrow("shell command cannot run");
+		expect(server().requests("turn/start")).toHaveLength(1);
+		expect(
+			server()
+				.requests("turn/steer")
+				.map((steer) => steer.params?.input),
+		).toEqual([
+			[{ type: "text", text: "two", text_elements: [] }],
+			[{ type: "text", text: "three", text_elements: [] }],
+		]);
+	});
+
 	test("an image is handed over by path, and the message names it", async () => {
 		const { agent, server, projectDir } = await setup();
 		await agent.send("what is this", [{ path: "red.png" }]);
@@ -556,6 +573,72 @@ describe("approvals", () => {
 		expect(server().reply(0)).toBeUndefined();
 	});
 
+	test("a second approval for the same item declines the first before replacing its card", async () => {
+		const { agent, server, got } = await setup();
+		await agent.send("go", []);
+		const approval = (id: number) => ({
+			method: "item/commandExecution/requestApproval",
+			id,
+			params: { threadId: MAIN, turnId: "t", itemId: "c1", command: "ls" },
+		});
+		server().push(approval(7));
+		await vi.waitFor(() => expect(got.cards.get("c1")).toBeDefined());
+		server().push(approval(8));
+		await vi.waitFor(() =>
+			expect(server().reply(7)?.result).toEqual({ decision: "decline" }),
+		);
+		expect(got.cards.size).toBe(1);
+		await got.cards.get("c1")?.settle({ type: "permission", optionId: "accept" });
+		expect(server().reply(8)?.result).toEqual({ decision: "accept" });
+	});
+
+	test("an MCP approval lands on the running call it is about when two run at once", async () => {
+		const { agent, server, got } = await setup();
+		await agent.send("echo twice", []);
+		for (const [id, word] of [
+			["m1", "a"],
+			["m2", "b"],
+		]) {
+			server().push({
+				method: "item/started",
+				params: {
+					threadId: MAIN,
+					item: {
+						type: "mcpToolCall",
+						id,
+						server: "echo",
+						tool: "echo_word",
+						status: "inProgress",
+						arguments: { word },
+					},
+				},
+			});
+		}
+		const elicitation = (id: number, word: string) => ({
+			method: "mcpServer/elicitation/request",
+			id,
+			params: {
+				threadId: MAIN,
+				serverName: "echo",
+				mode: "form",
+				_meta: {
+					codex_approval_kind: "mcp_tool_call",
+					tool_name: "echo_word",
+					tool_params: { word },
+				},
+			},
+		});
+		server().push(elicitation(1, "a"));
+		server().push(elicitation(2, "b"));
+		await vi.waitFor(() => expect(got.cards.size).toBe(2));
+		expect(got.cards.get("m1")?.card).toMatchObject({
+			input: { arguments: { word: "a" } },
+		});
+		expect(got.cards.get("m2")?.card).toMatchObject({
+			input: { arguments: { word: "b" } },
+		});
+	});
+
 	test("an approval for an item not seen yet still shows the command", async () => {
 		const { agent, server, got } = await setup();
 		await agent.send("go", []);
@@ -773,6 +856,104 @@ describe("Plan mode and questions", () => {
 		}
 		expect(states.at(-1)).toBe("finished");
 		expect(got.settings.at(-1)?.mode).toBe("plan");
+	});
+
+	test("the plan card has its own row, which its answer finishes, and the tab goes back to working", async () => {
+		const { agent, server, got, states } = await setup();
+		await agent.set({ mode: "plan" });
+		await agent.send("plan", []);
+		server().push({
+			method: "turn/started",
+			params: { threadId: MAIN, turn: { id: "t", status: "inProgress" } },
+		});
+		server().push({
+			method: "item/completed",
+			params: { threadId: MAIN, item: { type: "plan", id: "p", text: "1. Go" } },
+		});
+		server().push({
+			method: "turn/completed",
+			params: { threadId: MAIN, turn: { id: "t", status: "completed" } },
+		});
+		await vi.waitFor(() => expect(got.cards.get("p")).toBeDefined());
+		expect(got.events.at(-1)).toEqual({
+			type: "tool.started",
+			id: "p",
+			name: "plan",
+			title: "Plan",
+			input: { plan: "1. Go" },
+		});
+		expect(states).toEqual(["needs-input"]);
+		await got.cards
+			.get("p")
+			?.settle({ type: "permission", optionId: "implement-auto" });
+		expect(got.events).toContainEqual({
+			type: "tool.finished",
+			id: "p",
+			isError: false,
+		});
+		expect(states).toEqual(["needs-input", "working"]);
+	});
+
+	test("a card closed without an answer never posts working; one closed by the conversation's end posts finished", async () => {
+		const { agent, server, got, states } = await setup();
+		await agent.send("ask me", []);
+		server().push({
+			method: "item/tool/requestUserInput",
+			id: 21,
+			params: {
+				threadId: MAIN,
+				turnId: "t",
+				itemId: "q",
+				questions: [{ id: "k", header: "Pick", question: "Which?", options: null }],
+			},
+		});
+		await vi.waitFor(() => expect(got.cards.get("q")).toBeDefined());
+		server().push({
+			method: "serverRequest/resolved",
+			params: { threadId: MAIN, requestId: 21 },
+		});
+		await vi.waitFor(() => expect(got.cards.size).toBe(0));
+		expect(states).toEqual(["needs-input"]);
+		server().push({
+			...{ method: "item/tool/requestUserInput", id: 22 },
+			params: {
+				threadId: MAIN,
+				turnId: "t",
+				itemId: "q2",
+				questions: [{ id: "k", header: "Pick", question: "Which?", options: null }],
+			},
+		});
+		await vi.waitFor(() => expect(got.cards.get("q2")).toBeDefined());
+		server().exit();
+		await vi.waitFor(() => expect(got.cards.size).toBe(0));
+		expect(states).toEqual(["needs-input", "needs-input", "finished"]);
+	});
+
+	test("a plan card closed by /new clears needs-input", async () => {
+		const { agent, server, got, states } = await setup();
+		await agent.set({ mode: "plan" });
+		await agent.send("plan", []);
+		server().push({
+			method: "turn/started",
+			params: { threadId: MAIN, turn: { id: "t", status: "inProgress" } },
+		});
+		server().push({
+			method: "item/completed",
+			params: { threadId: MAIN, item: { type: "plan", id: "p", text: "1. Go" } },
+		});
+		server().push({
+			method: "turn/completed",
+			params: { threadId: MAIN, turn: { id: "t", status: "completed" } },
+		});
+		await vi.waitFor(() => expect(got.cards.get("p")).toBeDefined());
+		await agent.send("/new", []);
+		expect(got.cards.size).toBe(0);
+		expect(states).toEqual(["needs-input", "finished"]);
+		expect(got.events).toContainEqual({
+			type: "tool.finished",
+			id: "p",
+			isError: false,
+		});
 	});
 
 	test("a question the card cannot show is skipped with a line saying so", async () => {
@@ -1216,6 +1397,22 @@ describe("when app-server stops", () => {
 		await expect(agent.send("hello", [])).rejects.toThrow("Codex could not start");
 	});
 
+	test("an attach after app-server stopped starts it again and still shows the conversation", async () => {
+		const { agent, servers, server } = await setup({ sessionId: MAIN });
+		server().exit();
+		const history = await agent.history(false);
+		expect(servers).toHaveLength(2);
+		expect(history.events.length).toBeGreaterThan(0);
+	});
+
+	test("nothing starts app-server again once the host is stopping", async () => {
+		const { agent, servers } = await setup();
+		await agent.stop();
+		await expect(agent.send("hello", [])).rejects.toThrow();
+		expect(await agent.history(false)).toMatchObject({ events: [] });
+		expect(servers).toHaveLength(1);
+	});
+
 	test("stopping the host ends app-server quietly", async () => {
 		const { agent, got } = await setup();
 		await agent.stop();
@@ -1303,6 +1500,96 @@ describe("through the chat core", () => {
 				}),
 			);
 			socket.destroy();
+		} finally {
+			await host.stop();
+		}
+	});
+	test("a plan decision lands on the plan's row, live and on a later attach", async () => {
+		home = await mkdtemp(join(tmpdir(), "pk-codex-plan-"));
+		const projectDir = join(home, "projects", "demo");
+		await mkdir(projectDir, { recursive: true });
+		const servers: FakeAppServer[] = [];
+		const planTurn = {
+			id: "t",
+			status: "completed",
+			startedAt: 1,
+			completedAt: 2,
+			items: [{ type: "plan", id: "p", text: "1. Go" }],
+		};
+		const host = new CodexChatHost({
+			terminalId: randomUUID(),
+			sessionId: MAIN,
+			projectDir,
+			homeDir: home,
+			socketDir: join(home, "sock"),
+			log: collectingLogger().logger,
+			postTitle: async () => undefined,
+			postState: async () => undefined,
+			spawn: () => {
+				const server = new FakeAppServer({
+					...defaultHandlers(),
+					"thread/turns/list": () => ({ data: [planTurn], nextCursor: null }),
+				} as Handlers);
+				servers.push(server);
+				return server;
+			},
+		});
+		await host.start();
+		const attach = async () => {
+			const socket = connect(host.socketPath);
+			const frames: Record<string, unknown>[] = [];
+			readLines(socket, 16 * 1024 * 1024, (line) => frames.push(JSON.parse(line)));
+			await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+			await vi.waitFor(() =>
+				expect(frames.map((frame) => frame.type)).toContain("mcp"),
+			);
+			return { socket, frames };
+		};
+		try {
+			const live = await attach();
+			const send = (frame: unknown) => live.socket.write(`${JSON.stringify(frame)}\n`);
+			send({ type: "send", text: "/plan go", attachments: [] });
+			const server = servers[0] as FakeAppServer;
+			await vi.waitFor(() => expect(server.requests("turn/start")).toHaveLength(1));
+			server.push({
+				method: "turn/started",
+				params: { threadId: MAIN, turn: { id: "t", status: "inProgress" } },
+			});
+			server.push({
+				method: "item/completed",
+				params: { threadId: MAIN, item: planTurn.items[0] },
+			});
+			server.push({
+				method: "turn/completed",
+				params: { threadId: MAIN, turn: { id: "t", status: "completed" } },
+			});
+			await vi.waitFor(() =>
+				expect(live.frames.some((frame) => frame.type === "permission.requested")).toBe(
+					true,
+				),
+			);
+			expect(live.frames).toContainEqual(
+				expect.objectContaining({ type: "tool.started", id: "p", name: "plan" }),
+			);
+			send({ type: "permission.answer", id: "p", optionId: "keep-planning" });
+			await vi.waitFor(() =>
+				expect(live.frames).toContainEqual(
+					expect.objectContaining({
+						type: "card.resolved",
+						id: "p",
+						decision: "denied",
+					}),
+				),
+			);
+			live.socket.destroy();
+			const later = await attach();
+			expect(later.frames).toContainEqual(
+				expect.objectContaining({ type: "tool.started", id: "p", name: "plan" }),
+			);
+			expect(later.frames).toContainEqual(
+				expect.objectContaining({ type: "card.resolved", id: "p", decision: "denied" }),
+			);
+			later.socket.destroy();
 		} finally {
 			await host.stop();
 		}

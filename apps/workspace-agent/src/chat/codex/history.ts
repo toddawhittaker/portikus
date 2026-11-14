@@ -5,11 +5,13 @@ import {
 } from "@portikus/contracts";
 import type { ChatEventBody } from "../agent.js";
 import { splitAttachmentLines } from "../attachments.js";
-import { CodexItemMapper, shownCommand } from "./mapper.js";
+import { REPLAY_IMAGE_TURNS } from "../snapshot.js";
+import { CodexItemMapper, planRow, shownCommand } from "./mapper.js";
 import {
 	CommandItem,
 	ItemBase,
 	parsed,
+	TextItem,
 	type Turn,
 	UserMessageItem,
 } from "./protocol.js";
@@ -18,12 +20,10 @@ import {
  * A Codex thread's turns replayed as chat events for an attach (SPEC.md
  * §10.8): per turn `turn.started`, its items, then `turn.finished` unless
  * it is still running. A turn that only ran a `!` command replays as that
- * command. Images older than the last five turns are left out.
+ * command. A plan also replays as its row, which the plan card's
+ * decision lands on. Images older than the last REPLAY_IMAGE_TURNS turns
+ * are left out.
  */
-
-/** Turns replayed on attach, as for Claude. */
-export const REPLAYED_TURNS = 20;
-const IMAGE_TURNS = 5;
 
 export type TurnStatus = "done" | "interrupted" | "error";
 
@@ -110,7 +110,17 @@ function itemEvents(
 		completedAtMs?: unknown;
 	};
 	const unfinished = status === "inProgress" || (running && completedAtMs === null);
-	return unfinished ? mapper.started(item) : mapper.completed(item, { omitImages });
+	if (unfinished) return mapper.started(item);
+	const events = mapper.completed(item, { omitImages });
+	const plan = base.type === "plan" ? parsed(TextItem, item)?.text : undefined;
+	if (plan) {
+		events.push(planRow(base.id, plan), {
+			type: "tool.finished",
+			id: base.id,
+			isError: false,
+		});
+	}
+	return events;
 }
 
 /** Replay turns, oldest first. */
@@ -124,7 +134,7 @@ export function replayTurns(turns: readonly Turn[]): ChatEventBody[] {
 			events.push(...shells);
 			return;
 		}
-		const omitImages = index < turns.length - IMAGE_TURNS;
+		const omitImages = index < turns.length - REPLAY_IMAGE_TURNS;
 		const running = turn.status === "inProgress";
 		events.push({ type: "turn.started", at: seconds(turn.startedAt) });
 		for (const item of items)

@@ -584,8 +584,9 @@ test("a Codex chat's first turn uses the Codex tool shapes and opens every kind 
 		"webSearch",
 		"imageView",
 		"collabAgentToolCall",
-		"plan",
+		"planSteps",
 		"mcpToolCall",
+		"plan",
 	]);
 	const kinds = named("commandExecution").flatMap(
 		(one) => (one.input as { actions: { type: string }[] }).actions,
@@ -605,7 +606,7 @@ test("a Codex chat's first turn uses the Codex tool shapes and opens every kind 
 		tool: "spawnAgent",
 		receivers: [expect.any(String)],
 	});
-	expect(named("plan")[0]?.input).toMatchObject({
+	expect(named("planSteps")[0]?.input).toMatchObject({
 		steps: [{ step: expect.any(String), status: "completed" }, {}, {}],
 	});
 
@@ -617,7 +618,14 @@ test("a Codex chat's first turn uses the Codex tool shapes and opens every kind 
 	expect(mcp.id).toBe(named("mcpToolCall")[0]?.id);
 	expect(decisions(mcp.options)).toEqual(["allowed", "allowedAlways", "denied"]);
 	expect(plan.plan?.length).toBeGreaterThan(0);
-	expect(decisions(plan.options)).toEqual(["allowed", "denied"]);
+	// As the real host: the plan card's decision lands on its own row.
+	expect(named("plan")[0]).toMatchObject({ id: plan.id, input: { plan: plan.plan } });
+	expect(plan.options.map((option) => option.id)).toEqual([
+		"implement-auto",
+		"implement-ask",
+		"keep-planning",
+	]);
+	expect(decisions(plan.options)).toEqual(["allowed", "allowed", "denied"]);
 	const [freeText, secret] = question.questions;
 	if (!freeText || !secret) throw new Error("missing question");
 	expect(freeText.options).toEqual([]);
@@ -652,6 +660,24 @@ test("a Codex chat's first turn uses the Codex tool shapes and opens every kind 
 	expect(
 		all_(parsed(chat.frames), "tool.output").filter((one) => one.id === question.id),
 	).toEqual([]);
+
+	// The plan's answer finishes its row and lands its decision there.
+	chat.ws.send(
+		JSON.stringify({
+			type: "permission.answer",
+			id: plan.id,
+			optionId: "implement-ask",
+		}),
+	);
+	await expect
+		.poll(() =>
+			all_(parsed(chat.frames), "tool.finished").some((one) => one.id === plan.id),
+		)
+		.toBe(true);
+	expect(all_(parsed(chat.frames), "card.resolved").at(-1)).toMatchObject({
+		id: plan.id,
+		decision: "allowed",
+	});
 	late.ws.close();
 	chat.ws.close();
 });

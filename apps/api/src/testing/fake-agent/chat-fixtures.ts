@@ -103,17 +103,22 @@ const CODEX_PLAN = [
 	"3. Run the tests.",
 ].join("\n");
 
-/** Codex's plan card: a permission card that carries the plan. */
+/**
+ * Codex's plan card, as the real host words it: a permission card that
+ * carries the plan, opened after a `plan` row with the same id, which its
+ * decision lands on.
+ */
 export const CODEX_PLAN_CARD: Extract<ChatOpenCard, { type: "permission" }> = {
 	type: "permission",
 	id: "cx-plan",
 	toolName: "plan",
-	title: "Implement this plan?",
+	title: "Codex has a plan. Start working on it?",
 	input: {},
 	plan: CODEX_PLAN,
 	options: [
-		{ id: "implement", label: "Implement the plan", decision: "allowed" },
-		{ id: "keep", label: "Keep planning", decision: "denied" },
+		{ id: "implement-auto", label: "Yes, in Auto", decision: "allowed" },
+		{ id: "implement-ask", label: "Yes, and ask first", decision: "allowed" },
+		{ id: "keep-planning", label: "No, keep planning", decision: "denied" },
 	],
 };
 

@@ -17,6 +17,7 @@ import {
 	TextItem,
 	WebSearchItem,
 } from "./protocol.js";
+import { shortTitle } from "./title.js";
 
 /**
  * Codex items to chat events, under Codex's own tool names and the input
@@ -37,7 +38,6 @@ export interface ToolRow {
 /** Most tool output characters one row keeps; the rest stays in Codex's own record. */
 const MAX_TOOL_OUTPUT_CHARS = 65_536;
 const CUT = "\n… (shortened)";
-const MAX_TITLE_CHARS = 200;
 /** Most row ids remembered, so a long chat does not grow without bound. */
 const MAX_REMEMBERED_ROWS = 500;
 
@@ -58,12 +58,6 @@ const ACTIVITY_TOOL: Record<string, string> = {
 	interacted: "sendInput",
 	interrupted: "interruptAgent",
 };
-
-function title(text: string): string {
-	return text.length > MAX_TITLE_CHARS
-		? `${text.slice(0, MAX_TITLE_CHARS - 1)}…`
-		: text;
-}
 
 function capped(text: string): string {
 	return text.length > MAX_TOOL_OUTPUT_CHARS
@@ -135,7 +129,7 @@ export function toolRow(item: unknown): ToolRow | null {
 	const row = (name: string, text: string, input: unknown): ToolRow => ({
 		id: base.id,
 		name,
-		title: title(text),
+		title: shortTitle(text),
 		input: shortenedInput(input),
 	});
 	switch (base.type) {
@@ -259,6 +253,17 @@ function toolResult(item: unknown): { parts: ChatToolOutputPart[]; isError: bool
 	return { parts: [], isError: failed };
 }
 
+/** The plan a Plan turn ended with, as the row its card's decision lands on. */
+export function planRow(id: string, plan: string): ChatEventBody {
+	return {
+		type: "tool.started",
+		id,
+		name: "plan",
+		title: "Plan",
+		input: shortenedInput({ plan }),
+	};
+}
+
 /**
  * Maps one thread's items. It remembers which rows it has started, so a
  * finished item never draws twice and one seen only finished still draws,
@@ -266,6 +271,8 @@ function toolResult(item: unknown): { parts: ChatToolOutputPart[]; isError: bool
  */
 export class CodexItemMapper {
 	private readonly rows = new Map<string, ToolRow>();
+	/** Rows started and not yet finished, oldest first. */
+	private readonly running = new Set<string>();
 	private planUpdates = 0;
 
 	/** The row an item drew, for its approval card. */
@@ -273,20 +280,42 @@ export class CodexItemMapper {
 		return this.rows.get(id);
 	}
 
-	/** The latest MCP tool row for this server and tool, which an MCP approval is about. */
-	mcpRow(server: string, tool: string): ToolRow | undefined {
-		return [...this.rows.values()].reverse().find((row) => {
-			const input = row.input as { server?: unknown; tool?: unknown } | null;
-			return (
-				row.name === "mcpToolCall" && input?.server === server && input?.tool === tool
-			);
-		});
+	/**
+	 * The running MCP call an approval is about. Codex's request names no
+	 * item, so this is the oldest unfinished call to this server and tool
+	 * with these arguments that holds no card yet.
+	 */
+	mcpRow(
+		server: string,
+		tool: string,
+		args: unknown,
+		taken: ReadonlySet<string>,
+	): ToolRow | undefined {
+		const wanted =
+			args === undefined
+				? undefined
+				: JSON.stringify(shortenedInput({ server, tool, arguments: args }));
+		for (const id of this.running) {
+			const row = this.rows.get(id);
+			const input = row?.input as { server?: unknown; tool?: unknown } | null;
+			if (
+				row?.name === "mcpToolCall" &&
+				input?.server === server &&
+				input?.tool === tool &&
+				!taken.has(row.id) &&
+				(wanted === undefined || JSON.stringify(row.input) === wanted)
+			) {
+				return row;
+			}
+		}
+		return undefined;
 	}
 
 	started(item: unknown): ChatEventBody[] {
 		const row = toolRow(item);
 		if (!row || this.rows.has(row.id)) return [];
 		this.remember(row);
+		this.running.add(row.id);
 		return [{ type: "tool.started", ...row }];
 	}
 
@@ -301,6 +330,7 @@ export class CodexItemMapper {
 			? []
 			: [{ type: "tool.started" as const, ...row }];
 		this.remember(row);
+		this.running.delete(row.id);
 		const { parts, isError } = toolResult(item);
 		const output: ChatEventBody[] = parts.map((part) => ({
 			type: "tool.output",
@@ -325,7 +355,7 @@ export class CodexItemMapper {
 			steps: steps.map((step) => ({ step: step.step, status: step.status })),
 		});
 		return [
-			{ type: "tool.started", id, name: "plan", title: "Plan", input },
+			{ type: "tool.started", id, name: "planSteps", title: "Plan", input },
 			{ type: "tool.finished", id, isError: false },
 		];
 	}
@@ -345,7 +375,10 @@ export class CodexItemMapper {
 		this.rows.set(row.id, row);
 		if (this.rows.size > MAX_REMEMBERED_ROWS) {
 			const oldest = this.rows.keys().next().value;
-			if (oldest !== undefined) this.rows.delete(oldest);
+			if (oldest !== undefined) {
+				this.rows.delete(oldest);
+				this.running.delete(oldest);
+			}
 		}
 	}
 }

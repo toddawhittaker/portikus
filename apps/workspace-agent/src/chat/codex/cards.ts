@@ -9,6 +9,7 @@ import {
 import { shortenedInput } from "../claude-adapter.js";
 import type { ToolRow } from "./mapper.js";
 import type { UserInputRequest } from "./protocol.js";
+import { shortTitle } from "./title.js";
 
 /**
  * The cards Codex's requests raise (SPEC.md §10.8). Each button carries
@@ -19,14 +20,6 @@ import type { UserInputRequest } from "./protocol.js";
 
 type PermissionCard = Extract<ChatOpenCard, { type: "permission" }>;
 type Option = PermissionCard["options"][number];
-
-const MAX_TITLE_CHARS = 200;
-
-function short(text: string): string {
-	return text.length > MAX_TITLE_CHARS
-		? `${text.slice(0, MAX_TITLE_CHARS - 1)}…`
-		: text;
-}
 
 const ALLOW: Option = { id: "accept", label: "Allow once", decision: "allowed" };
 const ALLOW_SESSION: Option = {
@@ -64,7 +57,7 @@ export function approvalCard(row: ToolRow, options: Option[]): PermissionCard {
 		type: "permission",
 		id: row.id,
 		toolName: row.name,
-		title: short(`Allow Codex to ${what}?`),
+		title: shortTitle(`Allow Codex to ${what}?`),
 		input: row.input,
 		options,
 	};
@@ -96,7 +89,7 @@ export function mcpCard(
 		type: "permission",
 		id,
 		toolName: "mcpToolCall",
-		title: short(`Allow ${server} to run ${tool}?`),
+		title: shortTitle(`Allow ${server} to run ${tool}?`),
 		input: row?.input ?? shortenedInput({ server, tool, arguments: null }),
 		options: MCP_OPTIONS,
 	};
