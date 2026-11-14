@@ -428,7 +428,7 @@ test("a Claude chat sends its five modes, its skills, and its MCP servers before
 		"Accept edits",
 		"Plan",
 		"Auto",
-		"Bypass",
+		"Bypass permissions",
 	]);
 	expect(modes.filter((mode) => mode.warning).map((mode) => mode.id)).toEqual([
 		"bypassPermissions",

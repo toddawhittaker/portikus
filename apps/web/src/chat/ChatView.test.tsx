@@ -930,3 +930,27 @@ test("a chat with history keeps its agent: the other is not offered yet", () => 
 	chooseAgent("Codex");
 	expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
 });
+
+test("a card carrying a plan is announced as the agent's plan, and the byline names the chat's agent", () => {
+	draw();
+	snapshot();
+	codexSettings();
+	emit("message", { id: "a1", role: "assistant", markdown: "Here is my answer." });
+	const log = screen.getByRole("list", { name: "Conversation" });
+	expect(within(log).getByText("Codex")).toBeTruthy();
+	expect(within(log).queryByText("Claude")).toBeNull();
+	emit("permission.requested", {
+		id: "cx-plan",
+		toolName: "plan",
+		title: "Implement this plan?",
+		input: {},
+		plan: "1. Read the test.",
+		options: [
+			{ id: "implement", label: "Implement the plan", decision: "allowed" },
+			{ id: "keep", label: "Keep planning", decision: "denied" },
+		],
+	});
+	expect(screen.getByTestId("chat-announcer").textContent).toBe(
+		"Codex has a plan for you to review.",
+	);
+});

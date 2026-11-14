@@ -154,7 +154,23 @@ test("the menu marks the current value as checked and the start value as Default
 	).toBe("Default. Thinks a little before acting.");
 });
 
+/** Claude Code's modes as its host lists them. */
+const CLAUDE_MODES = [
+	["default", "Ask", "Asks before it edits files or runs commands."],
+	["acceptEdits", "Accept edits", "Edits files on its own. Asks before commands."],
+	["plan", "Plan", "Reads and plans. Changes nothing."],
+	["auto", "Auto", "Runs what it judges safe. Asks about the rest."],
+	["bypassPermissions", "Bypass permissions", BYPASS_WARNING],
+].map(([id = "", label = "", description = ""]) => ({
+	id,
+	label,
+	description,
+	warning: id === "bypassPermissions",
+	plan: id === "plan",
+}));
+
 test("every choice says what it is for in a line of its own", () => {
+	store.setState({ modes: CLAUDE_MODES });
 	draw();
 	for (const name of ["Agent", "Model", "Version", "Effort", "Permissions"]) {
 		const menu = open(name);
@@ -223,7 +239,7 @@ test("a value other than the start value is set apart, and Bypass carries the wa
 	expect(warning?.textContent).toBe(BYPASS_WARNING);
 });
 
-test("the permission menu offers five modes and warns about Bypass before it is chosen", () => {
+test("a host that lists no modes still gets Claude's five, and Bypass warns before it is chosen", () => {
 	draw();
 	const menu = open("Permissions");
 	expect(

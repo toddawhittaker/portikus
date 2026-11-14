@@ -247,7 +247,7 @@ export const CLAUDE_MODES: ChatModeInfo[] = [
 	},
 	{
 		id: "bypassPermissions",
-		label: "Bypass",
+		label: "Bypass permissions",
 		description:
 			"Bypass permissions lets Claude run every tool without asking you first.",
 		warning: true,

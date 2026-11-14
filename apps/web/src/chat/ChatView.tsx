@@ -32,6 +32,7 @@ import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { useTerminals } from "../terminal/useTerminals.js";
 import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
+import { ChatAgentContext } from "./chatAgent.js";
 import type { ChatState } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { type FileOpener, MessageList } from "./MessageList.js";
@@ -100,7 +101,7 @@ function announcement(state: ChatState): string {
 
 function cardAnnouncement(card: ChatOpenCard, name: string): string {
 	if (card.type === "permission") {
-		return card.toolName === "ExitPlanMode"
+		return card.plan !== undefined
 			? `${name} has a plan for you to review.`
 			: `${name} wants to use ${card.toolName}.`;
 	}
@@ -355,156 +356,159 @@ function ChatViewBody({
 	const cardKey = card ? `${card.id}:${state.snapshotAt}` : "";
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: one shortcut for the whole chat, as a terminal has
-		<div
-			ref={root}
-			className="pk-chat"
-			data-testid={`chat-view-${terminalId}`}
-			onKeyDown={(event) => {
-				// Escape stops the speech, unless a menu or dialog is open and it is theirs.
-				if (event.key === "Escape" && speakingId() !== null && !overlayOpen()) {
-					stopReading();
-				}
-				if (!isLeaveShortcut(event.nativeEvent)) return;
-				event.preventDefault();
-				onLeave();
-			}}
-		>
-			<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
-				<div
-					ref={log}
-					className="pk-chat-scroll"
-					data-testid="chat-scroll"
-					onScroll={follow.onScroll}
-					// The subagent card floats over the log; the keyboard stays out from behind it.
-					inert={subagent !== null}
+		// The conversation's byline, cards and notes name this chat's agent.
+		<ChatAgentContext.Provider value={state.settings?.agent ?? "claude"}>
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: one shortcut for the whole chat, as a terminal has */}
+			<div
+				ref={root}
+				className="pk-chat"
+				data-testid={`chat-view-${terminalId}`}
+				onKeyDown={(event) => {
+					// Escape stops the speech, unless a menu or dialog is open and it is theirs.
+					if (event.key === "Escape" && speakingId() !== null && !overlayOpen()) {
+						stopReading();
+					}
+					if (!isLeaveShortcut(event.nativeEvent)) return;
+					event.preventDefault();
+					onLeave();
+				}}
+			>
+				<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
+					<div
+						ref={log}
+						className="pk-chat-scroll"
+						data-testid="chat-scroll"
+						onScroll={follow.onScroll}
+						// The subagent card floats over the log; the keyboard stays out from behind it.
+						inert={subagent !== null}
+					>
+						<div ref={content} className="pk-chat-column">
+							{!state.loaded ? (
+								<div className="pk-chat-loading" data-testid="chat-loading">
+									<span className="sr-only">Loading the conversation…</span>
+									<Skeleton lines={3} width="60%" />
+								</div>
+							) : state.items.length === 0 && state.currentTurnId === null ? (
+								<div className="pk-chat-empty" data-testid="chat-empty">
+									<p className="pk-chat-empty-title">No messages yet</p>
+									<p className="pk-chat-muted">
+										Ask {program} about this project below, or start from one of these.
+										The conversation is kept in your workspace, not by Portikus.
+									</p>
+									<ul className="pk-chat-starters">
+										{STARTERS.map((starter) => (
+											<li key={starter}>
+												<button
+													type="button"
+													className="pk-chat-starter pk-focus-ring"
+													onClick={() => fillComposer(starter)}
+												>
+													{starter}
+												</button>
+											</li>
+										))}
+									</ul>
+								</div>
+							) : (
+								<SubagentOpenerContext.Provider value={openSubagent}>
+									<MessageList
+										items={state.items}
+										turns={state.turns}
+										currentTurnId={state.currentTurnId}
+										truncated={state.truncated}
+										asking={asking}
+										opener={opener}
+									/>
+								</SubagentOpenerContext.Provider>
+							)}
+						</div>
+					</div>
+					{subagent ? (
+						<SubagentPanel
+							chat={store}
+							target={subagent}
+							opener={opener}
+							onClose={() => setSubagent(null)}
+						/>
+					) : null}
+					{follow.away && !subagent ? (
+						<div className="pk-chat-jump">
+							<IconButton
+								icon="chevron-down"
+								label="Jump to latest"
+								variant="secondary"
+								className="pk-chat-jump-button"
+								data-testid="chat-jump"
+								data-fresh={follow.fresh || undefined}
+								aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
+								onClick={jumpToLatest}
+							/>
+							{follow.fresh ? (
+								<>
+									<span className="pk-chat-jump-dot" aria-hidden={true} />
+									<span id={`${ids}-fresh`} className="sr-only">
+										Something new arrived below
+									</span>
+								</>
+							) : null}
+						</div>
+					) : null}
+				</div>
+				<p
+					className="pk-chat-notice"
+					role="status"
+					aria-live="polite"
+					data-testid="chat-connection"
 				>
-					<div ref={content} className="pk-chat-column">
-						{!state.loaded ? (
-							<div className="pk-chat-loading" data-testid="chat-loading">
-								<span className="sr-only">Loading the conversation…</span>
-								<Skeleton lines={3} width="60%" />
-							</div>
-						) : state.items.length === 0 && state.currentTurnId === null ? (
-							<div className="pk-chat-empty" data-testid="chat-empty">
-								<p className="pk-chat-empty-title">No messages yet</p>
-								<p className="pk-chat-muted">
-									Ask {program} about this project below, or start from one of these.
-									The conversation is kept in your workspace, not by Portikus.
-								</p>
-								<ul className="pk-chat-starters">
-									{STARTERS.map((starter) => (
-										<li key={starter}>
-											<button
-												type="button"
-												className="pk-chat-starter pk-focus-ring"
-												onClick={() => fillComposer(starter)}
-											>
-												{starter}
-											</button>
-										</li>
-									))}
-								</ul>
-							</div>
+					{notice}
+				</p>
+				{card ? (
+					// biome-ignore lint/a11y/noStaticElementInteractions: only notes where focus was; the cards hold the controls
+					<div
+						className="pk-chat-cards"
+						data-testid="chat-cards"
+						onFocus={() => {
+							cardsHadFocus.current = true;
+						}}
+					>
+						{card.type === "question" ? (
+							<QuestionCard
+								key={cardKey}
+								card={card}
+								takeFocus={takeFocus}
+								waiting={waiting}
+								onAnswer={(answers, notes) =>
+									store.getState().answerQuestion(card.id, answers, notes)
+								}
+							/>
 						) : (
-							<SubagentOpenerContext.Provider value={openSubagent}>
-								<MessageList
-									items={state.items}
-									turns={state.turns}
-									currentTurnId={state.currentTurnId}
-									truncated={state.truncated}
-									asking={asking}
-									opener={opener}
-								/>
-							</SubagentOpenerContext.Provider>
+							<PermissionCard
+								key={cardKey}
+								card={card}
+								takeFocus={takeFocus}
+								waiting={waiting}
+								onAnswer={(optionId, extras) =>
+									store.getState().answerPermission(card.id, optionId, extras)
+								}
+							/>
 						)}
 					</div>
-				</div>
-				{subagent ? (
-					<SubagentPanel
-						chat={store}
-						target={subagent}
-						opener={opener}
-						onClose={() => setSubagent(null)}
+				) : null}
+				<SessionRules store={store} />
+				<div className="pk-chat-composer">
+					<Composer
+						store={store}
+						readAloud={readAloud}
+						workspaceId={workspaceId}
+						projectId={projectId}
+						terminalId={terminalId}
+						onSwitchAgent={switchAgent ?? undefined}
 					/>
-				) : null}
-				{follow.away && !subagent ? (
-					<div className="pk-chat-jump">
-						<IconButton
-							icon="chevron-down"
-							label="Jump to latest"
-							variant="secondary"
-							className="pk-chat-jump-button"
-							data-testid="chat-jump"
-							data-fresh={follow.fresh || undefined}
-							aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
-							onClick={jumpToLatest}
-						/>
-						{follow.fresh ? (
-							<>
-								<span className="pk-chat-jump-dot" aria-hidden={true} />
-								<span id={`${ids}-fresh`} className="sr-only">
-									Something new arrived below
-								</span>
-							</>
-						) : null}
-					</div>
-				) : null}
-			</div>
-			<p
-				className="pk-chat-notice"
-				role="status"
-				aria-live="polite"
-				data-testid="chat-connection"
-			>
-				{notice}
-			</p>
-			{card ? (
-				// biome-ignore lint/a11y/noStaticElementInteractions: only notes where focus was; the cards hold the controls
-				<div
-					className="pk-chat-cards"
-					data-testid="chat-cards"
-					onFocus={() => {
-						cardsHadFocus.current = true;
-					}}
-				>
-					{card.type === "question" ? (
-						<QuestionCard
-							key={cardKey}
-							card={card}
-							takeFocus={takeFocus}
-							waiting={waiting}
-							onAnswer={(answers, notes) =>
-								store.getState().answerQuestion(card.id, answers, notes)
-							}
-						/>
-					) : (
-						<PermissionCard
-							key={cardKey}
-							card={card}
-							takeFocus={takeFocus}
-							waiting={waiting}
-							onAnswer={(optionId, extras) =>
-								store.getState().answerPermission(card.id, optionId, extras)
-							}
-						/>
-					)}
 				</div>
-			) : null}
-			<SessionRules store={store} />
-			<div className="pk-chat-composer">
-				<Composer
-					store={store}
-					readAloud={readAloud}
-					workspaceId={workspaceId}
-					projectId={projectId}
-					terminalId={terminalId}
-					onSwitchAgent={switchAgent ?? undefined}
-				/>
+				<p className="sr-only" aria-live="polite" data-testid="chat-announcer">
+					{announcement(state)}
+				</p>
 			</div>
-			<p className="sr-only" aria-live="polite" data-testid="chat-announcer">
-				{announcement(state)}
-			</p>
-		</div>
+		</ChatAgentContext.Provider>
 	);
 }

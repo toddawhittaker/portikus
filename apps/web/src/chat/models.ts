@@ -253,47 +253,28 @@ export function offersEffort(
 }
 
 /**
- * Claude Code's modes, for a host that sends no list of its own. A host that
- * does send one is drawn from it, with its own words.
+ * Claude Code's mode names, for a host from before hosts listed their modes.
+ * Only Bypass keeps its words, since it must warn; the host's own list, with
+ * every mode's description, replaces this.
  */
-const FALLBACK_MODES: readonly ChatModeInfo[] = [
-	{
-		id: "default",
-		label: "Ask",
-		description: "Asks before it edits files or runs commands.",
-		warning: false,
-		plan: false,
-	},
-	{
-		id: "acceptEdits",
-		label: "Accept edits",
-		description: "Edits files on its own. Asks before commands.",
-		warning: false,
-		plan: false,
-	},
-	{
-		id: "plan",
-		label: "Plan",
-		description: "Reads and plans. Changes nothing.",
-		warning: false,
-		plan: true,
-	},
-	{
-		id: "auto",
-		label: "Auto",
-		description: "Runs what it judges safe. Asks about the rest.",
-		warning: false,
-		plan: false,
-	},
-	{
-		id: "bypassPermissions",
-		label: "Bypass permissions",
-		description:
-			"Bypass permissions lets Claude run every tool without asking you first.",
-		warning: true,
-		plan: false,
-	},
-];
+const FALLBACK_MODES: readonly ChatModeInfo[] = (
+	[
+		["default", "Ask"],
+		["acceptEdits", "Accept edits"],
+		["plan", "Plan"],
+		["auto", "Auto"],
+		["bypassPermissions", "Bypass permissions"],
+	] as const
+).map(([id, label]) => ({
+	id,
+	label,
+	description:
+		id === "bypassPermissions"
+			? "Bypass permissions lets Claude run every tool without asking you first."
+			: "",
+	warning: id === "bypassPermissions",
+	plan: id === "plan",
+}));
 
 /** The Permissions picker's modes: the host's list, or Claude Code's when it sent none. */
 export function modeChoices(modes: readonly ChatModeInfo[]): readonly ChatModeInfo[] {

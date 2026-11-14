@@ -148,8 +148,11 @@ test("each menu marks the current and the default value and says what every choi
 
 	await picker(view, "Agent").click();
 	const codex = menu(page, "Agent").getByRole("menuitemradio", { name: "Codex" });
+	// The chat has history, so it keeps its agent and says how to start the other.
 	await expect(codex).toHaveAttribute("aria-disabled", "true");
-	await expect(codex).toHaveAccessibleDescription("Coming soon.");
+	await expect(codex).toHaveAccessibleDescription(
+		"To use Codex now, start a new chat from the New tab menu.",
+	);
 	// Playwright will not click an aria-disabled item, so press it.
 	await codex.focus();
 	await page.keyboard.press("Enter");
@@ -780,7 +783,7 @@ test("a Codex chat's pickers draw the host's models, efforts and modes, and its 
 	);
 	await expectNoViolations(page);
 
-	// Kept under codex beside Claude's start values; Full access is never carried.
+	// Kept under codex with the agent; Full access is never carried.
 	await expect
 		.poll(async () => {
 			const [row] = await query<{ chat_settings: unknown }>(
@@ -790,9 +793,6 @@ test("a Codex chat's pickers draw the host's models, efforts and modes, and its 
 			return row?.chat_settings;
 		})
 		.toMatchObject({
-			model: "opus",
-			effort: "medium",
-			mode: "auto",
 			agent: "codex",
 			codex: { model: "gpt-5.5", effort: "ultra", mode: "onRequest" },
 		});
@@ -808,14 +808,12 @@ test("the MCP servers field in Chat options lists each server's state for both a
 	await openProject(page, student.workspaceId, project.id);
 	const claude = await withPickers(launchChat(page, student.workspaceId, project.id));
 	const codex = await launchCodexChat(page, student.workspaceId, project.id);
-	for (const { view, manage } of [
-		{ view: claude.view, manage: "claude mcp" },
-		{ view: codex.view, manage: "codex mcp" },
+	for (const { view, tab, manage } of [
+		{ view: claude.view, tab: /Claude Code \(GUI\)/, manage: "claude mcp" },
+		{ view: codex.view, tab: /Codex \(GUI\)/, manage: "codex mcp" },
 	]) {
-		if (!(await view.isVisible())) {
-			await page.getByRole("tab", { name: /Claude Code \(GUI\)/ }).click();
-			await openChatOptions(view);
-		}
+		await page.getByRole("tab", { name: tab }).click();
+		await openChatOptions(view);
 		const field = view.getByTestId("composer-mcp");
 		await expect(field).toHaveText(/MCP servers\s*1 of 2 connected/);
 		await field.click();
