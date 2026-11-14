@@ -358,7 +358,7 @@ class ClaudeAgent implements ChatAgent {
 	private requestMade(message: SDKMessage): void {
 		if (message.type !== "assistant") return;
 		const next = this.context.request(message, Date.now());
-		if (next) this.sink.context(next);
+		if (next) this.sink.context(next, true);
 	}
 
 	/**

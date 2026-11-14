@@ -12,6 +12,7 @@ import {
 	type ChatSessionRule,
 	type ChatSignIn,
 	type CodingAgent,
+	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -105,6 +106,11 @@ export class ChatCore {
 	/** Takes the chat back if no host replaces this one. */
 	private takeBackTimer: NodeJS.Timeout | null = null;
 	private closing: Promise<void> = Promise.resolve();
+	/**
+	 * How this conversation has grown, counted here so a reloading browser
+	 * keeps it (SPEC.md section 10.8). A resumed session counts from the resume.
+	 */
+	private growth = { startTokens: 0, messages: 0, requests: 0 };
 
 	private readonly sink: ChatSink = {
 		emit: (event) => this.relay(event),
@@ -132,7 +138,13 @@ export class ChatCore {
 			this.mcp = servers;
 			this.broadcast({ type: "mcp", servers });
 		},
-		context: (figures) => this.broadcast(this.contextEvent(figures)),
+		context: (figures, request) => {
+			if (request && figures.usedTokens > 0) {
+				if (this.growth.startTokens === 0) this.growth.startTokens = figures.usedTokens;
+				this.growth.requests += 1;
+			}
+			this.broadcast(this.contextEvent(figures));
+		},
 		signIn: (state) => {
 			this.signIn = state;
 			this.broadcast({ type: "signIn", state });
@@ -351,6 +363,7 @@ export class ChatCore {
 
 	private conversationReset(context: ContextFigures | null): void {
 		this.partial = null;
+		this.growth = { startTokens: 0, messages: 0, requests: 0 };
 		// A new conversation starts with nothing from before a swap.
 		if (this.swap) {
 			this.swap = null;
@@ -514,6 +527,8 @@ export class ChatCore {
 			case "send":
 				// Counted from arrival, so a swap cannot start while a turn is still starting.
 				this.sends += 1;
+				// A `!` command reaches no model, so it is not a message to it.
+				if (!isShellCommand(message.text)) this.growth.messages += 1;
 				try {
 					return await this.agent.send(message.text, message.attachments ?? []);
 				} finally {
@@ -568,7 +583,7 @@ export class ChatCore {
 	}
 
 	private contextEvent(context: ContextFigures): ChatEventBody {
-		return { type: "context", ...context, now: Date.now() };
+		return { type: "context", ...context, now: Date.now(), growth: { ...this.growth } };
 	}
 
 	private frame(event: ChatEventBody): string {

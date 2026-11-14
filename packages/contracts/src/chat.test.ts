@@ -564,6 +564,19 @@ describe("host clock and ignored plan mode", () => {
 		expect(ChatServerEvent.safeParse({ ...context, now: -1 }).success).toBe(false);
 	});
 
+	test("a context event may carry the host's growth counts, and an older host's need not", () => {
+		const growth = { startTokens: 900, messages: 2, requests: 5 };
+		expect(ChatServerEvent.safeParse({ ...context, growth }).success).toBe(true);
+		expect(
+			ChatServerEvent.safeParse({ ...context, growth: { ...growth, requests: -1 } })
+				.success,
+		).toBe(false);
+		expect(
+			ChatServerEvent.safeParse({ ...context, growth: { ...growth, messages: 1.5 } })
+				.success,
+		).toBe(false);
+	});
+
 	test("an older browser's permission answer with a mode still parses", () => {
 		const answer = { type: "permission.answer", id: "p", optionId: "allow-ask-edits" };
 		expect(ChatClientMessage.safeParse(answer).success).toBe(true);

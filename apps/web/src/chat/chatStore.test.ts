@@ -1108,3 +1108,49 @@ test("the conversation's growth is counted for the fresh-chat hint, and a snapsh
 	state = feed([frame("context", 10, used(12_000))], state);
 	expect(state.growth.firstUsedTokens).toBe(12_000);
 });
+
+test("the host's growth counts win over the browser's, and survive a reconnect", () => {
+	const context = (
+		usedTokens: number,
+		growth: { startTokens: number; messages: number; requests: number },
+	) => ({
+		usedTokens,
+		windowTokens: 1_000_000,
+		cache: null,
+		growth,
+	});
+	const before = feed([
+		snapshot(0),
+		frame("message", 1, { id: "u1", role: "user", markdown: "one" }),
+		frame(
+			"context",
+			2,
+			context(80_000, { startTokens: 20_000, messages: 9, requests: 30 }),
+		),
+	]);
+	expect(before.growth).toEqual({
+		firstUsedTokens: 20_000,
+		messagesSent: 9,
+		contextEvents: 30,
+	});
+
+	// A reconnect replays only the last turns, then the host's context.
+	const after = feed([
+		snapshot(10, { truncated: true }),
+		frame("message", 11, { id: "u9", role: "user", markdown: "nine" }),
+		frame(
+			"context",
+			12,
+			context(80_000, { startTokens: 20_000, messages: 9, requests: 30 }),
+		),
+	]);
+	expect(after.growth).toEqual(before.growth);
+	expect(after.context?.usedTokens).toBe(before.context?.usedTokens);
+
+	// Before the first figure in use, the host says 0 and the hint waits.
+	const fresh = feed([
+		snapshot(0),
+		frame("context", 1, context(0, { startTokens: 0, messages: 0, requests: 0 })),
+	]);
+	expect(fresh.growth.firstUsedTokens).toBeNull();
+});

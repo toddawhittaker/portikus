@@ -439,7 +439,7 @@ export class CodexAgent implements ChatAgent {
 					windowTokens,
 					cache: null,
 				};
-				this.sink.context(this.context);
+				this.sink.context(this.context, true);
 				return;
 			}
 			case "thread/name/updated": {

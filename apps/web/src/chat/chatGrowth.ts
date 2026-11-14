@@ -1,3 +1,5 @@
+import type { ChatServerEvent } from "@portikus/contracts";
+
 /**
  * How a chat's conversation has grown since it started or was last reset,
  * the observations the fresh-chat hint estimates from (SPEC.md §10.8).
@@ -31,4 +33,15 @@ export function grownBy(growth: ChatGrowth, usedTokens: number): ChatGrowth {
 /** The student sent a message. */
 export function sentOne(growth: ChatGrowth): ChatGrowth {
 	return { ...growth, messagesSent: growth.messagesSent + 1 };
+}
+
+type HostGrowth = NonNullable<Extract<ChatServerEvent, { type: "context" }>["growth"]>;
+
+/** The host's own counts, which outlive a reload; the browser counts only when a host sends none. */
+export function fromHost(growth: HostGrowth): ChatGrowth {
+	return {
+		firstUsedTokens: growth.startTokens > 0 ? growth.startTokens : null,
+		messagesSent: growth.messages,
+		contextEvents: growth.requests,
+	};
 }

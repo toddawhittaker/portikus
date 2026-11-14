@@ -615,6 +615,20 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 			.nullable(),
 		/** The host's clock, epoch milliseconds, when it sent this; older hosts leave it out. */
 		now: z.number().int().nonnegative().optional(),
+		/**
+		 * How this conversation has grown, counted by the host so a reload
+		 * keeps it (SPEC.md section 10.8); older hosts leave it out.
+		 */
+		growth: z
+			.object({
+				/** The first nonzero used-token figure; 0 until one arrives. */
+				startTokens: z.number().int().nonnegative(),
+				/** Messages the student has sent. */
+				messages: z.number().int().nonnegative(),
+				/** Requests to the model, one per figure with tokens in use. */
+				requests: z.number().int().nonnegative(),
+			})
+			.optional(),
 	}),
 	/** A `!` shell command: sent when it starts and again, same id, when it ends. */
 	z.object({ type: z.literal("shell"), ...Envelope, ...ShellCommandFields }),

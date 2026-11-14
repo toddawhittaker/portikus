@@ -27,7 +27,13 @@ import {
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { type ChatGrowth, grownBy, NO_GROWTH, sentOne } from "./chatGrowth.js";
+import {
+	type ChatGrowth,
+	fromHost,
+	grownBy,
+	NO_GROWTH,
+	sentOne,
+} from "./chatGrowth.js";
 import { isWorking, sentWhileWorking, takeInSentMessage } from "./sentWhileWorking.js";
 
 export interface ChatMessageItem {
@@ -415,7 +421,9 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return {
 				...state,
 				context: contextUsage(event, now),
-				growth: grownBy(state.growth, event.usedTokens),
+				growth: event.growth
+					? fromHost(event.growth)
+					: grownBy(state.growth, event.usedTokens),
 			};
 		case "handoff": {
 			const item: ChatHandoffItem = {

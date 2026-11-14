@@ -12,11 +12,15 @@ import { FAKE_AGENT_URL } from "./ports";
 
 const WINDOW = 1_000_000;
 
-async function setUsed(id: string, usedTokens: number) {
+async function setUsed(
+	id: string,
+	usedTokens: number,
+	growth?: { startTokens: number; messages: number; requests: number },
+) {
 	const sent = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/context`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ usedTokens, windowTokens: WINDOW, cache: null }),
+		body: JSON.stringify({ usedTokens, windowTokens: WINDOW, cache: null, growth }),
 	});
 	expect(sent.ok).toBe(true);
 }
@@ -112,4 +116,31 @@ test("at phone width the hint wraps inside the composer and Send stays put", asy
 	});
 	expect(inside).toBe(true);
 	await page.screenshot({ path: "screenshots/restart-hint-phone-dark.png" });
+});
+
+test("a reload keeps the estimate, from the counts the host keeps", async ({
+	page,
+	context,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	const { id, view } = await openHint(page, context);
+	await setUsed(id, 30_000, { startTokens: 30_000, messages: 0, requests: 1 });
+	await sendMessage(view, "first");
+	await expect(view.getByText("first", { exact: true })).toBeVisible();
+	await sendMessage(view, "second");
+	await expect(view.getByText("second", { exact: true })).toBeVisible();
+	// Three requests a message, which a reloaded browser could not count itself.
+	await setUsed(id, 70_000, { startTokens: 30_000, messages: 2, requests: 7 });
+	const sight = view.getByTestId("composer-restart").locator(".pk-ctx-sight");
+	await expect(sight).toHaveText(/^About \d+ more messages? before/);
+	const before = await sight.textContent();
+
+	await page.reload();
+	const again = page.getByTestId(`chat-view-${id}`);
+	await expect(again.getByTestId("composer-context")).toContainText("70.0k", {
+		timeout: 15_000,
+	});
+	await expect(
+		again.getByTestId("composer-restart").locator(".pk-ctx-sight"),
+	).toHaveText(before ?? "");
 });

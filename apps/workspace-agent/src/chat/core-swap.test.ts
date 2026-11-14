@@ -291,6 +291,20 @@ describe("agent swaps", () => {
 		expect(types(client).filter((type) => type === "handoff")).toHaveLength(1);
 	});
 
+	test("the next host counts the conversation's growth from zero", async () => {
+		const before = await attached();
+		before.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ usedTokens: 300, windowTokens: 100, cache: null }, true);
+		const next = await startAfter(BEFORE, true);
+		next.historyContext = { usedTokens: 300, windowTokens: 100, cache: null };
+		const client = await attached();
+		await vi.waitFor(() => expect(types(client)).toContain("context"));
+		expect(client.events.find((event) => event.type === "context")).toMatchObject({
+			growth: { startTokens: 0, messages: 0, requests: 0 },
+		});
+	});
+
 	test("a new conversation, as /clear starts, forgets the swaps", async () => {
 		await startAfter(BEFORE, true);
 		agent.sink.conversationReset(null);

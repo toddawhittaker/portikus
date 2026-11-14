@@ -599,3 +599,64 @@ describe("conversation reset", () => {
 		release();
 	});
 });
+
+describe("conversation growth (SPEC.md section 10.8)", () => {
+	const growthOf = (client: Client) =>
+		client.events.filter((event) => event.type === "context").at(-1) as
+			| { growth?: unknown }
+			| undefined;
+
+	test("messages and requests rise, the start is the first figure in use, and only requests count", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		client.send({ type: "send", text: "!ls", attachments: [] });
+		client.send({ type: "send", text: "more", attachments: [] });
+		await vi.waitFor(() =>
+			expect(agent.calls.filter((call) => call[0] === "send")).toHaveLength(3),
+		);
+		agent.sink.context({ ...FIGURES, usedTokens: 0 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 500 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 700 }, true);
+		// A window update is not a request.
+		agent.sink.context({ usedTokens: 700, windowTokens: 200, cache: null });
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(4),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 500,
+			messages: 2,
+			requests: 2,
+		});
+	});
+
+	test("a browser attaching later is sent the counts with the context", async () => {
+		const first = await attached();
+		first.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.historyContext = { ...FIGURES, usedTokens: 300 };
+		const later = await attached();
+		await vi.waitFor(() => expect(types(later)).toContain("context"));
+		expect(growthOf(later)?.growth).toEqual({
+			startTokens: 300,
+			messages: 1,
+			requests: 1,
+		});
+	});
+
+	test("a conversation reset, as /clear, starts the counts again", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.conversationReset(FIGURES);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(2),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 0,
+			messages: 0,
+			requests: 0,
+		});
+	});
+});
