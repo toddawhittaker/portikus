@@ -257,14 +257,26 @@ test("a Codex file change draws a unified diff for each file, headed by its path
 	expect(summary.textContent).toBe(
 		"Changed 4 files+3 −3, 3 lines added, 3 lines removed",
 	);
-	const sections = [...(body?.querySelectorAll("section[aria-label]") ?? [])];
-	expect(sections.map((one) => one.getAttribute("aria-label"))).toEqual([
+	// Each file is a named group, not a landmark region, and the path line names it.
+	expect(body?.querySelector("section[aria-label]")).toBeNull();
+	const sections = [
+		...(body?.querySelectorAll('[role="group"][aria-labelledby]') ?? []),
+	]
+		.filter((one) => one.querySelector(".pk-chat-tool-path"))
+		.map((one) => one as HTMLElement);
+	expect(
+		sections.map((one) =>
+			document
+				.getElementById(one.getAttribute("aria-labelledby") ?? "")
+				?.textContent?.trim(),
+		),
+	).toEqual([
 		"Edited /w/src/a.ts",
 		"Created /w/new.md",
 		"Deleted /w/old.md",
-		"Moved /w/b.ts",
+		"Moved /w/b.ts → /w/c.ts",
 	]);
-	expect(sections[3]?.querySelector(".pk-chat-tool-path")?.textContent).toBe(
+	expect(sections[3]?.querySelector(".pk-chat-tool-path")?.textContent).toContain(
 		"/w/b.ts → /w/c.ts",
 	);
 	const first = sections[0]?.querySelector('[data-testid="chat-diff"]');
@@ -318,7 +330,10 @@ test("Codex's other tools read in their own words", () => {
 
 test("a plan-card row shows the plan text once, with no raw input beside it", () => {
 	const { body } = row(tool({ name: "plan", input: { plan: "1. Write a test" } }));
-	expect(body?.querySelector("pre")?.textContent).toBe("1. Write a test");
+	// Markdown, as the permission card draws it: a list, not raw text.
+	expect(body?.querySelector("pre")).toBeNull();
+	expect(body?.querySelector("ol > li")?.textContent).toBe("Write a test");
+	expect(body?.textContent).not.toContain("1. Write");
 	expect(body?.textContent).not.toContain("No output");
 	expect(body?.querySelector(".pk-chat-raw")).toBeNull();
 });
@@ -335,7 +350,13 @@ test("a plan steps row lists its steps, and says nothing about output", () => {
 			},
 		}),
 	);
-	expect(body?.querySelector("pre")?.textContent).toBe("[x] Write a test\n[ ] Fix it");
+	const items = [...(body?.querySelectorAll("ol > li") ?? [])];
+	expect(items.map((one) => one.textContent)).toEqual([
+		"Done Write a test",
+		"In progress Fix it",
+	]);
+	// Not drawn as text with [x] marks.
+	expect(body?.textContent).not.toContain("[x]");
 	expect(body?.textContent).not.toContain("No output");
 });
 
@@ -408,7 +429,17 @@ test("a Codex subagent call opens each child by its thread id", () => {
 	fireEvent.click(
 		screen.getByRole("button", { name: "Show subagent 2's conversation" }),
 	);
-	expect(open).toHaveBeenLastCalledWith({ toolUseId: "thread-2", title: "Subagent" });
+	expect(open).toHaveBeenLastCalledWith({
+		toolUseId: "thread-2",
+		title: "Subagent 2",
+	});
+	fireEvent.click(
+		screen.getByRole("button", { name: "Show subagent 1's conversation" }),
+	);
+	expect(open).toHaveBeenLastCalledWith({
+		toolUseId: "thread-1",
+		title: "Subagent 1",
+	});
 	// A call that failed, or names no child, offers no way in.
 	rerender(
 		<SubagentOpenerContext.Provider value={open}>

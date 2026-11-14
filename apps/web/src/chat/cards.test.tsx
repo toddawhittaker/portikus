@@ -744,6 +744,34 @@ test("a card that has a plan shows it, whatever its tool is called", () => {
 	expect(screen.getByLabelText("Tell Codex what to do instead")).toBeTruthy();
 });
 
+test("two changed files each name their diff by the path, not both by the language", () => {
+	renderFor(
+		"codex",
+		codexCard({
+			toolName: "fileChange",
+			input: {
+				changes: [
+					{ path: "/w/a.ts", kind: "update", diff: "@@ -1 +1 @@\n-x\n+y\n" },
+					{ path: "/w/b.ts", kind: "update", movePath: "/w/c.ts", diff: "-p\n+q\n" },
+				],
+			},
+		}),
+	);
+	const diffs = screen.getAllByTestId("chat-diff");
+	const names = diffs.map((diff) =>
+		(diff.getAttribute("aria-labelledby") ?? "")
+			.split(" ")
+			.map((id) => document.getElementById(id)?.textContent ?? "")
+			.join(" "),
+	);
+	expect(names).toEqual([
+		expect.stringContaining("/w/a.ts"),
+		expect.stringContaining("/w/b.ts \u2192 /w/c.ts"),
+	]);
+	for (const name of names) expect(name).toContain("TypeScript");
+	expect(screen.getByRole("group", { name: /\/w\/a\.ts/ })).toBeTruthy();
+});
+
 test("an MCP tool asks one question, for either agent", () => {
 	const claude = renderFor("claude", {
 		...PERMISSION,

@@ -443,6 +443,20 @@ details[open] > summary > .pk-chat-chevron {
 	overflow-wrap: anywhere;
 }
 
+/* A plan's steps: each says its state in a word, never by mark or colour alone. */
+.pk-chat-steps {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding-inline-start: var(--space-5);
+}
+
+.pk-chat-step-state {
+	color: var(--ink-muted);
+	font-size: 12px;
+	font-weight: 600;
+}
+
 .pk-chat-tool-output {
 	display: grid;
 	gap: var(--space-2);

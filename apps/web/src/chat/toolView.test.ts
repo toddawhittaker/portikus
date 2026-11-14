@@ -459,8 +459,12 @@ test("Codex's web search, image view, dynamic tool and plan read like their Clau
 		"clipboard-list",
 	]);
 	expect(plan.detail).toEqual({
-		kind: "text",
-		text: "[x] Write a test\n[ ] Fix it\n[ ] Ship",
+		kind: "steps",
+		steps: [
+			{ step: "Write a test", state: "done" },
+			{ step: "Fix it", state: "inProgress" },
+			{ step: "Ship", state: "todo" },
+		],
 	});
 	expect(toolLine("planSteps", { steps: [] }, "Plan").verb).toBeNull();
 	expect(toolLine("planSteps", {}, "Plan").verb).toBeNull();
@@ -478,7 +482,10 @@ test("a plan card's own row shows the plan text, not a steps list", () => {
 		"clipboard-list",
 	]);
 	expect(plan.target).toBe("");
-	expect(plan.detail).toEqual({ kind: "text", text: "## Steps\n\n1. Write a test" });
+	expect(plan.detail).toEqual({
+		kind: "markdown",
+		text: "## Steps\n\n1. Write a test",
+	});
 	expect(toolLine("plan", { plan: "" }, "Plan").verb).toBeNull();
 	expect(toolLine("plan", {}, "Plan").verb).toBeNull();
 	expect(toolLabel("plan", {})).toBe("Plan");

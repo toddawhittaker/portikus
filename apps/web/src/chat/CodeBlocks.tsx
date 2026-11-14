@@ -115,17 +115,21 @@ const DIFF_LIMIT = 30;
  * An edit as removed and added lines; the marks are text, so a screen
  * reader reads them. With the file's path, each line is coloured in the
  * file's language, and the language is named above the lines. The scrolling
- * box is named by that label and its own word ("TypeScript diff").
+ * box is named by the path's element when given, that label and its own word
+ * ("a.ts TypeScript diff").
  */
 export function DiffBlock({
 	changes = [],
 	lines: given,
 	path,
+	pathId,
 }: {
 	changes?: EditChange[];
 	/** Lines already diffed, as a unified diff gives them; `changes` is then unused. */
 	lines?: DiffLine[];
 	path?: string;
+	/** The id of the element that shows the file's path, so its name leads the diff's own. */
+	pathId?: string;
 }) {
 	const [open, setOpen] = useState(false);
 	const language = path ? languageForPath(path) : null;
@@ -155,7 +159,11 @@ export function DiffBlock({
 				id={preId}
 				role="group"
 				aria-label="diff"
-				aria-labelledby={language ? `${labelId} ${preId}` : undefined}
+				aria-labelledby={
+					language || pathId
+						? [pathId, language ? labelId : undefined, preId].filter(Boolean).join(" ")
+						: undefined
+				}
 				data-testid="chat-diff"
 			>
 				{shown.map((line, at) => {

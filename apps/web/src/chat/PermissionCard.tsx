@@ -18,7 +18,7 @@ import { Button, TextField } from "@portikus/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { ChatMarkdown } from "./ChatMarkdown.js";
 import { CodeBlock, DiffBlock } from "./CodeBlocks.js";
-import { type ChatAgentNames, useChatAgent } from "./chatAgent.js";
+import { useChatAgent } from "./chatAgent.js";
 import { NeedsInputTag } from "./NeedsInputTag.js";
 import { type FileChangeView, mcpCall, toolView } from "./toolView.js";
 import { waitingText } from "./waiting.js";
@@ -90,16 +90,32 @@ function ToolInput({ input }: { input: unknown }) {
 	);
 }
 
+/** The plan to approve, drawn as Markdown in a box that scrolls by keyboard. */
+export function PlanText({ text, testId }: { text: string; testId?: string }) {
+	return (
+		// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
+		<div className="pk-chat-plan" tabIndex={0} data-testid={testId}>
+			<ChatMarkdown text={text} />
+		</div>
+	);
+}
+
+/** One file of a file-change card: its path, and its diff named by that path. */
+function FileDiff({ file }: { file: FileChangeView }) {
+	const pathId = useId();
+	return (
+		<div>
+			<p id={pathId} className="pk-chat-card-path pk-mono-body">
+				{file.movePath ? `${file.path} \u2192 ${file.movePath}` : file.path}
+			</p>
+			<DiffBlock lines={file.lines} path={file.movePath ?? file.path} pathId={pathId} />
+		</div>
+	);
+}
+
 function Body({ card }: { card: PermissionCardData }) {
 	const plan = planOf(card);
-	if (plan !== null) {
-		return (
-			// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
-			<div className="pk-chat-plan" tabIndex={0} data-testid="chat-plan">
-				<ChatMarkdown text={plan} />
-			</div>
-		);
-	}
+	if (plan !== null) return <PlanText text={plan} testId="chat-plan" />;
 	const view = toolView(card.toolName, card.input, card.title);
 	if (mcpCall(card.toolName, card.input) && view.detail === null) {
 		return <p className="pk-chat-muted">No arguments</p>;
@@ -128,14 +144,7 @@ function Body({ card }: { card: PermissionCardData }) {
 				</>
 			);
 		case "files":
-			return view.detail.files.map((file) => (
-				<div key={file.path}>
-					<p className="pk-chat-card-path pk-mono-body">
-						{file.movePath ? `${file.path} \u2192 ${file.movePath}` : file.path}
-					</p>
-					<DiffBlock lines={file.lines} path={file.movePath ?? file.path} />
-				</div>
-			));
+			return view.detail.files.map((file) => <FileDiff key={file.path} file={file} />);
 		case "arguments":
 			return <ToolInput input={view.detail.value} />;
 		default:
@@ -143,7 +152,11 @@ function Body({ card }: { card: PermissionCardData }) {
 	}
 }
 
-function heading(card: PermissionCardData, { name }: ChatAgentNames): string {
+/**
+ * The card's heading, which a screen reader is also told when the card
+ * arrives, so the two never differ (SPEC.md §25.8).
+ */
+export function permissionHeading(card: PermissionCardData, name: string): string {
 	if (planOf(card) !== null) return `${name} has a plan for you to review`;
 	const mcp = mcpCall(card.toolName, card.input);
 	if (mcp) return `Allow ${mcp.server} to run ${mcp.tool}?`;
@@ -193,7 +206,7 @@ export function PermissionCard({
 	const [reason, setReason] = useState("");
 	const reasonId = useId();
 	const names = useChatAgent();
-	const title = heading(card, names);
+	const title = permissionHeading(card, names.name);
 	const denial = card.options.find(isDeny);
 	// The host's title adds something only when the heading does not already say it.
 	const subtitle =

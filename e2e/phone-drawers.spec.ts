@@ -306,7 +306,7 @@ for (const width of [360, 800]) {
 					input: { command: "ls" },
 					options: [{ id: "allow", label: "Allow once" }],
 				});
-				await expect(announcer).toHaveText("Claude wants to use Bash.");
+				await expect(announcer).toHaveText("Claude wants to run a command.");
 				expect(
 					await announcer.evaluate((el) => el.closest('[aria-hidden="true"]') === null),
 				).toBe(true);
