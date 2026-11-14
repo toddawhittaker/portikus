@@ -53,6 +53,7 @@ import {
 	takeSubagentRequest,
 	useSubagentRequest,
 } from "./subagentView.js";
+import { toolLabel } from "./toolView.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -103,7 +104,7 @@ function cardAnnouncement(card: ChatOpenCard, name: string): string {
 	if (card.type === "permission") {
 		return card.plan !== undefined
 			? `${name} has a plan for you to review.`
-			: `${name} wants to use ${card.toolName}.`;
+			: `${name} wants to use ${toolLabel(card.toolName, card.input)}.`;
 	}
 	return card.questions.length === 1
 		? `${name} has a question: ${card.questions[0]?.question ?? ""}`

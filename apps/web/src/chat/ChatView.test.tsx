@@ -953,4 +953,16 @@ test("a card carrying a plan is announced as the agent's plan, and the byline na
 	expect(screen.getByTestId("chat-announcer").textContent).toBe(
 		"Codex has a plan for you to review.",
 	);
+	emit("card.resolved", { id: "cx-plan" });
+	// A Codex tool is announced by the name its row shows, as Claude's are.
+	emit("permission.requested", {
+		id: "cx-run",
+		toolName: "commandExecution",
+		title: "Run npm test",
+		input: { command: "npm test", actions: [] },
+		options: [{ id: "allow", label: "Allow", decision: "allowed" }],
+	});
+	expect(screen.getByTestId("chat-announcer").textContent).toBe(
+		"Codex wants to use Bash.",
+	);
 });
