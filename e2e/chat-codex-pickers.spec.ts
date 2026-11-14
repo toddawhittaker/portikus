@@ -6,7 +6,13 @@ import {
 	openChatOptions,
 	receivedFrames,
 } from "./chat-helpers";
-import { createProject, createStudent, expectNoViolations, query } from "./helpers";
+import {
+	createProject,
+	createStudent,
+	expectNoViolations,
+	query,
+	workspacePath,
+} from "./helpers";
 
 /**
  * Skills, slash commands and the pickers of a Codex chat, against the

@@ -7,6 +7,7 @@ import {
 	makeChatTab,
 	openChat,
 	openWork,
+	receivedFrames,
 	rowLine,
 	scriptChat,
 	sendMessage,
