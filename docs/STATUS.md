@@ -168,6 +168,7 @@ list was made and may already be fixed.
 - A question asked in a Codex terminal tab has no browser card, because Codex has no hook that can hold a question open; the tab shows needs input.
 - Codex subagent panels opened from separate left-pane rows share the title "Subagent".
 - The smoke check's self-test (`chat-probe-test.sh`, `fake-chat-server.mjs`) has no Codex scenarios.
+- The handoff divider does not yet show a failed handoff: the host marks it `failed`, but the web still says the new agent started with the conversation.
 - A `!` command run in a resumed Claude chat before the first message after an agent switch is hidden after a reload.
 - Claude's automatic title for a chat that began on Codex is unchecked: it may read the handoff block.
 - Accepted: if a student stops Claude Code with Esc, its tab shows "working" until the next prompt, because Claude sends no hook for it.

@@ -116,6 +116,10 @@ Claude's protocol.
     swap is refused while a reply, a card or a `!` command is running.
     A switch makes the `agent-session` recovery point first, as launching
     an agent does (SPEC.md sections 15.6 and 15.10).
+    Two switches of one chat at once are refused with 409. A host still
+    waiting a minute after it prepared a swap takes the chat back, and if the
+    new host cannot start, the old agent is started again with its own key.
+    A handoff that fails marks the divider failed.
     Claude to Codex: the messages go through `thread/inject_items` into a
     new thread. To Claude: as text with the next prompt, inside a marked
     block that the transcript hides on replay. Claude resumes its own
