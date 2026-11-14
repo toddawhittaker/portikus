@@ -16,34 +16,63 @@ import {
 } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
+/** The coding agents a chat tab can run. */
+export type ChatAgent = "claude" | "codex";
+
+/** The row name a chat of each agent starts with. */
+const CHAT_NAME: Record<ChatAgent, string> = {
+	claude: "Claude Code",
+	codex: "Codex",
+};
+
 /**
  * A chat tab in a new student's workspace. The launcher entry is the
  * composer's, so a terminal is opened and its row made a chat; the fake
  * agent already knows the terminal, and the API reads the kind from the row.
  */
-export async function makeChatTab(page: Page, context: BrowserContext) {
+export async function makeChatTab(
+	page: Page,
+	context: BrowserContext,
+	agent: ChatAgent = "claude",
+) {
 	const student = await createStudent(context);
 	const project = await createProject(student.workspaceId, { name: "Dashboard" });
-	await page.goto(workspacePath(student.workspaceId, project.id));
-	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	await newTerminal(page);
-	await expect
-		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
-		.toBe(1);
-	const [id] = await terminalIds(student.workspaceId, project.id);
-	await query(
-		"update terminals set kind = 'chat', agent = 'claude', name = 'Claude Code' where id = $1",
-		[id],
-	);
-	if (!id) throw new Error("the terminal row was not created");
+	const id = await chatTabIn(page, student.workspaceId, project.id, agent);
 	return { student, project, id };
 }
 
+/** A chat tab's row in an existing project: open it, start a terminal, and make its row a chat. */
+export async function chatTabIn(
+	page: Page,
+	workspaceId: string,
+	projectId: string,
+	agent: ChatAgent = "claude",
+): Promise<string> {
+	await page.goto(workspacePath(workspaceId, projectId));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await newTerminal(page);
+	await expect
+		.poll(async () => (await terminalIds(workspaceId, projectId)).length)
+		.toBe(1);
+	const [id] = await terminalIds(workspaceId, projectId);
+	if (!id) throw new Error("the terminal row was not created");
+	await query(
+		"update terminals set kind = 'chat', agent = $2, name = $3 where id = $1",
+		[id, agent, CHAT_NAME[agent]],
+	);
+	return id;
+}
+
 /** Start one more chat from the New tab menu in the project open on the page. */
-export async function launchChat(page: Page, workspaceId: string, projectId: string) {
+export async function launchChat(
+	page: Page,
+	workspaceId: string,
+	projectId: string,
+	agent: ChatAgent = "claude",
+) {
 	const before = await terminalIds(workspaceId, projectId);
 	await page.getByTestId("launcher").click();
-	await page.getByTestId("launcher-claude-gui").click();
+	await page.getByTestId(`launcher-${agent}-gui`).click();
 	await expect
 		.poll(async () => (await terminalIds(workspaceId, projectId)).length)
 		.toBe(before.length + 1);
@@ -61,11 +90,16 @@ export async function launchChat(page: Page, workspaceId: string, projectId: str
 }
 
 /** Open a new project in the student's workspace and start a chat from the New tab menu. */
-export async function openChat(page: Page, workspaceId: string, name: string) {
+export async function openChat(
+	page: Page,
+	workspaceId: string,
+	name: string,
+	agent: ChatAgent = "claude",
+) {
 	const project = await createProject(workspaceId, { name });
 	await page.goto(workspacePath(workspaceId, project.id));
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
-	return { project, ...(await launchChat(page, workspaceId, project.id)) };
+	return { project, ...(await launchChat(page, workspaceId, project.id, agent)) };
 }
 
 /**
@@ -106,7 +140,10 @@ export async function scriptChat(
 		snapshot = {},
 		first = [],
 		reply,
+		agent = "claude",
 	}: {
+		/** Whose chat the host says this is, which names the agent throughout. */
+		agent?: ChatAgent;
 		snapshot?: object;
 		first?: Frame[];
 		reply?: (
@@ -124,7 +161,9 @@ export async function scriptChat(
 		]);
 		send([
 			"settings",
-			{ agent: "claude", model: "default", effort: "high", mode: "default" },
+			agent === "codex"
+				? { agent, model: "gpt-5.5", effort: "medium", mode: "onRequest" }
+				: { agent, model: "default", effort: "high", mode: "default" },
 		]);
 		for (const frame of first) send(frame);
 		ws.onMessage((raw) => reply?.(JSON.parse(String(raw)), send));
@@ -141,4 +180,33 @@ export async function openChatOptions(view: Locator): Promise<void> {
 	const options = view.getByTestId("composer-options");
 	if ((await options.getAttribute("aria-expanded")) !== "true") await options.click();
 	await expect(view.getByTestId("composer-picks")).toBeVisible();
+}
+
+/** Replace the MCP server list the fake chat reports, which it sends to every attachment. */
+export async function setMcpServers(
+	id: string,
+	servers: { name: string; status: string }[],
+): Promise<void> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/mcp`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ servers }),
+	});
+	if (!response.ok)
+		throw new Error(`the fake agent refused the MCP list: ${response.status}`);
+}
+
+/** Send a message from the composer, once the host's settings have drawn the pickers. */
+export async function sendMessage(view: Locator, text: string): Promise<void> {
+	const box = view.getByTestId("chat-composer-input");
+	await box.click();
+	await box.fill(text);
+	await box.press("Enter");
+}
+
+/** The card answers the fake chat has received, as the browser sent them. */
+export async function answersOf(id: string): Promise<Record<string, unknown>[]> {
+	const response = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/answers`);
+	const body = (await response.json()) as { answers: Record<string, unknown>[] };
+	return body.answers;
 }
