@@ -10,6 +10,8 @@ import {
 	type ChatOpenCard,
 	type ChatServerEvent,
 	type ChatSessionRule,
+	CODING_AGENT_LABEL,
+	type CodingAgent,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	MAX_CHAT_CLIENT_FRAME_BYTES,
 	MAX_CHAT_SERVER_FRAME_BYTES,
@@ -22,14 +24,31 @@ import type {
 	ChatSink,
 	ContextFigures,
 } from "./agent.js";
+import { lastTurns, newHandoffId, turnsFromEvents } from "./handoff.js";
 import { OpenCards } from "./open-cards.js";
+import {
+	type ChatSwapState,
+	readChatSession,
+	writePendingSwitch,
+	writeSwapState,
+} from "./session-record.js";
 import { chatSocketPath, privateDirectory, readLines, writeLine } from "./wire.js";
 
 export interface ChatCoreOptions {
 	terminalId: string;
 	socketDir: string;
+	homeDir: string;
 	log: Logger;
+	/**
+	 * The tab's state across agent swaps, as `takeSwapState` read it, and
+	 * whether this start is a swap (SPEC.md §10.8).
+	 */
+	swap?: { state: ChatSwapState | null; switched: boolean };
 }
+
+/** Why a chat cannot swap agents now; one sentence the student can act on. */
+export const SWITCH_BUSY_MESSAGE =
+	"Wait for the reply to finish before switching agents.";
 
 interface Client {
 	socket: Socket;
@@ -63,6 +82,10 @@ export class ChatCore {
 	private modes: ChatModeInfo[] | null = null;
 	private mcp: ChatMcpServer[] | null = null;
 	private rules: ChatSessionRule[] = [];
+	/** The tab's swaps so far; null until the first. */
+	private swap: ChatSwapState | null;
+	/** A swap is prepared, and the host waits to be replaced. */
+	private switching = false;
 
 	private readonly sink: ChatSink = {
 		emit: (event) => this.relay(event),
@@ -102,7 +125,10 @@ export class ChatCore {
 	constructor(
 		private readonly options: ChatCoreOptions,
 		private readonly agent: ChatAgent,
-	) {}
+		private readonly agentName: CodingAgent,
+	) {
+		this.swap = options.swap?.state ?? null;
+	}
 
 	get socketPath(): string {
 		return chatSocketPath(this.options.socketDir, this.options.terminalId);
@@ -113,6 +139,7 @@ export class ChatCore {
 		await privateDirectory(this.options.socketDir);
 		await unlink(this.socketPath).catch(() => undefined);
 		await this.agent.start(this.sink);
+		await this.adoptHandoff();
 		const server = createServer((socket) => {
 			void this.attach(socket);
 		});
@@ -130,11 +157,123 @@ export class ChatCore {
 		await this.agent.stop();
 		for (const client of this.clients) client.socket.destroy();
 		this.clients.clear();
-		await new Promise<void>((resolve) => {
-			if (!this.server) return resolve();
-			this.server.close(() => resolve());
-		});
-		await unlink(this.socketPath).catch(() => undefined);
+		await this.closeListener();
+	}
+
+	/**
+	 * Stop listening and remove the socket, once: a host replaced by a swap
+	 * must not remove its successor's. Open attachments stay until they end.
+	 */
+	private closeListener(): Promise<void> {
+		const server = this.server;
+		if (!server) return Promise.resolve();
+		this.server = null;
+		const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+		const removed = unlink(this.socketPath).catch(() => undefined);
+		return Promise.all([closed, removed]).then(() => undefined);
+	}
+
+	/**
+	 * After a swap, hand the agent the conversation it missed and mark the
+	 * place with a divider; after a later restart, let it find its place.
+	 * The handoff's content is never logged (ADR 0012).
+	 */
+	private async adoptHandoff(): Promise<void> {
+		const state = this.swap;
+		if (!state) return;
+		const switched = this.options.swap?.switched === true;
+		const handoff = switched
+			? { id: newHandoffId(), from: this.previousAgent(), droppedTurns: 0 }
+			: state.handoff;
+		if (!handoff) return;
+		let dropped = 0;
+		try {
+			dropped = await this.agent.adoptHandoff({
+				id: handoff.id,
+				from: handoff.from,
+				log: state.log,
+			});
+		} catch {
+			this.options.log.warn("could not hand the conversation over");
+		}
+		if (!switched) return;
+		const divider: ChatEventBody = {
+			type: "handoff",
+			from: handoff.from,
+			to: this.agentName,
+			droppedTurns: dropped,
+		};
+		this.swap = {
+			...state,
+			earlier: [...state.earlier, divider],
+			handoff: { ...handoff, droppedTurns: dropped },
+		};
+		await this.saveSwap();
+		this.options.log.info({ droppedTurns: dropped }, "chat agent swapped in");
+		this.broadcast(divider);
+	}
+
+	private previousAgent(): CodingAgent {
+		return (
+			this.swap?.log.at(-1)?.agent ?? (this.agentName === "claude" ? "codex" : "claude")
+		);
+	}
+
+	private async saveSwap(): Promise<void> {
+		await writeSwapState(
+			this.options.homeDir,
+			this.options.terminalId,
+			this.swap,
+		).catch(() => this.options.log.warn("could not record the chat's agent swap"));
+	}
+
+	/**
+	 * Prepare a swap to the other agent (SPEC.md §10.8): record what the
+	 * chat shows so far and this agent's part of the conversation for the
+	 * next host, then stop listening. Closing the asker's connection says it
+	 * is done; the workspace agent then puts the other agent's host here.
+	 */
+	private async prepareSwitch(client: Client, to: CodingAgent): Promise<void> {
+		if (to === this.agentName) {
+			throw new Error(`This chat already uses ${CODING_AGENT_LABEL[to]}.`);
+		}
+		if (
+			this.switching ||
+			this.turnRunning ||
+			this.cards.current.length > 0 ||
+			this.agent.inProgress().length > 0
+		) {
+			throw new Error(SWITCH_BUSY_MESSAGE);
+		}
+		this.switching = true;
+		try {
+			const [own, shown, session] = await Promise.all([
+				this.agent.transcript(),
+				this.agent.history(false),
+				readChatSession(this.options.homeDir, this.options.terminalId),
+			]);
+			const state = this.swap;
+			const earlier = lastTurns([...(state?.earlier ?? []), ...shown.events]);
+			await writePendingSwitch(this.options.homeDir, this.options.terminalId, to, {
+				sessions: {
+					...state?.sessions,
+					...(session ? { [this.agentName]: session } : {}),
+				},
+				earlier: earlier.events,
+				truncated: (state?.truncated ?? false) || shown.truncated || earlier.truncated,
+				log: [
+					...(state?.log ?? []),
+					{ agent: this.agentName, turns: turnsFromEvents(own) },
+				],
+				handoff: null,
+			});
+		} catch (error) {
+			this.switching = false;
+			throw error;
+		}
+		this.options.log.info({ to }, "chat agent swap prepared");
+		void this.closeListener();
+		client.socket.end();
 	}
 
 	/** Broadcast one event, keeping the turn's state and streaming reply for late attachers. */
@@ -155,6 +294,11 @@ export class ChatCore {
 
 	private conversationReset(context: ContextFigures | null): void {
 		this.partial = null;
+		// A new conversation starts with nothing from before a swap.
+		if (this.swap) {
+			this.swap = null;
+			void this.saveSwap();
+		}
 		this.cards.clearDecisions();
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old conversation; it reattaches.
@@ -199,7 +343,7 @@ export class ChatCore {
 		const partial = this.partial;
 		const cards = this.cards.current;
 		const turnRunning = this.turnRunning;
-		const history = await this.agent.history(turnRunning);
+		const history = this.withEarlier(await this.agent.history(turnRunning));
 		writeLine(
 			socket,
 			JSON.stringify(this.snapshot(cards, turnRunning, history.truncated)),
@@ -231,6 +375,19 @@ export class ChatCore {
 		if (context && !held.some((event) => event.type === "context")) {
 			writeLine(socket, this.frame(this.contextEvent(context)));
 		}
+	}
+
+	/** The agent's history after what the chat showed before its swaps, kept to the replay limit. */
+	private withEarlier<T extends { events: ChatEventBody[]; truncated: boolean }>(
+		history: T,
+	): T {
+		if (!this.swap) return history;
+		const kept = lastTurns([...this.swap.earlier, ...history.events]);
+		return {
+			...history,
+			events: kept.events,
+			truncated: this.swap.truncated || history.truncated || kept.truncated,
+		};
 	}
 
 	/**
@@ -279,6 +436,7 @@ export class ChatCore {
 		client: Client,
 		message: ChatClientMessageType,
 	): Promise<void> {
+		if (this.switching) throw new Error("This chat is switching agents.");
 		switch (message.type) {
 			case "subagent.watch":
 				client.watching = message.toolUseId;
@@ -313,7 +471,7 @@ export class ChatCore {
 				return this.agent.set(change);
 			}
 			case "agent.switch":
-				throw new Error("Switching agents is not available yet.");
+				return this.prepareSwitch(client, message.agent);
 			default:
 				return assertHandled(message);
 		}

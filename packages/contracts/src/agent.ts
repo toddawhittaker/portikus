@@ -30,6 +30,13 @@ export type AgentTerminalList = z.infer<typeof AgentTerminalList>;
  * Request body for `POST /terminals` on the agent (SPEC.md §9.3, §9.4).
  * The control plane mints the id, so the agent never invents one.
  */
+const InstitutionalEnv = z
+	.object({
+		ANTHROPIC_API_KEY: z.string().min(1).optional(),
+		OPENAI_API_KEY: z.string().min(1).optional(),
+	})
+	.strict();
+
 export const AgentCreateTerminalRequest = z
 	.object({
 		id: TerminalId,
@@ -57,13 +64,7 @@ export const AgentCreateTerminalRequest = z
 		 * Institution-provided keys for this process only (SPEC.md §10.6,
 		 * §24.8). No other environment variable is accepted.
 		 */
-		institutionalEnv: z
-			.object({
-				ANTHROPIC_API_KEY: z.string().min(1).optional(),
-				OPENAI_API_KEY: z.string().min(1).optional(),
-			})
-			.strict()
-			.optional(),
+		institutionalEnv: InstitutionalEnv.optional(),
 		/** The Claude session id the chat host resumes (SPEC.md §10.8). */
 		resumeChatOf: TerminalId.optional(),
 	})
@@ -73,6 +74,16 @@ export const AgentCreateTerminalRequest = z
 		path: ["resumeChatOf"],
 	});
 export type AgentCreateTerminalRequest = z.infer<typeof AgentCreateTerminalRequest>;
+
+/**
+ * Body of `POST /terminals/:id/chat-agent`: run the other coding agent in
+ * this chat tab, handed the conversation so far (SPEC.md §10.8). The keys
+ * are the new agent's only, as at create.
+ */
+export const AgentSwitchChatRequest = z
+	.object({ agent: CodingAgent, institutionalEnv: InstitutionalEnv.optional() })
+	.strict();
+export type AgentSwitchChatRequest = z.infer<typeof AgentSwitchChatRequest>;
 
 /**
  * Reply from `POST /terminals` on the agent (SPEC.md §10.9). Both ids are
@@ -162,6 +173,8 @@ export const AgentErrorCode = z.enum([
 	"TERMINAL_EXISTS",
 	"TERMINAL_LIMIT",
 	"ATTACHMENT_LIMIT",
+	// A chat that cannot switch agents now, such as mid-reply (SPEC.md §10.8).
+	"CHAT_BUSY",
 	"INVALID_CWD",
 	"TMUX_FAILED",
 	"INTERNAL",

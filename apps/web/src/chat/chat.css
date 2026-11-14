@@ -797,3 +797,24 @@ details[open] > summary > .pk-chat-chevron {
 	gap: var(--space-1\.5);
 	padding: var(--space-2) var(--pk-chat-gutter) var(--space-2);
 }
+
+/* Where the chat changed agents: a rule either side of one quiet line. */
+.pk-chat-handoff {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	text-align: center;
+	font-size: 12px;
+}
+
+.pk-chat-handoff::before,
+.pk-chat-handoff::after {
+	flex: 1 1 var(--space-4);
+	border-top: 1px solid var(--line);
+	content: "";
+}
+
+.pk-chat-handoff > p {
+	flex: 0 1 auto;
+	max-width: 48ch;
+}

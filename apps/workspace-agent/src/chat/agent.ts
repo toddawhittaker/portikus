@@ -11,6 +11,7 @@ import type {
 	ChatServerEvent,
 	ChatSessionRule,
 } from "@portikus/contracts";
+import type { Handoff } from "./handoff.js";
 
 /**
  * What the chat host core asks of one coding agent's driver, and what a
@@ -88,6 +89,19 @@ export interface ChatAgent {
 	watchSubagent(socket: Socket, id: string): Promise<void>;
 	unwatchSubagent(socket: Socket, id: string): void;
 	rename(title: string): Promise<ChatRenameResult>;
+	/**
+	 * Take in the conversation from before an agent swap (SPEC.md §10.8).
+	 * Called after start whenever the tab has swapped, so a restarted host
+	 * finds its place again; the agent itself knows whether the handoff has
+	 * already reached it. Returns how many of the oldest turns did not fit
+	 * its context window.
+	 */
+	adoptHandoff(handoff: Handoff): Promise<number>;
+	/**
+	 * This agent's own part of the conversation, past the replay limit, to
+	 * hand to the other agent at a swap.
+	 */
+	transcript(): Promise<ChatEventBody[]>;
 }
 
 export interface ChatSink {

@@ -20,9 +20,15 @@ import {
 import { silentLogger } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { ChatEventBody } from "./agent.js";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
+import type { HandoffSegment } from "./handoff.js";
 import { ChatHost, type ChatSdk } from "./host.js";
-import { chatSessionsDir, recordChatSession } from "./session-record.js";
+import {
+	type ChatSwapState,
+	chatSessionsDir,
+	recordChatSession,
+} from "./session-record.js";
 import { readLines } from "./wire.js";
 
 const ID = "5d0f4a7e-0a51-4b8e-9d0e-6c3f1b2a9e10";
@@ -2508,5 +2514,141 @@ describe("MCP servers", () => {
 			);
 		}
 		expect(JSON.stringify(a.events)).not.toContain("Your token?");
+	});
+});
+
+describe("agent swaps", () => {
+	const HANDOFF = "0f6b6f3e-6a4c-4b7c-9d1e-2f3a4b5c6d7e";
+	const LOG: HandoffSegment[] = [
+		{ agent: "claude", turns: [{ user: "c1", reply: "claude said", tools: [] }] },
+		{ agent: "codex", turns: [{ user: "x1", reply: "codex said", tools: ["Run ls"] }] },
+	];
+
+	function state(handoff: ChatSwapState["handoff"]): ChatSwapState {
+		return { sessions: {}, earlier: [], truncated: false, log: LOG, handoff };
+	}
+
+	async function swapHost(swap: { state: ChatSwapState; switched: boolean }) {
+		await host.stop();
+		queries = [];
+		host = new ChatHost({
+			terminalId: ID,
+			projectDir: join(dir, "projects", "demo"),
+			homeDir: dir,
+			socketDir: join(dir, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async () => undefined,
+			sdk: sdk(),
+			swap,
+		});
+		await host.start();
+	}
+
+	function sentText(index: number): string {
+		const content = queries[0]?.sent[index]?.message.content as { text?: string }[];
+		return content.map((block) => block.text ?? "").join("");
+	}
+
+	test("a fresh Claude session takes the whole conversation with the first prompt, once", async () => {
+		exists = false;
+		transcript = async () => [];
+		await swapHost({ state: state(null), switched: true });
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "handoff")).toHaveLength(1));
+		a.send({ type: "send", text: "go on", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		const first = sentText(0);
+		expect(first.startsWith('<portikus-handoff id="')).toBe(true);
+		expect(first).toContain("Student: c1");
+		expect(first).toContain("Codex: codex said");
+		expect(first).toContain("[Codex used these tools, summarised: Run ls]");
+		expect(first.endsWith("go on")).toBe(true);
+		// The student sees only what they wrote.
+		await vi.waitFor(() =>
+			expect(ofType(a, "message").at(-1)).toMatchObject({ markdown: "go on" }),
+		);
+		a.send({ type: "send", text: "again", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(2));
+		expect(sentText(1)).toBe("again");
+	});
+
+	test("resuming its own session, Claude is told only what was said since it last spoke", async () => {
+		exists = true;
+		await swapHost({ state: state(null), switched: true });
+		const a = await attach();
+		a.send({ type: "send", text: "go on", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toContain("Student: x1");
+		expect(sentText(0)).not.toContain("Student: c1");
+	});
+
+	test("a slash command waits; the handoff goes with the next message", async () => {
+		await swapHost({ state: state(null), switched: true });
+		const a = await attach();
+		a.send({ type: "send", text: "/compact", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toBe("/compact");
+	});
+
+	const MARKED = (text: string): SessionMessage =>
+		({
+			type: "user",
+			uuid: "u-marked",
+			session_id: ID,
+			message: {
+				role: "user",
+				content: `<portikus-handoff id="${HANDOFF}">\nStudent: x1\n</portikus-handoff>\n\n${text}`,
+			},
+			parent_tool_use_id: null,
+			parent_agent_id: null,
+			timestamp: "2026-11-07T11:00:00.000Z",
+		}) as SessionMessage;
+
+	test("after a restart the handoff already sent is not sent again, and the replay starts where it landed, without it", async () => {
+		exists = true;
+		transcript = async () => [...EARLIER, MARKED("go on")];
+		await swapHost({
+			state: state({ id: HANDOFF, from: "codex", droppedTurns: 0 }),
+			switched: false,
+		});
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings").length).toBeGreaterThan(0));
+		// The turn before the swap is the earlier part's to show, not the session's.
+		expect(ofType(a, "message").map((event) => event.markdown)).toEqual(["go on"]);
+		a.send({ type: "send", text: "next", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toBe("next");
+	});
+
+	test("while the handoff is unsent, the session's own part is empty, and the handoff waits", async () => {
+		exists = true;
+		transcript = async () => EARLIER;
+		await swapHost({
+			state: state({ id: HANDOFF, from: "codex", droppedTurns: 0 }),
+			switched: false,
+		});
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "settings").length).toBeGreaterThan(0));
+		expect(ofType(a, "message")).toEqual([]);
+		a.send({ type: "send", text: "next", attachments: [] });
+		await vi.waitFor(() => expect(queries[0]?.sent).toHaveLength(1));
+		expect(sentText(0)).toContain(`<portikus-handoff id="${HANDOFF}">`);
+	});
+
+	test("the next swap hands on Claude's whole part, past the replay limit", async () => {
+		exists = true;
+		transcript = async () => [...EARLIER, MARKED("go on")];
+		await swapHost({
+			state: state({ id: HANDOFF, from: "codex", droppedTurns: 0 }),
+			switched: false,
+		});
+		const agent = (
+			host as unknown as { agent: { transcript(): Promise<ChatEventBody[]> } }
+		).agent;
+		const events = await agent.transcript();
+		expect(
+			events.filter((event) => event.type === "message").map((event) => event.markdown),
+		).toEqual(["go on"]);
 	});
 });

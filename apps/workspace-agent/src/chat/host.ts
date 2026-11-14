@@ -47,7 +47,8 @@ import {
 	fromTranscript,
 	windowFromModelUsage,
 } from "./context-usage.js";
-import { ChatCore } from "./core.js";
+import { ChatCore, type ChatCoreOptions } from "./core.js";
+import { fitTurns, type Handoff, handoffText, turnsFor } from "./handoff.js";
 import { InputQueue } from "./input-queue.js";
 import { ELICITATION_NOTICE, refreshMcp } from "./mcp-status.js";
 import { ModelList } from "./model-list.js";
@@ -65,7 +66,7 @@ import {
 	withoutKind,
 } from "./shell-command.js";
 import { SlashCommandList } from "./slash-commands.js";
-import { replayHistory } from "./snapshot.js";
+import { carriesHandoff, replayHistory, sinceHandoff } from "./snapshot.js";
 import { SubagentStreams } from "./subagents.js";
 import { ChatTitle } from "./titles.js";
 
@@ -100,6 +101,7 @@ export interface ChatHostOptions {
 	sdk?: ChatSdk;
 	/** For tests only: the `!` command time limit. */
 	shellTimeoutMs?: number;
+	swap?: ChatCoreOptions["swap"];
 }
 
 export type { ChatSdk };
@@ -107,7 +109,7 @@ export type { ChatSdk };
 /** A chat tab's host running Claude through the Agent SDK (ADR 0069). */
 export class ChatHost extends ChatCore {
 	constructor(options: ChatHostOptions) {
-		super(options, new ClaudeAgent(options));
+		super(options, new ClaudeAgent(options), "claude");
 	}
 }
 
@@ -155,6 +157,11 @@ class ClaudeAgent implements ChatAgent {
 		},
 		() => this.sink.rules(this.rules.held),
 	);
+
+	/** The handoff this session's part of the chat starts at, if the tab has swapped. */
+	private handoffId: string | null = null;
+	/** The handoff text the next prompt carries, until it is sent. */
+	private handoffPrefix = "";
 
 	/** The Claude session in force; /clear moves the tab to a new one. */
 	private sessionId: string;
@@ -486,6 +493,8 @@ class ClaudeAgent implements ChatAgent {
 	 */
 	private sessionChanged(sessionId: string): void {
 		this.sessionId = sessionId;
+		this.handoffId = null;
+		this.handoffPrefix = "";
 		void writeChatSession(
 			this.options.homeDir,
 			this.options.terminalId,
@@ -538,7 +547,7 @@ class ClaudeAgent implements ChatAgent {
 				this.sessionId,
 				this.options.projectDir,
 			);
-			replay = replayHistory(messages, turnRunning);
+			replay = replayHistory(sinceHandoff(messages, this.handoffId), turnRunning);
 			context ??= fromTranscript(messages, this.context.windowTokens);
 		} catch {
 			this.options.log.warn("could not read the chat transcript");
@@ -549,6 +558,37 @@ class ClaudeAgent implements ChatAgent {
 			void this.refreshWindow(this.session, undefined);
 		}
 		return { ...replay, context: context ?? this.context.current() };
+	}
+
+	/**
+	 * Take in the other agent's turns (SPEC.md §10.8). Resuming its own
+	 * session, Claude is told only what was said since it last spoke; a new
+	 * session is told everything. The text goes with the next prompt, once.
+	 */
+	async adoptHandoff(handoff: Handoff): Promise<number> {
+		this.handoffId = handoff.id;
+		const messages = await this.sdk
+			.sessionMessages(this.sessionId, this.options.projectDir)
+			.catch(() => []);
+		if (messages.some((entry) => carriesHandoff(entry, handoff.id))) return 0;
+		const turns = turnsFor(handoff.log, "claude", messages.length > 0);
+		const { kept, dropped } = fitTurns(turns, this.context.windowTokens);
+		this.handoffPrefix = handoffText(handoff.id, kept, dropped);
+		return dropped;
+	}
+
+	/** Claude's whole part of the conversation, for the next swap. */
+	async transcript(): Promise<ChatEventBody[]> {
+		const messages = await this.sdk.sessionMessages(
+			this.sessionId,
+			this.options.projectDir,
+		);
+		return replayHistory(
+			sinceHandoff(messages, this.handoffId),
+			false,
+			undefined,
+			Number.POSITIVE_INFINITY,
+		).events;
 	}
 
 	/** A `!` command still running; its "done" event follows. */
@@ -602,10 +642,12 @@ class ClaudeAgent implements ChatAgent {
 	}
 
 	private async sendMessage(text: string, attachments: ChatAttachment[]) {
+		// A slash command must stay first in its prompt, so the handoff waits for a message.
+		const prefix = text.startsWith("/") ? "" : this.handoffPrefix;
 		const content = await userContent(
 			this.options.homeDir,
 			this.options.projectDir,
-			text,
+			prefix + text,
 			attachments,
 		);
 		if (content.length === 0) return;
@@ -617,6 +659,7 @@ class ClaudeAgent implements ChatAgent {
 			parent_tool_use_id: null,
 			uuid,
 		} as SDKUserMessage);
+		if (prefix !== "") this.handoffPrefix = "";
 		this.sink.emit({
 			type: "message",
 			id: uuid,

@@ -22,6 +22,8 @@ import { AgentCallError, type AgentClient, agentClientFor } from "../agent-clien
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, sendWorkspaceNotFound } from "../http.js";
 import { toEditorSettings } from "../users/editor-settings.js";
+import { switchChatAgent } from "../workspaces/chat-agent-switch.js";
+import { launcherFields } from "../workspaces/launcher-env.js";
 import {
 	createPendingWork,
 	dropPresence,
@@ -54,38 +56,6 @@ const GIT_OBJECT_ID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
 function gitObjectOrNull(value: string | null): string | null {
 	if (value !== null && GIT_OBJECT_ID.test(value)) return value;
 	return null;
-}
-
-/**
- * The one institutional key this agent kind may receive (SPEC.md §10.6).
- * Only a variable this process actually has is forwarded, and only for the
- * launcher that uses it. The value is never stored or logged.
- */
-function institutionalEnv(
-	agent: "claude" | "codex" | undefined,
-): { ANTHROPIC_API_KEY: string } | { OPENAI_API_KEY: string } | undefined {
-	if (agent === "claude") {
-		const key = process.env.ANTHROPIC_API_KEY;
-		if (key) return { ANTHROPIC_API_KEY: key };
-	}
-	if (agent === "codex") {
-		const key = process.env.OPENAI_API_KEY;
-		if (key) return { OPENAI_API_KEY: key };
-	}
-	return undefined;
-}
-
-/**
- * The API does not choose the CLI. It forwards the launcher kind and, when
- * this process has it, the matching institutional key (SPEC.md §10.2,
- * §10.6, §24.8).
- */
-function launcherFields(agent: "claude" | "codex" | undefined) {
-	const keys = institutionalEnv(agent);
-	return {
-		...(agent === undefined ? {} : { agent }),
-		...(keys === undefined ? {} : { institutionalEnv: keys }),
-	};
 }
 
 function toTerminal(row: {
@@ -561,11 +531,24 @@ export function registerTerminalRoutes(
 			return sendWorkspaceNotFound(reply);
 		}
 
+		if (body.agent !== undefined) {
+			const refused = await switchChatAgent(
+				db,
+				config,
+				workspace,
+				params.tid,
+				body.agent,
+			);
+			if (refused)
+				return sendError(reply, refused.status, refused.code, refused.message);
+		}
+
 		const updated = await db
 			.updateTable("terminals")
 			.set({
 				...(body.name === undefined ? {} : { name: body.name }),
 				...(body.theme === undefined ? {} : { theme: body.theme }),
+				...(body.agent === undefined ? {} : { agent: body.agent }),
 			})
 			.where("id", "=", params.tid)
 			.where("workspace_id", "=", params.id)

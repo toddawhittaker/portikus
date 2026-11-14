@@ -21,6 +21,7 @@ import {
 	AgentRecoveryAsideList,
 	AgentRenameProjectRequest,
 	AgentRestoreRecoveryPointRequest,
+	AgentSwitchChatRequest,
 	AgentTerminalsExit,
 	type LanguageServerId,
 	type LogLevel,
@@ -68,6 +69,9 @@ export const AGENT_PROBE_TIMEOUT_MS = 1500;
  * longer than the usual call (SPEC.md 18.2).
  */
 const STOP_TIMEOUT_MS = 20_000;
+
+/** A chat's host reads its whole conversation before an agent swap (SPEC.md §10.8). */
+const CHAT_SWITCH_TIMEOUT_MS = 45_000;
 
 /** Creating a project may clone a repository, which is slow. */
 const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -284,6 +288,19 @@ export class AgentClient {
 			);
 		}
 		return parsed.data;
+	}
+
+	/** Run the other coding agent in a chat tab, handed the conversation (SPEC.md §10.8). */
+	async switchChatAgent(
+		terminalId: string,
+		input: AgentSwitchChatRequest,
+	): Promise<void> {
+		await this.call(
+			"POST",
+			`/terminals/${terminalId}/chat-agent`,
+			AgentSwitchChatRequest.parse(input),
+			CHAT_SWITCH_TIMEOUT_MS,
+		);
 	}
 
 	async deleteTerminal(terminalId: string): Promise<void> {

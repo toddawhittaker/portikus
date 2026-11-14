@@ -148,16 +148,11 @@ test("each menu marks the current and the default value and says what every choi
 
 	await picker(view, "Agent").click();
 	const codex = menu(page, "Agent").getByRole("menuitemradio", { name: "Codex" });
-	// The chat has history, so it keeps its agent and says how to start the other.
-	await expect(codex).toHaveAttribute("aria-disabled", "true");
+	// The chat has history, so the other agent warns before it is chosen.
+	await expect(codex).not.toHaveAttribute("aria-disabled", "true");
 	await expect(codex).toHaveAccessibleDescription(
-		"To use Codex now, start a new chat from the New tab menu.",
+		/^Codex starts fresh with this conversation as context; the cache is lost\./,
 	);
-	// Playwright will not click an aria-disabled item, so press it.
-	await codex.focus();
-	await page.keyboard.press("Enter");
-	// Nothing to choose: the menu stays open on Claude Code.
-	await expect(menu(page, "Agent")).toBeVisible();
 	await page.keyboard.press("Escape");
 	await expect(picker(view, "Agent")).toHaveText("Agent Claude Code");
 });
@@ -202,7 +197,7 @@ test("the pickers work from the keyboard alone", async ({ page, context }) => {
 		.poll(async () => receivedFrames(id, "set"))
 		.toEqual([{ type: "set", model: "haiku" }]);
 
-	// The unavailable choice is reached, not skipped.
+	// The other agent is reached from the keyboard too.
 	await picker(view, "Agent").focus();
 	await page.keyboard.press("Enter");
 	await page.keyboard.press("ArrowDown");
@@ -839,11 +834,11 @@ test("an empty Claude chat turns into a Codex chat in its place when Codex is ch
 	const { id, view } = await withPickers(
 		launchChat(page, student.workspaceId, project.id),
 	);
-	// A chat with history keeps its agent for now.
+	// A chat with history warns before it swaps.
 	await picker(view, "Agent").click();
 	await expect(
 		menu(page, "Agent").getByRole("menuitemradio", { name: "Codex" }),
-	).toHaveAttribute("aria-disabled", "true");
+	).toHaveAccessibleDescription(/the cache is lost/);
 	await page.keyboard.press("Escape");
 	// Cleared, the chat is empty, and Codex takes its place with no warning.
 	const box = view.getByTestId("chat-composer-input");

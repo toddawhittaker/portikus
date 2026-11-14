@@ -139,6 +139,9 @@ function relay(socket: WebSocket, path: string): void {
 		} catch {
 			return close(1008, "malformed frame");
 		}
+		// A swap goes through the API, which brings the new agent's key and
+		// replaces the host; asked here, the host would wait for nobody.
+		if (parsed.type === "agent.switch") return;
 		writeLine(host, JSON.stringify(parsed));
 	});
 	socket.on("close", () => {

@@ -67,6 +67,21 @@ interface FakeChat {
 	/** The last `context` event body a test set; sent on attach. */
 	context: Record<string, unknown> | null;
 	sockets: Set<WebSocket>;
+	/** How the next agent swap goes, as a test set it. */
+	swap: { droppedTurns: number; delayMs: number; refuse: boolean };
+}
+
+/** What a chat of each agent starts with and offers. */
+function agentLists(agent: CodingAgent) {
+	const codex = agent === "codex";
+	return {
+		settings: codex
+			? { model: "gpt-5.5", effort: "medium" as ChatEffort, mode: "onRequest" as const }
+			: { model: "sonnet", effort: "medium" as ChatEffort, mode: "default" as const },
+		commands: codex ? CODEX_COMMANDS : DEFAULT_COMMANDS,
+		models: codex ? CODEX_MODELS : DEFAULT_MODELS,
+		modes: codex ? CODEX_MODES : CLAUDE_MODES,
+	};
 }
 
 /**
@@ -107,15 +122,11 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				answers: [],
 				decisions: new Map(),
 				received: [],
-				settings: codex
-					? { model: "gpt-5.5", effort: "medium", mode: "onRequest" }
-					: { model: "sonnet", effort: "medium", mode: "default" },
-				commands: codex ? CODEX_COMMANDS : DEFAULT_COMMANDS,
-				models: codex ? CODEX_MODELS : DEFAULT_MODELS,
-				modes: codex ? CODEX_MODES : CLAUDE_MODES,
+				...agentLists(codex ? "codex" : "claude"),
 				mcp: DEFAULT_MCP,
 				context: null,
 				sockets: new Set(),
+				swap: { droppedTurns: 0, delayMs: 0, refuse: false },
 			};
 			chats.set(id, chat);
 		}
@@ -594,6 +605,52 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			emit(id, [socket], { type: "settings", agent: chat.agent, ...chat.settings });
 		},
 	);
+
+	// Swap the chat's agent as the workspace agent does (SPEC.md §10.8): the
+	// host is replaced, so every attachment closes; the history stays, with
+	// the divider, and the new agent's settings and lists follow on attach.
+	app.post("/terminals/:id/chat-agent", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const terminal = terminals.get(id);
+		if (!terminal) {
+			return reply
+				.status(404)
+				.send({ error: { code: "TERMINAL_NOT_FOUND", message: "no such terminal" } });
+		}
+		const chat = chatOf(id);
+		const body = request.body as {
+			agent: CodingAgent;
+			institutionalEnv?: Record<string, string>;
+		};
+		const to = body.agent;
+		const { droppedTurns, delayMs, refuse } = chat.swap;
+		if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+		if (refuse || chat.openCards.length > 0) {
+			return reply.status(409).send({
+				error: { code: "CHAT_BUSY", message: "the chat cannot switch agents now" },
+			});
+		}
+		const from = chat.agent;
+		chat.history.push({ type: "handoff", from, to, droppedTurns });
+		Object.assign(chat, { agent: to, started: false, ...agentLists(to) });
+		// The key the swap brought replaces the old agent's, as on the agent.
+		const { institutionalEnv: _old, ...rest } = terminal;
+		terminals.set(id, {
+			...rest,
+			agent: to,
+			...(body.institutionalEnv ? { institutionalEnv: body.institutionalEnv } : {}),
+		});
+		for (const peer of chat.sockets) peer.close(1000, "chat closed");
+		return reply.status(204).send();
+	});
+
+	// How the next agent swap goes: turns it drops, a delay, or a refusal.
+	app.post("/__test/chats/:id/swap", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		chat.swap = { ...chat.swap, ...(request.body as Partial<FakeChat["swap"]>) };
+		return reply.status(204).send();
+	});
 
 	// Replace the slash command list and send it to every attachment, as the host does.
 	app.post("/__test/chats/:id/commands", async (request, reply) => {

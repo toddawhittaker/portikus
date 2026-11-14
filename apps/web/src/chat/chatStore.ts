@@ -20,6 +20,7 @@ import {
 	ChatServerEvent,
 	type ChatSessionRule,
 	type ChatToolOutputPart,
+	type CodingAgent,
 	chatStartMode,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	type ChatShellItem as ShellFields,
@@ -72,7 +73,23 @@ export interface ChatShellItem extends Omit<ShellFields, "kind"> {
 	turnId: null;
 }
 
-export type ChatItem = ChatMessageItem | ChatToolItem | ChatShellItem | ChatErrorItem;
+/** Where the chat changed agents: a divider in the conversation (SPEC.md §10.8). */
+export interface ChatHandoffItem {
+	kind: "handoff";
+	key: string;
+	from: CodingAgent;
+	to: CodingAgent;
+	/** The oldest turns that did not fit the new agent's context window. */
+	droppedTurns: number;
+	turnId: null;
+}
+
+export type ChatItem =
+	| ChatMessageItem
+	| ChatToolItem
+	| ChatShellItem
+	| ChatErrorItem
+	| ChatHandoffItem;
 
 export interface ChatTurn {
 	id: string;
@@ -375,9 +392,17 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return { ...state, commands: event.commands };
 		case "context":
 			return { ...state, context: contextUsage(event, now) };
-		// The divider an agent swap leaves; nothing draws it yet.
-		case "handoff":
-			return state;
+		case "handoff": {
+			const item: ChatHandoffItem = {
+				kind: "handoff",
+				key: `handoff:${event.seq}`,
+				from: event.from,
+				to: event.to,
+				droppedTurns: event.droppedTurns,
+				turnId: null,
+			};
+			return { ...state, items: [...state.items, item] };
+		}
 	}
 }
 

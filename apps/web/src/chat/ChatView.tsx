@@ -10,6 +10,7 @@ import {
 	type ChatOpenCard,
 	CODING_AGENT_LABEL,
 	type CodingAgent,
+	Terminal,
 } from "@portikus/contracts";
 import { IconButton, Skeleton } from "@portikus/ui";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
@@ -25,6 +26,7 @@ import {
 } from "react";
 import { useStore } from "zustand";
 import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
+import { sendJson } from "../api/request.js";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { LayoutStoreContext } from "../layout/store.js";
 import { useProjects } from "../projects/queries.js";
@@ -33,7 +35,7 @@ import { useTerminals } from "../terminal/useTerminals.js";
 import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
 import { ChatAgentContext } from "./chatAgent.js";
-import type { ChatState } from "./chatStore.js";
+import { type ChatState, isEmptyChat } from "./chatStore.js";
 import { ImageViewerProvider } from "./ImageViewer.js";
 import { type FileOpener, MessageList } from "./MessageList.js";
 import { PermissionCard, permissionHeading } from "./PermissionCard.js";
@@ -161,30 +163,42 @@ function useFileOpener(workspaceId: string, projectId: string): FileOpener | nul
 }
 
 /**
- * Put a new chat of the other agent in this empty chat's place, through the
- * same create and close a New chat uses: with nothing said yet, nothing is
- * lost, so nothing needs warning (SPEC.md §10.8). Null outside a work area.
+ * Swap the other agent into this chat (SPEC.md §10.8). An empty chat is
+ * replaced by a new chat of the other agent, through the same create and
+ * close a New chat uses: with nothing said yet, nothing is lost. A chat with
+ * history keeps its tab: the API swaps its agent in place, handing over the
+ * conversation, and the chat reconnects to the new agent. Null outside a
+ * work area.
  */
 function useAgentSwitch(
 	workspaceId: string,
 	projectId: string,
 	terminalId: string,
-): ((agent: CodingAgent) => void) | null {
+	empty: boolean,
+): ((agent: CodingAgent) => Promise<void>) | null {
 	const layout = useContext(LayoutStoreContext);
-	// The work area polls the list; this only creates and closes.
+	// The work area polls the list; this only creates, changes and closes.
 	const terminals = useTerminals(workspaceId, projectId, false);
 	if (layout === null) return null;
-	return (agent) => {
-		void terminals
-			.create({ kind: "chat", agent })
-			.then((created) => {
-				layout.getState().replaceLeaf(terminalId, created.id);
-				layout.getState().setFocused(created.id);
-				void terminals.close(terminalId).catch(() => {});
-				terminals.refetch();
-			})
-			// A failed create is the hook's toast; this chat stays.
-			.catch(() => {});
+	if (!empty) {
+		return async (agent) => {
+			await sendJson(
+				Terminal,
+				`/workspaces/${workspaceId}/terminals/${terminalId}`,
+				{ agent },
+				"PATCH",
+			);
+			// The left pane and a reload follow the tab's new agent.
+			terminals.refetch();
+		};
+	}
+	return async (agent) => {
+		// A failed create is also the hook's toast; this chat stays.
+		const created = await terminals.create({ kind: "chat", agent });
+		layout.getState().replaceLeaf(terminalId, created.id);
+		layout.getState().setFocused(created.id);
+		void terminals.close(terminalId).catch(() => {});
+		terminals.refetch();
 	};
 }
 
@@ -200,7 +214,12 @@ function ChatViewBody({
 	const state = useStore(store);
 	const readAloud = useReadAloud(workspaceId, projectId);
 	const opener = useFileOpener(workspaceId, projectId);
-	const switchAgent = useAgentSwitch(workspaceId, projectId, terminalId);
+	const switchAgent = useAgentSwitch(
+		workspaceId,
+		projectId,
+		terminalId,
+		isEmptyChat(state),
+	);
 	const program = CODING_AGENT_NAME[agentOf(state)];
 	useReadNewReplies(store, readAloud.on, visible);
 	useStopWhenLeaving(store, visible);

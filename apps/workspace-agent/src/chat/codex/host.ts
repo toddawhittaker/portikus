@@ -17,11 +17,12 @@ import type {
 	ChatSink,
 	ContextFigures,
 } from "../agent.js";
-import { ChatCore } from "../core.js";
+import { ChatCore, type ChatCoreOptions } from "../core.js";
+import type { Handoff } from "../handoff.js";
 import { writeChatSession } from "../session-record.js";
 import { shellRefusal } from "../shell-command.js";
-import { REPLAY_TURNS } from "../snapshot.js";
 import { ChatTitle } from "../titles.js";
+import { REPLAY_TURNS } from "../wire.js";
 import {
 	AppServerClient,
 	type AppServerProcess,
@@ -29,6 +30,7 @@ import {
 	spawnAppServer,
 } from "./app-server.js";
 import { codexCommands, slashCommand } from "./commands.js";
+import { CodexHandoff, codexTranscript } from "./handoff.js";
 import { replayTurns, turnStatus, userShell } from "./history.js";
 import { type CodexInput, codexInput } from "./input.js";
 import { CodexItemMapper } from "./mapper.js";
@@ -93,12 +95,13 @@ export interface CodexHostOptions {
 	postState: (state: PostedState) => Promise<void>;
 	/** For tests only: a stand-in for the app-server process. */
 	spawn?: (cwd: string) => AppServerProcess;
+	swap?: ChatCoreOptions["swap"];
 }
 
 /** A chat tab's host running Codex through `codex app-server` (SPEC.md §10.8). */
 export class CodexChatHost extends ChatCore {
 	constructor(options: CodexHostOptions) {
-		super(options, new CodexAgent(options));
+		super(options, new CodexAgent(options), "codex");
 	}
 }
 
@@ -141,6 +144,10 @@ export class CodexAgent implements ChatAgent {
 	private settings: Settings = { model: "", effort: "", mode: CODEX_DEFAULT_MODE };
 	private workspace: SandboxPolicy = DEFAULT_WORKSPACE_SANDBOX;
 	private context: ContextFigures | null = null;
+	private readonly handoff = new CodexHandoff(() => ({
+		client: this.client,
+		threadId: this.threadId,
+	}));
 	private skills: SkillsList | null = null;
 	private recording: Promise<void> = Promise.resolve();
 	constructor(private readonly options: CodexHostOptions) {
@@ -275,12 +282,14 @@ export class CodexAgent implements ChatAgent {
 			);
 			if (result) this.options.log.info("codex thread resumed");
 		}
+		this.handoff.fresh = !result;
 		if (!result) {
 			result = parsed(ThreadResult, await client.request("thread/start", common));
 			if (!result) throw new Error("Codex did not start a conversation.");
 			this.options.log.info("codex thread started");
 		}
 		this.adoptThread(result);
+		await this.handoff.inject();
 	}
 
 	private adoptThread(result: ThreadResult): void {
@@ -551,6 +560,15 @@ export class CodexAgent implements ChatAgent {
 
 	inProgress(): ChatEventBody[] {
 		return this.shell.inProgress();
+	}
+
+	adoptHandoff(handoff: Handoff): Promise<number> {
+		return this.handoff.adopt(handoff, this.context?.windowTokens ?? null);
+	}
+
+	async transcript(): Promise<ChatEventBody[]> {
+		const client = await this.ready();
+		return this.threadId ? codexTranscript(client, this.threadId) : [];
 	}
 
 	rename(title: string): Promise<ChatRenameResult> {

@@ -859,6 +859,21 @@ function drawSwappable() {
 					endedAt: null,
 				});
 			}
+			if (method === "PATCH") {
+				return Response.json({
+					id: TERMINAL,
+					workspaceId: WORKSPACE,
+					name: "Chat",
+					cwd: "/home/student/projects/demo",
+					position: 0,
+					projectId: PROJECT,
+					createdAt: "2026-01-01T00:00:00.000Z",
+					theme: "dark",
+					kind: "chat",
+					agent: "codex",
+					endedAt: null,
+				});
+			}
 			if (method === "DELETE") return new Response(null, { status: 204 });
 			return Response.json({});
 		}),
@@ -922,13 +937,44 @@ test("choosing Codex in an empty chat makes a Codex chat in its place and closes
 	expect(latest().sent).toEqual([]);
 });
 
-test("a chat with history keeps its agent: the other is not offered yet", () => {
-	const { calls } = drawSwappable();
+test("a chat with history swaps its agent in place through the API, and says the new one is starting", async () => {
+	const { layout, calls } = drawSwappable();
 	snapshot();
 	emit("settings", { agent: "claude", model: "opus", effort: "medium", mode: "auto" });
 	replayTurn(1_000, 1_000, "hi", "hello");
 	chooseAgent("Codex");
-	expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
+	expect(screen.getByTestId("chat-composer-status").textContent).toBe(
+		"Starting a Codex chat\u2026",
+	);
+	await vi.waitFor(() =>
+		expect(calls.filter((call) => call.method !== "GET")).toEqual([
+			{
+				method: "PATCH",
+				url: `/workspaces/${WORKSPACE}/terminals/${TERMINAL}`,
+				body: { agent: "codex" },
+			},
+		]),
+	);
+	// The tab stays; nothing is created, replaced or closed.
+	expect(layout.replaceLeaf).not.toHaveBeenCalled();
+	expect(screen.getByTestId("composer-agent").textContent).toBe("Agent Codex");
+});
+
+test("after a swap the divider says what changed, and each stretch keeps its own agent's byline", () => {
+	draw();
+	snapshot();
+	replayTurn(1_000, 1_000, "hi", "from claude");
+	emit("handoff", { from: "claude", to: "codex", droppedTurns: 3 });
+	replayTurn(5_000, 1_000, "and now", "from codex");
+	codexSettings();
+	expect(screen.getByTestId("chat-handoff").textContent).toBe(
+		"Switched from Claude Code to Codex. Codex started fresh with this conversation as context. The 3 oldest turns did not fit Codex\u2019s context window and were left out.",
+	);
+	const log = screen.getByRole("list", { name: "Conversation" });
+	const bylines = within(log)
+		.getAllByText(/^(Claude|Codex)$/)
+		.map((node) => node.textContent);
+	expect(bylines).toEqual(["Claude", "Codex"]);
 });
 
 test("a card carrying a plan is announced as the agent's plan, and the byline names the chat's agent", () => {

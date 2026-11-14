@@ -98,6 +98,16 @@ test("frames pass both ways, one JSON frame per line", async () => {
 	expect(await sock.closed).toBe(1005);
 });
 
+test("a browser cannot ask the host to swap agents; only the agent's own route does", async () => {
+	await startFakeHost();
+	const sock = await open();
+	await vi.waitFor(() => expect(sock.frames).toHaveLength(1));
+	sock.ws.send(JSON.stringify({ type: "agent.switch", agent: "codex" }));
+	sock.ws.send(JSON.stringify({ type: "interrupt" }));
+	await vi.waitFor(() => expect(hostLines).toEqual(['{"type":"interrupt"}']));
+	sock.ws.close();
+});
+
 /** The HTTP status an upgrade request gets, read before any upgrade. */
 async function upgradeStatus(id: string): Promise<number> {
 	const { request } = await import("node:http");

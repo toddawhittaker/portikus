@@ -11,7 +11,7 @@ import { chatHostArgs } from "../tmux.js";
 import type { ClaudeLimitWindows } from "./claude-adapter.js";
 import { CodexChatHost } from "./codex/host.js";
 import { ChatHost } from "./host.js";
-import { recordChatSession } from "./session-record.js";
+import { recordChatSession, takeSwapState } from "./session-record.js";
 import { CHAT_SOCKET_DIR } from "./wire.js";
 
 /**
@@ -22,6 +22,9 @@ import { CHAT_SOCKET_DIR } from "./wire.js";
  * and versions only (ADR 0012).
  */
 const { terminalId, agent, resumeChatOf } = chatHostArgs(process.argv.slice(2));
+// A swap to this agent, prepared by the host this one replaces, goes first:
+// it points the session record at this agent's own session.
+const swap = await takeSwapState(homedir(), terminalId, agent, resumeChatOf);
 const sessionId = await recordChatSession(homedir(), terminalId, resumeChatOf);
 const log = createLogger({
 	service: "chat-host",
@@ -51,6 +54,7 @@ const common = {
 	homeDir: homedir(),
 	socketDir: CHAT_SOCKET_DIR,
 	log,
+	swap,
 	postTitle: (title: string | null) =>
 		post(CODING_AGENT_TITLE_PATH, { terminal: terminalId, title }),
 };

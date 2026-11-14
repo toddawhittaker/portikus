@@ -70,6 +70,7 @@ function defaultHandlers(): Handlers {
 		"thread/compact/start": () => ({}),
 		"review/start": () => ({}),
 		"thread/unsubscribe": () => ({ status: "unsubscribed" }),
+		"thread/inject_items": () => ({}),
 	};
 }
 
@@ -1593,5 +1594,75 @@ describe("through the chat core", () => {
 		} finally {
 			await host.stop();
 		}
+	});
+});
+
+describe("agent swaps", () => {
+	const HANDOFF = {
+		id: "0f6b6f3e-6a4c-4b7c-9d1e-2f3a4b5c6d7e",
+		from: "claude" as const,
+		log: [
+			{
+				agent: "claude" as const,
+				turns: [{ user: "Fix it", reply: "Fixed.", tools: ["Edit a.ts"] }],
+			},
+		],
+	};
+
+	test("a fresh thread is given the conversation once, through inject_items, as messages", async () => {
+		const { agent, server } = await setup();
+		expect(await agent.adoptHandoff(HANDOFF)).toBe(0);
+		const injected = server().requests("thread/inject_items");
+		expect(injected).toHaveLength(1);
+		const params = injected[0]?.params as { threadId: string; items: unknown[] };
+		expect(params.threadId).toBe(MAIN);
+		expect(params.items.slice(1)).toEqual([
+			{
+				type: "message",
+				role: "user",
+				content: [{ type: "input_text", text: "Fix it" }],
+			},
+			{
+				type: "message",
+				role: "assistant",
+				content: [
+					{
+						type: "output_text",
+						text: "Claude: Fixed.\n\n[Claude used these tools, summarised: Edit a.ts]",
+					},
+				],
+			},
+		]);
+		expect(JSON.stringify(params.items[0])).toContain("Claude, another coding agent");
+	});
+
+	test("a thread resumed after a restart already holds the handoff, so nothing is injected", async () => {
+		const { agent, server } = await setup({ sessionId: MAIN });
+		await agent.adoptHandoff(HANDOFF);
+		expect(server().requests("thread/inject_items")).toEqual([]);
+	});
+
+	test("the next swap hands on every turn of the thread, page by page", async () => {
+		const page = recordedResult("resume-turns-list", "thread/turns/list") as {
+			data: unknown[];
+		};
+		let calls = 0;
+		const { agent, server } = await setup({
+			handlers: {
+				"thread/turns/list": () => {
+					calls += 1;
+					return { ...page, nextCursor: calls === 1 ? "more" : null };
+				},
+			},
+		});
+		const events = await agent.transcript();
+		expect(
+			server()
+				.requests("thread/turns/list")
+				.map((one) => one.params?.cursor),
+		).toEqual([undefined, "more"]);
+		expect(events.filter((event) => event.type === "turn.started")).toHaveLength(
+			page.data.length * 2,
+		);
 	});
 });

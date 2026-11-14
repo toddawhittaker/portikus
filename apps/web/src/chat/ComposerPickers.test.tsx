@@ -56,6 +56,8 @@ let toggled: boolean[];
 let mcpOpen: boolean;
 let mcpToggled: boolean[];
 let agentsAsked: string[];
+/** What the next agent swap answers; null leaves the picker without a swap. */
+let swapAnswer: (() => Promise<void>) | null;
 let store: ChatStore;
 let rerender: (
 	settings: ChatState["settings"],
@@ -82,7 +84,14 @@ function draw(
 				onOpenChange={(next) => toggled.push(next)}
 				mcpOpen={mcpOpen}
 				onMcpOpenChange={(next) => mcpToggled.push(next)}
-				onSwitchAgent={(agent) => agentsAsked.push(agent)}
+				onSwitchAgent={
+					swapAnswer === null
+						? undefined
+						: (agent) => {
+								agentsAsked.push(agent);
+								return (swapAnswer as () => Promise<void>)();
+							}
+				}
 			/>
 			<p id="bypass-warning">{BYPASS_WARNING}</p>
 		</>
@@ -118,6 +127,7 @@ beforeEach(() => {
 	mcpOpen = false;
 	mcpToggled = [];
 	agentsAsked = [];
+	swapAnswer = () => Promise.resolve();
 });
 
 test("each picker is a menu button named by its label and the value shown", () => {
@@ -332,22 +342,65 @@ test("in an empty chat Codex can be chosen, and choosing it asks to swap the age
 	expect(asked).toEqual([]);
 });
 
-test("in a chat with history the other agent stays reachable, cannot be chosen, and says how to use it", () => {
-	store.setState({
-		loaded: true,
-		items: [
-			{
-				kind: "message",
-				key: "message:m1",
-				id: "m1",
-				role: "user",
-				markdown: "Hi",
-				attachments: [],
-				streaming: false,
-				turnId: null,
-			},
-		],
-	});
+const HISTORY: ChatState["items"] = [
+	{
+		kind: "message",
+		key: "message:m1",
+		id: "m1",
+		role: "user",
+		markdown: "Hi",
+		attachments: [],
+		streaming: false,
+		turnId: null,
+	},
+];
+
+test("in a chat with history the other agent warns before it is chosen, then shows as asked while it starts", async () => {
+	store.setState({ loaded: true, items: HISTORY });
+	let answer!: () => void;
+	swapAnswer = () =>
+		new Promise<void>((resolve) => {
+			answer = resolve;
+		});
+	draw();
+	const menu = open("Agent");
+	const codex = within(menu).getByRole("menuitemradio", { name: "Codex" });
+	expect(codex.getAttribute("aria-disabled")).toBeNull();
+	expect(description(codex)).toBe(
+		"Codex starts fresh with this conversation as context; the cache is lost. If the conversation is too long for Codex, its oldest turns are left out.",
+	);
+	fireEvent.click(codex);
+	expect(agentsAsked).toEqual(["codex"]);
+	expect(asked).toEqual([]);
+	expect(announced).toEqual(["Starting a Codex chat\u2026"]);
+	// The picker shows the agent asked for, and the old agent's pickers wait.
+	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(screen.queryByRole("button", { name: /^Model / })).toBeNull();
+	await act(async () => answer());
+	expect(picker("Agent").textContent).toBe("Agent Codex");
+	// The new host's own settings end the wait.
+	rerender({ agent: "codex", model: "gpt-5.5", effort: "medium", mode: "onRequest" });
+	expect(picker("Agent").textContent).toBe("Agent Codex");
+	expect(picker("Model")).toBeTruthy();
+});
+
+test("a refused swap goes back to the agent the chat runs and says why", async () => {
+	store.setState({ loaded: true, items: HISTORY });
+	swapAnswer = () =>
+		Promise.reject(new Error("Wait for the reply to finish before switching agents."));
+	draw();
+	fireEvent.click(within(open("Agent")).getByRole("menuitemradio", { name: "Codex" }));
+	await act(async () => {});
+	expect(picker("Agent").textContent).toBe("Agent Claude Code");
+	expect(announced).toEqual([
+		"Starting a Codex chat\u2026",
+		"The agent did not change. Wait for the reply to finish before switching agents.",
+	]);
+});
+
+test("where the chat cannot swap, the other agent stays reachable, cannot be chosen, and says how to use it", () => {
+	store.setState({ loaded: true, items: HISTORY });
+	swapAnswer = null;
 	draw();
 	const menu = open("Agent");
 	const codex = within(menu).getByRole("menuitemradio", { name: "Codex" });
@@ -356,7 +409,6 @@ test("in a chat with history the other agent stays reachable, cannot be chosen, 
 		"To use Codex now, start a new chat from the New tab menu.",
 	);
 	fireEvent.click(codex);
-	expect(agentsAsked).toEqual([]);
 	// Choosing the agent already in use asks for nothing.
 	fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Claude Code" }));
 	expect(agentsAsked).toEqual([]);
