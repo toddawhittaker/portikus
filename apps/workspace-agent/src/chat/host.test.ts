@@ -1858,6 +1858,77 @@ describe("models", () => {
 		expect(ofType(a, "settings").at(-1)?.model).toBe("opus");
 	});
 
+	describe("a setting change the Claude host refuses", () => {
+		const refusal = async (
+			change: Record<string, string>,
+			message: string,
+			models: Record<string, unknown>[] = [
+				row("opus", { supportedEffortLevels: ["low", "medium"] }),
+			],
+		) => {
+			const fake = await startWith(models);
+			const a = await attach();
+			await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+			await vi.waitFor(() => expect(ofType(a, "settings")).toHaveLength(1));
+			const before = fake.calls.length;
+			const settingsBefore = ofType(a, "settings").length;
+			a.send({ type: "set", ...change } as never);
+			await vi.waitFor(() =>
+				expect(ofType(a, "error").map((e) => e.message)).toContain(message),
+			);
+			// Nothing was stored, broadcast or passed to the SDK.
+			expect(fake.calls.length).toBe(before);
+			expect(ofType(a, "settings")).toHaveLength(settingsBefore);
+			return { fake, a };
+		};
+
+		test("a mode Claude does not offer", async () => {
+			await refusal({ mode: "onRequest" }, "Claude has no such permission mode.");
+		});
+
+		test("an effort the current model does not offer", async () => {
+			const { fake } = await refusal(
+				{ effort: "max" },
+				"This model does not offer that effort.",
+			);
+			expect(fake.flags.effortLevel).toBeUndefined();
+		});
+
+		test("an effort the SDK has no level for, even when the model lists it", async () => {
+			const { fake } = await refusal(
+				{ effort: "ultra" },
+				"This model does not offer that effort.",
+				[row("opus", { supportedEffortLevels: ["low", "ultra"] })],
+			);
+			expect(fake.calls.filter((call) => call.startsWith("effort:"))).toEqual([]);
+		});
+
+		test("a refused part leaves the rest of the change unapplied", async () => {
+			const { fake } = await refusal(
+				{ model: "opus", effort: "max" },
+				"This model does not offer that effort.",
+			);
+			expect(fake.calls).not.toContain("model:opus");
+		});
+
+		test("an effort is checked against the model it arrives with", async () => {
+			const fake = await startWith([
+				row("opus", { supportedEffortLevels: ["low", "medium"] }),
+				row("sonnet", { supportedEffortLevels: ["low", "max"] }),
+			]);
+			const a = await attach();
+			await vi.waitFor(() => expect(ofType(a, "models")).toHaveLength(1));
+			a.send({ type: "set", model: "sonnet", effort: "max" });
+			await vi.waitFor(() =>
+				expect(ofType(a, "settings").at(-1)).toMatchObject({
+					model: "sonnet",
+					effort: "max",
+				}),
+			);
+			expect(fake.calls).toContain("effort:max");
+		});
+	});
+
 	test("choosing a pinned version sets that exact value", async () => {
 		const a = await attach();
 		a.send({ type: "set", model: "claude-opus-4-8" });

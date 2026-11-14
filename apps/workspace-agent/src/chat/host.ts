@@ -663,6 +663,24 @@ class ClaudeAgent implements ChatAgent {
 	}
 
 	async set(change: ChatSettingsChange): Promise<void> {
+		// Refuse before anything is stored, broadcast or passed to the SDK.
+		if (
+			change.mode !== undefined &&
+			!CLAUDE_MODES.some((mode) => mode.id === change.mode)
+		) {
+			throw new Error("Claude has no such permission mode.");
+		}
+		const sdkEffort =
+			change.effort === undefined ? undefined : toSdkEffort(change.effort);
+		if (change.effort !== undefined) {
+			const model = change.model ?? this.settings.model;
+			const efforts = this.modelList.current?.find(
+				(row) => row.value === model,
+			)?.efforts;
+			if (sdkEffort === undefined || (efforts && !efforts.includes(change.effort))) {
+				throw new Error("This model does not offer that effort.");
+			}
+		}
 		const session = this.session;
 		if (change.model !== undefined) {
 			await session?.setModel(change.model);
@@ -671,7 +689,7 @@ class ClaudeAgent implements ChatAgent {
 			if (session) void this.refreshWindow(session, undefined);
 		}
 		if (change.effort !== undefined) {
-			await session?.applyFlagSettings({ effortLevel: toSdkEffort(change.effort) });
+			await session?.applyFlagSettings({ effortLevel: sdkEffort });
 			this.settings.effort = change.effort;
 		}
 		// A model without Auto takes the chat to Ask, as a new chat on it starts.
