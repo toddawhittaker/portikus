@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
-import { type AccessClass, ROUTE_POLICY } from "../security/route-policy.js";
+import { type AccessClass, ROUTE_POLICY } from "../route-policy.js";
 import { NOT_EXPOSED, OPERATIONS, operationByKey, operationByName } from "./index.js";
 import type { Audience } from "./types.js";
 

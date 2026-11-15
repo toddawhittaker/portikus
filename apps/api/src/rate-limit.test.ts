@@ -25,7 +25,7 @@ import {
 	RECENT_MISSES_PER_ADDRESS,
 	registerAnonymousLimit,
 } from "./rate-limit.js";
-import { ROUTE_POLICY } from "./security/route-policy.js";
+import { ROUTE_POLICY } from "./route-policy.js";
 import { registerSigninThrottle } from "./signin-throttle.js";
 import { buildTestServer, testConfig } from "./testing/test-support.js";
 

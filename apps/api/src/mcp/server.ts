@@ -9,7 +9,7 @@ import type { Kysely } from "kysely";
 import { z } from "zod";
 import { OPERATIONS, type Operation } from "../catalog/index.js";
 import { type OperationInputValues, runOperation } from "../catalog/run.js";
-import { splitKey } from "../security/route-policy.js";
+import { splitKey } from "../route-policy.js";
 import { fromAuthInfo, type McpCaller, mayRun } from "./caller.js";
 import { findOperations } from "./find.js";
 import { jsonResult, toolResult } from "./result.js";

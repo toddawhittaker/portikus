@@ -1,9 +1,9 @@
 /**
  * The access class of every route the API registers (SPEC.md sections
- * 5, 20.2, and 24). It lives on the test side, so a route
- * cannot opt out of a check it cannot see. `authz-matrix.test.ts` fails when
- * a registered route is missing here, or when an entry here names a route
- * that no longer exists.
+ * 5, 20.2, and 24). The catalog and the MCP server read it at run time, so it
+ * must not live under `security/`, which the package leaves out.
+ * `security/authz-matrix.test.ts` fails when a registered route is missing
+ * here, or when an entry here names a route that no longer exists.
  *
  * Keys are `"<METHOD> <url pattern>"`, exactly as Fastify registers them,
  * including the automatic HEAD twin of every GET.

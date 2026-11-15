@@ -12,6 +12,7 @@ import type { ApiKeyScope } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { type AccessClass, ROUTE_POLICY, splitKey } from "../route-policy.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
 	type FakeBackupKey,
@@ -26,7 +27,6 @@ import {
 	type MatrixWorld,
 	PUBLIC_URL,
 } from "../testing/test-support.js";
-import { type AccessClass, ROUTE_POLICY, splitKey } from "./route-policy.js";
 
 /**
  * The authorization matrix (SPEC.md sections 5.2,
@@ -615,9 +615,7 @@ test.skipIf(skip)("every registered route has an access class, and back", async 
 		).toEqual([...seen.keys()].sort());
 
 		const unclassified = [...seen.keys()].filter((key) => !(key in ROUTE_POLICY));
-		expect(unclassified, "routes with no class in security/route-policy.ts").toEqual(
-			[],
-		);
+		expect(unclassified, "routes with no class in route-policy.ts").toEqual([]);
 
 		const gone = Object.keys(ROUTE_POLICY).filter((key) => {
 			const { method, url } = splitKey(key);

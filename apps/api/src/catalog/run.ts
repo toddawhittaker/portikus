@@ -1,6 +1,6 @@
 import type { ApiError } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { splitKey } from "../security/route-policy.js";
+import { splitKey } from "../route-policy.js";
 import { operationByName } from "./index.js";
 
 /** What a caller sends for one operation; the path comes from the catalog, never the caller. */
