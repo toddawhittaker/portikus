@@ -2,10 +2,13 @@ import { existsSync } from "node:fs";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MAX_CHAT_SHELL_OUTPUT_CHARS } from "@portikus/contracts";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
 	bashInputText,
 	bashOutputText,
+	capOutputForModel,
+	MAX_MODEL_SHELL_OUTPUT_CHARS,
 	parseBashInput,
 	parseBashOutput,
 	runShellCommand,
@@ -199,5 +202,88 @@ describe("the transcript form", () => {
 		});
 		expect(output?.shouldQuery).toBe(false);
 		expect(output?.uuid).not.toBe("id-1");
+	});
+});
+
+/** Claude reads at most 30,000 characters of a command's output; the student sees all of it (SPEC.md 10.2, ADR 0073). */
+describe("the output Claude reads", () => {
+	const cutNote = /^\[\.\.\. (\d+) lines cut \.\.\.\]$/m;
+	/** `seq`-like text: one numbered line each, cut to exactly `size` characters. */
+	const lines = (size: number) => {
+		let text = "";
+		for (let n = 1; text.length < size; n++) text += `${n}\n`;
+		return text.slice(0, size);
+	};
+
+	test("the limit is 30,000 characters", () => {
+		expect(MAX_MODEL_SHELL_OUTPUT_CHARS).toBe(30_000);
+	});
+
+	test("output of exactly 30,000 characters passes through unchanged", () => {
+		const text = lines(30_000);
+		expect(capOutputForModel(text)).toBe(text);
+		expect(capOutputForModel("")).toBe("");
+	});
+
+	test("one character more is cut, keeping the start and the end", () => {
+		const text = lines(30_001);
+		const capped = capOutputForModel(text);
+		expect(capped).not.toBe(text);
+		expect(capped).toMatch(cutNote);
+		expect(capped.startsWith(text.slice(0, 13_000))).toBe(true);
+		expect(capped.endsWith(text.slice(-13_000))).toBe(true);
+	});
+
+	test("65,536 characters come to at most 30,000 plus the note, with a correct count", () => {
+		const text = lines(MAX_CHAT_SHELL_OUTPUT_CHARS);
+		const capped = capOutputForModel(text);
+		const note = cutNote.exec(capped)?.[0] ?? "";
+		expect(note).not.toBe("");
+		expect(capped.length - note.length - 1).toBeLessThanOrEqual(30_000);
+		const [head, tail] = capped.split(`${note}\n`) as [string, string];
+		expect(head.endsWith("\n")).toBe(true);
+		// The kept parts are whole lines of the original, in order.
+		expect(text.startsWith(head)).toBe(true);
+		expect(text.endsWith(tail)).toBe(true);
+		const count = (part: string) => part.split("\n").length - 1;
+		expect(note).toBe(`[... ${count(text) - count(head) - count(tail)} lines cut ...]`);
+	});
+
+	test("a cut inside a long line counts the partial lines at both ends", () => {
+		// No line break within 1,000 characters of either cut point.
+		const text = `${"a".repeat(20_000)}\n${"b".repeat(20_000)}\n`;
+		expect(capOutputForModel(text)).toBe(
+			`${"a".repeat(15_000)}\n[... 2 lines cut ...]\n${"b".repeat(14_999)}\n`,
+		);
+	});
+
+	test("a cut is moved inward to a line break within 1,000 characters", () => {
+		const text = `${"a".repeat(14_500)}\n${"b".repeat(40_000)}\n${"c".repeat(500)}\n${"d".repeat(14_000)}`;
+		expect(capOutputForModel(text)).toBe(
+			`${"a".repeat(14_500)}\n[... 1 lines cut ...]\n${"c".repeat(500)}\n${"d".repeat(14_000)}`,
+		);
+	});
+
+	test("a surrogate pair at a cut point stays whole", () => {
+		const pair = "\u{1F600}";
+		// The head cut at 15,000 would land between the two halves.
+		const atHead = `${"a".repeat(14_999)}${pair}${"a".repeat(20_000)}${"z".repeat(15_000)}`;
+		// The tail cut, 15,000 from the end, would land between the two halves.
+		const atTail = `${"z".repeat(35_000)}${pair}${"a".repeat(14_999)}`;
+		for (const text of [atHead, atTail]) {
+			const capped = capOutputForModel(text);
+			expect(capped).toMatch(cutNote);
+			expect(capped).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+			expect(capped).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+		}
+	});
+
+	test("the transcript is capped but the run, and so the shell event, keeps all of it", async () => {
+		const run = await runShellCommand("seq 1 20000", { cwd: dir, shell: "/bin/bash" });
+		expect(run.output).toHaveLength(MAX_CHAT_SHELL_OUTPUT_CHARS);
+		const text = bashOutputText(run);
+		expect(text).toContain("lines cut ...]");
+		expect(text.length).toBeLessThan(30_300);
+		expect(run.output).toHaveLength(MAX_CHAT_SHELL_OUTPUT_CHARS);
 	});
 });
