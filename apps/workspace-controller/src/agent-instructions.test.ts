@@ -23,6 +23,7 @@ import {
 	CLAUDE_MANAGED_AGENTS_DIR,
 	CLAUDE_MANAGED_SETTINGS_PATH,
 	CLAUDE_SEED_MARKER_PATH,
+	CLAUDE_STUDENT_EXPLORE_PATH,
 	CLAUDE_SYSTEM_PATH,
 	CLAUDE_USER_SETTINGS_PATH,
 	CODEX_MANAGED_PATH,
@@ -33,6 +34,7 @@ import {
 	seedClaudeUserSettings,
 	writeAgentInstructions,
 	writeClaudeManagedSettings,
+	yieldExploreToStudent,
 } from "./agent-instructions.js";
 import { FakeFiles } from "./fake-files.js";
 
@@ -679,5 +681,62 @@ describe("seedClaudeUserSettings", () => {
 		await expect(seedClaudeUserSettings(failing, "ws-a")).rejects.toThrow(
 			/exited with 1/,
 		);
+	});
+});
+
+describe("yieldExploreToStudent", () => {
+	/** Files as the start leaves them, with an exec that answers the student's check. */
+	function client(status: number | null) {
+		const fake = Object.assign(files, {
+			checks: [] as { command: string[]; user?: number }[],
+			async exec(_name: string, command: string[], opts: { user?: number }) {
+				fake.checks.push({ command, user: opts.user });
+				return { status, stdout: Buffer.from(""), tooLarge: false };
+			},
+		});
+		return fake;
+	}
+
+	beforeEach(async () => {
+		await writeAgentInstructions(files, "ws-a", templatePath);
+	});
+
+	test("the student's own Explore removes the platform's copy", async () => {
+		const c = client(0);
+		expect(await yieldExploreToStudent(c, "ws-a")).toBe(true);
+		expect(files.files.has(CLAUDE_EXPLORE_AGENT_PATH)).toBe(false);
+		expect(c.checks).toEqual([
+			{
+				command: ["timeout", "10", "test", "-e", CLAUDE_STUDENT_EXPLORE_PATH],
+				user: 1000,
+			},
+		]);
+	});
+
+	test("with the student's own Explore and no copy left, nothing fails", async () => {
+		files.files.delete(CLAUDE_EXPLORE_AGENT_PATH);
+		expect(await yieldExploreToStudent(client(0), "ws-a")).toBe(true);
+	});
+
+	test("without the student's own Explore, the platform's copy stays", async () => {
+		expect(await yieldExploreToStudent(client(1), "ws-a")).toBe(false);
+		expect(files.files.get(CLAUDE_EXPLORE_AGENT_PATH)?.content).toBe(
+			CLAUDE_EXPLORE_AGENT,
+		);
+	});
+
+	test("a failed or timed-out check keeps the platform's copy", async () => {
+		for (const status of [124, null]) {
+			expect(await yieldExploreToStudent(client(status), "ws-a")).toBe(false);
+			expect(files.files.has(CLAUDE_EXPLORE_AGENT_PATH)).toBe(true);
+		}
+	});
+
+	test("a delete that fails for another reason is an error", async () => {
+		const c = client(0);
+		c.deleteFile = async () => {
+			throw new Error("boom");
+		};
+		await expect(yieldExploreToStudent(c, "ws-a")).rejects.toThrow(/boom/);
 	});
 });

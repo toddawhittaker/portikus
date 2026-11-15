@@ -10,6 +10,7 @@ import {
 	seedClaudeUserSettings,
 	writeAgentInstructions,
 	writeClaudeManagedSettings,
+	yieldExploreToStudent,
 } from "./agent-instructions.js";
 import { writeCodingAgentLinks } from "./coding-agent-links.js";
 import { writeDockerConfig, writeGhcrHosts } from "./docker-config.js";
@@ -315,6 +316,15 @@ async function setUpRunningInstance(
 		signal,
 		"could not seed Claude Code's starting model; starting without it",
 		() => seedClaudeUserSettings(host.client, name, signal),
+	);
+
+	// A failure keeps the platform's Explore agent, the cheaper default.
+	await optionalStep(
+		host,
+		name,
+		signal,
+		"could not check for the student's own Explore agent; keeping the platform's",
+		() => yieldExploreToStudent(host.client, name, signal),
 	);
 
 	// The agent wait has its own 15 s, not the start's timeout.

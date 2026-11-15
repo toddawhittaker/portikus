@@ -5,7 +5,7 @@ import {
 	CHAT_START_SETTINGS,
 } from "@portikus/contracts";
 import { errorMessage } from "@portikus/observability";
-import type { IncusClient } from "./incus.js";
+import { type IncusClient, IncusError } from "./incus.js";
 import { STUDENT_UID } from "./start-setup.js";
 
 /**
@@ -42,7 +42,8 @@ export const CLAUDE_EXPLORE_AGENT_PATH = `${CLAUDE_MANAGED_AGENTS_DIR}/Explore.m
  * session's model; this copy runs it on Haiku, which costs far less. Its
  * prompt is a short paraphrase of the built-in's purpose: recheck it against
  * the built-in whenever the shared Claude Code version changes. A managed
- * agent also wins over a student's own same-named agent (checked on 2.1.311).
+ * agent wins over a student's own same-named agent (checked on 2.1.311), so
+ * the start removes it again when the student has one.
  */
 export const CLAUDE_EXPLORE_AGENT =
 	"---\n" +
@@ -246,6 +247,37 @@ async function writeSystemFile(
 	// a non-folder there makes the file push below fail instead.
 	for (const dir of dirs) await client.pushFile(name, dir, "", ROOT_DIR, signal);
 	await client.replaceFile(name, path, body, ROOT_FILE, signal);
+}
+
+/** A student's own Explore agent, which takes the platform's place. */
+export const CLAUDE_STUDENT_EXPLORE_PATH = "/home/student/.claude/agents/Explore.md";
+
+/**
+ * Remove the platform's Explore agent when the student has their own, so
+ * theirs is the one Claude Code runs (SPEC.md §3). The check runs in the
+ * running container as the student; a check that fails keeps the platform's
+ * copy, the cheaper default. Deleting is safe while running because the
+ * student cannot write in the root-owned managed folder. Returns whether it
+ * removed the copy.
+ */
+export async function yieldExploreToStudent(
+	client: Pick<IncusClient, "exec" | "deleteFile">,
+	name: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	const check = await client.exec(
+		name,
+		["timeout", String(SEED_SECONDS), "test", "-e", CLAUDE_STUDENT_EXPLORE_PATH],
+		{ timeoutSeconds: SEED_SECONDS + 5, user: STUDENT_UID, outputMaxBytes: 1024 },
+		signal,
+	);
+	if (check.status !== 0) return false;
+	try {
+		await client.deleteFile(name, CLAUDE_EXPLORE_AGENT_PATH, signal);
+	} catch (err) {
+		if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
+	}
+	return true;
 }
 
 /** The student's own Claude Code settings, which the platform seeds once. */
