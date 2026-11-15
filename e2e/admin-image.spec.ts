@@ -715,7 +715,10 @@ test("the nightly update switch beside Update coding agents is off by default an
 		await expect(toggle).toHaveAccessibleDescription(/once between 3 and 4 a\.m\./);
 
 		await toggle.click();
-		await expect(page.getByText("Nightly update turned on")).toBeVisible();
+		// Radix also copies the toast into a hidden live region; this is the visible toast.
+		await expect(
+			page.getByRole("listitem").filter({ hasText: "Nightly update turned on" }),
+		).toBeVisible();
 		await expect(toggle).toBeChecked();
 		expect(await stored()).toBe(true);
 		const audit = await query(
@@ -730,7 +733,10 @@ test("the nightly update switch beside Update coding agents is off by default an
 		await agentsCard(page)
 			.getByRole("switch", { name: "Update automatically each night" })
 			.click();
-		await expect(page.getByText("Nightly update turned off")).toBeVisible();
+		// Radix also copies the toast into a hidden live region; this is the visible toast.
+		await expect(
+			page.getByRole("listitem").filter({ hasText: "Nightly update turned off" }),
+		).toBeVisible();
 		expect(await stored()).toBe(false);
 	} finally {
 		await query("update settings set coding_agents_auto_update = false where id = 1");
