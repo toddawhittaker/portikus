@@ -1,6 +1,6 @@
 import { ApiError } from "@portikus/contracts";
 import { z } from "zod";
-import { splitKey } from "../security/route-policy.js";
+import { splitKey } from "../route-policy.js";
 import type { Audience, Operation, OperationRecords, Risk } from "./types.js";
 
 /** A JSON Schema object as Zod writes it. */

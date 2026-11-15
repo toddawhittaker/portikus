@@ -11,6 +11,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import WebSocket from "ws";
+import { ROUTE_POLICY, splitKey } from "../route-policy.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { startFakeRootShell } from "../testing/fake-root-shell.js";
 import {
@@ -20,7 +21,6 @@ import {
 	type MatrixWorld,
 	PUBLIC_URL,
 } from "../testing/test-support.js";
-import { ROUTE_POLICY, splitKey } from "./route-policy.js";
 
 /**
  * The browser sockets of the authorization matrix (SPEC.md sections 5.3, 5.4, 20.2, 24.3). A refused socket is refused

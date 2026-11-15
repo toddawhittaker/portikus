@@ -1,6 +1,6 @@
 import { OPERATIONS, type Risk } from "../catalog/index.js";
 import type { JsonSchema } from "../catalog/openapi.js";
-import { splitKey } from "../security/route-policy.js";
+import { splitKey } from "../route-policy.js";
 import { type McpCaller, mayRun } from "./caller.js";
 import { operationInputJson } from "./schema.js";
 
