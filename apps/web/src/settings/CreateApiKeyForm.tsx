@@ -1,23 +1,16 @@
-import {
-	type ApiKeyPeriod,
-	type ApiKeyScope,
-	type CreatedApiKey,
-	SecondFactorStatus,
-} from "@portikus/contracts";
+import type { ApiKeyPeriod, ApiKeyScope, CreatedApiKey } from "@portikus/contracts";
 import { Button, HINT_CLASS, LABEL_CLASS, TextField } from "@portikus/ui";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { flushSync } from "react-dom";
-import { errorText, request } from "../api/request.js";
+import { errorText } from "../api/request.js";
 import { focusField } from "../second-factor/focusField.js";
-import { PasskeyButton } from "../second-factor/PasskeyButton.js";
-import { passkeysSupported } from "../second-factor/passkey.js";
 import {
 	type NewApiKey,
 	useCreateApiKey,
 	useCreateApiKeyWithPasskey,
 } from "./apiKeyQueries.js";
 import { periodLabel, SCOPE_TEXT, SCOPES } from "./apiKeyText.js";
+import { MISSING_CODE, StepUpFields } from "./StepUpFields.js";
 
 const NAME_ID = "api-key-name";
 const CODE_ID = "api-key-code";
@@ -55,13 +48,6 @@ export function CreateApiKeyForm({
 	const [code, setCode] = useState("");
 	const [nameError, setNameError] = useState<string | undefined>();
 	const [codeError, setCodeError] = useState<string | undefined>();
-	const factors = useQuery({
-		queryKey: ["me", "api-keys", "second-factor"],
-		queryFn: () => request(SecondFactorStatus, "/me/second-factor"),
-		enabled: needsSecondFactor,
-	});
-	const hasPasskey =
-		factors.data?.factors.some((factor) => factor.kind === "webauthn") ?? false;
 
 	/** The form's fields, or null after moving focus to the field that needs fixing. */
 	function fields(): NewApiKey | null {
@@ -80,9 +66,7 @@ export function CreateApiKeyForm({
 		const body = fields();
 		if (body === null) return;
 		if (needsSecondFactor && code.trim() === "") {
-			flushSync(() =>
-				setCodeError("Enter a code from your authenticator app, or a recovery code."),
-			);
+			flushSync(() => setCodeError(MISSING_CODE));
 			focusField(CODE_ID);
 			return;
 		}
@@ -180,30 +164,19 @@ export function CreateApiKeyForm({
 				</div>
 			)}
 			{needsSecondFactor ? (
-				<fieldset className="pk-key-options gap-3" data-testid="api-key-second-factor">
-					<legend className={`${LABEL_CLASS} mb-1.5 p-0`}>Confirm it is you</legend>
-					{hasPasskey && passkeysSupported() ? (
-						<PasskeyButton
-							label="Create with a passkey"
-							testId="api-key-passkey"
-							action={async () => {
-								const body = fields();
-								if (body === null) return;
-								onCreated(await createWithPasskey.mutateAsync(body));
-							}}
-						/>
-					) : null}
-					<TextField
-						id={CODE_ID}
-						label="Two-step sign-in code"
-						hint="A code from your authenticator app, or one of your recovery codes."
-						autoComplete="one-time-code"
-						spellCheck={false}
-						value={code}
-						error={codeError}
-						onChange={(event) => setCode(event.target.value)}
-					/>
-				</fieldset>
+				<StepUpFields
+					codeId={CODE_ID}
+					code={code}
+					codeError={codeError}
+					onCodeChange={setCode}
+					passkeyLabel="Create with a passkey"
+					passkeyTestId="api-key-passkey"
+					onPasskey={async () => {
+						const body = fields();
+						if (body === null) return;
+						onCreated(await createWithPasskey.mutateAsync(body));
+					}}
+				/>
 			) : null}
 			{shownError ? (
 				<p className="pk-text-body m-0 text-status-error" role="alert">

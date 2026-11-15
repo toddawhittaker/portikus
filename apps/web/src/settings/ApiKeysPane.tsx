@@ -3,24 +3,19 @@ import { Badge, Button, ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
 import { useState } from "react";
 import { flushSync } from "react-dom";
 import { errorText } from "../api/request.js";
-import {
-	useMyApiKeys,
-	useRenewApiKey,
-	useRevokeApiKey,
-	useRotateApiKey,
-} from "./apiKeyQueries.js";
+import { useMyApiKeys, useRenewApiKey, useRevokeApiKey } from "./apiKeyQueries.js";
 import {
 	canRenew,
 	expiryText,
 	keyDay,
 	lastUsedText,
-	periodLabel,
 	SCOPE_TEXT,
 	STATE_TEXT,
 } from "./apiKeyText.js";
 import { CreateApiKeyForm } from "./CreateApiKeyForm.js";
 import { useShowSetting } from "./controls.js";
 import { NEW_SECRET_HEADING_ID, NewApiKeySecret } from "./NewApiKeySecret.js";
+import { RotateApiKeyDialog } from "./RotateApiKeyDialog.js";
 import "./apiKeys.css";
 
 const INTRO_ID = "settings-section-api-keys-intro";
@@ -128,6 +123,7 @@ export function ApiKeysPane({
 							<KeyRow
 								key={key.id}
 								apiKey={key}
+								needsSecondFactor={needsSecondFactor}
 								onStatus={setStatus}
 								onNewSecret={(created) => show(created, true)}
 							/>
@@ -193,21 +189,22 @@ export function ApiKeysPane({
 /** One key: what it is, its state, and what its owner can still do with it. */
 function KeyRow({
 	apiKey: key,
+	needsSecondFactor,
 	onStatus,
 	onNewSecret,
 }: {
 	apiKey: ApiKey;
+	needsSecondFactor: boolean;
 	onStatus: (text: string) => void;
 	onNewSecret: (created: CreatedApiKey) => void;
 }) {
 	const renew = useRenewApiKey();
-	const rotate = useRotateApiKey();
 	const revoke = useRevokeApiKey();
 	const [confirm, setConfirm] = useState<"rotate" | "revoke" | null>(null);
 	const state = STATE_TEXT[key.state];
 	const lastUsed = lastUsedText(key.lastUsedAt, Date.now());
 	const headingId = rowHeadingId(key);
-	const error = renew.error ?? rotate.error ?? revoke.error;
+	const error = renew.error ?? revoke.error;
 
 	function runRenew() {
 		onStatus("");
@@ -218,15 +215,6 @@ function KeyRow({
 						? `${key.name} renewed. It never expires.`
 						: `${key.name} renewed. It now expires ${keyDay(renewed.expiresAt)}.`,
 				),
-		});
-	}
-
-	function runRotate() {
-		rotate.mutate(key.id, {
-			onSuccess: (created) => {
-				setConfirm(null);
-				onNewSecret(created);
-			},
 		});
 	}
 
@@ -299,7 +287,6 @@ function KeyRow({
 								variant="secondary"
 								aria-describedby={headingId}
 								onClick={() => {
-									rotate.reset();
 									setConfirm("rotate");
 								}}
 							>
@@ -325,36 +312,18 @@ function KeyRow({
 					{errorText(error, "That did not work. Try again.")}
 				</p>
 			) : null}
-			<ConfirmDialogRoot
+			<RotateApiKeyDialog
+				apiKey={key}
+				lastUsed={lastUsed}
 				open={confirm === "rotate"}
-				onOpenChange={(open) => !open && !rotate.isPending && setConfirm(null)}
-			>
-				<ConfirmDialog
-					testId="api-key-rotate-confirm"
-					title={`Renew ${key.name} with a new secret?`}
-					description={
-						<>
-							The key starting <span className="pk-mono-small">{key.prefix}</span> was
-							last used {lastUsed === "Never used" ? "never" : lastUsed.toLowerCase()}.
-							It gets a new secret and a fresh{" "}
-							{periodLabel(key.periodDays).toLowerCase()} period, and its old secret
-							stops working at once, so every tool that uses it needs the new one. Use
-							this if the secret may have leaked.
-						</>
-					}
-					confirmLabel="Renew with a new secret"
-					destructive={false}
-					pending={rotate.isPending}
-					onConfirm={runRotate}
-					returnFocusTo={() => document.getElementById(headingId)}
-				>
-					{rotate.error ? (
-						<p className="pk-text-body m-0 text-status-error" role="alert">
-							{errorText(rotate.error, "The key was not renewed. Try again.")}
-						</p>
-					) : null}
-				</ConfirmDialog>
-			</ConfirmDialogRoot>
+				needsSecondFactor={needsSecondFactor}
+				onClose={() => setConfirm(null)}
+				onRotated={(created) => {
+					setConfirm(null);
+					onNewSecret(created);
+				}}
+				returnFocusTo={() => document.getElementById(headingId)}
+			/>
 			<ConfirmDialogRoot
 				open={confirm === "revoke"}
 				onOpenChange={(open) => !open && !revoke.isPending && setConfirm(null)}

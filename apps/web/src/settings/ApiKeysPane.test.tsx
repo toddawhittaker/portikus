@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../test-utils.js";
 import { ApiKeysPane } from "./ApiKeysPane.js";
 import { defaultPeriod } from "./CreateApiKeyForm.js";
+import { newPeriodText } from "./RotateApiKeyDialog.js";
 
 vi.mock("@simplewebauthn/browser", () => ({
 	browserSupportsWebAuthn: () => true,
@@ -78,6 +79,8 @@ beforeEach(() => {
 			return json(200, { challenge: "abc", rpId: "x" });
 		if (url === `/me/api-keys/${ACTIVE.id}/renew`)
 			return json(200, { ...ACTIVE, expiresAt: "2027-01-01T10:00:00.000Z" });
+		if (url === `/me/api-keys/${ACTIVE.id}/rotate` && body?.code === "000000")
+			return json(403, { code: "WRONG_CODE", message: "That code is not right." });
 		if (url === `/me/api-keys/${ACTIVE.id}/rotate`)
 			return json(200, {
 				key: { ...ACTIVE, prefix: "portikus_dddd" },
@@ -301,4 +304,69 @@ test("no keys yet says so", async () => {
 	expect((await screen.findByTestId("api-keys-empty")).textContent).toBe(
 		"You have no API keys yet.",
 	);
+});
+
+function rotateCalls() {
+	return calls.filter((call) => call.url.endsWith("/rotate"));
+}
+
+async function openRotate() {
+	await screen.findByTestId("api-key-portikus_aaaa");
+	fireEvent.click(
+		row("portikus_aaaa").getByRole("button", { name: "Renew with a new secret…" }),
+	);
+	return screen.findByTestId("api-key-rotate-confirm");
+}
+
+test("an SSO account renews with a new secret without a second-factor step", async () => {
+	renderWithQuery(<ApiKeysPane highlightId={null} needsSecondFactor={false} />);
+	const confirm = await openRotate();
+	expect(within(confirm).queryByLabelText("Two-step sign-in code")).toBeNull();
+	fireEvent.click(
+		within(confirm).getByRole("button", { name: "Renew with a new secret" }),
+	);
+	await screen.findByTestId("api-key-secret");
+	expect(rotateCalls().map((call) => call.body)).toEqual([{}]);
+});
+
+test("a Dex local-password account proves a code to renew with a new secret", async () => {
+	renderWithQuery(<ApiKeysPane highlightId={null} needsSecondFactor />);
+	const confirm = await openRotate();
+	const code = within(confirm).getByLabelText("Two-step sign-in code");
+	// No code: refused at the field, nothing sent, and the confirm stays open.
+	fireEvent.click(
+		within(confirm).getByRole("button", { name: "Renew with a new secret" }),
+	);
+	expect(code.getAttribute("aria-invalid")).toBe("true");
+	expect(rotateCalls()).toHaveLength(0);
+
+	fireEvent.change(code, { target: { value: "000000" } });
+	fireEvent.click(
+		within(confirm).getByRole("button", { name: "Renew with a new secret" }),
+	);
+	await waitFor(() =>
+		expect(within(confirm).getByText("That code is not right.")).toBeDefined(),
+	);
+	expect(screen.getByTestId("api-key-rotate-confirm")).toBe(confirm);
+
+	fireEvent.change(code, { target: { value: "123456" } });
+	fireEvent.click(
+		within(confirm).getByRole("button", { name: "Renew with a new secret" }),
+	);
+	await screen.findByTestId("api-key-secret");
+	expect(rotateCalls().at(-1)?.body).toEqual({ code: "123456" });
+});
+
+test("a Dex local-password account can renew with a new secret using its passkey", async () => {
+	renderWithQuery(<ApiKeysPane highlightId={null} needsSecondFactor />);
+	const confirm = await openRotate();
+	fireEvent.click(await within(confirm).findByTestId("api-key-rotate-passkey"));
+	await screen.findByTestId("api-key-secret");
+	expect(calls.some((call) => call.url === "/me/api-keys/passkey/start")).toBe(true);
+	expect(rotateCalls().at(-1)?.body).toMatchObject({ credential: { id: "cred" } });
+});
+
+test("the confirm says whether the new secret starts a fresh period", () => {
+	expect(newPeriodText(30)).toBe("It starts a fresh 30-day period");
+	expect(newPeriodText(null)).toBe("It still never expires");
 });

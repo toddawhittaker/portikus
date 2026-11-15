@@ -43,15 +43,22 @@ export function useCreateApiKey() {
 	);
 }
 
-/** Create after proving one of the account's passkeys (SPEC.md section 24.13). */
-export function useCreateApiKeyWithPasskey() {
-	return useKeyMutation(async (fields: NewApiKey) => {
-		const options = await sendJson(PasskeyOptions, "/me/api-keys/passkey/start", {});
-		const credential = await startAuthentication({
-			optionsJSON: options as unknown as PublicKeyCredentialRequestOptionsJSON,
-		});
-		return sendJson(CreatedApiKey, "/me/api-keys", { ...fields, credential });
+/** Answer a passkey challenge made for the key actions (SPEC.md section 24.13). */
+async function passkeyProof() {
+	const options = await sendJson(PasskeyOptions, "/me/api-keys/passkey/start", {});
+	return startAuthentication({
+		optionsJSON: options as unknown as PublicKeyCredentialRequestOptionsJSON,
 	});
+}
+
+/** Create after proving one of the account's passkeys. */
+export function useCreateApiKeyWithPasskey() {
+	return useKeyMutation(async (fields: NewApiKey) =>
+		sendJson(CreatedApiKey, "/me/api-keys", {
+			...fields,
+			credential: await passkeyProof(),
+		}),
+	);
 }
 
 /** Restart the key's period, keeping its secret. */
@@ -61,10 +68,19 @@ export function useRenewApiKey() {
 	);
 }
 
-/** Restart the key's period with a new secret; the old one stops working. */
+/**
+ * Restart the key's period with a new secret; the old one stops working. A
+ * Dex local-password account sends a code, or proves a passkey when
+ * `passkey` is set, as it does to create a key.
+ */
 export function useRotateApiKey() {
-	return useKeyMutation((id: string) =>
-		sendJson(CreatedApiKey, `/me/api-keys/${id}/rotate`, {}),
+	return useKeyMutation(
+		async ({ id, code, passkey }: { id: string; code?: string; passkey?: boolean }) => {
+			let proof = {};
+			if (passkey) proof = { credential: await passkeyProof() };
+			else if (code !== undefined) proof = { code };
+			return sendJson(CreatedApiKey, `/me/api-keys/${id}/rotate`, proof);
+		},
 	);
 }
 

@@ -228,4 +228,19 @@ test("a Dex local-password account chooses a period and proves its second factor
 	await expect(dialog.getByTestId("api-key-secret")).toBeVisible();
 	await dialog.getByTestId("api-key-secret-done").click();
 	await expect(keyRow(dialog, name).getByTestId("api-key-expiry")).toHaveText("Never");
+
+	// Renew with a new secret asks for the same step; the confirm stays open until it is given.
+	await keyRow(dialog, name)
+		.getByRole("button", { name: "Renew with a new secret…" })
+		.click();
+	const confirm = page.getByTestId("api-key-rotate-confirm");
+	await expect(confirm).toContainText("It still never expires");
+	await confirm.getByRole("button", { name: "Renew with a new secret" }).click();
+	const rotateCode = confirm.getByLabel("Two-step sign-in code");
+	await expect(rotateCode).toHaveAccessibleDescription(
+		/Enter a code from your authenticator app/,
+	);
+	await rotateCode.fill(await app.nextCode());
+	await confirm.getByRole("button", { name: "Renew with a new secret" }).click();
+	await expect(dialog.getByTestId("api-key-secret")).toBeVisible();
 });
