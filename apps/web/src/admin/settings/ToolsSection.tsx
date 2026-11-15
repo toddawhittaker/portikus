@@ -111,7 +111,9 @@ export function ToolsSection() {
 						</legend>
 						<p className={HINT_CLASS} id="code-help-plain">
 							A language left unticked still opens in the editor with syntax colouring,
-							but no completion, error checking or Problems tab.
+							but no completion, error checking or Problems tab. HTML, CSS and JSON
+							always have code help: it runs in the student's browser, so it needs no
+							server and no memory here.
 						</p>
 						<ul
 							className="m-0 grid max-w-[42rem] list-none divide-y divide-line border-y border-line p-0"

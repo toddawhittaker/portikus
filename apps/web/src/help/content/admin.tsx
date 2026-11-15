@@ -564,8 +564,9 @@ export const ADMIN_HELP: HelpPart = {
 						unticked still opens in the editor, plainly, and no new server starts for
 						it. Students see a change when they next load the page or return to the
 						window. Languages marked <strong>Coming later</strong> cannot be ticked yet.
-						Course interfaces do not change this, and each change is written to the
-						audit log.
+						HTML, CSS and JSON always have code help, because it runs in the student's
+						browser. Course interfaces do not change this, and each change is written to
+						the audit log.
 					</p>
 				</>
 			),

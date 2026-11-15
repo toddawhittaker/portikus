@@ -80,3 +80,37 @@ test("the find widget's feature is loaded with the rest", async () => {
 	await load(fakeMonaco);
 	expect(imported).toContain("monaco-editor/features/find/register.js");
 });
+
+const SERVICE_PATHS = [
+	"monaco-editor/language/json/monaco.contribution.js",
+	"monaco-editor/language/css/monaco.contribution.js",
+	"monaco-editor/language/html/monaco.contribution.js",
+];
+
+test("the editor features alone load no language service", async () => {
+	for (const path of SERVICE_PATHS) stub(path);
+	const { loadEditorFeatures: load } = await import("./features");
+	await load(fakeMonaco);
+	for (const path of SERVICE_PATHS) expect(imported).not.toContain(path);
+});
+
+/** SPEC.md §13.6 and §24.1: no JSON schema is applied, and none is ever fetched. */
+test("the HTML, CSS and JSON services register, with JSON schemas off", async () => {
+	const setDiagnosticsOptions = vi.fn();
+	vi.doMock(SERVICE_PATHS[0] as string, () => {
+		imported.push(SERVICE_PATHS[0] as string);
+		return { jsonDefaults: { setDiagnosticsOptions } };
+	});
+	for (const path of SERVICE_PATHS.slice(1)) stub(path);
+	const { loadLanguageServices, JSON_DIAGNOSTICS } = await import("./features");
+	await loadLanguageServices();
+	for (const path of SERVICE_PATHS) expect(imported).toContain(path);
+	expect(setDiagnosticsOptions).toHaveBeenCalledWith(JSON_DIAGNOSTICS);
+	expect(JSON_DIAGNOSTICS).toMatchObject({
+		validate: true,
+		enableSchemaRequest: false,
+		schemas: [],
+		schemaRequest: "ignore",
+		schemaValidation: "ignore",
+	});
+});

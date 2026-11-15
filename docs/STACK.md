@@ -251,7 +251,11 @@ Use Monaco Diff Editor for file diffs.
 Do not attempt to reproduce the complete VS Code extension system.
 
 Code help (SPEC.md section 13.6, ADR 0065) comes from real language servers
-in the workspace, not from Monaco's own language services. The browser talks
+in the workspace, not from Monaco's own language services, except for HTML,
+CSS and JSON. Those three use Monaco's services in the browser, registered by
+name (`apps/web/src/editor/features.ts`) so their code and workers load only
+when such a file opens. Monaco's TypeScript service stays out: its
+diagnostics do not know the project's configuration. The browser talks
 to them through a thin Language Server Protocol client of our own in
 `apps/web/src/lsp/` (about 800 lines: a socket, one client per project and
 server, the providers for the six features, and a zustand store for problems
