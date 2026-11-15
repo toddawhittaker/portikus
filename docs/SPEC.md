@@ -7487,6 +7487,28 @@ Acceptance:
 - the host calls `account/read` only to see whether the student is signed in, never keeps or logs the account's email, logs no prompt, reply or file, and writes no lasting Codex rule;
 - a swap gives the new agent only its own key and is refused while anything is running.
 
+### Epic 67 — Fix batch for usage savings
+
+Built on `epic/67-fix-batch`. Migrations 0055 (`check_runs`) and 0057 (`coding_agents_auto_update`). See sections 4.4, 7.5, 10.2, 10.3, 13.1, 13.6, 18.1, 22.4, 22.6 and 26.
+
+Includes:
+
+- Claude Code in a terminal seeded once at Opus with medium effort in the student's own settings, and a managed Explore subagent that runs on Haiku;
+- Codex's newer multi-agent toolset with a 20-minute floor on `wait_agent`;
+- the output of a `!` command capped at 30,000 characters for Claude, and a question before a model or version change in a chat with history, with a fresh chat and handoff as the alternative;
+- the Claude Agent SDK upgraded, and the mid-turn caution dropped from Help;
+- pane zoom for terminals, chats and file views kept in the student's settings on the server;
+- a nightly update of the shared coding agents behind an administrator switch, off by default;
+- finished check runs kept and listed as check history in the Checks pane;
+- code help for HTML, CSS and JSON from Monaco's in-browser services, and a Format button that says when its server is not ready;
+- three flaky tests made certain (Python format, the same-agent swap and the automatic handoff's stop).
+
+Acceptance:
+
+- a student's own default model, effort or Explore agent wins over the seeded one;
+- check history keeps at most 20 runs per check and 640 per project, and never logs a check's output;
+- the nightly update runs only when the administrator has turned it on.
+
 ### Estimated total
 
 **Approximately 47–66 focused engineer-days** for a credible student pilot, depending heavily on how much UI polish, institutional identity integration, and infrastructure troubleshooting is required.
