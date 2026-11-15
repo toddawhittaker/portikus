@@ -1532,6 +1532,13 @@ files:
     # The platform owns the Codex version, same as Claude Code's updater.
     check_for_update_on_startup = false
 
+    # Each wait_agent timeout re-reads the whole conversation; the older
+    # toolset fixes it at 30 s (openai/codex#41875).  20 minutes stays inside
+    # GPT-5.6's 30-minute prompt cache.  A student may switch it back.
+    [features.multi_agent_v2]
+    enabled = true
+    default_wait_timeout_ms = 1200000
+
 # A student's own git init starts on main, like the platform's.
 - path: /etc/gitconfig
   generator: dump

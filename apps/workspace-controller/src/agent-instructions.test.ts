@@ -212,11 +212,26 @@ describe("writeClaudeManagedSettings", () => {
 });
 
 describe("codexSystemConfig", () => {
-	test("holds only the update switch, which the image also ships", () => {
+	test("holds the update switch the image ships and the 20-minute multi-agent wait", () => {
 		expect(codexSystemConfig()).toBe(
 			"# Written by Portikus at every workspace start; edits do not last.\n" +
-				"check_for_update_on_startup = false\n",
+				"check_for_update_on_startup = false\n" +
+				"\n[features.multi_agent_v2]\n" +
+				"enabled = true\n" +
+				"default_wait_timeout_ms = 1200000\n",
 		);
+	});
+
+	test("parses as TOML with the wait under the newer toolset, below the 30-minute cache", () => {
+		const config = parse(codexSystemConfig()) as {
+			check_for_update_on_startup: unknown;
+			features: {
+				multi_agent_v2: { enabled: unknown; default_wait_timeout_ms: number };
+			};
+		};
+		expect(config.check_for_update_on_startup).toBe(false);
+		expect(config.features.multi_agent_v2.enabled).toBe(true);
+		expect(config.features.multi_agent_v2.default_wait_timeout_ms).toBe(20 * 60 * 1000);
 	});
 
 	test("holds none of what the managed file owns, so nothing runs twice", () => {
