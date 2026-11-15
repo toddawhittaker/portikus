@@ -75,6 +75,21 @@ export const CODEX_MANAGED_PATH = "/etc/codex/managed_config.toml";
 const CODEX_UPDATE_LINE = "check_for_update_on_startup = false";
 
 /**
+ * Each `wait_agent` timeout re-reads the parent's whole conversation, and the
+ * older multi-agent toolset fixes it at 30 seconds (openai/codex#41875). The
+ * newer toolset takes a floor as well as a default, and the floor matters
+ * because the model passes its own short timeouts; a wait still ends when a
+ * subagent finishes. 20 minutes stays inside GPT-5.6's 30-minute prompt
+ * cache. It sits in the system layer so a student can switch it back with
+ * `features.multi_agent_v2 = false` in `~/.codex/config.toml`.
+ */
+const CODEX_MULTI_AGENT_TABLE =
+	"[features.multi_agent_v2]\n" +
+	"enabled = true\n" +
+	"min_wait_timeout_ms = 1200000\n" +
+	"default_wait_timeout_ms = 1200000\n";
+
+/**
  * Codex's metrics go to the workspace agent's loopback receiver as OTLP JSON
  * (ADR 0057). Metrics carry counts and the model, never prompts; logs and
  * traces stay off, and so does the default export to OpenAI's Statsig.
@@ -133,14 +148,17 @@ const CODEX_HOOK_TABLES = CODEX_HOOKS.map(
 ).join("\n");
 
 /**
- * The Codex system config: the update switch the image ships, nothing else.
+ * The Codex system config: the update switch and the multi-agent wait, both
+ * of which a student may change.
  * It is rewritten at every start so the instructions and hooks an older
  * start put here do not run a second time beside the managed file's.
  */
 export function codexSystemConfig(): string {
 	return (
 		"# Written by Portikus at every workspace start; edits do not last.\n" +
-		`${CODEX_UPDATE_LINE}\n`
+		`${CODEX_UPDATE_LINE}\n` +
+		// A TOML table ends the top-level keys, so it comes last.
+		`\n${CODEX_MULTI_AGENT_TABLE}`
 	);
 }
 
