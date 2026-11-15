@@ -51,6 +51,7 @@ import { SETTINGS_SECTIONS, type SettingsControl, settingsHits } from "./section
 import { currentZoneOption, timezoneGroups } from "./timezones.js";
 import "./settings.css";
 
+import { ApiKeysPane } from "./ApiKeysPane.js";
 import { ChoiceField, ControlFrame, NavButton, useShowSetting } from "./controls.js";
 import { EditorSchemeSelect } from "./EditorSchemeSelect.js";
 import { checkLink, type LinkDraft, ProfilePane } from "./ProfilePane.js";
@@ -76,6 +77,7 @@ const PREFERENCES = SETTINGS_SECTIONS.find((section) => section.id === "preferen
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
 const PASSWORD = SETTINGS_SECTIONS.find((section) => section.id === "password");
 const TWO_FACTOR = SETTINGS_SECTIONS.find((section) => section.id === "two-factor");
+const API_KEYS = SETTINGS_SECTIONS.find((section) => section.id === "api-keys");
 
 /** The typed auto-save delay as seconds, or why it is refused. */
 function parseDelay(delay: string): {
@@ -146,10 +148,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
 	const me = useMe();
 	const localPassword = me.status === "authenticated" && me.user.localPassword;
-	const sections = SETTINGS_SECTIONS.filter(
-		(section) =>
-			(section.id !== PASSWORD?.id && section.id !== TWO_FACTOR?.id) || localPassword,
-	);
+	// Students never hold API keys (SPEC.md section 24.13).
+	const keyHolder =
+		me.status === "authenticated" &&
+		(me.user.role === "administrator" || me.user.role === "instructor");
+	const sections = SETTINGS_SECTIONS.filter((section) => {
+		if (section.id === PASSWORD?.id || section.id === TWO_FACTOR?.id)
+			return localPassword;
+		if (section.id === API_KEYS?.id) return keyHolder;
+		return true;
+	});
 	const filtering = query.trim() !== "";
 	const hits = settingsHits(sections, query);
 	const listed = filtering
@@ -326,6 +334,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	function sectionPane() {
 		if (sectionId === TWO_FACTOR?.id && localPassword) {
 			return <TwoFactorPane highlightId={highlightId} />;
+		}
+		if (sectionId === API_KEYS?.id && keyHolder) {
+			return (
+				<ApiKeysPane highlightId={highlightId} needsSecondFactor={localPassword} />
+			);
 		}
 		if (sectionId === PASSWORD?.id && localPassword) {
 			return <PasswordPane highlightId={highlightId} />;
