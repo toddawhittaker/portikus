@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { request, sendJson } from "../api/request.js";
+import { seedPaneZooms } from "../layout/paneZoomKeeper.js";
 import {
 	markThemeCarriedOver,
 	readThemePreference,
@@ -50,6 +51,7 @@ export const meSettingsQuery = queryOptions({
 		}
 		rememberThemePreference(settings.appearance);
 		setEditorScheme(settings.editorScheme);
+		seedPaneZooms(settings.paneZooms);
 		return settings;
 	},
 });

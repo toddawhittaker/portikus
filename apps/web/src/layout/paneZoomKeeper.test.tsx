@@ -3,12 +3,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { editorSettingsKey } from "../editor/settingsQueries";
+import { meSettingsQuery } from "../editor/settingsQueries";
 import { usePersistedZoom } from "./paneZoom";
 import {
 	fileZoomKey,
 	flushPaneZooms,
 	movePaneZooms,
+	paneZoomsFor,
 	prunePaneZooms,
 	readPaneZoom,
 	resetPaneZooms,
@@ -35,6 +36,15 @@ afterEach(() => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
+
+function settingsAnswer(paneZooms: MeSettings["paneZooms"]) {
+	fetchMock.mockResolvedValue(
+		new Response(
+			JSON.stringify({ ...EDITOR_SETTINGS_DEFAULTS, timezones: [], paneZooms }),
+			{ status: 200, headers: { "content-type": "application/json" } },
+		),
+	);
+}
 
 function sentBodies(): unknown[] {
 	return fetchMock.mock.calls.map(([, init]) =>
@@ -109,14 +119,10 @@ test("moving a folder moves its files' zooms", () => {
 	expect(readPaneZoom("p1:f:other.ts")).toBe(130);
 });
 
-test("the hook opens at the zoom in the settings already read", () => {
+test("the hook opens at the zoom the settings query brought", async () => {
+	settingsAnswer({ "p1:t:t1": 170 });
 	const client = new QueryClient();
-	const settings: MeSettings = {
-		...EDITOR_SETTINGS_DEFAULTS,
-		timezones: [],
-		paneZooms: { "p1:t:t1": 170 },
-	};
-	client.setQueryData(editorSettingsKey, settings);
+	await client.fetchQuery(meSettingsQuery);
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<QueryClientProvider client={client}>{children}</QueryClientProvider>
 	);
@@ -124,6 +130,48 @@ test("the hook opens at the zoom in the settings already read", () => {
 	expect(result.current[0]).toBe(170);
 	act(() => result.current[1](100));
 	expect(result.current[0]).toBe(100);
+});
+
+test("a pane drawn before the settings arrive takes up their zoom", async () => {
+	settingsAnswer({ "p1:t:t1": 170 });
+	const { result } = renderHook(() => usePersistedZoom("p1:t:t1"));
+	expect(result.current[0]).toBe(100);
+	await act(() => new QueryClient().fetchQuery(meSettingsQuery));
+	expect(result.current[0]).toBe(170);
+});
+
+test("closing the tab sends a waiting save at once, with keepalive", () => {
+	vi.useFakeTimers();
+	writePaneZoom("p1:t:t1", 140);
+	window.dispatchEvent(new Event("pagehide"));
+	expect(fetchMock).toHaveBeenCalledTimes(1);
+	const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+	expect(url).toBe("/me/settings");
+	expect(init).toMatchObject({ method: "PUT", keepalive: true });
+	expect(sentBodies()).toEqual([{ paneZooms: { "p1:t:t1": 140 } }]);
+	vi.advanceTimersByTime(SAVE_DELAY_MS);
+	expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("closing the tab with nothing waiting sends nothing", () => {
+	window.dispatchEvent(new Event("pagehide"));
+	expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("another signed-in user never sees or saves the last user's zooms", () => {
+	vi.useFakeTimers();
+	paneZoomsFor("user-a");
+	seedPaneZooms({ "p1:t:t1": 150 });
+	writePaneZoom("p1:t:t2", 130);
+	paneZoomsFor("user-a");
+	expect(readPaneZoom("p1:t:t1")).toBe(150);
+	paneZoomsFor("user-b");
+	expect(readPaneZoom("p1:t:t1")).toBeUndefined();
+	expect(readPaneZoom("p1:t:t2")).toBeUndefined();
+	vi.advanceTimersByTime(SAVE_DELAY_MS);
+	expect(fetchMock).not.toHaveBeenCalled();
+	seedPaneZooms({ "p1:t:t1": 90 });
+	expect(readPaneZoom("p1:t:t1")).toBe(90);
 });
 
 test("with no key the hook keeps its zoom to itself and saves nothing", () => {
