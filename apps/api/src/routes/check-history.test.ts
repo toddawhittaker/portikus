@@ -352,7 +352,9 @@ test.skipIf(skip)("a sync asks the agent only for the check's new runs", async (
 			headers: { authorization: `Bearer ${AGENT_TOKEN}` },
 		},
 	);
-	const runs: { checkId: string }[] = (await sent.json()).runs;
+	const runs: { checkId: string }[] = (
+		(await sent.json()) as { runs: { checkId: string }[] }
+	).runs;
 	expect(runs.length).toBeGreaterThanOrEqual(1);
 	expect(runs.length).toBeLessThanOrEqual(2);
 	expect(runs.every((r) => r.checkId === "tests")).toBe(true);
