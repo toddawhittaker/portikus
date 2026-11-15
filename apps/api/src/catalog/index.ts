@@ -37,20 +37,13 @@ export const PENDING: readonly string[] = FAMILIES.flatMap((family) => family.pe
 export { NOT_EXPOSED };
 
 /**
- * Catalog routes that `ROUTE_POLICY` does not list yet: the key-management,
- * MCP and OpenAPI routes, which are built after the catalog.
+ * Catalog routes that `ROUTE_POLICY` does not list yet: the MCP and OpenAPI
+ * routes, which are built after the catalog.
  */
 export const NEW_ROUTES: ReadonlySet<string> = new Set([
 	"GET /mcp",
 	"POST /mcp",
 	"GET /openapi.json",
-	"GET /me/api-keys",
-	"POST /me/api-keys",
-	"POST /me/api-keys/:id/renew",
-	"POST /me/api-keys/:id/revoke",
-	"GET /admin/api-keys",
-	"POST /admin/api-keys/expire",
-	"POST /admin/api-keys/revoke",
 ]);
 
 const BY_NAME = new Map(Object.entries(OPERATIONS).map(([key, op]) => [op.name, key]));

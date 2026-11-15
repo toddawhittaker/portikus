@@ -20,6 +20,8 @@ export type AccessClass =
 	| "owner-or-admin"
 	/** Administrators only; students and instructors get 403. */
 	| "admin"
+	/** Administrators and instructors, acting on their own account; students get 403. */
+	| "staff"
 	/** A course's instructors; everyone else sees no course, or a 404. */
 	| "course-instructor"
 	/** Preview host paths: only a preview session counts, never a main cookie. */
@@ -120,6 +122,23 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/second-factor/recovery-codes": { access: "self" },
 	"PATCH /me/second-factor/:id": { access: "self" },
 	"DELETE /me/second-factor/:id": { access: "self" },
+
+	// API keys (SPEC.md section 24.13): the owner's own, in a signed-in browser.
+	"GET /me/api-keys": { access: "staff" },
+	"HEAD /me/api-keys": { access: "staff" },
+	"POST /me/api-keys": { access: "staff" },
+	"POST /me/api-keys/passkey/start": { access: "staff" },
+	"POST /me/api-keys/:id/renew": { access: "staff" },
+	"POST /me/api-keys/:id/rotate": { access: "staff" },
+	"POST /me/api-keys/:id/revoke": { access: "staff" },
+	"GET /admin/api-keys": { access: "admin" },
+	"HEAD /admin/api-keys": { access: "admin" },
+	"POST /admin/api-keys/:id/expire": { access: "admin" },
+	"POST /admin/api-keys/:id/revoke": { access: "admin" },
+	"POST /admin/users/:id/api-keys/expire": { access: "admin" },
+	"POST /admin/users/:id/api-keys/revoke": { access: "admin" },
+	"POST /admin/api-keys/expire-all": { access: "admin" },
+	"POST /admin/api-keys/revoke-all": { access: "admin" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
 	"HEAD /workspaces/:id": { access: "owner-or-admin" },

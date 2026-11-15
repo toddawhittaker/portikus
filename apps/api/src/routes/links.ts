@@ -1,31 +1,19 @@
 import {
-	type AuthenticationResponseJSON,
-	accountNeedsSecondFactor,
-	checkPasskey,
-	checkSecondFactor,
 	consumeLinkIntent,
 	courseLinkWindow,
-	createChallengeStore,
-	hashSessionToken,
-	isRecoveryCodeShape,
 	linkAccounts,
 	listLinks,
-	listPasskeys,
 	loginCookieName,
 	loginCookieOptions,
 	markSecondFactorPassed,
-	passkeyAuthenticationOptions,
 	pendingLinkIntent,
 	platformIssuerOf,
-	relyingParty,
 	requireUser,
 	saveLinkIntent,
-	secondFactorKey,
 	sessionCookieName,
 	sessionCookieOptions,
 	sessionLinkState,
 	unlinkAccount,
-	useRecoveryCode,
 } from "@portikus/auth";
 import {
 	type ApiError,
@@ -44,6 +32,7 @@ import type { ServerDeps } from "../deps.js";
 import { platformNameOf } from "../lti/platform-name.js";
 import type { SecondFactorThrottle } from "../second-factor-throttle.js";
 import { requestMetadata, startSession } from "../sessions/start-session.js";
+import { createStepUp, sessionIdOf } from "../sessions/step-up.js";
 
 const CourseUserParam = z.object({ courseUserId: z.string().uuid() });
 
@@ -69,193 +58,18 @@ export function registerLinkRoutes(
 	throttle: SecondFactorThrottle,
 ): void {
 	const auth = toAuthOptions(config);
-	const key = secondFactorKey(config.SECOND_FACTOR_KEY);
-	const rp = relyingParty(config.PUBLIC_URL);
-	// Apart from the gate's store, so a gate challenge never answers a link (SPEC.md section 24.13).
-	const challenges = createChallengeStore();
-
-	/** One challenge per course session and SSO account, so it answers only that link. */
-	function challengeKey(request: FastifyRequest, userId: string): string {
-		return `${sessionId(request)}:link:${userId}`;
-	}
-
-	async function hasPasskey(userId: string): Promise<boolean> {
-		return (await listPasskeys(db, userId)).length > 0;
-	}
-
-	/**
-	 * What the SSO account must do before it can be linked. A later launch
-	 * through the link asks for no code, so a Dex local-password account
-	 * proves its second factor here (SPEC.md section 24.13).
-	 */
-	async function secondFactorOwed(userId: string): Promise<"verify" | "enrol" | null> {
-		const row = await db
-			.selectFrom("users")
-			.select(["oidc_issuer", "oidc_subject"])
-			.select((eb) =>
-				eb
-					.exists(
-						eb
-							.selectFrom("user_second_factors")
-							.select("user_second_factors.id")
-							.whereRef("user_second_factors.user_id", "=", "users.id"),
-					)
-					.as("has_factor"),
-			)
-			.where("id", "=", userId)
-			.executeTakeFirst();
-		if (!row || !accountNeedsSecondFactor(row)) return null;
-		return row.has_factor ? "verify" : "enrol";
-	}
-
-	/** Check the code or passkey for a link that needs one; on a refusal the reply is already sent. */
-	async function passSecondFactor(
-		request: FastifyRequest,
-		reply: FastifyReply,
-		userId: string,
-		proof: LinkConfirm,
-	): Promise<"passed" | "not_needed" | "refused"> {
-		const code = proof.code;
-		const owed = await secondFactorOwed(userId);
-		if (owed === null) return "not_needed";
-		if (owed === "enrol") {
-			fail(
-				reply,
-				403,
-				"SECOND_FACTOR_REQUIRED",
-				"Set up two-step sign-in first: sign in to Portikus with your password, then open Portikus from your course and link again.",
-			);
-			return "refused";
-		}
-		if (proof.credential !== undefined) {
-			return passPasskey(request, reply, userId, proof.credential);
-		}
-		if (code === undefined) {
-			fail(
-				reply,
-				403,
-				"SECOND_FACTOR_REQUIRED",
-				"Enter a code from your authenticator app, or a recovery code.",
-			);
-			return "refused";
-		}
-		return passCode(request, reply, userId, code);
-	}
-
-	/** An authenticator or recovery code for a link, throttled like the sign-in gate. */
-	async function passCode(
-		request: FastifyRequest,
-		reply: FastifyReply,
-		userId: string,
-		code: string,
-	): Promise<"passed" | "refused"> {
-		const allowance = await throttle.allow(request, reply, userId, {
-			sessionId: sessionId(request),
-			eligible: isRecoveryCodeShape(code),
-			passkeys: () => hasPasskey(userId),
-		});
-		if (!allowance) return "refused";
-		const result =
-			allowance.kind === "counted"
-				? await checkSecondFactor(db, key, userId, code)
-				: await useRecoveryCode(db, userId, code);
-		await recordAudit(db, {
-			actor: `user:${userId}`,
-			target: userId,
-			action: result.ok ? "auth.second_factor_verified" : "auth.second_factor_failed",
-			result: result.ok ? "ok" : "failed",
-			metadata: {
-				...requestMetadata(request),
-				...(result.ok ? { method: result.method } : {}),
-				...(allowance.kind === "bypass" ? { bypass: true } : {}),
-				flow: "link",
-			},
-		});
-		if (!result.ok) {
-			fail(
-				reply,
-				403,
-				"WRONG_CODE",
-				"That code is not right. Try the newest code from your app, or a recovery code.",
-			);
-			return "refused";
-		}
-		// A bypass holds no receipt, so nothing on that path gives a count back.
-		if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
-		return "passed";
-	}
-
-	/** A passkey answer to this session's link challenge, checked against this account's passkeys only. */
-	async function passPasskey(
-		request: FastifyRequest,
-		reply: FastifyReply,
-		userId: string,
-		credential: NonNullable<LinkConfirm["credential"]>,
-	): Promise<"passed" | "refused"> {
-		// As at the gate, a passkey may pass a refused count (ADR 0053).
-		const allowance = await throttle.allow(request, reply, userId, {
-			sessionId: sessionId(request),
-			eligible: true,
-			passkeys: async () => true,
-		});
-		if (!allowance) return "refused";
-		const challenge = challenges.take(challengeKey(request, userId));
-		if (challenge === null) {
-			// No passkey was checked, so this request's own try is returned.
-			if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
-			fail(
-				reply,
-				400,
-				"PASSKEY_EXPIRED",
-				"That took too long. Try your passkey again.",
-			);
-			return "refused";
-		}
-		const result = await checkPasskey(
-			db,
-			rp,
-			userId,
-			credential as unknown as AuthenticationResponseJSON,
-			challenge,
-		);
-		await recordAudit(db, {
-			actor: `user:${userId}`,
-			target: userId,
-			action: result.ok ? "auth.second_factor_verified" : "auth.second_factor_failed",
-			result: result.ok ? "ok" : "failed",
-			metadata: {
-				...requestMetadata(request),
-				kind: "webauthn",
-				...(result.ok
-					? { method: "webauthn", factorId: result.factorId }
-					: { reason: result.reason }),
-				...(allowance.kind === "bypass" ? { bypass: true } : {}),
-				flow: "link",
-			},
-		});
-		if (!result.ok) {
-			fail(
-				reply,
-				403,
-				"WRONG_PASSKEY",
-				"That passkey did not work. Try again, or use your authenticator app or a recovery code.",
-			);
-			return "refused";
-		}
-		if (allowance.kind === "counted") await throttle.giveBack(allowance.receipt);
-		return "passed";
-	}
+	// Apart from the gate's challenges, so a gate challenge never answers a link (SPEC.md section 24.13).
+	const stepUp = createStepUp({ db, config }, throttle, {
+		flow: "link",
+		enrolMessage:
+			"Set up two-step sign-in first: sign in to Portikus with your password, then open Portikus from your course and link again.",
+	});
 
 	const platformName = (platformIssuer: string) => platformNameOf(lti, platformIssuer);
 
-	function sessionId(request: FastifyRequest): string {
-		// The auth plugin sets the token with the user, so a signed-in route has it.
-		return hashSessionToken(request.sessionToken ?? "");
-	}
-
 	async function myLinks(request: FastifyRequest): Promise<MyLinks> {
 		const user = requireUser(request);
-		const state = await sessionLinkState(db, sessionId(request));
+		const state = await sessionLinkState(db, sessionIdOf(request));
 		// Only an unlinked course account has a window; a linked one cannot sign in.
 		const window = state?.window ?? null;
 		const origin = state?.origin;
@@ -287,7 +101,7 @@ export function registerLinkRoutes(
 	// Only a recent course session may start a link.
 	app.post("/me/links/start", async (request, reply) => {
 		if (!oidc) return fail(reply, 500, "INTERNAL", "Login is not configured");
-		const window = await courseLinkWindow(db, sessionId(request));
+		const window = await courseLinkWindow(db, sessionIdOf(request));
 		if (!window) {
 			return fail(
 				reply,
@@ -301,7 +115,7 @@ export function registerLinkRoutes(
 		const { url, state } = await oidc.buildLoginRedirect({ prompt: "login" });
 		await saveLinkIntent(db, {
 			state: state.state,
-			sessionId: sessionId(request),
+			sessionId: sessionIdOf(request),
 			courseUserId: window.courseUserId,
 		});
 		reply.setCookie(loginCookieName(auth), JSON.stringify(state), {
@@ -314,7 +128,7 @@ export function registerLinkRoutes(
 
 	// The two accounts the confirmation page names.
 	app.get("/me/links/pending", async (request, reply) => {
-		const pending = await pendingLinkIntent(db, sessionId(request));
+		const pending = await pendingLinkIntent(db, sessionIdOf(request));
 		if (!pending) return fail(reply, 404, "NOT_FOUND", "No link is waiting.");
 		const rows = await db
 			.selectFrom("users")
@@ -334,21 +148,21 @@ export function registerLinkRoutes(
 				signInName: sso.preferred_username || null,
 				email: sso.email,
 			},
-			secondFactor: await secondFactorOwed(sso.id),
-			passkey: await hasPasskey(sso.id),
+			secondFactor: await stepUp.owed(sso.id),
+			passkey: await stepUp.hasPasskey(sso.id),
 		};
 		return body;
 	});
 
 	// A passkey challenge for the waiting link's SSO account.
 	app.post("/me/links/passkey/start", async (request, reply) => {
-		const pending = await pendingLinkIntent(db, sessionId(request));
+		const pending = await pendingLinkIntent(db, sessionIdOf(request));
 		if (!pending) return fail(reply, 404, "NOT_FOUND", "No link is waiting.");
-		if ((await secondFactorOwed(pending.userId)) !== "verify") {
+		if ((await stepUp.owed(pending.userId)) !== "verify") {
 			return fail(reply, 400, "VALIDATION_FAILED", "This link needs no passkey.");
 		}
-		const passkeys = await listPasskeys(db, pending.userId);
-		if (passkeys.length === 0) {
+		const options = await stepUp.startPasskey(request, pending.userId);
+		if (options === null) {
 			return fail(
 				reply,
 				400,
@@ -356,12 +170,7 @@ export function registerLinkRoutes(
 				"This account has no passkey. Use your authenticator app or a recovery code.",
 			);
 		}
-		const options = await passkeyAuthenticationOptions(
-			rp,
-			passkeys.map((p) => p.passkey),
-		);
-		challenges.put(challengeKey(request, pending.userId), options.challenge);
-		const body: PasskeyOptions = { ...options };
+		const body: PasskeyOptions = options;
 		return reply.header("cache-control", "no-store").send(body);
 	});
 
@@ -454,11 +263,11 @@ export function registerLinkRoutes(
 				input.error.issues[0]?.message ?? "Enter a code to link.",
 			);
 		}
-		const id = sessionId(request);
+		const id = sessionIdOf(request);
 		// Checked before the intent is used, so a wrong code can be retried.
 		const pending = await pendingLinkIntent(db, id);
 		const checked = pending
-			? await passSecondFactor(request, reply, pending.userId, input.data)
+			? await stepUp.pass(request, reply, pending.userId, input.data)
 			: "not_needed";
 		if (checked === "refused") return reply;
 		const outcome = await consumeAndLink(request, id, pending?.userId);
@@ -499,7 +308,7 @@ export function registerLinkRoutes(
 			return fail(reply, 400, "VALIDATION_FAILED", params.error.message);
 		}
 		const courseUserId = params.data.courseUserId;
-		const origin = (await sessionLinkState(db, sessionId(request)))?.origin;
+		const origin = (await sessionLinkState(db, sessionIdOf(request)))?.origin;
 		const courseSide = origin?.method === "lti";
 		if (courseSide && origin.courseUserId !== courseUserId) {
 			return fail(reply, 404, "NOT_FOUND", "Link not found");

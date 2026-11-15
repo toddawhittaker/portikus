@@ -25,6 +25,7 @@ import { editDexUser, findDexPasswords } from "../admin/dex-user-edit.js";
 import { refuseInstallAdminChange } from "../admin/install-admin.js";
 import { notifyCredentialReset } from "../admin/reset-notice.js";
 import { disableUser, loadAdminUser, sendDisableRefusal } from "../admin/users.js";
+import { revokeKeys } from "../api-keys/actions.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { endSessions } from "../sessions/end-sessions.js";
@@ -192,6 +193,11 @@ export function registerAdminDexUserRoutes(
 					},
 				});
 				await notifyCredentialReset(trx, id, "password");
+				// A reset credential may have leaked, and the keys with it (SPEC.md section 24.13).
+				await revokeKeys(trx, { userId: id }, actor.id, {
+					reason: "password_reset",
+					...requestMetadata(request),
+				});
 				return viaDex(dex.updatePassword(found.email, hash));
 			});
 			if (updated === "not_found") return notLocal(reply);
@@ -227,6 +233,10 @@ export function registerAdminDexUserRoutes(
 				await endSessions(trx, id);
 				await revokeAccountEmailTokens(trx, id);
 				await notifyCredentialReset(trx, id, "second_factor");
+				await revokeKeys(trx, { userId: id }, actor.id, {
+					reason: "second_factor_reset",
+					...requestMetadata(request),
+				});
 			});
 			return loadAdminUser(deps, id);
 		},
@@ -268,6 +278,10 @@ export function registerAdminDexUserRoutes(
 						metadata: {
 							...requestMetadata(request),
 						},
+					});
+					await revokeKeys(trx, { userId: id }, actor.id, {
+						reason: "user_disabled",
+						...requestMetadata(request),
 					});
 					for (const email of found.emails) await viaDex(dex.deletePassword(email));
 				},
