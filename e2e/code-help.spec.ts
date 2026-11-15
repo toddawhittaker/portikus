@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	codeHelpStatus,
 	cursorBelowFirstLine,
+	DROP,
 	editorLines,
 	editorMessage,
 	holdCodeHelpSwitch,
@@ -9,6 +10,7 @@ import {
 	type LanguageServerId,
 	monacoAnnouncements,
 	openProjectFiles,
+	type Rewrite,
 	renameTo,
 	saveQuickly,
 	serverUriOf,
@@ -51,8 +53,13 @@ test.describe("code help features", () => {
 		},
 	];
 
-	async function open(page: Page, sample: Sample, student: TestStudent) {
-		const wire = await watchLanguageServers(page);
+	async function open(
+		page: Page,
+		sample: Sample,
+		student: TestStudent,
+		rewrite?: Rewrite,
+	) {
+		const wire = await watchLanguageServers(page, rewrite);
 		await saveQuickly(student.userId);
 		const project = await openProjectFiles(page, student, "Features", {
 			[sample.path]: `${sample.first}\n${sample.second}\n`,
@@ -72,6 +79,21 @@ test.describe("code help features", () => {
 		await page.keyboard.press("Control+Home");
 		return { wire, project };
 	}
+
+	test("format says so while its server is not ready", async ({ page, context }) => {
+		const sample = SAMPLES[1] as Sample;
+		const student = await createStudent(context);
+		// Ruff never answers initialize, so it stays starting while the bar,
+		// which shows pyright, says ready.
+		const { wire } = await open(page, sample, student, ({ server, method }) =>
+			server === "ruff" && method === "initialize" ? DROP : undefined,
+		);
+
+		await page.keyboard.press("Shift+Alt+F");
+		await expect(editorMessage(page)).toHaveText("Format is not available right now.");
+		await expect(editorLines(page, sample.path)).toContainText(sample.first);
+		expect(wire.sentWith("textDocument/formatting")).toHaveLength(0);
+	});
 
 	for (const sample of SAMPLES) {
 		test.describe(sample.path, () => {
@@ -158,6 +180,11 @@ test.describe("code help features", () => {
 				const student = await createStudent(context);
 				const { wire, project } = await open(page, sample, student);
 
+				// The bar shows the main server's state; Python formats with ruff,
+				// which is ready once the page has opened the file on it.
+				await expect
+					.poll(() => wire.sentWith("textDocument/didOpen", sample.formatter).length)
+					.toBe(1);
 				await page.keyboard.press("Shift+Alt+F");
 				await expect(editorLines(page, sample.path)).toContainText("# formatted");
 				expect(wire.sentWith("textDocument/formatting", sample.formatter)).toHaveLength(
