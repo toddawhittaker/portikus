@@ -11,15 +11,8 @@ import {
 	UpdateQuotaRequest,
 	Workspace,
 } from "@portikus/contracts";
-import { z } from "zod";
-import { UuidParam } from "../../http.js";
+import { ProcessParam, UuidParam } from "../../http.js";
 import type { OperationRecords } from "../types.js";
-
-/** The workspace id and process id of a process stop; the handler checks the process id by hand as digits. */
-const ProcessStopParams = z.object({
-	id: UuidParam.shape.id,
-	pid: z.string().regex(/^[1-9]\d{0,9}$/),
-});
 
 /** This family's operations, keyed by `"METHOD url"`. */
 export const operations: OperationRecords = {
@@ -208,7 +201,7 @@ export const operations: OperationRecords = {
 		risk: "change",
 		audience: "administrator",
 		tool: false,
-		input: { params: ProcessStopParams, body: ProcessStopRequest },
+		input: { params: ProcessParam, body: ProcessStopRequest },
 		output: ProcessStopResponse,
 	},
 };

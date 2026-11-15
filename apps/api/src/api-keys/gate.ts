@@ -20,13 +20,13 @@ const KEY_ROUTES: ReadonlySet<string> = new Set([
 	"GET /mcp",
 	"POST /mcp",
 	"GET /openapi.json",
+	"HEAD /openapi.json",
 ]);
 
-/** The route a request matched, as `"METHOD url"`; a HEAD counts as its GET. */
+/** The route a request matched, as `"METHOD url"`. */
 function routeKeyOf(request: FastifyRequest): string {
-	const method = request.method === "HEAD" ? "GET" : request.method;
 	// An unmatched path has no route; the raw URL could carry anything, so it is not used.
-	return `${method} ${request.routeOptions.url ?? ""}`;
+	return `${request.method} ${request.routeOptions.url ?? ""}`;
 }
 
 /** What the request ran, for its audit row: the operation's name, or the route. */

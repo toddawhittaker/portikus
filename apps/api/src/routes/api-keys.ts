@@ -17,6 +17,7 @@ import {
 	CreateApiKeyRequest,
 	type CreatedApiKey,
 	type PasskeyOptions,
+	RotateApiKeyRequest,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -201,6 +202,12 @@ export function registerApiKeyRoutes(
 	});
 
 	app.post("/me/api-keys/:id/rotate", staffOnly, async (request, reply) => {
+		const user = requireUser(request);
+		// A new secret needs the same proof as a new key (SPEC.md section 24.13).
+		const proof = parseFieldsOr400(RotateApiKeyRequest, request.body ?? {}, reply);
+		if (!proof) return reply;
+		const checked = await stepUp.pass(request, reply, user.id, proof);
+		if (checked === "refused") return reply;
 		const renewed = await renew(request, reply, true);
 		if (!renewed) return reply;
 		if (renewed.secret === null)

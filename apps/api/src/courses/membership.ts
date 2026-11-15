@@ -3,9 +3,7 @@ import type { LiveHelpAudienceCourse, ShareAudienceCourse } from "@portikus/cont
 import type { Database } from "@portikus/db";
 import type { FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
-import { z } from "zod";
-
-const CourseParam = z.object({ courseId: z.string().uuid() });
+import { CourseParam } from "../http.js";
 
 /** True when the user holds an instructor membership in the course (ADR 0025). */
 export async function teachesCourse(

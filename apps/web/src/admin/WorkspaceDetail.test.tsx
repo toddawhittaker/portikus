@@ -139,6 +139,8 @@ function detail(overrides: Partial<AdminWorkspaceDetail> = {}): AdminWorkspaceDe
 				target: `workspace:${WORKSPACE.id}`,
 				result: "success",
 				metadata: null,
+				via: null,
+				apiKeyId: null,
 			},
 		],
 		capabilities: { rebuild: false, resetDocker: false },
@@ -678,6 +680,8 @@ function auditEvent(
 		target: WORKSPACE.id,
 		result: action.endsWith("_failed") ? "failed" : "ok",
 		metadata,
+		via: null,
+		apiKeyId: null,
 	};
 }
 

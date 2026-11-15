@@ -4,18 +4,12 @@ import { CloseCode, type TerminalAttachMode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
-import { z } from "zod";
 import { type AgentClient, agentClientFor } from "../agent-client.js";
 import { sharesCourseWith } from "../courses/membership.js";
-import { sendError } from "../http.js";
+import { CourseSessionParam, sendError } from "../http.js";
 import type { BridgeForwards } from "../preview/bridge.js";
 import { countActive, type WorkspaceRow } from "../workspaces/workspace-view.js";
 import { endLiveHelp, whereOpen } from "./sessions.js";
-
-const SessionParam = z.object({
-	courseId: z.string().uuid(),
-	sid: z.string().uuid(),
-});
 
 /** One open live help session, as the gate let its helper through. */
 export interface LiveHelpScope {
@@ -122,7 +116,7 @@ export async function liveHelpScope(
 	bridge: BridgeForwards,
 ): Promise<LiveHelpScope | null> {
 	const helper = requireUser(request);
-	const params = SessionParam.safeParse(request.params);
+	const params = CourseSessionParam.safeParse(request.params);
 	if (!params.success) {
 		sendError(reply, 404, "NOT_FOUND", "Not found.");
 		return null;

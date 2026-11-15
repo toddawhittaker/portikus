@@ -59,6 +59,8 @@ const event = {
 	target: `workspace:${uuid}`,
 	result: "success",
 	metadata: { from: 25 },
+	via: "session",
+	apiKeyId: null,
 };
 
 const detail = {

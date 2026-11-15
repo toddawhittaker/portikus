@@ -29,12 +29,8 @@ import {
 	UpdateAdminUserSettingsRequest,
 	UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
-import { z } from "zod";
-import { UuidParam } from "../../http.js";
+import { CourseParam, UuidParam } from "../../http.js";
 import type { OperationRecords } from "../types.js";
-
-/** Same shape as the route's own private `CourseParam`; no shared export of it exists yet. */
-const CourseIdParam = z.object({ courseId: z.string().uuid() });
 
 /** This family's operations, keyed by `"METHOD url"`. */
 export const operations: OperationRecords = {
@@ -309,7 +305,7 @@ export const operations: OperationRecords = {
 		risk: "change",
 		audience: "administrator",
 		tool: false,
-		input: { params: CourseIdParam, body: SetCourseProfileRequest },
+		input: { params: CourseParam, body: SetCourseProfileRequest },
 		output: CourseProfileResponse,
 	},
 };

@@ -89,6 +89,8 @@ function event(id: number, overrides: Record<string, unknown> = {}) {
 		target: `workspace:${WORKSPACE_ID}`,
 		result: "success",
 		metadata: null,
+		via: "session",
+		apiKeyId: null,
 		...overrides,
 	};
 }
@@ -591,8 +593,7 @@ test("a row says whether it came from a session or an API key, with the key's st
 	// A key no longer listed still reads as a key.
 	expect(arrival({ via: "api_key", apiKeyId: null }, prefixes)?.text).toBe("API key");
 	// Older rows and the worker's record no arrival.
-	expect(arrival({ via: null }, prefixes)).toBeNull();
-	expect(arrival({}, prefixes)).toBeNull();
+	expect(arrival({ via: null, apiKeyId: null }, prefixes)).toBeNull();
 });
 
 test("the Via column shows the key's start for a row made with an API key", async () => {
