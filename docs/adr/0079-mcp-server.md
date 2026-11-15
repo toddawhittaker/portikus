@@ -18,9 +18,9 @@ The MCP specification makes OAuth optional, and both clients accept a fixed
 
 1. **Version 2 of the SDK**, `@modelcontextprotocol/server` 2.4.0 pinned
    exactly. Todd chose version 2 for future support (2026-11-15).
-2. **Our own bridge.** About 30 lines turn a Fastify request and its
-   already-parsed body into a Web `Request`, call `handler.fetch`, and
-   write the `Response` back. `@modelcontextprotocol/node` needs the raw
+2. **Our own bridge.** A file under 50 lines turns a Fastify request and its
+   already-parsed body into a Web `Request`, calls `handler.fetch`, and
+   writes the `Response` back. `@modelcontextprotocol/node` needs the raw
    request body, which Fastify has already read, and
    `@modelcontextprotocol/fastify` builds a separate app with its own
    routing and sign-in. Neither fits one app with one auth plugin.
@@ -34,10 +34,11 @@ The MCP specification makes OAuth optional, and both clients accept a fixed
    document, so a client does not start an OAuth flow. Any `Origin` but the
    site's own is refused.
 5. **Named tools plus two general ones.** The catalog marks the common
-   operations (about 38) as named tools, such as `workspaces.stop`. Every
-   other operation is reached with `find_operation`, which searches the
-   operations this key may run and returns their input schemas, and
-   `run_operation`, which runs one by name. Tools carry `readOnlyHint` and
+   operations (38) as named tools, such as `workspaces_stop` (the
+   operation's name with an underscore for the dot, which every client
+   accepts). Every other operation is reached with `find_operation`, which
+   searches the operations this key may run and returns their input
+   schemas, and `run_operation`, which runs one by name. Tools carry `readOnlyHint` and
    `destructiveHint` from the operation's risk.
 6. **The in-process runner.** A tool call runs the route with `app.inject`,
    with the caller's own key and address and a path built only from the
@@ -45,6 +46,15 @@ The MCP specification makes OAuth optional, and both clients accept a fixed
    audit run unchanged. There is no internal identity that skips them.
 7. **Bounded results.** Compact JSON, capped near 50,000 characters, with
    errors as `isError` and a code and message.
+8. **Results are data.** Names, titles, messages and log text come from
+   users, so a model could read them as orders. The server sends
+   instructions saying they are data, never instructions, and repeats the
+   sentence in each tool's description.
+9. **Refusals mirror HTTP.** `run_operation` answers an unknown name with
+   `NOT_AVAILABLE_TO_API_KEYS` and a bad path value (`.`, `..`, or
+   anything with `/`) with `VALIDATION_FAILED`, and passes a route's own
+   codes through. A call refused before it reaches a route writes an
+   `api_key.used` row with the attempted name.
 
 ## Consequences
 

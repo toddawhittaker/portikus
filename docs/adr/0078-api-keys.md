@@ -30,24 +30,36 @@ renews a ticket only while it is still valid.
    30-day keys only. Dex local-password accounts choose 7, 30 or 90 days or
    never, with 30 the default.
 4. **Renew keeps the secret.** Renewing restarts the key's own period and
-   needs a signed-in staff session, so each renewal checks the role with
-   the provider again. We chose to keep the secret, unlike GitHub and Azure
+   needs a signed-in staff session. The role it checks is the one
+   recorded at that session's sign-in, which for a role the identity
+   provider gives is at most 12 hours old (SPEC.md section 24.13); renewal
+   does not ask the provider again. We chose to keep the secret, unlike GitHub and Azure
    DevOps, so an instructor who teaches again months later signs in, clicks
    Renew, and changes nothing in their client's settings. **Rotate**
    (renew with a new secret) is the escape hatch for a key that may have
-   leaked. A daily worker job reminds owners 7 days ahead, 1 day for 7-day
+   leaked, and it needs the same code or passkey as making a key, for a
+   Dex local-password account only. A daily worker job reminds owners 7 days ahead, 1 day for 7-day
    keys.
 5. **Ending keys.** An administrator may expire or revoke one key, one
-   person's keys or every key. Disabling a person, removing their password
-   account, or resetting their password or second factor revokes their keys.
+   person's keys or every key. A person's keys are also revoked when an
+   administrator disables them (which includes removing their password
+   account), when their password or second factor is reset (a
+   forgot-password reset included), when an administrator changes a Dex
+   account's email, when an administrator demotes them to student, and
+   when the sign-in sync from the identity provider or the LMS lowers them
+   to student (audited with actor `identity-provider`, reason
+   `role_removed`).
 6. **A removed role is not noticed until the next sign-in.** A role
-   taken away at the provider leaves keys working until they expire. For
-   SSO and course-launch accounts that is at most 30 days after the
-   removal, because renewal needs a sign-in the person can no longer make.
-   Disabling the person in Portikus ends their keys at once. Accepted.
-7. **Creation needs a second factor for Dex local accounts only.** A
-   code or a passkey is checked in the create dialog, because that is where
-   a stolen session could mint a lasting credential. SSO and launch
+   taken away at the provider, which Portikus has not yet seen, leaves
+   keys working until they expire or the person next signs in. For SSO
+   and course-launch accounts that is at most 30 days from the last
+   renewal, because renewal needs a signed-in session and the person can
+   no longer make a new one. Disabling the person in Portikus ends their
+   keys at once. Accepted.
+7. **Creation and rotation need a second factor for Dex local accounts
+   only.** A code or a passkey is checked in the create dialog and when a
+   key is renewed with a new secret, because those are where a stolen
+   session could mint a lasting credential. SSO and launch
    sessions have their second factor at the provider and add no check.
    The gap this accepts: a stolen SSO session can make a key.
 8. **Staff invitations need a destructive key.** A write key may invite
@@ -57,8 +69,9 @@ renews a ticket only while it is still valid.
    request, reads included, with the operation name and result. Audit rows
    also record `via` and `api_key_id`. **One exception:** a request refused
    by the per-key limit of 300 a minute writes no row, because a runaway
-   client could otherwise fill the table; the first refusal in each minute
-   is a log line.
+   client could otherwise fill the table; only the first refusal for each
+   key in each minute is a log line. This bends the rule that every key
+   request is audited, on purpose.
 
 ## Consequences
 

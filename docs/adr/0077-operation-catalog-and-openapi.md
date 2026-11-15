@@ -37,10 +37,16 @@ access class, and a test proves it matches the registered routes.
 4. **Three risk levels.** `read` changes nothing, `change` can be undone or
    redone, and `destructive` cannot be undone or hands out a new way in
    (promoting an administrator, rebuilding a workspace, deleting a
-   backup). A key's scope is one ordered level over these (ADR 0078).
+   backup). One more rule sets the line: an operation that loosens a
+   SPEC.md section 24 control (egress, the hosts the platform may reach,
+   trusted course systems, the usage guard and limits) or removes another
+   person's access is destructive, even when it could be undone. SPEC.md
+   section 20.4 lists them, and a test pins the list. A key's scope is one
+   ordered level over these (ADR 0078).
 5. **OpenAPI from the catalog, by hand.** The document is OpenAPI 3.1,
    built with Zod 4's own `z.toJSONSchema` and served at `/openapi.json`.
-   It describes exposed operations only. No Zod-to-OpenAPI package is
+   It describes exposed operations only, and is open to any valid key or a
+   signed-in administrator or instructor. No Zod-to-OpenAPI package is
    added (STACK.md section 5).
 
 ## Consequences

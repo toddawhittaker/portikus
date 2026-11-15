@@ -164,23 +164,27 @@ cannot be undone and rarely applies to a course.
 
 ### Make, renew, rotate and revoke
 
-1. Open **Settings**, then **API keys**, and choose **New key**. Name it
-   for what uses it, pick a scope and a length of time. A key from a
-   course or single sign-in session lasts 30 days. If you sign in with a
-   Portikus password, you choose 7, 30 or 90 days, or never, and enter a
-   code or use a passkey.
-2. **Copy the key now.** It starts with `portikus_` and is shown only once.
+1. Open **Settings**, then **API keys**, and choose **Create an API key**.
+   Give it a **Name** for what uses it, pick its **Access** (the scope) and
+   **Expires after**, then choose **Create key**. A key from a course or
+   single sign-in session lasts 30 days. If you sign in with a Portikus
+   password, you choose 7, 30 or 90 days, or never, and enter a code in
+   **Two-step sign-in code** or use a passkey.
+2. Choose **Copy secret** now. It starts with `portikus_` and is shown only
+   once. **I have saved it, continue** closes the screen.
 3. **Renew** restarts a key's time and keeps the same secret, so nothing in
    your client changes. You can renew an expired key at any time, as long
-   as you are signed in and still teach. If you teach again next semester,
-   sign in and renew.
-4. **Renew with a new secret** also changes the secret. Use it if a key
-   may have leaked, then update your client.
-5. **Revoke** ends a key for good, and it cannot be renewed.
+   as you are signed in and Portikus has you as an instructor. If you teach
+   again next semester, sign in and renew.
+4. **Renew with a new secret…** also changes the secret. Use it if a key
+   may have leaked, then update your client. If you sign in with a Portikus
+   password, it asks for a code or a passkey first.
+5. **Revoke…** ends a key for good, and it cannot be renewed.
 
 Portikus sends you a notice seven days before a key expires, or one day
 before for a 7-day key. An administrator may expire or revoke your keys, and
-you are told when they do. A key also stops working if you are disabled.
+you are told when they do. A key also ends if you are disabled, if your
+password or second factor is reset, or if you stop being an instructor.
 
 ### Connect Claude Code and Codex
 

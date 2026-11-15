@@ -988,8 +988,8 @@ A key has one scope, and each scope includes the ones before it.
 | Scope | What the key may do |
 |---|---|
 | **Read** | Look at things and change nothing: list people, workspaces and courses, read health, logs and the audit trail. The default. |
-| **Write** | Also make changes that can be undone: start, stop and restart workspaces, invite students, edit settings and the egress list. |
-| **Destructive** | Also do what cannot be undone: grant the administrator or instructor role, rebuild a workspace, reset its Docker, delete backups, and invite an instructor or administrator. |
+| **Write** | Also make everyday changes that can be undone: start, stop and restart workspaces, invite students, send reset links, set a course's interface, run a backup. |
+| **Destructive** | Also do what cannot be undone, loosens a security control, or removes another person's access: disable or enable a person, grant or take away the administrator or instructor role, change the egress rules, the proxy hosts, the learning system settings or the site settings, archive a workspace or change its quota, limits or guard, rebuild a workspace or reset its Docker, delete backups, and invite an instructor or an administrator. |
 
 Some things no key can ever do, whatever its scope: open the root shell,
 manage keys, change a password or second factor, link accounts, or read or
@@ -998,13 +998,15 @@ either. Each key may make 300 requests a minute.
 
 ### Make, renew, rotate and revoke a key
 
-1. Open **Settings**, then **API keys**, and choose **New key**. Give it a
-   name that says what uses it, pick a scope, and pick how long it lasts.
+1. Open **Settings**, then **API keys**, and choose **Create an API key**.
+   Give it a **Name** that says what uses it, pick its **Access** (the
+   scope) and pick **Expires after**, then choose **Create key**.
 2. If you sign in with a Portikus password, enter a code from your
-   authenticator app or use a passkey. Single sign-on (SSO) and course
-   accounts need no extra step.
-3. **Copy the key now.** It starts with `portikus_` and is shown only once.
-   Portikus keeps only a fingerprint of it.
+   authenticator app in **Two-step sign-in code**, or use a passkey.
+   Single sign-on (SSO) and course accounts need no extra step.
+3. Choose **Copy secret** now. It starts with `portikus_` and is shown
+   only once. Portikus keeps only a fingerprint of it. **I have saved it,
+   continue** closes the screen.
 
 How long a key lasts depends on how you sign in. SSO and course accounts
 get 30-day keys. Accounts with a Portikus password choose 7, 30 or 90
@@ -1014,13 +1016,17 @@ A key is **active**, **expired** or **revoked**:
 
 - **Renew** on an active or expired key starts its period again from now
   and keeps the same secret, so nothing in your client changes. You must be
-  signed in, and Portikus checks that you still hold the role. An expired
-  key can be renewed at any time. The renew screen shows the key's prefix and
-  when it was last used.
-- **Renew with a new secret** does the same and also gives the key a new
+  signed in as an administrator or instructor. Portikus uses the role you
+  had when you signed in; if your sign-in provider gives you the role, your
+  session lasts at most 12 hours, so that role is at most 12 hours old.
+  Renewing does not ask the provider again. An expired key can be renewed
+  at any time. Each key row shows its prefix (**Starts with**) and **Last
+  used**.
+- **Renew with a new secret…** does the same and also gives the key a new
   secret. The old secret stops working at once. Use it when a key may have
-  leaked, then update your client.
-- **Revoke** ends a key for good. A revoked key can never be renewed;
+  leaked, then update your client. If you sign in with a Portikus
+  password, it asks for a code or a passkey first, as making a key does.
+- **Revoke…** ends a key for good. A revoked key can never be renewed;
   make a new one.
 
 Portikus sends you a notice seven days before a key expires, or one day
@@ -1052,33 +1058,45 @@ Bearer <key>`.
 
 ### Keys across the site
 
-The **API keys** tab under Administration lists every key on the site: its
-owner, scope, state, expiry and last use. You can act on one key, on all of
-one person's keys, or on every key.
+The **API keys** tab, under **People** next to **Users** (at
+`/admin/keys`), lists every key on the site: its **Owner**, **Key**,
+**Access**, **State**, **Expires** and **Last used**. Use **Person** to
+show one person's keys. You can act on one key, on all of one person's
+keys, or on every key.
 
-- **Expire** stops a key now but lets its owner renew it. Use it to make
-  someone sign in again, or when you are not sure a key is a problem. The
-  owner gets a notice.
-- **Revoke** ends a key for good. Use it for a key that leaked, for a
-  person who should no longer have access, or for a key nobody can account
-  for.
+- **Expire…** on a row, **Expire all of …'s keys…** for the person shown,
+  and **Expire every key…** stop keys now but let their owners renew them.
+  Use it to make someone sign in again, or when you are not sure a key is
+  a problem. The owner gets a notice.
+- **Revoke…**, **Revoke all of …'s keys…** and **Revoke every key…** end
+  keys for good. Use it for a key that leaked, for a person who should no
+  longer have access, or for a key nobody can account for.
 
-Disabling a person revokes all their keys, and so does resetting their
-password or second factor. **When someone leaves, disable them in
-Portikus.** Removing them at your sign-in provider or learning system is
-not enough: Portikus learns of it only when they next sign in, so their
-keys keep working until they expire. For SSO and course accounts that is
-at most 30 days, because renewing needs a fresh sign-in. Keys made with
-**Never** stay until someone revokes them, so look over the list from time
-to time for keys with no expiry or no recent use.
+Portikus revokes all of a person's keys when you disable them (this
+includes removing a Portikus password account), when their password or
+second factor is reset (a forgot-password reset too), when you change the
+email of a Portikus password account, and when you demote them to
+student. It also revokes them when the person next signs in and the sign-in
+provider or learning system now says they are a student.
+
+**When someone leaves, disable them in Portikus.** Removing them at your
+sign-in provider or learning system is not enough on its own: until
+Portikus sees it, at the person's next sign-in, their keys keep working
+until they expire. For SSO and course accounts that is at most 30 days,
+because renewing needs a signed-in session. Keys made with **Never** stay
+until someone revokes them or the person is disabled or demoted, so look
+over the list from time to time for keys with no expiry or no recent use.
 
 A key may invite students if it has **Write** scope. Inviting an instructor
 or an administrator needs **Destructive** scope, because the new account
 outlives the key.
 
 **Audit** shows every request a key makes as `api_key.used`, with the
-operation and its result, and its **via** column tells a change made by a
-key from one made in the browser.
+operation and its result. Its **Via** column reads **Session** for a change
+made in the browser and **API key** with the key's first characters for a
+change made by a key. One exception: when a key goes over its 300 requests
+a minute, only the first refused request in that minute is logged, and none
+is audited.
 
 ## Roles
 
