@@ -14,7 +14,7 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { OPERATIONS, type Operation } from "../catalog/index.js";
 import {
 	buildTestServer,
@@ -141,18 +141,29 @@ const UNTRUSTED =
 /**
  * The `api_key.used` rows for one operation, as the audit table holds them.
  * The gate writes a row when the response is done, which can be just after
- * the caller has its answer, so give the write a moment to land.
+ * the caller has its answer, so wait until the `count` rows the test expects
+ * have landed (the assertion that follows still checks their content).
  */
-async function usedRows(operation: string) {
-	await new Promise((resolve) => setTimeout(resolve, 250));
-	const rows = await testDb.db
-		.selectFrom("audit_events")
-		.select(["actor", "target", "result", "via", "api_key_id", "metadata"])
-		.where("action", "=", "api_key.used")
-		.orderBy("id")
-		.execute();
-	return rows.filter(
-		(row) => (row.metadata as { operation?: string }).operation === operation,
+async function usedRows(operation: string, count = 1) {
+	return vi.waitFor(
+		async () => {
+			const rows = await testDb.db
+				.selectFrom("audit_events")
+				.select(["actor", "target", "result", "via", "api_key_id", "metadata"])
+				.where("action", "=", "api_key.used")
+				.orderBy("id")
+				.execute();
+			const mine = rows.filter(
+				(row) => (row.metadata as { operation?: string }).operation === operation,
+			);
+			if (mine.length < count) {
+				throw new Error(
+					`${mine.length} of ${count} api_key.used rows for ${operation}`,
+				);
+			}
+			return mine;
+		},
+		{ timeout: 5000, interval: 25 },
 	);
 }
 
@@ -364,7 +375,7 @@ describe.skipIf(skip)("run_operation and the named tools", () => {
 		expect(result.isError).toBe(true);
 		expect(JSON.parse(result.text)).toEqual(http.json());
 		expect(innerSince(before)).toEqual(["/admin/users"]);
-		const rows = await usedRows("users.list");
+		const rows = await usedRows("users.list", 2);
 		expect(rows).toHaveLength(2);
 		expect(rows[1]).toMatchObject({ result: "denied", api_key_id: key.id });
 	});
