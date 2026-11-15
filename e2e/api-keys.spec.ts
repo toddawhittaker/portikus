@@ -149,6 +149,14 @@ test("renew with a new secret confirms with the prefix and last use, then shows 
 		"The old secret has stopped working.",
 	);
 	expect(await storedHash(name)).not.toBe(hash);
+	// Focus lands on the one-time secret, not back on the row the confirm came from.
+	const secretHeading = dialog.getByRole("heading", {
+		name: `Copy the secret for ${name}`,
+	});
+	await expect(secretHeading).toBeFocused();
+	await expect(secretHeading).toHaveAccessibleDescription(
+		/only time Portikus shows it/,
+	);
 	await dialog.getByTestId("api-key-secret-done").click();
 	await expect(row.getByRole("heading", { name })).toBeFocused();
 });
@@ -240,7 +248,8 @@ test("a Dex local-password account chooses a period and proves its second factor
 	await expect(rotateCode).toHaveAccessibleDescription(
 		/Enter a code from your authenticator app/,
 	);
+	// Enter in the code field submits, as it does in the create form.
 	await rotateCode.fill(await app.nextCode());
-	await confirm.getByRole("button", { name: "Renew with a new secret" }).click();
+	await rotateCode.press("Enter");
 	await expect(dialog.getByTestId("api-key-secret")).toBeVisible();
 });

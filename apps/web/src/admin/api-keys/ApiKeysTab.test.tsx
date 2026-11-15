@@ -111,3 +111,27 @@ test("an empty site says where keys come from", async () => {
 	);
 	expect(screen.queryByTestId("api-keys-table")).toBeNull();
 });
+
+test("each row's Expire and Revoke buttons are described by the key's name and its owner", async () => {
+	renderWithQuery(<ApiKeysTab />);
+	await screen.findByTestId("api-keys-table");
+	const first = within(screen.getByTestId("admin-api-key-portikus_k1"));
+	for (const name of ["Expire…", "Revoke…"]) {
+		const button = first.getByRole("button", { name });
+		const text = (button.getAttribute("aria-describedby") ?? "")
+			.split(" ")
+			.map((id) => document.getElementById(id)?.textContent)
+			.join(" | ");
+		expect(text).toContain("Ada Admin");
+		expect(text.split(" | ")).toHaveLength(2);
+	}
+});
+
+test("the tab's intro links to its administrator help topic", async () => {
+	renderWithQuery(<ApiKeysTab />);
+	await screen.findByTestId("api-keys-table");
+	const intro = screen.getByTestId("intro-admin-api-keys");
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
+		"/admin/help#admin-api-keys",
+	);
+});

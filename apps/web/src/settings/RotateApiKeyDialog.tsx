@@ -107,6 +107,7 @@ export function RotateApiKeyDialog({
 							code={code}
 							codeError={codeError}
 							onCodeChange={setCode}
+							onSubmit={confirm}
 							passkeyLabel="Renew with a passkey"
 							passkeyTestId="api-key-rotate-passkey"
 							onPasskey={async () =>
