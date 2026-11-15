@@ -27,6 +27,7 @@ import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
+import { AgentsAutoUpdateSwitch } from "./AgentsAutoUpdateSwitch.js";
 import { CodingAgentsSection } from "./CodingAgentsSection.js";
 import { DiffView } from "./DiffView.js";
 import { PackagesSection } from "./PackagesSection.js";
@@ -224,6 +225,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 				busy={busy}
 				pending={ask.isPending}
 				submit={submit}
+				autoUpdate={<AgentsAutoUpdateSwitch />}
 			/>
 
 			{data.job ? (

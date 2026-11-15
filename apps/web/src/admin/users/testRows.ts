@@ -206,6 +206,7 @@ export function settingsBody(accountEmailEnabled = false) {
 		accountEmailEnabled,
 		idleStopMinutes: 60,
 		acceptableUseText: null,
+		codingAgentsAutoUpdate: false,
 		acceptableUseVersion: 1,
 		updatedAt: null,
 	});

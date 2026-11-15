@@ -37,6 +37,7 @@ const GUARD_SETTINGS = {
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
+	codingAgentsAutoUpdate: false,
 	acceptableUseVersion: 1,
 };
 

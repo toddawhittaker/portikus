@@ -312,6 +312,14 @@ class ValidationTest(unittest.TestCase):
                 with self.subTest(version=version, kind=kind):
                     self.refused(self.doc({"kind": kind, "version": version}))
 
+    def test_system_requester(self):
+        # The API's nightly coding-agents update names the system, not a user (SPEC.md section 22.6).
+        doc = self.doc({"kind": "agents-update"}, requestedBy="system")
+        self.assertEqual(ij.validate_request(doc, ID)["request"], {"kind": "agents-update"})
+        for name in ("System", "system ", "root", ""):
+            with self.subTest(name=name):
+                self.refused(self.doc({"kind": "agents-update"}, requestedBy=name))
+
     def test_bad_envelopes(self):
         self.refused(b"not json")
         self.refused(b"\xff\xfe")
