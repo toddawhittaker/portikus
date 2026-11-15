@@ -14,6 +14,7 @@ import { isUsersList, usersBody } from "../users/testRows.js";
 import {
 	AuditTab,
 	actionName,
+	arrival,
 	changeParts,
 	filtersFromSearch,
 	resultTagClass,
@@ -62,10 +63,11 @@ const PEOPLE = [
 	person(ALICE_ID, "Alice Student", "alice@example.edu"),
 ];
 
-/** Answers the people list, and every other request with `audit`. */
-function stubAudit(audit: (url: string) => Response) {
+/** Answers the people list, the key list with `keys`, and every other request with `audit`. */
+function stubAudit(audit: (url: string) => Response, keys: object[] = []) {
 	return stubFetch((url) => {
 		if (isUsersList(url)) return usersBody(url, PEOPLE, false);
+		if (url === "/admin/api-keys") return json(200, { keys });
 		return audit(url);
 	});
 }
@@ -440,7 +442,7 @@ test("every column header is scoped to its column", async () => {
 
 	const table = await screen.findByTestId("audit-table");
 	const headers = within(table).getAllByRole("columnheader");
-	expect(headers).toHaveLength(6);
+	expect(headers).toHaveLength(7);
 	for (const header of headers) expect(header.getAttribute("scope")).toBe("col");
 });
 
@@ -577,4 +579,55 @@ test("an action reads as words, with its raw name kept for the filter", () => {
 	expect(actionName("workspace.quota_updated")).toBe("Workspace quota updated");
 	expect(actionName("user.disabled")).toBe("User disabled");
 	expect(actionName("")).toBe("");
+});
+
+test("a row says whether it came from a session or an API key, with the key's start when known", () => {
+	const KEY_ID = "55555555-5555-4555-8555-555555555555";
+	const prefixes = new Map([[KEY_ID, "portikus_ab12"]]);
+	expect(arrival({ via: "session", apiKeyId: null }, prefixes)?.text).toBe("Session");
+	expect(arrival({ via: "api_key", apiKeyId: KEY_ID }, prefixes)?.text).toBe(
+		"API key portikus_ab12",
+	);
+	// A key no longer listed still reads as a key.
+	expect(arrival({ via: "api_key", apiKeyId: null }, prefixes)?.text).toBe("API key");
+	// Older rows and the worker's record no arrival.
+	expect(arrival({ via: null }, prefixes)).toBeNull();
+	expect(arrival({}, prefixes)).toBeNull();
+});
+
+test("the Via column shows the key's start for a row made with an API key", async () => {
+	const KEY_ID = "55555555-5555-4555-8555-555555555555";
+	stubAudit(
+		() =>
+			json(200, {
+				events: [
+					event(8, { via: "api_key", apiKeyId: KEY_ID }),
+					event(9, { via: "session", apiKeyId: null }),
+				],
+				nextBefore: null,
+			}),
+		[
+			{
+				id: KEY_ID,
+				name: "Claude",
+				prefix: "portikus_ab12",
+				scope: "read",
+				periodDays: 30,
+				state: "active",
+				createdAt: "2026-11-01T10:00:00.000Z",
+				expiresAt: null,
+				lastUsedAt: null,
+				revokedAt: null,
+				owner: { id: USER_ID, displayName: "Carol Admin", role: "administrator" },
+			},
+		],
+	);
+	renderTab("/admin/audit");
+	const keyRow = within(await screen.findByTestId("audit-row-8"));
+	await waitFor(() => expect(keyRow.getByText("portikus_ab12")).toBeDefined());
+	expect(keyRow.getByText("API key")).toBeDefined();
+	expect(
+		within(screen.getByTestId("audit-row-9")).getByTestId("audit-via").textContent,
+	).toBe("Session");
+	expect(screen.getByRole("columnheader", { name: /^Via/ })).toBeDefined();
 });

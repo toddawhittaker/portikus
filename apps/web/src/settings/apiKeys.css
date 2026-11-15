@@ -1,0 +1,137 @@
+/* API keys in Settings (SPEC.md section 24.13). Sized by the pane, not the window. */
+
+.pk-keys {
+	container-type: inline-size;
+}
+
+/* The secret is shown once, so it sits on its own ground with a warning edge. */
+.pk-key-secret {
+	border: 1px solid var(--line-strong);
+	border-inline-start: 3px solid var(--status-warning);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	padding: var(--space-4);
+}
+
+.pk-key-warning {
+	display: flex;
+	gap: var(--space-2);
+	align-items: flex-start;
+}
+
+/* A long unbroken secret or command wraps anywhere rather than widening the pane. */
+.pk-key-code {
+	display: block;
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	color: var(--ink);
+	padding: var(--space-2) var(--space-3);
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+	user-select: all;
+}
+
+.pk-key-list {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pk-key-row {
+	display: grid;
+	gap: var(--space-2);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	padding: var(--space-3);
+}
+
+/* A revoked key is history: quieter, and it keeps no actions. */
+.pk-key-row[data-state="revoked"] {
+	background: var(--surface-sunken);
+}
+
+.pk-key-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.pk-key-name {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+/* Label above value, as many columns as the pane holds. */
+.pk-key-facts {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+	gap: var(--space-2) var(--space-4);
+	margin: 0;
+}
+
+.pk-key-facts > div {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.pk-key-facts dt {
+	color: var(--ink-muted);
+	font-size: var(--text-xs);
+	line-height: var(--leading-xs);
+}
+
+.pk-key-facts dd {
+	margin: 0;
+	color: var(--ink);
+	overflow-wrap: anywhere;
+}
+
+/* A radio with its name and one sentence under it. */
+.pk-key-options {
+	display: grid;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+
+.pk-key-option {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	column-gap: var(--space-2);
+	align-items: start;
+	border-radius: var(--radius-sm);
+	padding: var(--space-2);
+	cursor: pointer;
+}
+
+.pk-key-option:hover {
+	background: var(--surface-hover);
+}
+
+.pk-key-option:has(:checked) {
+	background: var(--surface-selected);
+}
+
+.pk-key-option input {
+	margin: 3px 0 0;
+	accent-color: var(--accent);
+}
+
+.pk-key-option input:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: 2px;
+}
+
+/* Short choices such as periods sit in one row when they fit. */
+.pk-key-options[data-inline] .pk-key-choices {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}

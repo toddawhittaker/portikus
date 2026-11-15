@@ -6,6 +6,7 @@
  */
 export const ADMIN_TABS = [
 	"users",
+	"keys",
 	"health",
 	"logs",
 	"audit",
@@ -31,7 +32,7 @@ export type AdminTab = (typeof ADMIN_TABS)[number];
  */
 export const ADMIN_TAB_GROUPS: readonly { label: string; tabs: readonly AdminTab[] }[] =
 	[
-		{ label: "People", tabs: ["users"] },
+		{ label: "People", tabs: ["users", "keys"] },
 		{ label: "Activity", tabs: ["health", "logs", "audit", "agents"] },
 		{ label: "Server", tabs: ["network", "backups", "image", "certificate", "docker"] },
 		{ label: "Site", tabs: ["signin", "address", "settings"] },
@@ -41,6 +42,7 @@ export const ADMIN_TAB_GROUPS: readonly { label: string; tabs: readonly AdminTab
 /** Each tab's name: its link text in the header and the start of its page title. */
 export const ADMIN_TAB_LABEL: Record<AdminTab, string> = {
 	users: "Users",
+	keys: "API keys",
 	health: "Health",
 	logs: "Logs",
 	audit: "Audit",
