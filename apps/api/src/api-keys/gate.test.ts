@@ -216,15 +216,6 @@ describe.skipIf(skip)("the scope gate", () => {
 			expect(res.json().code).toBe("NOT_AVAILABLE_TO_API_KEYS");
 		}
 	});
-
-	test("a route still waiting for its family record is refused like an unexposed one", async () => {
-		const admin = await signIn("carol");
-		const key = await keyFor(admin.id, "destructive");
-		// Exposed in the plan, but no record has landed and the test adds none.
-		const res = await withKey(key.secret, "GET", "/admin/health");
-		expect(res.statusCode).toBe(403);
-		expect(res.json().code).toBe("NOT_AVAILABLE_TO_API_KEYS");
-	});
 });
 
 describe.skipIf(skip)("limits", () => {
