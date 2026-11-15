@@ -253,8 +253,10 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# instructor's course data; the pages live at /course, served by the
 	# bundle below.  /me/* is the signed-in user's own settings.  The
 	# pre-flight path carries the certificate check's nonce, which proves
-	# the name reaches this server (docs/SPEC.md section 21.12).
-	@api path /auth/* /admin* /lti/* /courses* /me/* /health /.well-known/portikus-preflight/*
+	# the name reaches this server (docs/SPEC.md section 21.12).  /mcp is the
+	# MCP server and /openapi.json the API's description, both answered by the
+	# API, not the bundle.
+	@api path /auth/* /admin* /lti/* /courses* /me/* /health /mcp /openapi.json /.well-known/portikus-preflight/*
 	handle @api {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
