@@ -60,10 +60,10 @@ test("the code-help topic gives the keyboard routes to completion and hover, and
 	expect(text).not.toContain("above the file");
 });
 
-test("the chat topic says a message sent mid-turn may be treated with caution and that Stop then send works", () => {
+test("the chat topic says a message sent mid-turn is read at Claude's next step, with no caution note", () => {
 	const text = topicText("student-claude-chat").replace(/\s+/g, " ");
-	expect(text).toContain("Some models treat a message sent this way with caution");
-	expect(text).toContain("stop Claude, then send it again; that always works");
+	expect(text).toContain("Claude reads it at its next step without stopping");
+	expect(text).not.toContain("with caution");
 });
 
 test("the chat topic lists the message box's typing shortcuts", () => {

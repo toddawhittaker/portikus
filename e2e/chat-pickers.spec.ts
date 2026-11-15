@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
+	confirmModelChange,
 	launchChat,
 	openChat,
 	openChatOptions,
@@ -77,6 +78,7 @@ test("each picker sends its set and shows what the host reports", async ({
 	}
 
 	await choose(page, view, "Model", "Opus");
+	await confirmModelChange(page);
 	await expect(picker(view, "Model")).toHaveText("Model Opus");
 	await choose(page, view, "Effort", "Extra high");
 	await expect(picker(view, "Effort")).toHaveText("Effort Extra high");
@@ -191,6 +193,7 @@ test("the pickers work from the keyboard alone", async ({ page, context }) => {
 	await expect(item("Haiku")).toBeFocused();
 	await page.keyboard.press("Enter");
 	await expect(models).toHaveCount(0);
+	await confirmModelChange(page);
 	await expect(model).toBeFocused();
 	await expect(model).toHaveText("Model Haiku");
 	await expect
@@ -629,6 +632,7 @@ test("switching to a model that cannot run Auto while in Auto shows the chat in 
 	await choose(page, view, "Permissions", "Auto");
 	await expect(picker(view, "Permissions")).toHaveText("Permissions Auto");
 	await choose(page, view, "Model", "Haiku");
+	await confirmModelChange(page);
 	await expect(picker(view, "Permissions")).toHaveText("Permissions Auto");
 	const version = view.getByTestId("composer-version");
 	await version.click();
@@ -636,6 +640,7 @@ test("switching to a model that cannot run Auto while in Auto shows the chat in 
 		.getByRole("menu", { name: /^Version / })
 		.getByRole("menuitemradio", { name: "4.5" })
 		.click();
+	await confirmModelChange(page);
 	await expect(version).toHaveText("Version 4.5");
 	await expect(picker(view, "Permissions")).toHaveText("Permissions Ask");
 	// The page asked only for the model; the host chose Ask.
