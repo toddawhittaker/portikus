@@ -251,6 +251,10 @@ export const AuditEvent = z.object({
 	targetName: z.string().nullable().optional(),
 	result: z.string(),
 	metadata: z.record(z.string(), z.unknown()).nullable(),
+	/** How the request arrived; null on older rows and the worker's. */
+	via: z.enum(["session", "api_key"]).nullable().optional(),
+	/** The key behind a `via` of `api_key`. */
+	apiKeyId: z.string().uuid().nullable().optional(),
 });
 export type AuditEvent = z.infer<typeof AuditEvent>;
 

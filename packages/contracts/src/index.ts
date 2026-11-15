@@ -17,6 +17,7 @@ export * from "./agent.js";
 export * from "./agent-log.js";
 export * from "./agent-usage.js";
 export * from "./alerts.js";
+export * from "./api-keys.js";
 export * from "./auth.js";
 export * from "./backups.js";
 export * from "./browser.js";
