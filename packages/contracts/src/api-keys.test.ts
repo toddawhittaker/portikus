@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { AuditEvent } from "./admin.js";
-import { API_KEY_PERIOD_DEFAULT, ApiKey, CreateApiKeyRequest } from "./api-keys.js";
+import {
+	API_KEY_PERIOD_DEFAULT,
+	ApiKey,
+	CreateApiKeyRequest,
+	RotateApiKeyRequest,
+} from "./api-keys.js";
 
 describe("CreateApiKeyRequest", () => {
 	test("a name alone makes a read-only 30-day key", () => {
@@ -38,6 +43,17 @@ describe("CreateApiKeyRequest", () => {
 	});
 });
 
+describe("RotateApiKeyRequest", () => {
+	test("takes a code or a passkey answer, never both, and nothing else", () => {
+		expect(RotateApiKeyRequest.parse({})).toEqual({});
+		expect(RotateApiKeyRequest.parse({ code: " 123456 " })).toEqual({ code: "123456" });
+		expect(
+			RotateApiKeyRequest.safeParse({ code: "1", credential: { id: "x" } }).success,
+		).toBe(false);
+		expect(RotateApiKeyRequest.safeParse({ name: "k" }).success).toBe(false);
+	});
+});
+
 describe("ApiKey", () => {
 	test("has no field that could carry a secret", () => {
 		const parsed = ApiKey.parse({
@@ -69,14 +85,15 @@ describe("AuditEvent arrival", () => {
 		metadata: null,
 	};
 
-	test("carries how a request arrived, and older rows need neither field", () => {
+	test("carries how a request arrived, always present and null when it was neither", () => {
 		const key = "00000000-0000-4000-8000-000000000001";
 		expect(AuditEvent.parse({ ...base, via: "api_key", apiKeyId: key })).toMatchObject({
 			via: "api_key",
 			apiKeyId: key,
 		});
 		expect(AuditEvent.parse({ ...base, via: null, apiKeyId: null }).via).toBeNull();
-		expect(AuditEvent.parse(base).via).toBeUndefined();
+		// The audit route always sends both, so a row without them is malformed.
+		expect(AuditEvent.safeParse(base).success).toBe(false);
 		expect(AuditEvent.safeParse({ ...base, via: "cli" }).success).toBe(false);
 	});
 });

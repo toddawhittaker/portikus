@@ -43,7 +43,7 @@ export interface OpenApiOptions {
 	cookieName: string;
 }
 
-function toSchema(schema: z.ZodType): JsonSchema {
+export function toSchema(schema: z.ZodType): JsonSchema {
 	// The input side is what a caller sends; `any` keeps a transform or date from failing.
 	const { $schema: _ignored, ...rest } = z.toJSONSchema(schema, {
 		io: "input",
@@ -57,7 +57,7 @@ function openApiPath(url: string): string {
 	return url.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
 }
 
-function pathParameterNames(url: string): string[] {
+export function pathParameterNames(url: string): string[] {
 	return [...url.matchAll(/:([A-Za-z0-9_]+)/g)].map((match) => match[1] as string);
 }
 

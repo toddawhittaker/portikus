@@ -238,7 +238,7 @@ describe.skipIf(skip)("a Dex local-password account proves its second factor", (
 			.set({ role: "administrator", granted_role: "administrator" })
 			.where("id", "=", id)
 			.execute();
-		return { jar, codes: done.json().recoveryCodes as string[] };
+		return { jar, id, codes: done.json().recoveryCodes as string[] };
 	}
 
 	test("with no code it is refused; a wrong code is refused; a recovery code makes the key", async () => {
@@ -288,6 +288,54 @@ describe.skipIf(skip)("a Dex local-password account proves its second factor", (
 			credential: key.authenticate(start.json()),
 		});
 		expect(made.statusCode).toBe(201);
+	});
+
+	test("renewing with a new secret needs the same proof, and an unproven try issues no secret", async () => {
+		const { jar, id, codes } = await localAdmin();
+		const key = await makeKey(id);
+		const none = await post(jar, `/me/api-keys/${key.id}/rotate`);
+		expect(none.statusCode).toBe(403);
+		expect(none.json().code).toBe("SECOND_FACTOR_REQUIRED");
+		const wrong = await post(jar, `/me/api-keys/${key.id}/rotate`, { code: "000000" });
+		expect(wrong.statusCode).toBe(403);
+		expect(wrong.json().code).toBe("WRONG_CODE");
+		// Refused tries change nothing: the old secret still works.
+		expect(await keyStatus(key.secret)).toBe(200);
+		expect(await auditRows("api_key.rotated")).toEqual([]);
+
+		const rotated = await post(jar, `/me/api-keys/${key.id}/rotate`, {
+			code: codes[0],
+		});
+		expect(rotated.statusCode, rotated.body).toBe(200);
+		expect(await keyStatus(key.secret)).toBe(401);
+		expect(await keyStatus(rotated.json().secret)).toBe(200);
+		const verified = await auditRows("auth.second_factor_verified");
+		expect(verified.at(-1)?.metadata).toMatchObject({ flow: "api_key" });
+	});
+
+	test("a passkey answers a rotation's challenge, and a code with it is refused", async () => {
+		const { jar, id } = await localAdmin();
+		const passkey = new SoftPasskey(PUBLIC_URL);
+		const reg = await post(jar, "/me/second-factor/webauthn/start");
+		await post(jar, "/me/second-factor/webauthn", {
+			credential: passkey.register(reg.json()),
+			label: "Laptop",
+		});
+		const key = await makeKey(id);
+		const start = await post(jar, "/me/api-keys/passkey/start");
+		const both = await post(jar, `/me/api-keys/${key.id}/rotate`, {
+			code: "123456",
+			credential: passkey.authenticate(start.json()),
+		});
+		expect(both.statusCode).toBe(400);
+		expect(await keyStatus(key.secret)).toBe(200);
+
+		const again = await post(jar, "/me/api-keys/passkey/start");
+		const rotated = await post(jar, `/me/api-keys/${key.id}/rotate`, {
+			credential: passkey.authenticate(again.json()),
+		});
+		expect(rotated.statusCode, rotated.body).toBe(200);
+		expect(await keyStatus(key.secret)).toBe(401);
 	});
 
 	test("an SSO account is offered no passkey challenge", async () => {

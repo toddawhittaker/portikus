@@ -24,6 +24,7 @@ import {
 	supersedeAccountEmailTokens,
 } from "../account-email/tokens.js";
 import { DexCallFailed, viaDex } from "../admin/dex-accounts.js";
+import { revokeKeys } from "../api-keys/actions.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError } from "../http.js";
 import { addressKey } from "../rate-limit.js";
@@ -248,6 +249,11 @@ export function registerPasswordResetRoutes(
 					action: RESET_DONE_ACTION,
 					result: "ok",
 					metadata: { tokenId: used.id, purpose, ...requestMetadata(request) },
+				});
+				// Whoever held the old password may have made the keys (SPEC.md section 24.13).
+				await revokeKeys(trx, { userId: used.userId }, used.userId, {
+					reason: "password_reset",
+					...requestMetadata(request),
 				});
 				// Last, so a failure rolls the rest back and the link still works.
 				const updated = await viaDex(dex.updatePassword(password.email, hash));

@@ -125,7 +125,8 @@ async function allowId(
 	const decision = check(counter, "userId" in id ? id.userId : id.apiKeyId);
 	if (decision.allowed) return true;
 	if (decision.firstRefusal) {
-		request.log.warn({ ...id, scope }, "per-user rate limit reached");
+		const who = "userId" in id ? "per-user" : "per-key";
+		request.log.warn({ ...id, scope }, `${who} rate limit reached`);
 	}
 	const body: ApiError = {
 		code: "RATE_LIMITED",

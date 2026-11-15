@@ -25,7 +25,9 @@ export type AccessClass =
 	/** A course's instructors; everyone else sees no course, or a 404. */
 	| "course-instructor"
 	/** Preview host paths: only a preview session counts, never a main cookie. */
-	| "preview-edge";
+	| "preview-edge"
+	/** An administrator's or instructor's API key only; a browser session gets 401. */
+	| "api-key";
 
 export interface RoutePolicy {
 	access: AccessClass;
@@ -131,6 +133,12 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/api-keys/:id/renew": { access: "staff" },
 	"POST /me/api-keys/:id/rotate": { access: "staff" },
 	"POST /me/api-keys/:id/revoke": { access: "staff" },
+	// The MCP server signs in by key alone (SPEC.md section 24.8).
+	"GET /mcp": { access: "api-key" },
+	"POST /mcp": { access: "api-key" },
+	// A key, or a signed-in administrator or instructor (SPEC.md section 27).
+	"GET /openapi.json": { access: "staff" },
+	"HEAD /openapi.json": { access: "staff" },
 	"GET /admin/api-keys": { access: "admin" },
 	"HEAD /admin/api-keys": { access: "admin" },
 	"POST /admin/api-keys/:id/expire": { access: "admin" },

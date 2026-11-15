@@ -143,6 +143,15 @@ describe.skipIf(skip)("the scope gate", () => {
 		expect((await withKey(key.secret, "HEAD", "/admin/users")).statusCode).toBe(200);
 	});
 
+	test("any key may fetch the OpenAPI document, by GET or HEAD", async () => {
+		const admin = await signIn("carol");
+		const key = await keyFor(admin.id, "read");
+		for (const method of ["GET", "HEAD"] as const) {
+			const res = await withKey(key.secret, method, "/openapi.json");
+			expect(res.statusCode, method).toBe(200);
+		}
+	});
+
 	test("a read key on a change operation gets 403 SCOPE_REQUIRED and changes nothing", async () => {
 		const admin = await signIn("carol");
 		const alice = await signIn("alice");

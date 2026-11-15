@@ -11,6 +11,7 @@ import "./admin-frame.css";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AddressTab } from "./address/AddressTab.js";
 import { AgentUsageTab } from "./agent-usage/AgentUsageTab.js";
+import { ApiKeysTab } from "./api-keys/ApiKeysTab.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
 import { CertificateTab } from "./certificate/CertificateTab.js";
@@ -38,6 +39,8 @@ function tabContent(view: AdminTab | null, currentUserId: string) {
 	switch (view) {
 		case "users":
 			return <WorkspacesTab currentUserId={currentUserId} />;
+		case "keys":
+			return <ApiKeysTab />;
 		case "health":
 			return <HealthTab />;
 		case "logs":

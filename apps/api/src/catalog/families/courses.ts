@@ -14,27 +14,15 @@ import {
 	SetCourseProfileRequest,
 	SharedChecksResponse,
 } from "@portikus/contracts";
-import { z } from "zod";
+import {
+	CourseMemberParam,
+	CourseParam,
+	CourseSessionParam,
+	CourseSharedParam,
+} from "../../http.js";
 import type { OperationRecords } from "../types.js";
 
-// The route files validate these path parameters with schemas they keep to
-// themselves, so the same shapes are written here (see each route's own
-// `CourseParam`, `MemberParam`, `SessionParam` and `SharedParam`).
-const CourseParam = z.object({ courseId: z.string().uuid() });
-const MemberParam = z.object({
-	courseId: z.string().uuid(),
-	userId: z.string().uuid(),
-});
-const SessionParam = z.object({
-	courseId: z.string().uuid(),
-	sid: z.string().uuid(),
-});
-const SharedParam = z.object({
-	courseId: z.string().uuid(),
-	projectId: z.string().uuid(),
-});
-
-/** This family's operations, keyed by `"METHOD url"`; move each key out of `pending` as its record lands. */
+/** This family's operations, keyed by `"METHOD url"`. */
 export const operations: OperationRecords = {
 	"GET /courses": {
 		name: "courses.list",
@@ -60,10 +48,10 @@ export const operations: OperationRecords = {
 		name: "courses.remove_member",
 		description:
 			"Removes one student from your course; they are added back the next time they open the course from the learning platform.",
-		risk: "change",
+		risk: "destructive",
 		audience: "instructor",
 		tool: false,
-		input: { params: MemberParam },
+		input: { params: CourseMemberParam },
 	},
 	"PUT /courses/:courseId/profile": {
 		name: "courses.set_profile",
@@ -102,7 +90,7 @@ export const operations: OperationRecords = {
 		risk: "read",
 		audience: "instructor",
 		tool: true,
-		input: { params: SharedParam },
+		input: { params: CourseSharedParam },
 		output: SharedChecksResponse,
 	},
 	"GET /courses/:courseId/live-help": {
@@ -122,7 +110,7 @@ export const operations: OperationRecords = {
 		risk: "read",
 		audience: "instructor",
 		tool: false,
-		input: { params: SessionParam },
+		input: { params: CourseSessionParam },
 		output: CourseLiveHelpDetail,
 	},
 	"POST /courses/:courseId/live-help/:sid/leave": {
@@ -131,7 +119,7 @@ export const operations: OperationRecords = {
 		risk: "change",
 		audience: "instructor",
 		tool: false,
-		input: { params: SessionParam },
+		input: { params: CourseSessionParam },
 	},
 	"GET /courses/:courseId/live-help/:sid/listening": {
 		name: "live_help.listening",
@@ -140,7 +128,7 @@ export const operations: OperationRecords = {
 		risk: "read",
 		audience: "instructor",
 		tool: false,
-		input: { params: SessionParam },
+		input: { params: CourseSessionParam },
 	},
 	"GET /courses/:courseId/agent-usage": {
 		name: "courses.agent_usage",
@@ -173,6 +161,3 @@ export const operations: OperationRecords = {
 		output: NotificationList,
 	},
 };
-
-/** Routes of this family that are exposed but have no record yet. */
-export const pending: readonly string[] = [];

@@ -507,6 +507,8 @@ test.skipIf(skip)(
 		);
 		expect(stop.actor).toBe(`user:${await carolId()}`);
 		expect(stop.actorName).toMatch(/Carol/);
+		// The detail's audit rows carry the same arrival fields as the Audit tab's.
+		expect(stop).toMatchObject({ via: "session", apiKeyId: null });
 	},
 );
 

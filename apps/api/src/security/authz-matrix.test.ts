@@ -1,12 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createApiKey } from "@portikus/auth";
 import {
 	CookieJar,
 	loginAs,
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import type { ApiKeyScope } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -16,6 +18,7 @@ import {
 	fakeKey,
 	startFakeBackupKey,
 } from "../testing/fake-backup-key.js";
+import { PAYLOADS, QUERIES } from "../testing/matrix-samples.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
@@ -178,6 +181,8 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/api-keys/:id/revoke": 404,
 	// The matrix staff sign in through SSO, which owes no passkey to make a key.
 	"POST /me/api-keys/passkey/start": 400,
+	// The MCP server serves each request on its own, so it has no stream to resume.
+	"GET /mcp": 405,
 	// The sample names nobody who teaches A; live-help.test.ts covers a start.
 	"POST /workspaces/:id/projects/:pid/live-help": 400,
 };
@@ -368,121 +373,6 @@ interface Sample {
 	headers: Record<string, string>;
 }
 
-const QUERIES: Record<string, string> = {
-	"/workspaces/:id/projects/:pid/file": "?path=notes.txt",
-	"/workspaces/:id/projects/:pid/image": "?path=shot.png",
-	"/workspaces/:id/projects/:pid/git/diff": "?path=notes.txt",
-	"/courses/:courseId/shares/:projectId/file": "?path=notes.txt",
-	"/courses/:courseId/shares/:projectId/git/diff": "?path=notes.txt",
-	"/workspaces/:id/projects/:pid/recovery-points/:rpid/diff": "?path=notes.txt",
-	"/workspaces/:id/projects/:pid/baseline-status": `?object=${"a".repeat(40)}`,
-	"/workspaces/:id/projects/:pid/baseline-diff": `?object=${"a".repeat(40)}&path=notes.txt`,
-	"/workspaces/:id/projects/:pid/search": "?q=secret",
-	"/workspaces/:id/preview/embeddable": "?port=5173",
-	"/__portikus/bootstrap": "?t=forged-ticket",
-	"/admin/health/series": "?range=1h",
-	"/admin/logs/counts": "?range=1h",
-	"/admin/egress/entries/:id": "?version=0",
-	"/admin/egress/blocked-sites/:id": "?version=0",
-};
-
-const PAYLOADS: Record<string, object> = {
-	"POST /me/notifications": { tone: "neutral", title: "Saved" },
-	"PATCH /me/notifications/:id": { read: true },
-	"POST /me/acceptable-use": { version: 1 },
-	"POST /me/api-keys": { name: "Matrix key" },
-	"PUT /me/settings": { timezone: "America/New_York" },
-	"PUT /me/profile": { github: null },
-	"PUT /admin/settings": { logLevel: null },
-	"PUT /courses/:courseId/profile": { profile: "traditional" },
-	"PUT /admin/courses/:courseId/profile": { profile: "traditional" },
-	"PUT /admin/users/:id/settings": { shutdownGraceSeconds: null },
-	"POST /admin/dex-users": {
-		name: "New Person",
-		email: "new@example.edu",
-		username: "new",
-		role: "student",
-	},
-	"POST /admin/accounts/import/preview": {
-		csv: "name,email,username,role,kind\nA,matrix-a@example.edu,,student,invite\n",
-	},
-	"POST /admin/accounts/import": {
-		csv: "name,email,username,role,kind\nB,matrix-b@example.edu,,student,invite\n",
-	},
-	"POST /admin/invitations": {
-		name: "Invited Person",
-		email: "invited@example.edu",
-		role: "student",
-	},
-	"POST /workspaces/:id/terminals": { name: "another" },
-	"PATCH /workspaces/:id/terminals/:tid": { name: "renamed" },
-	"POST /workspaces/:id/terminals/:tid/question": { id: "toolu_01Q", inTerminal: true },
-	"POST /workspaces/:id/projects": { name: "another", source: "new" },
-	"POST /workspaces/:id/projects/starter": { starterId: crypto.randomUUID() },
-	"PATCH /workspaces/:id/projects/:pid": { name: "renamed" },
-	"POST /workspaces/:id/projects/:pid/duplicate": { name: "copy" },
-	"PUT /workspaces/:id/projects/:pid/layout": {
-		tabs: [{ id: "tab-1", root: { type: "leaf", terminalId: crypto.randomUUID() } }],
-	},
-	"PUT /workspaces/:id/projects/:pid/chat-settings": {
-		model: "opus",
-		effort: "low",
-		mode: "auto",
-	},
-	"POST /workspaces/:id/projects/:pid/mkdir": { path: "made" },
-	"POST /workspaces/:id/projects/:pid/file-search": { query: "notes" },
-	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
-	"POST /workspaces/:id/projects/:pid/extract": { path: "starter.zip" },
-	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
-	"POST /workspaces/:id/projects/:pid/live-help": {
-		helperUserId: crypto.randomUUID(),
-		courseId: crypto.randomUUID(),
-	},
-	"POST /workspaces/:id/live-help/typing": { typing: true },
-	"POST /courses/:courseId/live-help/:sid/preview-grants": {
-		port: 5173,
-		presentation: "embedded",
-	},
-	// The fake agent's own node process.
-	"POST /workspaces/:id/processes/:pid/stop": { startTicks: 100 },
-	"POST /workspaces/:id/processes/:pid/stop-tree": { startTicks: 100 },
-	"POST /workspaces/:id/processes/:pid/lower-priority": { startTicks: 100 },
-	"POST /admin/workspaces/:id/processes/:pid/stop": { startTicks: 100 },
-	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
-	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },
-	"PUT /workspaces/:id/keep-running": {
-		until: new Date(Date.now() + 3_600_000).toISOString(),
-	},
-	"PUT /admin/workspaces/:id/limits": { cpu: null, memoryMiB: null, processes: null },
-	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
-	"PUT /admin/egress/mode": { version: 0, mode: "open" },
-	"PUT /admin/egress/presets": { version: 0, presets: [] },
-	"PUT /admin/egress/ports": { version: 0, ports: [22, 80, 443] },
-	"POST /admin/egress/entries": {
-		version: 0,
-		kind: "host",
-		value: "example.edu",
-		label: "",
-	},
-	"PUT /admin/egress/entries/:id": {
-		version: 0,
-		kind: "host",
-		value: "example.edu",
-		label: "",
-	},
-	"POST /admin/egress/blocked-sites": { version: 0, value: "example.edu", label: "" },
-	"PUT /admin/egress/blocked-sites/:id": {
-		version: 0,
-		value: "example.edu",
-		label: "",
-	},
-	"POST /admin/backups/key": { key: fakeKey("matrix upload").file, replace: true },
-	"POST /admin/backups/restores": {
-		stamp: "20260924T023000Z",
-		workspaceId: "550e8400-e29b-41d4-a716-446655440000",
-	},
-};
-
 /**
  * A request the owner could reasonably send on this route, aimed at the ids
  * given. Every caller sends the same one, so only who sent it differs.
@@ -517,6 +407,9 @@ function sampleFor(
 	if (pattern.startsWith("/__portikus/") || pattern === "/preview/authorize") {
 		// Aim at A's real preview host, so only a session could open it.
 		sample.headers.host = `${world.a.label}-5173.preview.localhost`;
+	}
+	if (pattern === "/mcp") {
+		sample.headers.accept = "application/json, text/event-stream";
 	}
 	if (key === "PUT /workspaces/:id/projects/:pid/file") {
 		sample.payload = "hello";
@@ -564,6 +457,22 @@ function actorsOf(world: World) {
 			headers: { authorization: `Bearer ${world.a.agentToken}` },
 		},
 	} satisfies Record<string, Actor>;
+}
+
+/** A fresh API key for a matrix staff member, by sign-in subject. */
+async function keyOf(subject: string, scope: ApiKeyScope): Promise<string> {
+	const owner = await testDb.db
+		.selectFrom("users")
+		.select("id")
+		.where("oidc_subject", "=", subject)
+		.executeTakeFirstOrThrow();
+	const made = await createApiKey(testDb.db, owner.id, {
+		name: "Matrix key",
+		scope,
+		periodDays: 30,
+	});
+	if (!made.ok) throw new Error(`no key for ${subject}: ${made.reason}`);
+	return made.secret;
 }
 
 /**
@@ -735,6 +644,7 @@ const httpKeys = Object.keys(ROUTE_POLICY).filter((key) => {
 });
 
 const signedInOnly: AccessClass[] = [
+	"api-key",
 	"self",
 	"staff",
 	"owner",
@@ -763,8 +673,10 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 						name: "A from a preview Origin",
 						headers: { cookie, origin: preview },
 					};
-					await expectRefused(app, world, key, own, noOrigin, 403);
-					await expectRefused(app, world, key, own, fromPreview, 403);
+					// The MCP door answers every keyless refusal with 401 (SPEC.md section 24.8).
+					const refusal = access === "api-key" ? 401 : 403;
+					await expectRefused(app, world, key, own, noOrigin, refusal);
+					await expectRefused(app, world, key, own, fromPreview, refusal);
 				}
 
 				if (signedInOnly.includes(access)) {
@@ -773,8 +685,21 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
-				if (signedInOnly.includes(access) && !passesGate(key)) {
-					const flagged = withOrigin(key, actors.flagged);
+				const a = withOrigin(key, actors.a);
+				const b = withOrigin(key, actors.b);
+				const admin = withOrigin(key, actors.admin);
+				const instructor = withOrigin(key, actors.instructor);
+				const flagged = withOrigin(key, actors.flagged);
+				const unaccepted = withOrigin(key, actors.unaccepted);
+
+				if (access === "api-key") {
+					// No browser session gets in, whatever it may otherwise reach.
+					for (const actor of [a, b, admin, instructor, flagged, unaccepted]) {
+						await expectRefused(app, world, key, own, actor, 401);
+					}
+				}
+
+				if (signedInOnly.includes(access) && access !== "api-key" && !passesGate(key)) {
 					await expectRefused(app, world, key, own, flagged, 403);
 					if (!key.startsWith("HEAD ")) {
 						const { res } = await send(app, key, own, flagged.headers);
@@ -784,8 +709,11 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
-				if (signedInOnly.includes(access) && !passesUseGate(key)) {
-					const unaccepted = withOrigin(key, actors.unaccepted);
+				if (
+					signedInOnly.includes(access) &&
+					access !== "api-key" &&
+					!passesUseGate(key)
+				) {
 					await expectRefused(app, world, key, own, unaccepted, 403);
 					if (!key.startsWith("HEAD ")) {
 						const { res } = await send(app, key, own, unaccepted.headers);
@@ -795,10 +723,6 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
-				const a = withOrigin(key, actors.a);
-				const b = withOrigin(key, actors.b);
-				const admin = withOrigin(key, actors.admin);
-				const instructor = withOrigin(key, actors.instructor);
 				if (access === "owner" || access === "owner-or-admin") {
 					await expectRefused(app, world, key, own, b, 404);
 					// Teaching A's course gives no way into A's workspace.
@@ -926,6 +850,21 @@ describe.skipIf(skip)("allowed callers get through", () => {
 						case "course-instructor":
 							await expectAllowed(app, key, own, instructor);
 							break;
+						case "api-key": {
+							// Both kinds of key holder get in, whatever the key's scope.
+							for (const [subject, scope] of [
+								["carol", "read"],
+								["ivy", "read"],
+							] as const) {
+								const secret = await keyOf(subject, scope);
+								const holder = {
+									name: `${subject}'s key`,
+									headers: { authorization: `Bearer ${secret}` },
+								};
+								await expectAllowed(app, key, own, holder);
+							}
+							break;
+						}
 					}
 				});
 		});

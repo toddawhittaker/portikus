@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	createApiKey,
 	createDexApi,
 	createOidcClient,
 	createSession,
@@ -365,6 +366,48 @@ describe.skipIf(skip)("completing a reset", () => {
 			]);
 		});
 		expect(mails()[0]?.to).toEqual([{ address: "alice@example.edu", name: "" }]);
+	});
+
+	test("revokes the person's API keys, audited, and a failed reset keeps them", async () => {
+		const { id, token } = await linkFor("alice@example.edu");
+		await testDb.db
+			.updateTable("users")
+			.set({ role: "instructor" })
+			.where("id", "=", id)
+			.execute();
+		const made = await createApiKey(testDb.db, id, {
+			name: "Laptop",
+			scope: "read",
+			periodDays: 30,
+		});
+		if (!made.ok) throw new Error(made.reason);
+		const revokedAt = async () =>
+			(
+				await testDb.db
+					.selectFrom("api_keys")
+					.select("revoked_at")
+					.where("id", "=", made.key.id)
+					.executeTakeFirstOrThrow()
+			).revoked_at;
+
+		// Dex refusing the new password rolls the whole reset back.
+		const held = [...fake.passwords.entries()];
+		fake.passwords.clear();
+		expect((await completeReset(token)).statusCode).toBe(400);
+		expect(await revokedAt()).toBeNull();
+
+		for (const [email, password] of held) fake.passwords.set(email, password);
+		expect((await completeReset(token)).statusCode).toBe(204);
+		expect(await revokedAt()).not.toBeNull();
+		expect(await auditRows("api_key.revoked")).toEqual([
+			expect.objectContaining({
+				target: id,
+				metadata: expect.objectContaining({
+					keyId: made.key.id,
+					reason: "password_reset",
+				}),
+			}),
+		]);
 	});
 
 	test("a link works once", async () => {

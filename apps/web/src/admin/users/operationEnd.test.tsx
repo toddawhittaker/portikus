@@ -38,6 +38,8 @@ function auditEvent(
 		target,
 		result: action.endsWith("_failed") ? "failed" : "ok",
 		metadata,
+		via: null,
+		apiKeyId: null,
 	};
 }
 

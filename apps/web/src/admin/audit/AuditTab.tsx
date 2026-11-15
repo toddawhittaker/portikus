@@ -1,5 +1,5 @@
 import type { AdminUser, AuditEvent } from "@portikus/contracts";
-import { Button, Icon, IconButton, TextField, Toggletip } from "@portikus/ui";
+import { Badge, Button, Icon, IconButton, TextField, Toggletip } from "@portikus/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
@@ -10,6 +10,7 @@ import { SortHeader } from "../../table/SortHeader.js";
 import type { SortState } from "../../table/sort.js";
 import { shortId, shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
+import { useAdminApiKeys } from "../api-keys/queries.js";
 import { personLabel, personOptions, resolvePerson } from "../people.js";
 import { useAdminUsers } from "../queries.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
@@ -214,6 +215,7 @@ function AuditResults({
 	const [cursors, setCursors] = useState<(number | null)[]>([null]);
 	const before = cursors[cursors.length - 1] ?? null;
 	const page = useAuditPage(filters, before);
+	const prefixes = useKeyPrefixes();
 
 	const nextBefore = page.data?.nextBefore ?? null;
 	// The API pages newest first, so oldest first is that order reversed; a sort by
@@ -265,6 +267,16 @@ function AuditResults({
 									first="descending"
 								/>
 								<th scope="col">Actor</th>
+								<th scope="col">
+									<span className="inline-flex items-center gap-1">
+										Via
+										<Toggletip label="Via">
+											How the request arrived: a signed-in browser session, or an API
+											key, shown by the start of the key. A dash means it was not
+											recorded, as on older rows and the server's own jobs.
+										</Toggletip>
+									</span>
+								</th>
 								<th scope="col">Event</th>
 								<th scope="col">Target</th>
 								<th scope="col">
@@ -286,6 +298,7 @@ function AuditResults({
 								<AuditRow
 									key={event.id}
 									event={event}
+									arrival={arrival(event, prefixes)}
 									open={event.id === selected}
 									onToggle={() => setSelected(event.id === selected ? null : event.id)}
 								/>
@@ -294,7 +307,11 @@ function AuditResults({
 					</table>
 				</section>
 				{selectedEvent ? (
-					<AuditInspector event={selectedEvent} onClose={() => setSelected(null)} />
+					<AuditInspector
+						event={selectedEvent}
+						arrival={arrival(selectedEvent, prefixes)}
+						onClose={() => setSelected(null)}
+					/>
 				) : null}
 			</div>
 			{page.isSuccess && events.length === 0 ? (
@@ -352,12 +369,59 @@ function detailText(value: unknown): string {
 	return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** The start of each key by its id, so an API-key row can say which key. */
+function useKeyPrefixes(): ReadonlyMap<string, string> {
+	const keys = useAdminApiKeys().data?.keys ?? [];
+	return new Map(keys.map((key) => [key.id, key.prefix]));
+}
+
+/** How a row arrived, in words (SPEC.md section 24.11); null when it was not recorded. */
+interface Arrival {
+	kind: "session" | "api_key";
+	text: string;
+	/** The start of the key, when the row names one that is still listed. */
+	prefix: string | null;
+}
+
+export function arrival(
+	event: Pick<AuditEvent, "via" | "apiKeyId">,
+	prefixes: ReadonlyMap<string, string>,
+): Arrival | null {
+	if (event.via === "session")
+		return { kind: "session", text: "Session", prefix: null };
+	if (event.via !== "api_key") return null;
+	const prefix = event.apiKeyId ? (prefixes.get(event.apiKeyId) ?? null) : null;
+	return { kind: "api_key", text: prefix ? `API key ${prefix}` : "API key", prefix };
+}
+
+function ArrivalCell({ arrival: value }: { arrival: Arrival | null }) {
+	if (value === null) {
+		return (
+			<span className="pk-muted">
+				<span aria-hidden="true">—</span>
+				<span className="sr-only">Not recorded</span>
+			</span>
+		);
+	}
+	if (value.kind === "session") return <span className="pk-muted">Session</span>;
+	return (
+		<span className="pk-cell-stack" data-testid="audit-via-key">
+			<Badge tone="accent">API key</Badge>
+			{value.prefix ? (
+				<span className="pk-cell-secondary pk-mono-small">{value.prefix}</span>
+			) : null}
+		</span>
+	);
+}
+
 function AuditRow({
 	event,
+	arrival: arrived,
 	open,
 	onToggle,
 }: {
 	event: AuditEvent;
+	arrival: Arrival | null;
 	open: boolean;
 	onToggle: () => void;
 }) {
@@ -389,6 +453,9 @@ function AuditRow({
 				) : (
 					<IdText full={event.actor} short={actorShort} />
 				)}
+			</td>
+			<td data-testid="audit-via">
+				<ArrivalCell arrival={arrived} />
 			</td>
 			<td className="pk-audit-event whitespace-normal">
 				<span className="pk-audit-name">{actionName(event.action)}</span>
@@ -548,9 +615,11 @@ const AUDIT_INSPECTOR_ID = "audit-inspector";
 /** One event in full beside the table: what happened, to whom, and the raw record. */
 function AuditInspector({
 	event,
+	arrival: arrived,
 	onClose,
 }: {
 	event: AuditEvent;
+	arrival: Arrival | null;
 	onClose: () => void;
 }) {
 	const metadata = Object.entries(event.metadata ?? {});
@@ -596,6 +665,8 @@ function AuditInspector({
 						{event.actorName ? <span>{event.actorName}</span> : null}
 						<span className="pk-mono-small break-all">{event.actor}</span>
 					</dd>
+					<dt>Via</dt>
+					<dd>{arrived ? arrived.text : "Not recorded"}</dd>
 					<dt>Target</dt>
 					<dd className="grid">
 						{event.targetName ? <span>{event.targetName}</span> : null}

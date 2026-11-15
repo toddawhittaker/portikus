@@ -11,6 +11,7 @@
 	},
 	"dependencies": {
 		"@fastify/websocket": "11.3.4",
+		"@modelcontextprotocol/server": "2.4.0",
 		"@portikus/agent-client": "workspace:*",
 		"@portikus/auth": "workspace:*",
 		"@portikus/config": "workspace:*",
@@ -25,6 +26,7 @@
 		"zod": "4.6.7"
 	},
 	"devDependencies": {
+		"@modelcontextprotocol/client": "2.4.0",
 		"@types/node": "24.19.2",
 		"@types/ws": "8.18.2",
 		"bcryptjs": "3.0.3",

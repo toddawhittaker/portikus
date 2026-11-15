@@ -123,7 +123,6 @@ export async function resolveApiKey(
 		.select([
 			"api_keys.id as key_id",
 			"api_keys.scope",
-			"api_keys.expires_at",
 			"users.id as user_id",
 			"users.email",
 			"users.display_name",
@@ -134,6 +133,12 @@ export async function resolveApiKey(
 		])
 		.where("api_keys.token_hash", "=", hashApiKey(secret))
 		.where("api_keys.revoked_at", "is", null)
+		.where((eb) =>
+			eb.or([
+				eb("api_keys.expires_at", "is", null),
+				eb("api_keys.expires_at", ">", now),
+			]),
+		)
 		.where("users.disabled_at", "is", null)
 		.where("users.role", "<>", "student")
 		.where(({ not, exists, selectFrom }) =>
@@ -147,9 +152,6 @@ export async function resolveApiKey(
 		)
 		.executeTakeFirst();
 	if (!row) return null;
-	if (row.expires_at !== null && row.expires_at.getTime() <= now.getTime()) {
-		return null;
-	}
 	return {
 		user: {
 			id: row.user_id,

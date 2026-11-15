@@ -1,4 +1,5 @@
 import {
+	createApiKey,
 	createOidcClient,
 	DEX_ACCOUNT_ISSUER,
 	ELEVATED_SESSION_MAX_SECONDS,
@@ -192,6 +193,101 @@ test.skipIf(skip)(
 			"source",
 			"to",
 		]);
+	},
+);
+
+/** A read key for the person signed in as this subject, and a way to ask whether it was revoked. */
+async function keyForSubject(subject: string) {
+	const user = await testDb.db
+		.selectFrom("users")
+		.select("id")
+		.where("oidc_subject", "=", subject)
+		.executeTakeFirstOrThrow();
+	const made = await createApiKey(testDb.db, user.id, {
+		name: "Laptop",
+		scope: "read",
+		periodDays: 30,
+	});
+	if (!made.ok) throw new Error(made.reason);
+	return {
+		userId: user.id,
+		keyId: made.key.id,
+		revoked: async () =>
+			(
+				await testDb.db
+					.selectFrom("api_keys")
+					.select("revoked_at")
+					.where("id", "=", made.key.id)
+					.executeTakeFirstOrThrow()
+			).revoked_at !== null,
+	};
+}
+
+test.skipIf(skip)(
+	"a sign-in that lowers a person to student revokes their API keys, audited",
+	async () => {
+		const alice = mock.users.alice;
+		if (!alice) throw new Error("mock user alice is missing");
+		const groups = alice.groups;
+		try {
+			alice.groups = ["portikus-administrators"];
+			await loginAs(app, "alice", new CookieJar());
+			const key = await keyForSubject("alice");
+
+			// Lowered, but still staff: keys keep working (SPEC.md section 24.13).
+			alice.groups = ["portikus-instructors"];
+			await loginAs(app, "alice", new CookieJar());
+			expect(await key.revoked()).toBe(false);
+
+			alice.groups = ["portikus-students"];
+			await loginAs(app, "alice", new CookieJar());
+			expect(await key.revoked()).toBe(true);
+
+			const rows = await testDb.db
+				.selectFrom("audit_events")
+				.select(["actor", "target", "metadata"])
+				.where("action", "=", "api_key.revoked")
+				.execute();
+			expect(rows).toEqual([
+				{
+					actor: "identity-provider",
+					target: key.userId,
+					metadata: expect.objectContaining({
+						keyId: key.keyId,
+						reason: "role_removed",
+						source: "oidc",
+					}),
+				},
+			]);
+		} finally {
+			alice.groups = groups;
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a sign-in that keeps or raises a role leaves keys alone",
+	async () => {
+		const alice = mock.users.alice;
+		if (!alice) throw new Error("mock user alice is missing");
+		const groups = alice.groups;
+		try {
+			alice.groups = ["portikus-instructors"];
+			await loginAs(app, "alice", new CookieJar());
+			const key = await keyForSubject("alice");
+			await loginAs(app, "alice", new CookieJar());
+			alice.groups = ["portikus-administrators"];
+			await loginAs(app, "alice", new CookieJar());
+			expect(await key.revoked()).toBe(false);
+			const rows = await testDb.db
+				.selectFrom("audit_events")
+				.select("id")
+				.where("action", "=", "api_key.revoked")
+				.execute();
+			expect(rows).toEqual([]);
+		} finally {
+			alice.groups = groups;
+		}
 	},
 );
 

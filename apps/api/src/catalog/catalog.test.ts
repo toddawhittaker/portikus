@@ -1,27 +1,19 @@
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
 import { type AccessClass, ROUTE_POLICY } from "../security/route-policy.js";
-import {
-	NEW_ROUTES,
-	NOT_EXPOSED,
-	OPERATIONS,
-	operationByKey,
-	operationByName,
-	PENDING,
-} from "./index.js";
+import { NOT_EXPOSED, OPERATIONS, operationByKey, operationByName } from "./index.js";
 import type { Audience } from "./types.js";
 
 /**
  * The catalog's coverage rules (SPEC.md section 27): every route a key could
- * reach is either an operation, on the not-exposed list with a reason, or
- * waiting for its record. `authz-matrix.test.ts` already proves the policy
+ * reach is either an operation or on the not-exposed list with a reason.
+ * `authz-matrix.test.ts` already proves the policy
  * table lists exactly the routes the server registers.
  */
 
 const policyKeys = Object.keys(ROUTE_POLICY).filter((key) => !key.startsWith("HEAD "));
-const known = new Set([...policyKeys, ...NEW_ROUTES]);
+const known = new Set(policyKeys);
 const exposed = new Set(Object.keys(OPERATIONS));
-const pending = new Set(PENDING);
 const notExposed = new Set(Object.keys(NOT_EXPOSED));
 
 /** Routes no key may ever reach, whatever its scope. Written out here so a change is deliberate. */
@@ -88,22 +80,46 @@ const ACCESS_AUDIENCES: Record<AccessClass, readonly Audience[]> = {
 	staff: [],
 	public: [],
 	"preview-edge": [],
+	// The MCP door itself, never an operation.
+	"api-key": [],
 };
+
+/**
+ * Operations that loosen a SPEC.md section 24 control (egress, the hosts the
+ * platform may reach, trusted course systems, the usage guard and limits) or
+ * take away another person's access. A key needs destructive scope for them.
+ */
+const LOOSENS_OR_REMOVES_ACCESS = [
+	"egress.set_mode",
+	"egress.set_presets",
+	"egress.set_ports",
+	"egress.add_entry",
+	"egress.update_entry",
+	"egress.update_blocked_site",
+	"egress.remove_blocked_site",
+	"proxy_hosts.set",
+	"lms.set",
+	"settings.update",
+	"users.disable",
+	"users.enable",
+	"users.revoke_admin",
+	"users.revoke_instructor",
+	"courses.remove_member",
+	"workspaces.archive",
+	"workspaces.lift_throttle",
+	"workspaces.set_guard",
+	"workspaces.set_limits",
+	"workspaces.set_quota",
+];
 
 describe("route coverage", () => {
 	test("the policy table has routes to cover", () => {
 		expect(policyKeys.length).toBeGreaterThan(200);
 	});
 
-	test.each(policyKeys)(
-		"%s is exactly one of exposed, not exposed, or pending",
-		(key) => {
-			const homes = [exposed.has(key), notExposed.has(key), pending.has(key)].filter(
-				Boolean,
-			);
-			expect(homes).toHaveLength(1);
-		},
-	);
+	test.each(policyKeys)("%s is exactly one of exposed or not exposed", (key) => {
+		expect(exposed.has(key) !== notExposed.has(key)).toBe(true);
+	});
 
 	test("an exposed key names a route", () => {
 		for (const key of exposed) {
@@ -111,23 +127,9 @@ describe("route coverage", () => {
 		}
 	});
 
-	test("a not-exposed key names a route or an allowed new route", () => {
+	test("a not-exposed key names a route", () => {
 		for (const key of notExposed) {
 			expect(known.has(key), `${key} is not a route`).toBe(true);
-		}
-	});
-
-	test("a pending key names a route and is not also listed twice", () => {
-		for (const key of pending) {
-			expect(policyKeys, `${key} is not a route`).toContain(key);
-		}
-		expect(pending.size).toBe(PENDING.length);
-	});
-
-	test("each allowed new route is not exposed", () => {
-		for (const key of NEW_ROUTES) {
-			expect(exposed.has(key), key).toBe(false);
-			expect(notExposed.has(key), key).toBe(true);
 		}
 	});
 
@@ -142,7 +144,6 @@ describe("the never list", () => {
 	test.each(NEVER)("%s is never exposed and marked never", (key) => {
 		expect(known.has(key), `${key} is not a route`).toBe(true);
 		expect(exposed.has(key)).toBe(false);
-		expect(pending.has(key)).toBe(false);
 		expect(NOT_EXPOSED[key]?.never).toBe(true);
 	});
 
@@ -211,6 +212,13 @@ describe("operations", () => {
 			expect(Object.keys(json.properties ?? {}).sort(), key).toEqual(wanted);
 		}
 	});
+
+	test.each(LOOSENS_OR_REMOVES_ACCESS)(
+		"%s loosens a section 24 control or removes someone's access, so it is destructive",
+		(name) => {
+			expect(operationByName(name)?.operation.risk).toBe("destructive");
+		},
+	);
 
 	test("lookups find a record by key, by HEAD twin and by name", () => {
 		for (const [key, op] of records) {

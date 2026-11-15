@@ -13,6 +13,7 @@ import type { AdminSender } from "../account-email/admin-send.js";
 import { emailChangedMessage } from "../account-email/messages.js";
 import { accountEmailEnabled } from "../account-email/send.js";
 import { revokeAccountEmailTokens } from "../account-email/tokens.js";
+import { revokeKeys } from "../api-keys/actions.js";
 import { endSessions } from "../sessions/end-sessions.js";
 import { viaDex } from "./dex-accounts.js";
 import { notifyCredentialReset } from "./reset-notice.js";
@@ -189,6 +190,11 @@ export async function editDexUser(
 		await db.transaction().execute(async (trx) => {
 			await endSessions(trx, id);
 			await revokeAccountEmailTokens(trx, id);
+			// The new address starts a new credential, so the old one's keys go too.
+			await revokeKeys(trx, { userId: id }, input.actorId, {
+				reason: "email_changed",
+				...input.metadata,
+			});
 		});
 		password = await moveDexPassword(dex, { mine, userId, email, username });
 		if (password === null) return "exists";
