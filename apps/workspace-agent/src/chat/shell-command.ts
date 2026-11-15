@@ -181,6 +181,45 @@ export function bashInputText(command: string): string {
 	return `<bash-input>${command}</bash-input>`;
 }
 
+/** The most output Claude reads from one `!` command, as Claude Code's Bash tool does (SPEC.md 10.2). */
+export const MAX_MODEL_SHELL_OUTPUT_CHARS = 30_000;
+/** How far a cut may move to land on a line break. */
+const LINE_BREAK_REACH = 1_000;
+
+/**
+ * The output as Claude reads it: unchanged up to the limit, else the first
+ * and last half with a note between them. Each cut moves inward to a line
+ * break when one is near, and never splits a surrogate pair. The student's
+ * view keeps the full output.
+ */
+export function capOutputForModel(output: string): string {
+	if (output.length <= MAX_MODEL_SHELL_OUTPUT_CHARS) return output;
+	const half = MAX_MODEL_SHELL_OUTPUT_CHARS / 2;
+	let headEnd = half;
+	let tailStart = output.length - half;
+	const lastBreak = output.lastIndexOf("\n", headEnd - 1);
+	if (lastBreak >= headEnd - LINE_BREAK_REACH) headEnd = lastBreak + 1;
+	else if (isHighSurrogate(output.charCodeAt(headEnd - 1))) headEnd -= 1;
+	const nextBreak = output.indexOf("\n", tailStart - 1);
+	if (nextBreak !== -1 && nextBreak + 1 - tailStart <= LINE_BREAK_REACH)
+		tailStart = nextBreak + 1;
+	else if (isLowSurrogate(output.charCodeAt(tailStart))) tailStart += 1;
+	const cut = output.slice(headEnd, tailStart);
+	// Whole or partial lines: each break ends one, and text after the last break is one more.
+	const breaks = cut.split("\n").length - 1;
+	const lines = cut.endsWith("\n") ? breaks : breaks + 1;
+	const head = output.slice(0, headEnd);
+	return `${head}${head.endsWith("\n") ? "" : "\n"}[... ${lines} lines cut ...]\n${output.slice(tailStart)}`;
+}
+
+function isHighSurrogate(code: number): boolean {
+	return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+	return code >= 0xdc00 && code <= 0xdfff;
+}
+
 export function bashOutputText(run: ShellRun): string {
 	const notes: string[] = [];
 	if (run.timedOut) notes.push(STOPPED_NOTE);
@@ -190,7 +229,7 @@ export function bashOutputText(run: ShellRun): string {
 	else if (run.exitCode !== 0 && run.exitCode !== null)
 		notes.push(`Exit code ${run.exitCode}`);
 	if (run.truncated) notes.push(CUT_NOTE);
-	return `<bash-stdout>${run.output}</bash-stdout><bash-stderr>${notes.join("\n")}</bash-stderr>`;
+	return `<bash-stdout>${capOutputForModel(run.output)}</bash-stdout><bash-stderr>${notes.join("\n")}</bash-stderr>`;
 }
 
 /**
