@@ -26,8 +26,10 @@ function fakeMonaco(model: Monaco.editor.ITextModel, showMessage: () => void) {
 			registerHoverProvider: vi.fn(),
 			registerDefinitionProvider: vi.fn(),
 			registerRenameProvider: vi.fn(),
-			registerDocumentFormattingEditProvider: (language: string, provider: FormatProvider) =>
-				formatters.set(language, provider),
+			registerDocumentFormattingEditProvider: (
+				language: string,
+				provider: FormatProvider,
+			) => formatters.set(language, provider),
 		},
 	} as unknown as typeof Monaco;
 	return { monaco, formatters };
