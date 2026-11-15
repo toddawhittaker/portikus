@@ -1,4 +1,10 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import {
+	type BrowserContext,
+	expect,
+	type Locator,
+	type Page,
+	test,
+} from "@playwright/test";
 import { launchChat, openChat } from "./chat-helpers";
 import {
 	createProject,
@@ -6,6 +12,9 @@ import {
 	expectConnected,
 	expectNoViolations,
 	newTerminal,
+	openFileTab,
+	query,
+	setWorkspaceState,
 	terminalIds,
 	workspacePath,
 	workTabs,
@@ -16,8 +25,9 @@ import { splitPane } from "./split-helpers";
  * Each terminal and chat pane zooms on its own, from 50% to 300% in 10%
  * steps. Ctrl + wheel, or a trackpad pinch, zooms the pane under the pointer
  * and never the page. A chat takes the editor's zoom keys; a terminal leaves
- * them to the shell. A pane keeps its zoom through a split (SPEC.md §13.1,
- * §20.1).
+ * them to the shell. A pane keeps its zoom through a split, and the zooms are
+ * kept with the student's settings, so a restart, a reload or another
+ * browser shows them again (SPEC.md §7.5, §13.1, §20.1).
  */
 
 function zoomValue(page: Page, paneId: string): Locator {
@@ -230,11 +240,108 @@ test("a pane keeps its zoom through a split and leaving the workspace", async ({
 	const { id: chat } = await launchChat(page, student.workspaceId, project.id);
 	await expect(zoomValue(page, chat)).toHaveText("100%");
 
-	// Leaving the workspace and coming back keeps it, for this browser session.
+	// Leaving the workspace and coming back keeps it.
 	await page.goto("/");
 	await page.goto(workspacePath(student.workspaceId, project.id));
 	await workTabs(page).getByRole("tab").first().click();
 	await expect(zoomValue(page, shell)).toHaveText("130%");
+});
+
+/** The pane zooms the server holds for this student. */
+async function savedZooms(userId: string): Promise<Record<string, unknown>> {
+	const rows = await query<{ zooms: Record<string, unknown> | null }>(
+		"select editor_settings->'paneZooms' as zooms from users where id = $1",
+		[userId],
+	);
+	return rows[0]?.zooms ?? {};
+}
+
+/** Show the tab at `index` in the work area. */
+async function showTab(page: Page, index: number): Promise<void> {
+	await workTabs(page).getByRole("tab").nth(index).click();
+}
+
+test("a terminal, a chat and a file come back at their zoom after a restart, a reload and in another browser", async ({
+	page,
+	context,
+	browser,
+}) => {
+	test.setTimeout(120_000);
+	const sizes = recordSizes(page);
+	const student = await createStudent(context);
+	const path = "notes.md";
+	const project = await openFileTab(page, student, "Kept", path, "# Notes\n");
+	const fileZoom = page.getByTestId(`editor-zoom-${path}`);
+	await page.getByTestId(`editor-${path}`).getByLabel("Zoom in").click();
+	await expect(fileZoom).toHaveText("110%");
+
+	await newTerminal(page);
+	const shell = await newId(student.workspaceId, project.id, []);
+	await expectConnected(page, shell);
+	for (let i = 0; i < 3; i++) await page.getByTestId(`pane-zoom-in-${shell}`).click();
+	await expect(zoomValue(page, shell)).toHaveText("130%");
+	await expect.poll(() => terminalFontSize(page, shell)).toBe("18px");
+
+	const { id: chat } = await launchChat(page, student.workspaceId, project.id);
+	await page.getByTestId(`pane-zoom-out-${chat}`).click();
+	await page.getByTestId(`pane-zoom-out-${chat}`).click();
+	await expect(zoomValue(page, chat)).toHaveText("80%");
+
+	// The saves wait for the steps to stop, then reach the server.
+	await expect
+		.poll(async () => Object.keys(await savedZooms(student.userId)).length)
+		.toBe(3);
+
+	// The columns the terminal reported at 130%, once its size settles.
+	await showTab(page, 1);
+	await expect
+		.poll(() => sizes.filter((s) => s.terminalId === shell).length)
+		.toBeGreaterThan(0);
+	const zoomedCols = sizes.filter((s) => s.terminalId === shell).at(-1)?.cols;
+
+	// A restart: the workspace stops and starts again; the terminals live on.
+	await setWorkspaceState(student.workspaceId, "starting");
+	await setWorkspaceState(student.workspaceId, "running");
+	sizes.length = 0;
+	await page.reload();
+
+	async function expectKept(view: Page, checkCols: boolean) {
+		await expect(view.getByTestId(`editor-zoom-${path}`)).toHaveText("110%", {
+			timeout: 30_000,
+		});
+		await showTab(view, 1);
+		await expect(zoomValue(view, shell)).toHaveText("130%");
+		await expectConnected(view, shell);
+		await expect.poll(() => terminalFontSize(view, shell)).toBe("18px");
+		if (checkCols) {
+			// The first size sent after the reload is already the zoomed one.
+			await expect
+				.poll(() => sizes.filter((s) => s.terminalId === shell).length)
+				.toBeGreaterThan(0);
+			expect(sizes.filter((s) => s.terminalId === shell)[0]?.cols).toBe(zoomedCols);
+		}
+		await showTab(view, 2);
+		await expect(zoomValue(view, chat)).toHaveText("80%");
+	}
+	await showTab(page, 0);
+	await expectKept(page, true);
+
+	// Another browser signed in as the same student sees the same zooms.
+	const other: BrowserContext = await browser.newContext();
+	await other.addCookies(await context.cookies());
+	const second = await other.newPage();
+	await second.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(second)).toBeVisible({ timeout: 15_000 });
+	await showTab(second, 0);
+	await expectKept(second, false);
+	await other.close();
+
+	// The percentage button still goes back to 100%, and that is kept too.
+	await zoomValue(page, chat).click();
+	await expect(zoomValue(page, chat)).toHaveText("100%");
+	await expect
+		.poll(async () => (await savedZooms(student.userId))[`${project.id}:t:${chat}`])
+		.toEqual([100, expect.any(Number)]);
 });
 
 for (const theme of ["dark", "light"] as const) {

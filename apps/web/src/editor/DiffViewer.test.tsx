@@ -5,6 +5,12 @@
  */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import {
+	fileZoomKey,
+	readPaneZoom,
+	resetPaneZooms,
+	writePaneZoom,
+} from "../layout/paneZoomKeeper.js";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
 
 const KEY = { CtrlCmd: 1, Shift: 2, Equal: 4, Minus: 8, Digit0: 16 };
@@ -62,7 +68,10 @@ vi.mock("./monaco.js", () => {
 
 const { DiffViewer } = await import("./DiffViewer");
 
+const KEY_A = fileZoomKey("p1", "a.ts");
+
 beforeEach(() => {
+	resetPaneZooms();
 	fake.options.length = 0;
 	fake.updates.length = 0;
 	fake.commands.original.clear();
@@ -70,7 +79,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-async function renderDiff(store = createLayoutStore()) {
+async function renderDiff(store = createLayoutStore("p1")) {
 	render(
 		<LayoutStoreContext.Provider value={store}>
 			<DiffViewer path="a.ts" original="1" modified="2" version="v" />
@@ -83,8 +92,8 @@ async function renderDiff(store = createLayoutStore()) {
 const zoomText = () => screen.getByTestId("diff-zoom-a.ts").textContent;
 
 test("the diff has the editor's zoom controls and opens at the file's zoom", async () => {
-	const store = createLayoutStore();
-	store.getState().setZoom("a.ts", 130);
+	const store = createLayoutStore("p1");
+	writePaneZoom(KEY_A, 130);
 	await renderDiff(store);
 	expect(zoomText()).toBe("130%");
 	expect(screen.getByRole("button", { name: "Zoom out" })).toBeTruthy();
@@ -95,25 +104,25 @@ test("the diff has the editor's zoom controls and opens at the file's zoom", asy
 });
 
 test("zooming the diff changes the font size and the file's one zoom", async () => {
-	const store = await renderDiff();
+	await renderDiff();
 	fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
 	expect(zoomText()).toBe("110%");
-	expect(store.getState().zooms["a.ts"]).toBe(110);
+	expect(readPaneZoom(KEY_A)).toBe(110);
 	expect(fake.updates.at(-1)).toEqual({ fontSize: 15 });
 	fireEvent.click(screen.getByRole("button", { name: "Reset" }));
-	expect(store.getState().zooms["a.ts"]).toBe(100);
+	expect(readPaneZoom(KEY_A)).toBe(100);
 	expect(fake.updates.at(-1)).toEqual({ fontSize: 14 });
 });
 
 test("a zoom made in the editor shows in the diff", async () => {
-	const store = await renderDiff();
-	act(() => store.getState().setZoom("a.ts", 90));
+	await renderDiff();
+	act(() => writePaneZoom(KEY_A, 90));
 	expect(zoomText()).toBe("90%");
 	expect(fake.updates.at(-1)).toEqual({ fontSize: 13 });
 });
 
 test("both sides take the zoom keys", async () => {
-	const store = await renderDiff();
+	await renderDiff();
 	const zoomIn = KEY.CtrlCmd | KEY.Shift | KEY.Equal;
 	const zoomOut = KEY.CtrlCmd | KEY.Shift | KEY.Minus;
 	const reset = KEY.CtrlCmd | KEY.Digit0;
@@ -121,24 +130,24 @@ test("both sides take the zoom keys", async () => {
 		const keys = fake.commands[side];
 		expect([...keys.keys()].sort()).toEqual([zoomIn, zoomOut, reset].sort());
 		act(() => keys.get(zoomIn)?.());
-		expect(store.getState().zooms["a.ts"]).toBe(110);
+		expect(readPaneZoom(KEY_A)).toBe(110);
 		act(() => keys.get(zoomOut)?.());
 		act(() => keys.get(zoomOut)?.());
-		expect(store.getState().zooms["a.ts"]).toBe(90);
+		expect(readPaneZoom(KEY_A)).toBe(90);
 		act(() => keys.get(reset)?.());
-		expect(store.getState().zooms["a.ts"]).toBe(100);
+		expect(readPaneZoom(KEY_A)).toBe(100);
 	}
 });
 
 test("Ctrl with the wheel zooms the diff and never the page", async () => {
-	const store = await renderDiff();
+	await renderDiff();
 	const host = screen.getByTestId("diff-editor-a.ts").querySelector(".pk-editor-host");
 	const taken = !fireEvent.wheel(host as Element, { deltaY: -120, ctrlKey: true });
 	expect(taken).toBe(true);
-	expect(store.getState().zooms["a.ts"]).toBe(110);
+	expect(readPaneZoom(KEY_A)).toBe(110);
 	// A plain wheel scrolls the diff as before.
 	expect(fireEvent.wheel(host as Element, { deltaY: -120 })).toBe(true);
-	expect(store.getState().zooms["a.ts"]).toBe(110);
+	expect(readPaneZoom(KEY_A)).toBe(110);
 });
 
 test("outside a workspace the diff keeps its own zoom", async () => {
