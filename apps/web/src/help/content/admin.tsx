@@ -6,7 +6,7 @@ import type { HelpPart } from "./part.js";
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
  * admin-logs, admin-audit, admin-agents, admin-network, admin-backups, admin-image,
  * admin-certificate, admin-docker, admin-settings, admin-notifications,
- * admin-shell, admin-signin, admin-address.
+ * admin-shell, admin-signin, admin-address, admin-api-keys.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -593,6 +593,43 @@ export const ADMIN_HELP: HelpPart = {
 						administrator gets a notice. After saving, use each channel's{" "}
 						<strong>Send test</strong> button to check it.{" "}
 						<strong>Alert when a root shell opens</strong> is off unless you turn it on.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-api-keys",
+			title: "API keys",
+			body: (
+				<>
+					<p>
+						An API key lets a tool such as Claude Code or Codex use Portikus as the
+						person who made it. Only administrators and instructors can make keys, in{" "}
+						<strong>Settings</strong>. A key can do what its owner can do and no more,
+						and its owner chooses how much when making it: <strong>Read</strong> looks
+						things up and changes nothing, <strong>Write</strong> also makes everyday
+						changes such as starting a workspace, and <strong>Destructive</strong> also
+						takes actions that cannot be undone. The <strong>API keys</strong> tab lists
+						every key on the site and who holds it. The key's secret is shown once, to
+						its owner, and is never shown here.
+					</p>
+					<p>
+						A key is <strong>Active</strong>, <strong>Expired</strong> or{" "}
+						<strong>Revoked</strong>. An expired key has stopped working, but its owner
+						can renew it in Settings and carry on. A revoked key is final: nobody can
+						renew it, and its owner has to make a new one.
+					</p>
+					<p>
+						<strong>Expire</strong> a key when you want it paused: its owner can renew
+						it after signing in. <strong>Revoke</strong> a key that may have leaked, or
+						that nobody should use again. You can act on one key, on all of one person's
+						keys, or on every key on the site; each asks you to confirm and says how
+						many keys it will change.
+					</p>
+					<p>
+						When someone leaves, disable their account in Portikus from the{" "}
+						<strong>Users</strong> tab. Revoking their keys here is a good extra step,
+						but it does not replace disabling the account.
 					</p>
 				</>
 			),

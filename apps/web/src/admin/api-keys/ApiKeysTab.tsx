@@ -104,6 +104,12 @@ export function ApiKeysTab() {
 	return (
 		<AdminSection
 			title="API keys"
+			intro={{
+				id: "admin-api-keys",
+				helpAnchor: "admin-api-keys",
+				lead: "Keys that let tools such as Claude Code use Portikus as their owner.",
+				text: "Expire a key to stop it until its owner signs in and renews it. Revoke a key that may have leaked: it stops for good.",
+			}}
 			count={keys.isSuccess ? plural(all.length, "key") : undefined}
 			actions={
 				<>
@@ -126,11 +132,6 @@ export function ApiKeysTab() {
 				</>
 			}
 		>
-			<p className="pk-text-body m-0 max-w-[72ch] text-ink-muted">
-				Administrators and instructors make keys in Settings so tools such as Claude
-				Code can use Portikus as them. Expire a key to stop it until its owner signs in
-				and renews it. Revoke a key that may have leaked: it stops for good.
-			</p>
 			{keys.isError ? (
 				<p className="pk-error text-status-error" role="alert">
 					{errorText(keys.error, "API keys could not be loaded.")}
@@ -252,11 +253,17 @@ function KeyRow({
 }) {
 	const state = STATE_TEXT[key.state];
 	const nameId = `api-key-name-${key.id}`;
+	const ownerId = `api-key-owner-${key.id}`;
+	const described = `${nameId} ${ownerId}`;
 	const target: KeyTarget = { kind: "key", key };
 	return (
 		<tr data-testid={`admin-api-key-${key.prefix}`} data-state={key.state}>
 			<td>
-				<span className="block max-w-[24ch] truncate" title={key.owner.displayName}>
+				<span
+					id={ownerId}
+					className="block max-w-[24ch] truncate"
+					title={key.owner.displayName}
+				>
 					{key.owner.displayName}
 				</span>
 			</td>
@@ -286,7 +293,7 @@ function KeyRow({
 							<Button
 								size="sm"
 								variant="secondary"
-								aria-describedby={nameId}
+								aria-describedby={described}
 								onClick={() => onAsk("expire", target, nameId)}
 							>
 								Expire…
@@ -295,7 +302,7 @@ function KeyRow({
 						<Button
 							size="sm"
 							variant="danger-secondary"
-							aria-describedby={nameId}
+							aria-describedby={described}
 							onClick={() => onAsk("revoke", target, nameId)}
 						>
 							Revoke…

@@ -370,3 +370,54 @@ test("the confirm says whether the new secret starts a fresh period", () => {
 	expect(newPeriodText(30)).toBe("It starts a fresh 30-day period");
 	expect(newPeriodText(null)).toBe("It still never expires");
 });
+
+test("the secret heading is described by the only-time-shown warning", async () => {
+	renderWithQuery(<ApiKeysPane highlightId={null} needsSecondFactor={false} />);
+	await openCreate();
+	fireEvent.change(screen.getByLabelText("Name"), { target: { value: "CI" } });
+	fireEvent.click(screen.getByTestId("api-key-create-submit"));
+	const secret = await screen.findByTestId("api-key-secret");
+	const heading = within(secret).getByRole("heading", { name: /Copy the secret for/ });
+	expect(heading.getAttribute("aria-describedby")).toBeTruthy();
+	expect(heading.hasAttribute("aria-describedby")).toBe(true);
+	const warning = document.getElementById(
+		heading.getAttribute("aria-describedby") ?? "",
+	);
+	expect(warning?.textContent).toContain("only time Portikus shows it");
+});
+
+test("focus lands on the new secret's heading after Renew with a new secret", async () => {
+	renderWithQuery(<ApiKeysPane highlightId={null} needsSecondFactor={false} />);
+	await screen.findByTestId("api-key-portikus_aaaa");
+	fireEvent.click(
+		row("portikus_aaaa").getByRole("button", { name: "Renew with a new secret…" }),
+	);
+	const confirm = await screen.findByTestId("api-key-rotate-confirm");
+	fireEvent.click(
+		within(confirm).getByRole("button", { name: "Renew with a new secret" }),
+	);
+	const secret = await screen.findByTestId("api-key-secret");
+	const heading = within(secret).getByRole("heading", { name: /Copy the secret for/ });
+	await waitFor(() => expect(document.activeElement).toBe(heading));
+});
+
+test("the pane is one named region; the list and create parts are not regions", async () => {
+	renderWithQuery(<ApiKeysPane highlightId={null} needsSecondFactor={false} />);
+	await screen.findByTestId("api-key-portikus_aaaa");
+	const pane = screen.getByRole("region", { name: "API keys" });
+	expect(within(pane).queryAllByRole("region")).toHaveLength(0);
+	expect(within(pane).getByRole("heading", { name: "Your API keys" })).toBeDefined();
+	expect(
+		within(pane).getByRole("heading", { name: "Create an API key" }),
+	).toBeDefined();
+});
+
+test("Enter in the renew code field submits it", async () => {
+	renderWithQuery(<ApiKeysPane highlightId={null} needsSecondFactor />);
+	const confirm = await openRotate();
+	const code = within(confirm).getByLabelText("Two-step sign-in code");
+	fireEvent.change(code, { target: { value: "123456" } });
+	fireEvent.keyDown(code, { key: "Enter" });
+	await screen.findByTestId("api-key-secret");
+	expect(rotateCalls().at(-1)?.body).toEqual({ code: "123456" });
+});
