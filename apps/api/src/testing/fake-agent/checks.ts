@@ -4,6 +4,7 @@ import {
 	type CheckDefinition,
 	type CheckRun,
 	ChecksFile,
+	type FinishedCheckRun,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { FakeAgentState } from "./state.js";
@@ -19,8 +20,12 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 		lines: string[];
 		sockets: Set<WebSocket>;
 		final: { type: "exit"; exitCode: number; stopped?: boolean } | null;
+		/** Where the run is held once it finishes, as the real agent holds it. */
+		holdKey: string;
 	}
 	const checkRuns = new Map<string, FakeCheckRun>();
+	// Finished runs by workspace and project, for the control plane (SPEC.md §25).
+	const finishedRuns = new Map<string, FinishedCheckRun[]>();
 	let checkRunCounter = 0;
 
 	function checkRunKey(request: FastifyRequest, slug: string, id: string): string {
@@ -57,6 +62,19 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 		run.final = stopped
 			? { type: "exit", exitCode, stopped }
 			: { type: "exit", exitCode };
+		const held = finishedRuns.get(run.holdKey) ?? [];
+		held.push({
+			id: run.meta.id,
+			checkId: run.meta.checkId,
+			state: run.meta.state as FinishedCheckRun["state"],
+			startedAt: run.meta.startedAt,
+			endedAt: run.meta.endedAt,
+			exitCode,
+			output: Buffer.from(run.lines.map((line) => `${line}\r\n`).join("")).toString(
+				"base64",
+			),
+		});
+		finishedRuns.set(run.holdKey, held);
 		for (const socket of run.sockets) {
 			if (socket.readyState !== socket.OPEN) continue;
 			socket.send(JSON.stringify(run.final));
@@ -75,6 +93,11 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 			if (id.startsWith(prefix)) runs.push(run.meta);
 		}
 		return { checks: file.checks, error: file.error, runs };
+	});
+
+	app.get("/projects/:slug/checks/finished", async (request) => {
+		const slug = (request.params as { slug: string }).slug;
+		return { runs: finishedRuns.get(`${keyOf(request)}\u0000${slug}`) ?? [] };
 	});
 
 	app.post("/projects/:slug/checks/:id/runs", async (request, reply) => {
@@ -106,6 +129,7 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 			lines: [`$ ${check.command}`, `running ${check.name}`],
 			sockets: new Set<WebSocket>(),
 			final: null,
+			holdKey: `${keyOf(request)}\u0000${slug}`,
 		};
 		checkRuns.set(runKey, run);
 		if (!check.command.includes("sleep")) {

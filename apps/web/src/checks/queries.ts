@@ -7,6 +7,8 @@ import {
 	CHECKS_FILE_DIR,
 	CHECKS_FILE_PATH,
 	type CheckDefinition,
+	CheckHistoryOutput,
+	CheckHistoryResponse,
 	CheckRun,
 	ChecksResponse,
 } from "@portikus/contracts";
@@ -19,7 +21,58 @@ const base = (workspaceId: string, projectId: string) =>
 const checkKeys = {
 	list: (workspaceId: string, projectId: string) =>
 		["checks", workspaceId, projectId] as const,
+	history: (workspaceId: string, projectId: string, checkId: string) =>
+		["check-history", workspaceId, projectId, checkId] as const,
 };
+
+/** The kept runs of one check, newest first (SPEC.md §25). */
+export function useCheckHistory(
+	workspaceId: string,
+	projectId: string,
+	checkId: string,
+) {
+	return useQuery({
+		queryKey: checkKeys.history(workspaceId, projectId, checkId),
+		queryFn: () =>
+			request(
+				CheckHistoryResponse,
+				`${base(workspaceId, projectId)}/checks/${checkId}/history`,
+			),
+	});
+}
+
+/** Read the history again, after a run of the check has finished. */
+export function useRefreshCheckHistory(workspaceId: string, projectId: string) {
+	const client = useQueryClient();
+	return (checkId: string) =>
+		client.invalidateQueries({
+			queryKey: checkKeys.history(workspaceId, projectId, checkId),
+		});
+}
+
+/** The kept output of one past run, as text, fetched when the student opens it. */
+export function useCheckHistoryOutput(
+	workspaceId: string,
+	projectId: string,
+	checkId: string,
+	runId: string,
+	enabled: boolean,
+) {
+	return useQuery({
+		queryKey: [...checkKeys.history(workspaceId, projectId, checkId), runId, "output"],
+		enabled,
+		// A finished run's output never changes.
+		staleTime: Number.POSITIVE_INFINITY,
+		queryFn: async () => {
+			const body = await request(
+				CheckHistoryOutput,
+				`${base(workspaceId, projectId)}/checks/${checkId}/history/${runId}/output`,
+			);
+			const bytes = Uint8Array.from(atob(body.output), (c) => c.charCodeAt(0));
+			return new TextDecoder().decode(bytes);
+		},
+	});
+}
 
 /** The configured checks of one project, and what each last did. */
 export function useChecks(workspaceId: string, projectId: string) {

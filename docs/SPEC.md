@@ -2721,6 +2721,7 @@ Requirements:
 - stopping a check stops its whole process tree as closing a terminal does
   (§9.7), and a check's output pauses for a slow watcher as a terminal's does.
 - a run the student ends with Stop is state `stopped`, shown with a neutral badge, even when its command catches the signal and exits on its own. Any other death by a signal (the out-of-memory killer, a `kill` from a shell) is `failed` with exit code 128 plus the signal number. The exit frame carries a `stopped` flag so the output panel can tell the two apart (Epic 40).
+- each finished run is kept (Epic 67): when it started and ended, how it ended (`passed`, `failed`, `error` or `stopped`), its exit code, and the last 64 KiB of its output. The workspace agent holds finished runs, the newest 20 per check and 100 in all; the API reads them from the agent with its own token whenever the student opens a check's history, and stores them in `check_runs` (migration 0055) under the project the caller owns, so one workspace's agent can never add runs to another workspace's project (§24.1). The newest 20 runs per check per project are kept and older ones deleted; a project's runs go with it. The Checks pane lists the selected check's history under the check list, newest first, with each run's badge, start time, duration and exit code, and shows a run's output as plain text on request. The history is owner only (`GET /workspaces/:id/projects/:pid/checks/:checkId/history` and `.../history/:runId/output`), still answers from what is stored while the workspace is stopped, and check output is never logged (STACK.md section 15). Instructors do not see it.
 
 P0 does not require a universal test-framework parser, per-test graphical explorer, code-coverage UI, or IDE-style test debugging.
 
@@ -5725,6 +5726,8 @@ The exact schema is implementation-defined, but the platform must represent at l
 - start/end timestamps;
 - result: running/passed/failed/error;
 - terminal/session reference for output.
+
+As built (Epic 67): finished runs are stored in `check_runs` with the project, check id, start and end times, result, exit code and the last 64 KiB of output, the newest 20 per check (§18.1).
 
 ### Preview metadata
 
