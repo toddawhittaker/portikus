@@ -207,12 +207,17 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "Codex update check is off" \
     "check_for_update_on_startup = false" \
     ws_exec "grep -F -x 'check_for_update_on_startup = false' /etc/codex/config.toml"
-  check_output "Codex waits up to 20 minutes for a subagent" \
-    "default_wait_timeout_ms = 1200000" \
-    ws_exec "grep -F -x 'default_wait_timeout_ms = 1200000' /etc/codex/config.toml"
-  check_output "and never polls a subagent sooner" \
-    "min_wait_timeout_ms = 1200000" \
-    ws_exec "grep -F -x 'min_wait_timeout_ms = 1200000' /etc/codex/config.toml"
+  # The controller rewrites this file at every start; this is the image's own copy.
+  if image_older_than 2026.10.7; then
+    skip "Codex's 20-minute subagent wait (image ${image_version} predates it; the controller writes it at start)"
+  else
+    check_output "Codex waits up to 20 minutes for a subagent" \
+      "default_wait_timeout_ms = 1200000" \
+      ws_exec "grep -F -x 'default_wait_timeout_ms = 1200000' /etc/codex/config.toml"
+    check_output "and never polls a subagent sooner" \
+      "min_wait_timeout_ms = 1200000" \
+      ws_exec "grep -F -x 'min_wait_timeout_ms = 1200000' /etc/codex/config.toml"
+  fi
   # 17ab2. Playwright's headless Chromium ships in the image and the login
   # script links it into the student's Playwright folder (SPEC.md 21.7).
   # Launched by hand without --disable-dev-shm-usage, unlike Playwright, so
