@@ -1,13 +1,19 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import type { ChatClientMessage } from "@portikus/contracts";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { stopTime } from "../shell/useCountdown.js";
 import {
+	CACHE_EXPIRED,
 	COMPACT_HINT,
 	ContextMeter,
 	contextLevel,
 	contextPercent,
 	formatClock,
 	formatTokens,
+	HANDOFF_BUTTON,
+	RESTART_EXPLAINED,
+	RESTART_NOW,
+	restartText,
 	spokenTokens,
 } from "./ContextMeter.js";
 import { type ChatState, type ChatStore, createChatStore } from "./chatStore.js";
@@ -338,5 +344,179 @@ test("an older host that sends no time gets no correction", () => {
 	});
 	expect(screen.getByTestId("composer-cache").textContent).toContain(
 		"Cache expires in 4:00",
+	);
+});
+
+/** A Claude chat on a one-hour cache whose first report was 58k, one message in. */
+function growing(used: number) {
+	act(() =>
+		store.setState({
+			settings: {
+				agent: "claude",
+				model: "claude-opus-5-5",
+				effort: "medium",
+				mode: "default",
+			},
+			growth: {
+				firstUsedTokens: 58_000,
+				messagesSent: 1,
+				contextEvents: 1,
+				usedAfterFirstMessage: null,
+				firstMessageEvents: 0,
+				messagesDone: 0,
+				usedAtLastDone: 0,
+				eventsAtLastDone: 0,
+			},
+			context: report(used, 1_000_000, { agoSeconds: 0, ttlSeconds: 3600 }),
+		}),
+	);
+}
+
+test("the fresh-chat hint is hidden on an empty chat", () => {
+	show(report(0, 1_000_000, null));
+	expect(screen.queryByTestId("composer-restart")).toBeNull();
+});
+
+test("the fresh-chat hint counts down in words, singular at one", () => {
+	// Fallback rates put the cheapest restart at 156k, 18k per message.
+	growing(58_000);
+	const hint = screen.getByTestId("composer-restart");
+	expect(hint.textContent).toContain(
+		"About 5 more messages before a fresh chat saves usage",
+	);
+	expect(hint.getAttribute("title")).toBe(RESTART_EXPLAINED);
+	expect(hint.classList.contains("is-warning")).toBe(false);
+	growing(138_000);
+	expect(screen.getByTestId("composer-restart").textContent).toContain(
+		"About 1 more message before a fresh chat saves usage",
+	);
+	expect(restartText(2)).toBe("About 2 more messages before a fresh chat saves usage");
+});
+
+test("at zero the hint warns, keeps its count from a screen reader, and is announced once", () => {
+	growing(120_000);
+	expect(announced).toEqual([]);
+	growing(160_000);
+	const hint = screen.getByTestId("composer-restart");
+	expect(hint.classList.contains("is-warning")).toBe(true);
+	expect(hint.textContent).toContain(RESTART_NOW);
+	expect(hint.querySelector(".sr-only")?.textContent).not.toMatch(/\d/);
+	growing(200_000);
+	growing(300_000);
+	expect(announced.filter((text) => text.startsWith(RESTART_NOW))).toHaveLength(1);
+});
+
+test("a chat that opens past the point is not announced", () => {
+	growing(400_000);
+	expect(screen.getByTestId("composer-restart").textContent).toContain(RESTART_NOW);
+	expect(announced).toEqual([]);
+});
+
+test("only once a fresh chat would save usage, a button starts fresh with a handoff", () => {
+	cleanup();
+	const sent: ChatClientMessage[] = [];
+	store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	render(<ContextMeter store={store} onAnnounce={() => undefined} />);
+	growing(120_000);
+	expect(screen.queryByRole("button", { name: HANDOFF_BUTTON })).toBeNull();
+	growing(400_000);
+	const button = screen.getByRole("button", { name: HANDOFF_BUTTON });
+	// Outside the hint, so the hint's own words and hidden sentence stay as they were.
+	expect(screen.getByTestId("composer-restart").contains(button)).toBe(false);
+	expect(button.closest('[data-testid="composer-meters"]')).not.toBeNull();
+	fireEvent.click(button);
+	expect(sent).toEqual([{ type: "handoff.start" }]);
+});
+
+test("once the cache expires, the next message is priced as a re-write and the title says so", () => {
+	// 100k used with a fresh chat at 66k: a few messages left while warm.
+	growing(100_000);
+	const warm = screen.getByTestId("composer-restart");
+	expect(warm.textContent).not.toContain(RESTART_NOW);
+	expect(warm.getAttribute("title")).toBe(RESTART_EXPLAINED);
+	tick(3600);
+	const cold = screen.getByTestId("composer-restart");
+	expect(cold.textContent).toContain(RESTART_NOW);
+	expect(cold.getAttribute("title")).toBe(`${RESTART_EXPLAINED} ${CACHE_EXPIRED}`);
+	expect(cold.querySelector(".sr-only")?.textContent).toContain(CACHE_EXPIRED);
+});
+
+test("a Codex chat on the 30-minute cache goes cold too", () => {
+	act(() =>
+		store.setState({
+			settings: {
+				agent: "codex",
+				model: "gpt-6.1-sol",
+				effort: "medium",
+				mode: "default",
+			},
+			growth: {
+				firstUsedTokens: 58_000,
+				messagesSent: 1,
+				contextEvents: 1,
+				usedAfterFirstMessage: null,
+				firstMessageEvents: 0,
+				messagesDone: 0,
+				usedAtLastDone: 0,
+				eventsAtLastDone: 0,
+			},
+			context: {
+				...report(100_000, 475_000, null),
+				cache: { at: START, ttlSeconds: 1800 },
+			},
+		}),
+	);
+	expect(screen.getByTestId("composer-restart").getAttribute("title")).toBe(
+		RESTART_EXPLAINED,
+	);
+	tick(1800);
+	expect(screen.getByTestId("composer-restart").getAttribute("title")).toBe(
+		`${RESTART_EXPLAINED} ${CACHE_EXPIRED}`,
+	);
+});
+
+test("after a compaction the host's restarted counts bring the estimate back to a sane count", () => {
+	const SESSION = "11111111-1111-4111-8111-111111111111";
+	let seq = 0;
+	const receive = (body: Record<string, unknown>) =>
+		act(() =>
+			store
+				.getState()
+				.receive(JSON.stringify({ sessionId: SESSION, seq: seq++, ...body })),
+		);
+	receive({ type: "snapshot", cards: [], turnRunning: false, truncated: false });
+	receive({
+		type: "settings",
+		agent: "claude",
+		model: "claude-opus-5-5",
+		effort: "medium",
+		mode: "default",
+	});
+	const cache = { at: START, ttlSeconds: 3600 };
+	receive({
+		type: "context",
+		usedTokens: 400_000,
+		windowTokens: 1_000_000,
+		cache,
+		now: START,
+		growth: { startTokens: 58_000, messages: 10, requests: 140 },
+	});
+	expect(screen.getByTestId("composer-restart").textContent).toContain(RESTART_NOW);
+	// Compacted to 60k: below the old start, with the counts begun again from there.
+	receive({
+		type: "context",
+		usedTokens: 60_000,
+		windowTokens: 1_000_000,
+		cache,
+		now: START,
+		growth: { startTokens: 60_000, messages: 0, requests: 0 },
+	});
+	const hint = screen.getByTestId("composer-restart");
+	expect(hint.classList.contains("is-warning")).toBe(false);
+	expect(hint.textContent).toContain(
+		"About 5 more messages before a fresh chat saves usage",
 	);
 });

@@ -31,7 +31,7 @@ export type ChatEventBody = DistributiveOmit<ChatServerEvent, "sessionId" | "seq
 type EventOf<T extends ChatEventBody["type"]> = Extract<ChatEventBody, { type: T }>;
 
 export type ChatSettings = Omit<EventOf<"settings">, "type">;
-export type ContextFigures = Omit<EventOf<"context">, "type" | "now">;
+export type ContextFigures = Omit<EventOf<"context">, "type" | "now" | "growth">;
 export type ChatRenameResult = EventOf<"rename.result">;
 export type ChatSettingsChange = Omit<
 	Extract<ChatClientMessage, { type: "set" }>,
@@ -119,7 +119,8 @@ export interface ChatSink {
 	modes(list: ChatModeInfo[]): void;
 	/** Each MCP server's name and status, for the read-only MCP list. */
 	mcp(list: ChatMcpServer[]): void;
-	context(figures: ContextFigures): void;
+	/** New context figures; `request` when a request to the model produced them, to count it. */
+	context(figures: ContextFigures, request?: boolean): void;
 	/** Whether the student is signed in to the agent; sent even when unchanged, as a check's answer. */
 	signIn(state: ChatSignIn): void;
 	rules(list: ChatSessionRule[]): void;
@@ -133,4 +134,9 @@ export interface ChatSink {
 	 * attachment gets a fresh, empty snapshot.
 	 */
 	conversationReset(context: ContextFigures | null): void;
+	/**
+	 * The agent compacted the conversation: it goes on, but its context
+	 * shrank, so the fresh-chat estimate counts again from the next figures.
+	 */
+	compacted(): void;
 }

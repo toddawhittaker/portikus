@@ -23,6 +23,8 @@ student can follow and check for themselves.
 - When you add tests, a linter, a type checker or a build step, add or
   update a check so the student can rerun it. Keep one command per check.
 - Other files in .portikus/ belong to Portikus; do not edit them.
+- You may read .portikus/handoffs/: handoff notes Portikus saved from
+  earlier conversations. Portikus writes those files, not you.
 
 ## Running and previewing apps
 - A server listening on a port appears in the Running pane. The student

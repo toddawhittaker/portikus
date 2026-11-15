@@ -4,11 +4,12 @@
  * the agent that wrote them (SPEC.md §10.8).
  */
 import type { CodingAgent } from "@portikus/contracts";
-import { Icon } from "@portikus/ui";
-import type { ReactNode } from "react";
+import { Button, Icon } from "@portikus/ui";
+import { createContext, type ReactNode, useContext } from "react";
 import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { ChatAgentContext } from "./chatAgent.js";
 import type { ChatHandoffItem, ChatItem } from "./chatStore.js";
+import type { ChatFreshStartItem } from "./freshStart.js";
 import "./handoff.css";
 
 /**
@@ -17,7 +18,12 @@ import "./handoff.css";
  * the handoff failed, in the warning colour and icon as a risky choice has,
  * it says the new agent started without the earlier conversation.
  */
-export function HandoffDivider({ handoff }: { handoff: ChatHandoffItem }) {
+export function HandoffDivider({
+	handoff,
+}: {
+	handoff: ChatHandoffItem | ChatFreshStartItem;
+}) {
+	if (handoff.kind === "freshStart") return <FreshStartDivider fresh={handoff} />;
 	const from = CODING_AGENT_NAME[handoff.from];
 	const to = CODING_AGENT_NAME[handoff.to];
 	const dropped = handoff.droppedTurns;
@@ -46,6 +52,70 @@ export function HandoffDivider({ handoff }: { handoff: ChatHandoffItem }) {
 					? ` The ${dropped === 1 ? "oldest turn" : `${dropped} oldest turns`} did not fit ${to}\u2019s context window and ${dropped === 1 ? "was" : "were"} left out.`
 					: null}
 			</p>
+		</li>
+	);
+}
+
+/** What a fresh start's divider can do; null where the chat cannot open files or send. */
+export interface FreshStartActions {
+	/** Open the note in the editor. */
+	openNote: ((path: string) => void) | null;
+	/** Send a failed fresh start's first message again; false when it could not be sent. */
+	resend: (id: string) => boolean;
+	/** Start fresh from an automatic note, named by its notice. */
+	startFresh: (id: string) => boolean;
+	/**
+	 * The first message to copy for an automatic note, read from its file
+	 * by the host; null when nothing is to be copied, such as when the file
+	 * changed and the review card shows it instead.
+	 */
+	copyPrompt: (id: string) => Promise<string | null>;
+}
+
+export const FreshStartContext = createContext<FreshStartActions | null>(null);
+
+/**
+ * Where the chat started fresh from a handoff note (SPEC.md §10.8), with a
+ * link that opens the note. When the new conversation's first message
+ * failed, it says so in the warning look and offers to send it again.
+ */
+function FreshStartDivider({ fresh }: { fresh: ChatFreshStartItem }) {
+	const actions = useContext(FreshStartContext);
+	const openNote = actions?.openNote ?? null;
+	return (
+		<li
+			className={`pk-chat-entry pk-chat-handoff${fresh.failed ? " is-failed" : ""}`}
+			data-testid="chat-fresh-start"
+		>
+			<p className={`pk-text-caption${fresh.failed ? "" : " pk-chat-muted"}`}>
+				{fresh.failed ? <Icon name="alert" size="sm" /> : null}
+				<span>
+					Fresh start from handoff.{" "}
+					{fresh.failed ? "The note did not reach the new conversation. " : null}
+					{openNote ? (
+						<button
+							type="button"
+							className="pk-chat-handoff-link pk-link"
+							data-testid="chat-fresh-start-note"
+							onClick={() => openNote(fresh.path)}
+						>
+							Open the note
+						</button>
+					) : (
+						<code>{fresh.path}</code>
+					)}
+				</span>
+			</p>
+			{fresh.failed && actions ? (
+				<Button
+					size="sm"
+					variant="secondary"
+					data-testid="chat-fresh-start-resend"
+					onClick={() => actions.resend(fresh.id)}
+				>
+					Send the handoff again
+				</Button>
+			) : null}
 		</li>
 	);
 }

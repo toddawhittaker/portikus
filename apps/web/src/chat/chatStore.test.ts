@@ -1073,3 +1073,150 @@ test("a Codex model that is gone leaves the chat's own; an effort the model lack
 		),
 	).toBeNull();
 });
+
+test("the conversation's growth is counted for the fresh-chat hint, and a snapshot starts it over", () => {
+	const used = (usedTokens: number) => ({
+		usedTokens,
+		windowTokens: 1_000_000,
+		cache: null,
+	});
+	let state = feed([
+		snapshot(0),
+		frame("context", 1, used(0)),
+		frame("message", 2, { id: "u1", role: "user", markdown: "one" }),
+		frame("context", 3, used(30_000)),
+		frame("context", 4, used(34_000)),
+		frame("message", 5, { id: "a1", role: "assistant", markdown: "ok" }),
+		// The first message's end is its warm-up, kept apart for the estimate.
+		frame("turn.finished", 6, { status: "done", at: 1 }),
+		// The same message again updates it in place and is not counted twice.
+		frame("message", 7, { id: "u1", role: "user", markdown: "one" }),
+		frame("message", 8, { id: "u2", role: "user", markdown: "two" }),
+		frame("context", 9, used(50_000)),
+	]);
+	// The second message is still running: only the first counts as done.
+	expect(state.growth).toEqual({
+		firstUsedTokens: 30_000,
+		messagesSent: 2,
+		contextEvents: 3,
+		usedAfterFirstMessage: 34_000,
+		firstMessageEvents: 2,
+		messagesDone: 1,
+		usedAtLastDone: 34_000,
+		eventsAtLastDone: 2,
+	});
+	// A later turn's end moves the finished counts and leaves the warm-up alone.
+	state = feed([frame("turn.finished", 10, { status: "done", at: 2 })], state);
+	expect(state.growth).toMatchObject({
+		usedAfterFirstMessage: 34_000,
+		firstMessageEvents: 2,
+		messagesDone: 2,
+		usedAtLastDone: 50_000,
+		eventsAtLastDone: 3,
+	});
+
+	// /clear and an agent swap both arrive as a new snapshot.
+	state = feed([snapshot(11)], state);
+	expect(state.growth).toEqual({
+		firstUsedTokens: null,
+		messagesSent: 0,
+		contextEvents: 0,
+		usedAfterFirstMessage: null,
+		firstMessageEvents: 0,
+		messagesDone: 0,
+		usedAtLastDone: 0,
+		eventsAtLastDone: 0,
+	});
+	state = feed([frame("context", 12, used(12_000))], state);
+	expect(state.growth.firstUsedTokens).toBe(12_000);
+});
+
+test("the host's growth counts win over the browser's, and survive a reconnect", () => {
+	const context = (
+		usedTokens: number,
+		growth: {
+			startTokens: number;
+			messages: number;
+			requests: number;
+			firstMessageTokens?: number;
+			firstMessageRequests?: number;
+			doneMessages?: number;
+			doneTokens?: number;
+			doneRequests?: number;
+		},
+	) => ({
+		usedTokens,
+		windowTokens: 1_000_000,
+		cache: null,
+		growth,
+	});
+	const before = feed([
+		snapshot(0),
+		frame("message", 1, { id: "u1", role: "user", markdown: "one" }),
+		frame(
+			"context",
+			2,
+			context(80_000, {
+				startTokens: 20_000,
+				messages: 9,
+				requests: 30,
+				firstMessageTokens: 45_000,
+				firstMessageRequests: 12,
+				doneMessages: 9,
+				doneTokens: 80_000,
+				doneRequests: 30,
+			}),
+		),
+	]);
+	expect(before.growth).toEqual({
+		firstUsedTokens: 20_000,
+		messagesSent: 9,
+		contextEvents: 30,
+		usedAfterFirstMessage: 45_000,
+		firstMessageEvents: 12,
+		messagesDone: 9,
+		usedAtLastDone: 80_000,
+		eventsAtLastDone: 30,
+	});
+
+	// A reconnect replays only the last turns, then the host's context.
+	const after = feed([
+		snapshot(10, { truncated: true }),
+		frame("message", 11, { id: "u9", role: "user", markdown: "nine" }),
+		frame(
+			"context",
+			12,
+			context(80_000, {
+				startTokens: 20_000,
+				messages: 9,
+				requests: 30,
+				firstMessageTokens: 45_000,
+				firstMessageRequests: 12,
+				doneMessages: 9,
+				doneTokens: 80_000,
+				doneRequests: 30,
+			}),
+		),
+	]);
+	expect(after.growth).toEqual(before.growth);
+	expect(after.context?.usedTokens).toBe(before.context?.usedTokens);
+
+	// Before the first figure in use, the host says 0 and the hint waits.
+	const fresh = feed([
+		snapshot(0),
+		frame("context", 1, context(0, { startTokens: 0, messages: 0, requests: 0 })),
+	]);
+	expect(fresh.growth.firstUsedTokens).toBeNull();
+
+	// An older host sends no warm-up; the estimate waits for it as before one is recorded.
+	const older = feed([
+		snapshot(0),
+		frame(
+			"context",
+			1,
+			context(50_000, { startTokens: 20_000, messages: 2, requests: 8 }),
+		),
+	]);
+	expect(older.growth.usedAfterFirstMessage).toBeNull();
+	expect(older.growth.firstMessageEvents).toBe(0);
+});

@@ -37,7 +37,13 @@ beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "pk-core-"));
 	agent = new FakeAgent();
 	core = new ChatCore(
-		{ terminalId: ID, socketDir: dir, homeDir: dir, log: silentLogger() },
+		{
+			terminalId: ID,
+			socketDir: dir,
+			homeDir: dir,
+			projectDir: dir,
+			log: silentLogger(),
+		},
 		agent,
 		"claude",
 	);
@@ -597,5 +603,193 @@ describe("conversation reset", () => {
 		agent.sink.conversationReset(null);
 		await client.closed;
 		release();
+	});
+});
+
+describe("conversation growth (SPEC.md section 10.8)", () => {
+	const growthOf = (client: Client) =>
+		client.events.filter((event) => event.type === "context").at(-1) as
+			| { growth?: unknown }
+			| undefined;
+
+	test("messages and requests rise, the start is the first figure in use, and only requests count", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		client.send({ type: "send", text: "!ls", attachments: [] });
+		client.send({ type: "send", text: "more", attachments: [] });
+		await vi.waitFor(() =>
+			expect(agent.calls.filter((call) => call[0] === "send")).toHaveLength(3),
+		);
+		agent.sink.context({ ...FIGURES, usedTokens: 0 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 500 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 700 }, true);
+		// A window update is not a request.
+		agent.sink.context({ usedTokens: 700, windowTokens: 200, cache: null });
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(4),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 500,
+			messages: 2,
+			requests: 2,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
+		});
+	});
+
+	test("the first message's end is kept as its warm-up, and each turn's end as the finished counts", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 900 }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 2 });
+		// The recorded warm-up reaches the browser without waiting for another figure.
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toEqual({
+				startTokens: 300,
+				messages: 1,
+				requests: 2,
+				firstMessageTokens: 900,
+				firstMessageRequests: 2,
+				doneMessages: 1,
+				doneTokens: 900,
+				doneRequests: 2,
+			}),
+		);
+		client.send({ type: "send", text: "more", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "more", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 1000 }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 3 });
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({ messages: 2, requests: 3 }),
+		);
+		// The second turn's end updates the finished counts the steady rates use.
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({
+				firstMessageTokens: 900,
+				firstMessageRequests: 2,
+				doneMessages: 2,
+				doneTokens: 1000,
+				doneRequests: 3,
+			}),
+		);
+	});
+
+	test("a conversation reset forgets the warm-up", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 2 });
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({ firstMessageTokens: 300 }),
+		);
+		agent.sink.conversationReset(FIGURES);
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({
+				messages: 0,
+				firstMessageTokens: 0,
+				firstMessageRequests: 0,
+				doneMessages: 0,
+				doneTokens: 0,
+				doneRequests: 0,
+			}),
+		);
+	});
+
+	test("a browser attaching later is sent the counts with the context", async () => {
+		const first = await attached();
+		first.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.historyContext = { ...FIGURES, usedTokens: 300 };
+		const later = await attached();
+		await vi.waitFor(() => expect(types(later)).toContain("context"));
+		expect(growthOf(later)?.growth).toEqual({
+			startTokens: 300,
+			messages: 1,
+			requests: 1,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
+		});
+	});
+
+	test("a conversation reset, as /clear, starts the counts again", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.conversationReset(FIGURES);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(2),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 0,
+			messages: 0,
+			requests: 0,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
+		});
+	});
+
+	test("a reported compaction restarts the counts from the figures after it, keeping everything else", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 900 }, true);
+		agent.sink.compacted();
+		agent.sink.context({ ...FIGURES, usedTokens: 600 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 650 }, true);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(4),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 600,
+			messages: 0,
+			requests: 1,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
+		});
+		// The conversation itself is untouched: no new snapshot.
+		expect(client.events.filter((event) => event.type === "snapshot")).toHaveLength(1);
+	});
+
+	test("an unreported drop of more than half counts as a compaction; a smaller one does not", async () => {
+		const client = await attached();
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 1000 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 600 }, true);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(3),
+		);
+		expect(growthOf(client)?.growth).toMatchObject({ startTokens: 300, requests: 3 });
+		agent.sink.context({ ...FIGURES, usedTokens: 250 }, true);
+		await vi.waitFor(() =>
+			expect(client.events.filter((event) => event.type === "context")).toHaveLength(4),
+		);
+		expect(growthOf(client)?.growth).toEqual({
+			startTokens: 250,
+			messages: 0,
+			requests: 0,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
+		});
 	});
 });

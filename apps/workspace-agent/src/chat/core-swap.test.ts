@@ -30,7 +30,13 @@ beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "pk-core-"));
 	agent = new FakeAgent();
 	core = new ChatCore(
-		{ terminalId: ID, socketDir: dir, homeDir: dir, log: silentLogger() },
+		{
+			terminalId: ID,
+			socketDir: dir,
+			homeDir: dir,
+			projectDir: dir,
+			log: silentLogger(),
+		},
 		agent,
 		"claude",
 	);
@@ -178,6 +184,7 @@ describe("agent swaps", () => {
 				terminalId: ID,
 				socketDir: dir,
 				homeDir: dir,
+				projectDir: dir,
 				log: silentLogger(),
 				replacedWithinMs: 100,
 			},
@@ -226,6 +233,7 @@ describe("agent swaps", () => {
 				terminalId: ID,
 				socketDir: dir,
 				homeDir: dir,
+				projectDir: dir,
 				log: silentLogger(),
 				swap: { state, switched },
 			},
@@ -289,6 +297,30 @@ describe("agent swaps", () => {
 		expect(adopted.id).toBe(saved.handoff?.id);
 		const client = await attached();
 		expect(types(client).filter((type) => type === "handoff")).toHaveLength(1);
+	});
+
+	test("the next host counts the conversation's growth from zero", async () => {
+		const before = await attached();
+		before.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ usedTokens: 300, windowTokens: 100, cache: null }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 2 });
+		const next = await startAfter(BEFORE, true);
+		next.historyContext = { usedTokens: 300, windowTokens: 100, cache: null };
+		const client = await attached();
+		await vi.waitFor(() => expect(types(client)).toContain("context"));
+		expect(client.events.find((event) => event.type === "context")).toMatchObject({
+			growth: {
+				startTokens: 0,
+				messages: 0,
+				requests: 0,
+				firstMessageTokens: 0,
+				firstMessageRequests: 0,
+				doneMessages: 0,
+				doneTokens: 0,
+				doneRequests: 0,
+			},
+		});
 	});
 
 	test("a new conversation, as /clear starts, forgets the swaps", async () => {

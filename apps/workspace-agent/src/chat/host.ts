@@ -358,7 +358,7 @@ class ClaudeAgent implements ChatAgent {
 	private requestMade(message: SDKMessage): void {
 		if (message.type !== "assistant") return;
 		const next = this.context.request(message, Date.now());
-		if (next) this.sink.context(next);
+		if (next) this.sink.context(next, true);
 	}
 
 	/**
@@ -444,6 +444,10 @@ class ClaudeAgent implements ChatAgent {
 		// Always allow can switch the mode mid-turn; the picker shows the mode in force.
 		if (message.type === "system" && message.subtype === "status") {
 			if (message.permissionMode) this.modeChanged(message.permissionMode);
+			return true;
+		}
+		if (message.type === "system" && message.subtype === "compact_boundary") {
+			this.sink.compacted();
 			return true;
 		}
 		if (message.type === "system" && message.subtype === "commands_changed") {

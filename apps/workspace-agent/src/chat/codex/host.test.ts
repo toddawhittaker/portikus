@@ -101,6 +101,8 @@ function recordingSink() {
 		signIns: [] as ChatSignIn[],
 		cards: new Map<string, OpenCard>(),
 		resets: 0,
+		resetContexts: [] as (ContextFigures | null)[],
+		compactions: 0,
 	};
 	const sink = {
 		emit: (event: ChatEventBody) => got.events.push(event),
@@ -118,8 +120,12 @@ function recordingSink() {
 				if (got.cards.delete(card.id)) void settle({ type: "closed" });
 			});
 		},
-		conversationReset: () => {
+		compacted: () => {
+			got.compactions += 1;
+		},
+		conversationReset: (context: ContextFigures | null) => {
 			got.resets += 1;
+			got.resetContexts.push(context);
 		},
 	};
 	return { sink, got };
@@ -128,6 +134,7 @@ function recordingSink() {
 let home: string | null = null;
 
 afterEach(async () => {
+	vi.unstubAllEnvs();
 	if (home)
 		await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 	home = null;
@@ -138,9 +145,17 @@ async function setup(
 		handlers?: Partial<Handlers>;
 		sessionId?: string;
 		terminalId?: string;
+		modelsCache?: string;
+		codexHome?: string;
 	} = {},
 ) {
+	// A developer's own CODEX_HOME must not leak into the tests.
+	vi.stubEnv("CODEX_HOME", options.codexHome ?? "");
 	home = await mkdtemp(join(tmpdir(), "portikus-codex-host-"));
+	if (options.modelsCache !== undefined) {
+		await mkdir(join(home, ".codex"), { recursive: true });
+		await writeFile(join(home, ".codex", "models_cache.json"), options.modelsCache);
+	}
 	const projectDir = join(home, "projects", "demo");
 	await mkdir(projectDir, { recursive: true });
 	await writeFile(join(projectDir, "red.png"), PNG);
@@ -198,6 +213,102 @@ const sameThread = { from: MAIN, to: MAIN };
 function types(events: ChatEventBody[]): string[] {
 	return events.map((event) => event.type);
 }
+
+const CACHE = JSON.stringify({
+	models: [
+		{
+			slug: "gpt-6.1-sol",
+			context_window: 500000,
+			effective_context_window_percent: 95,
+		},
+		{ slug: "other", context_window: 200000 },
+	],
+});
+
+describe("starting context", () => {
+	test("shows 0 used with the window from Codex's model cache once the thread starts", async () => {
+		const { got } = await setup({ modelsCache: CACHE });
+		expect(got.contexts).toEqual([
+			{ usedTokens: 0, windowTokens: 475000, cache: null },
+		]);
+	});
+
+	test("reads CODEX_HOME when it is set", async () => {
+		const elsewhere = await mkdtemp(join(tmpdir(), "portikus-codex-home-"));
+		try {
+			await writeFile(
+				join(elsewhere, "models_cache.json"),
+				JSON.stringify([{ slug: "gpt-6.1-sol", context_window: 1000 }]),
+			);
+			const { got } = await setup({ codexHome: elsewhere, modelsCache: CACHE });
+			expect(got.contexts.at(-1)?.windowTokens).toBe(1000);
+		} finally {
+			await rm(elsewhere, { recursive: true, force: true });
+		}
+	});
+
+	test.each([
+		["no file", undefined],
+		["bad JSON", "{nope"],
+		["unknown shape", '"models"'],
+		["model missing", JSON.stringify({ models: [{ slug: "x", context_window: 5 }] })],
+		[
+			"window not a number",
+			JSON.stringify([{ slug: "gpt-6.1-sol", context_window: "big" }]),
+		],
+	])("a null window without an error: %s", async (_name, modelsCache) => {
+		const { got } = await setup(modelsCache === undefined ? {} : { modelsCache });
+		expect(got.contexts).toEqual([{ usedTokens: 0, windowTokens: null, cache: null }]);
+	});
+
+	test("a missing percent counts as 100", async () => {
+		const { got } = await setup({
+			modelsCache: JSON.stringify([{ slug: "gpt-6.1-sol", context_window: 200000 }]),
+		});
+		expect(got.contexts.at(-1)?.windowTokens).toBe(200000);
+	});
+
+	test("the window Codex last reported wins over the cache and survives /clear", async () => {
+		const { agent, server, got } = await setup({
+			modelsCache: JSON.stringify([{ slug: "gpt-6.1-sol", context_window: 1000 }]),
+		});
+		await agent.send("hello", []);
+		pushUntil(server(), segment("token-usage", "turn/start", 0, sameThread));
+		await vi.waitFor(() => expect(got.contexts.at(-1)?.usedTokens).toBe(14744));
+		await agent.send("/clear", []);
+		const starting = { usedTokens: 0, windowTokens: 475000, cache: null };
+		expect(got.resetContexts.at(-1)).toEqual(starting);
+		expect((await agent.history(false)).context).toEqual(starting);
+	});
+
+	test("/clear starts again from the cache when no usage was seen", async () => {
+		const { agent, got } = await setup({ modelsCache: CACHE });
+		await agent.send("/clear", []);
+		expect(got.resetContexts).toEqual([
+			{ usedTokens: 0, windowTokens: 475000, cache: null },
+		]);
+	});
+
+	test("a model change before the first turn sends the new model's window", async () => {
+		const { agent, got } = await setup({ modelsCache: CACHE });
+		await agent.set({ model: "other" });
+		expect(got.contexts.at(-1)).toEqual({
+			usedTokens: 0,
+			windowTokens: 200000,
+			cache: null,
+		});
+	});
+
+	test("a model change after usage arrived leaves the figures alone", async () => {
+		const { agent, server, got } = await setup({ modelsCache: CACHE });
+		await agent.send("hello", []);
+		pushUntil(server(), segment("token-usage", "turn/start", 0, sameThread));
+		await vi.waitFor(() => expect(got.contexts.at(-1)?.usedTokens).toBe(14744));
+		const count = got.contexts.length;
+		await agent.set({ model: "other" });
+		expect(got.contexts).toHaveLength(count);
+	});
+});
 
 describe("sign-in", () => {
 	test("asks app-server at start whether the student is signed in", async () => {
@@ -380,7 +491,8 @@ describe("a turn", () => {
 		expect(got.contexts.at(-1)).toEqual({
 			usedTokens: 14744,
 			windowTokens: 475000,
-			cache: null,
+			// The recorded model is GPT-5.6 or later, so its 30-minute cache is assumed.
+			cache: { at: expect.any(Number), ttlSeconds: 1800 },
 		});
 	});
 
@@ -927,6 +1039,22 @@ describe("Plan mode and questions", () => {
 		}
 		expect(states.at(-1)).toBe("finished");
 		expect(got.settings.at(-1)?.mode).toBe("plan");
+	});
+
+	test("a completed context compaction item tells the core the conversation was compacted", async () => {
+		const { agent, server, got } = await setup();
+		await agent.send("go", []);
+		server().push({
+			method: "item/started",
+			params: { threadId: MAIN, item: { type: "contextCompaction", id: "k" } },
+		});
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(got.compactions).toBe(0);
+		server().push({
+			method: "item/completed",
+			params: { threadId: MAIN, item: { type: "contextCompaction", id: "k" } },
+		});
+		await vi.waitFor(() => expect(got.compactions).toBe(1));
 	});
 
 	test("the plan card has its own row, which its answer finishes, and the tab goes back to working", async () => {
@@ -1540,6 +1668,7 @@ describe("through the chat core", () => {
 				"commands",
 				"mcp",
 				"signIn",
+				"context",
 			]);
 			expect(frames.find((frame) => frame.type === "settings")).toMatchObject({
 				agent: "codex",

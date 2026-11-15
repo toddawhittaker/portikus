@@ -21,12 +21,29 @@ import {
 	type ChatSessionRule,
 	type ChatSignIn,
 	type ChatToolOutputPart,
-	type CodingAgent,
 	chatStartMode,
+	type HandoffReview,
 	MAX_CHAT_SERVER_FRAME_BYTES,
 	type ChatShellItem as ShellFields,
 } from "@portikus/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import {
+	type ChatGrowth,
+	fromHost,
+	grownBy,
+	NO_GROWTH,
+	sentOne,
+	turnFinished,
+} from "./chatGrowth.js";
+import {
+	applyFreshStart,
+	type ChatAutoHandoffItem,
+	type ChatFreshStartItem,
+	type ChatHandoffItem,
+} from "./freshStart.js";
+
+export type { ChatHandoffItem };
+
 import { isWorking, sentWhileWorking, takeInSentMessage } from "./sentWhileWorking.js";
 
 export interface ChatMessageItem {
@@ -75,25 +92,14 @@ export interface ChatShellItem extends Omit<ShellFields, "kind"> {
 	turnId: null;
 }
 
-/** Where the chat changed agents: a divider in the conversation (SPEC.md §10.8). */
-export interface ChatHandoffItem {
-	kind: "handoff";
-	key: string;
-	from: CodingAgent;
-	to: CodingAgent;
-	/** The oldest turns that did not fit the new agent's context window. */
-	droppedTurns: number;
-	/** The new agent could not take the conversation in, so it started without it. */
-	failed: boolean;
-	turnId: null;
-}
-
 export type ChatItem =
 	| ChatMessageItem
 	| ChatToolItem
 	| ChatShellItem
 	| ChatErrorItem
-	| ChatHandoffItem;
+	| ChatHandoffItem
+	| ChatFreshStartItem
+	| ChatAutoHandoffItem;
 
 export interface ChatTurn {
 	id: string;
@@ -168,6 +174,12 @@ export interface ChatState {
 	commands: ChatCommand[];
 	/** How full the context is and when the prompt cache goes cold; null until the host says. */
 	context: ChatContextUsage | null;
+	/** How this conversation has grown since its start or last reset, for the fresh-chat hint. */
+	growth: ChatGrowth;
+	/** The handoff note waiting for review (SPEC.md §10.8); null when none waits. */
+	handoffReview: HandoffReview | null;
+	/** The first message the host sent to copy for an automatic note, after Copy prompt. */
+	handoffPrompt: { id: string; text: string } | null;
 	/** Frames that failed validation and were dropped. */
 	invalidFrames: number;
 	/** When the last snapshot was applied, by the browser clock. */
@@ -188,8 +200,11 @@ export interface ChatState {
 }
 
 type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
-/** Every event but a subagent's or a rename's answer, which never enter the chat's own sequence. */
-type ChatEvent = Exclude<ChatServerEvent, SubagentFrame | { type: "rename.result" }>;
+/** Every event but a subagent's, a rename's answer or a copied prompt, which never enter the chat's own sequence. */
+type ChatEvent = Exclude<
+	ChatServerEvent,
+	SubagentFrame | { type: "rename.result" } | { type: "handoff.prompt" }
+>;
 
 type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
@@ -218,6 +233,9 @@ export const initialChatState: ChatState = {
 	signInChecking: false,
 	commands: [],
 	context: null,
+	growth: NO_GROWTH,
+	handoffReview: null,
+	handoffPrompt: null,
 	invalidFrames: 0,
 	snapshotAt: 0,
 	lastSeq: -1,
@@ -261,6 +279,9 @@ export function receiveChatEvent(
 	if (event.type === "subagent") return { ...state, subagentFrame: event };
 	// Only the left pane's rename reads its answer.
 	if (event.type === "rename.result") return state;
+	// A new object each time, so a second copy of the same prompt copies again.
+	if (event.type === "handoff.prompt")
+		return { ...state, handoffPrompt: { id: event.id, text: event.text } };
 	if (event.type === "snapshot") return applySnapshot(state, event, now);
 	// The contract puts the snapshot first, so anything earlier is stale.
 	if (state.awaitingSnapshot) return state;
@@ -290,6 +311,10 @@ function applySnapshot(
 		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
+		// A snapshot follows /clear and an agent swap, and the history it replays counts again.
+		growth: NO_GROWTH,
+		// The host sends a waiting note again after the snapshot.
+		handoffReview: null,
 		// Or a new agent after a swap; its host says where it stands after the snapshot.
 		signIn: "unknown",
 		signInChecking: false,
@@ -335,7 +360,13 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 		case "turn.started":
 			return startTurn(state, event);
 		case "turn.finished":
-			return finishTurn(state, event);
+			return finishTurn(
+				{
+					...state,
+					growth: turnFinished(state.growth, state.context?.usedTokens ?? 0),
+				},
+				event,
+			);
 		case "text.delta":
 			return appendText(state, event, now);
 		case "message":
@@ -406,7 +437,13 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 		case "commands":
 			return { ...state, commands: event.commands };
 		case "context":
-			return { ...state, context: contextUsage(event, now) };
+			return {
+				...state,
+				context: contextUsage(event, now),
+				growth: event.growth
+					? fromHost(event.growth)
+					: grownBy(state.growth, event.usedTokens),
+			};
 		case "handoff": {
 			const item: ChatHandoffItem = {
 				kind: "handoff",
@@ -419,6 +456,10 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			};
 			return { ...state, items: [...state.items, item] };
 		}
+		case "handoff.review":
+		case "handoff.fresh":
+		case "handoff.auto":
+			return applyFreshStart(state, event);
 	}
 }
 
@@ -524,10 +565,13 @@ function applyMessage(
 	const lastUserMessageSeq =
 		event.role === "user" ? event.seq : state.lastUserMessageSeq;
 	if (items) return { ...state, items, lastUserMessageSeq };
-	if (event.role === "user" && isWorking(state)) {
-		return sentWhileWorking(state, { ...fields, id: event.id }, event.seq);
+	// Counted on arrival, so a message replaced in place above is not counted twice.
+	const counted =
+		event.role === "user" ? { ...state, growth: sentOne(state.growth) } : state;
+	if (event.role === "user" && isWorking(counted)) {
+		return sentWhileWorking(counted, { ...fields, id: event.id }, event.seq);
 	}
-	const split = event.role === "user" ? state : takeInSentMessage(state, now);
+	const split = event.role === "user" ? counted : takeInSentMessage(state, now);
 	return {
 		...split,
 		lastUserMessageSeq,
@@ -701,6 +745,21 @@ interface ChatActions {
 	unwatchSubagent: (toolUseId: string) => boolean;
 	/** Ask the host to check the student's sign-in again; a `signIn` event answers. */
 	checkSignIn: () => boolean;
+	/** Ask the agent for a handoff note; a `handoff.review` event answers (SPEC.md §10.8). */
+	startHandoff: () => boolean;
+	/** Continue, edit, or cancel the note under review, by its id. */
+	continueHandoff: (id: string) => boolean;
+	editHandoff: (id: string, markdown: string) => boolean;
+	cancelHandoff: (id: string) => boolean;
+	/** Send a failed fresh start's first message again, naming its divider. */
+	resendHandoff: (id: string) => boolean;
+	/** Ask for an automatic note's first message to copy; `handoff.prompt` answers. */
+	copyNotePrompt: (id: string) => boolean;
+	/** Start fresh from an automatic note, then send `then` as the second message. */
+	startFreshFromNote: (
+		id: string,
+		then?: { text: string; attachments: ChatAttachment[] },
+	) => boolean;
 	/** The socket's events, which `useChatSession` wires up. */
 	receive: (data: unknown) => void;
 	setConnection: (connection: ChatConnection) => void;
@@ -733,6 +792,14 @@ export function createChatStore(
 			if (sent) set({ signInChecking: true });
 			return sent;
 		},
+		startHandoff: () => deliver({ type: "handoff.start" }),
+		continueHandoff: (id) => deliver({ type: "handoff.continue", id }),
+		editHandoff: (id, markdown) => deliver({ type: "handoff.edit", id, markdown }),
+		cancelHandoff: (id) => deliver({ type: "handoff.cancel", id }),
+		resendHandoff: (id) => deliver({ type: "handoff.resend", id }),
+		copyNotePrompt: (id) => deliver({ type: "handoff.auto.copy", id }),
+		startFreshFromNote: (id, then) =>
+			deliver({ type: "handoff.auto.continue", id, ...then }),
 		receive: (data) => set((state) => receiveChatFrame(state, data, clock())),
 		setConnection: (connection) =>
 			set(

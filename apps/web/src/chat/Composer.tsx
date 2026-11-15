@@ -17,6 +17,8 @@
  * chat's own agent.
  * While the text starts with `!` it is a shell command: the box wears a
  * "Shell" label and monospace text, says so once, and opens neither menu.
+ * A send into a cold chat with a saved automatic note asks first whether it
+ * goes to a fresh chat from the note (ColdSendChoice.tsx).
  */
 import {
 	type ChatModeInfo,
@@ -44,6 +46,7 @@ import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { stop as stopReading } from "../voice/speak.js";
 import { useSpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
+import { ColdSendChoice, useColdSendNote } from "./ColdSendChoice.js";
 import { ComposerChips } from "./ComposerChips.js";
 import {
 	ComposerCommandMenu,
@@ -79,6 +82,8 @@ import { isShellCommand } from "./shellCommand.js";
 import "./composer.css";
 
 const NOT_SENT = "Your message was not sent because the chat is not connected.";
+export const HELD_BACK =
+	"The fresh chat did not start, so your message was not sent. It is still here, and the conversation says why.";
 const COUNT = new Intl.NumberFormat();
 const tooLong = (length: number) =>
 	`Your message was not sent because it is ${COUNT.format(length)} characters long, over the limit of ${COUNT.format(MAX_CHAT_TEXT_CHARS)}. Shorten it and send again.`;
@@ -116,6 +121,20 @@ interface Sending {
 	keys: string[];
 	/** The newest `!` command in the conversation when it was sent. */
 	shell: string;
+	/**
+	 * Held to follow a fresh start's note: only its own echo ends the send,
+	 * not the note's, and a failure leaves it in the box.
+	 */
+	fresh: boolean;
+}
+
+/** The text of the newest message the student sent, as the conversation shows it. */
+function newestUserText(state: ChatState): string | null {
+	for (let at = state.items.length - 1; at >= 0; at--) {
+		const item = state.items[at];
+		if (item?.kind === "message" && item.role === "user") return item.markdown;
+	}
+	return null;
 }
 
 /** The line under the box that fits what the box is doing now. */
@@ -181,6 +200,9 @@ export function Composer({
 	const connection = useStore(store, (state) => state.connection);
 	const commands = useStore(store, selectCommands);
 	const [sending, setSending] = useState<Sending | null>(null);
+	const coldNote = useColdSendNote(store);
+	/** A send held while the student chooses where it goes (ColdSendChoice.tsx). */
+	const [choosing, setChoosing] = useState(false);
 	const [announced, setAnnounced] = useState("");
 	const [error, setError] = useState("");
 	const [dragging, setDragging] = useState(false);
@@ -227,16 +249,20 @@ export function Composer({
 		if (!sending) return;
 		// A `!` command is never echoed as a message: the host accepts it by adding it.
 		const ran = isShellCommand(sending.text) && lastShell !== sending.shell;
-		if (echoed > sending.seq || ran) {
+		const own =
+			echoed > sending.seq &&
+			(!sending.fresh || newestUserText(store.getState()) === sending.text);
+		if (own || ran) {
 			const box = editor.current;
 			if (box && composerText(box) === sending.text) box.commands.clearContent(true);
 			clearFiles(sending.keys);
 			setSending(null);
 		} else if (lastError && lastError.seq > sending.seq) {
 			// The error shows in the conversation; the draft stays to send again.
+			if (sending.fresh) setError(HELD_BACK);
 			setSending(null);
 		}
-	}, [echoed, lastShell, lastError, sending, clearFiles]);
+	}, [echoed, lastShell, lastError, sending, clearFiles, store]);
 
 	// A new socket may never echo a send the old one carried.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only when the connection changes
@@ -300,7 +326,7 @@ export function Composer({
 		if (editor.current) showInterim(editor.current, speech.interim);
 	}, [speech.interim]);
 
-	function submit(event?: FormEvent) {
+	function submit(event?: FormEvent, to: "ask" | "here" | "fresh" = "ask") {
 		event?.preventDefault();
 		if (files.saving > 0 || sending) return;
 		const text = editor.current ? composerText(editor.current) : "";
@@ -316,8 +342,19 @@ export function Composer({
 			return;
 		}
 		const attachments = files.items.map((item) => ({ path: item.path }));
+		// Into a cold chat with a saved note, the student first chooses where it goes.
+		const askable = coldNote !== null && text.trim() !== "" && !isShellCommand(text);
+		if (to === "ask" && askable) {
+			setChoosing(true);
+			return;
+		}
+		setChoosing(false);
 		const seq = store.getState().lastSeq;
-		if (!store.getState().send(text, attachments)) {
+		const sent =
+			to === "fresh" && coldNote
+				? store.getState().startFreshFromNote(coldNote.id, { text, attachments })
+				: store.getState().send(text, attachments);
+		if (!sent) {
 			setError(NOT_SENT);
 			return;
 		}
@@ -333,6 +370,7 @@ export function Composer({
 			text,
 			keys: files.items.map((item) => item.key),
 			shell: newestShell(store.getState()),
+			fresh: to === "fresh" && coldNote !== null,
 		});
 	}
 
@@ -588,6 +626,16 @@ export function Composer({
 
 	return (
 		<>
+			{choosing && coldNote ? (
+				<ColdSendChoice
+					onFresh={() => submit(undefined, "fresh")}
+					onHere={() => submit(undefined, "here")}
+					onClose={() => {
+						setChoosing(false);
+						editor.current?.view.focus();
+					}}
+				/>
+			) : null}
 			<form
 				className={`pk-composer ${dragging ? "is-dragging" : ""} ${shell ? "is-shell" : ""}`}
 				data-testid="chat-composer"

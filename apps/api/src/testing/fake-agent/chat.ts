@@ -14,6 +14,7 @@ import {
 	type ChatSignIn,
 	type CodingAgent,
 	chatStartMode,
+	type HandoffReview,
 	isShellCommand,
 	MAX_ATTACHMENTS_PER_TERMINAL,
 	shellCommandText,
@@ -38,6 +39,7 @@ import {
 	QUESTION_CARD,
 	TINY_PNG,
 } from "./chat-fixtures.js";
+import { fakeHandoff } from "./chat-handoff.js";
 import { setCodingAgentTitle } from "./coding-agents.js";
 import type { FakeAgentState } from "./state.js";
 
@@ -47,7 +49,7 @@ type FakeChatAnswer = Extract<
 	{ type: "permission.answer" | "question.answer" }
 >;
 
-interface FakeChat {
+export interface FakeChat {
 	/** The agent the terminal was created for; it decides the scripted turn and the lists. */
 	agent: CodingAgent;
 	seq: number;
@@ -75,6 +77,8 @@ interface FakeChat {
 	/** How the next agent swap goes, as a test set it. */
 	/** `refuse` true answers CHAT_BUSY; a string answers with that code. */
 	swap: { droppedTurns: number; delayMs: number; refuse: boolean | string };
+	/** The handoff note waiting for review (SPEC.md §10.8). */
+	review: HandoffReview | null;
 }
 
 /** What a chat of each agent starts with and offers. */
@@ -135,6 +139,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				context: null,
 				sockets: new Set(),
 				swap: { droppedTurns: 0, delayMs: 0, refuse: false },
+				review: null,
 			};
 			chats.set(id, chat);
 		}
@@ -425,6 +430,19 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		}
 	}
 
+	const {
+		handoff,
+		auto: autoHandoff,
+		editNote,
+		failNext,
+	} = fakeHandoff({
+		chatOf,
+		emit,
+		record,
+		cwdOf: (id) => terminals.get(id)?.cwd,
+		filesForKey: s.filesForKey,
+	});
+
 	function handle(
 		id: string,
 		key: string,
@@ -432,6 +450,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		from: WebSocket,
 	): void {
 		const chat = chatOf(id);
+		if (handoff(id, key, message, from)) return;
 		switch (message.type) {
 			case "send": {
 				// Claude Code's /rename retitles the session; the host reads it back after the result.
@@ -615,6 +634,8 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 			emit(id, [socket], { type: "modes", modes: chat.modes });
 			if (chat.context) emit(id, [socket], { ...chat.context, type: "context" });
 			if (chat.signIn) emit(id, [socket], { type: "signIn", state: chat.signIn });
+			if (chat.review)
+				emit(id, [socket], { type: "handoff.review", review: chat.review });
 			emit(id, [socket], { type: "settings", agent: chat.agent, ...chat.settings });
 		},
 	);
@@ -727,6 +748,29 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const chat = chatOf(id);
 		chat.context = request.body as Record<string, unknown>;
 		emit(id, chat.sockets, { ...chat.context, type: "context" });
+		return reply.status(204).send();
+	});
+
+	// Write an automatic handoff note and post its notice, as the host does
+	// when the student has been away until shortly before the cache goes cold.
+	// The host writes one only while nothing runs, so an open card refuses it.
+	app.post("/__test/chats/:id/auto-handoff", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		if (chatOf(id).openCards.length > 0) return reply.status(409).send();
+		autoHandoff(id);
+		return reply.status(204).send();
+	});
+
+	// Change the newest automatic note's file, as an agent might.
+	app.post("/__test/chats/:id/auto-handoff/note", async (request, reply) => {
+		const body = request.body as { markdown: string };
+		editNote((request.params as { id: string }).id, body.markdown);
+		return reply.status(204).send();
+	});
+
+	// Make the chat's next fresh start fail.
+	app.post("/__test/chats/:id/handoff-fail", async (request, reply) => {
+		failNext((request.params as { id: string }).id);
 		return reply.status(204).send();
 	});
 

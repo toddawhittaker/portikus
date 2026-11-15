@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+	HandoffNoteHash,
+	HandoffNotePath,
+	HandoffNoteText,
+	HandoffNotice,
+	HandoffReview,
+} from "./handoff-note.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
 /**
@@ -186,6 +193,16 @@ const ProjectRelativePath = z
 	.refine((p) => !p.startsWith("/") && !p.split("/").includes(".."), {
 		message: "Path must be project-relative",
 	});
+
+/**
+ * When the prompt cache was last used and how long it lives: Claude's five
+ * minutes or one hour, or Codex's 30 minutes (SPEC.md §10.8).
+ */
+export const ChatCacheFigures = z.object({
+	/** Epoch milliseconds the cache was last written or read. */
+	at: z.number().int().nonnegative(),
+	ttlSeconds: z.union([z.literal(300), z.literal(1800), z.literal(3600)]),
+});
 
 export const ChatAttachment = z.object({ path: ProjectRelativePath }).strict();
 export type ChatAttachment = z.infer<typeof ChatAttachment>;
@@ -489,6 +506,29 @@ export const ChatSubagentEvent = z.discriminatedUnion("type", [
 ]);
 export type ChatSubagentEvent = z.infer<typeof ChatSubagentEvent>;
 
+/**
+ * How a conversation has grown, counted by the host so a reload keeps it
+ * (SPEC.md section 10.8). The first message's figures are its warm-up.
+ */
+export const ChatGrowthCounts = z.object({
+	/** The first nonzero used-token figure; 0 until one arrives. */
+	startTokens: z.number().int().nonnegative(),
+	/** Messages the student has sent. */
+	messages: z.number().int().nonnegative(),
+	/** Requests to the model, one per figure with tokens in use. */
+	requests: z.number().int().nonnegative(),
+	/** Context size once the first message finished; 0 until it has. Older hosts leave it out. */
+	firstMessageTokens: z.number().int().nonnegative().optional(),
+	/** Requests to the model the first message took. */
+	firstMessageRequests: z.number().int().nonnegative().optional(),
+	/** Messages whose turn has finished, as of the last turn's end. */
+	doneMessages: z.number().int().nonnegative().optional(),
+	/** Context size when the last finished turn ended; 0 until one has. */
+	doneTokens: z.number().int().nonnegative().optional(),
+	/** Requests to the model by the end of the last finished turn. */
+	doneRequests: z.number().int().nonnegative().optional(),
+});
+
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	SnapshotEvent,
 	TurnStartedEvent,
@@ -537,6 +577,16 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 	 * The answer to a `rename`, sent only to the attachment that asked. Like a
 	 * subagent frame it carries no `seq`, so other attachments see no gap.
 	 */
+	/**
+	 * The answer to a `handoff.auto.copy` whose note is unchanged: the new
+	 * conversation's first message, to copy. Sent only to the attachment
+	 * that asked, with no `seq`, as `rename.result` is.
+	 */
+	z.object({
+		type: z.literal("handoff.prompt"),
+		id: z.uuid(),
+		text: z.string(),
+	}),
 	z.object({
 		type: z.literal("rename.result"),
 		ok: z.boolean(),
@@ -582,6 +632,38 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		droppedTurns: z.number().int().nonnegative(),
 		failed: z.literal(true).optional(),
 	}),
+	/**
+	 * The handoff note waiting for review, or null once it is continued or
+	 * cancelled; sent on attach while one waits (SPEC.md §10.8).
+	 */
+	z.object({
+		type: z.literal("handoff.review"),
+		...Envelope,
+		review: HandoffReview.nullable(),
+	}),
+	/**
+	 * A divider where the chat started fresh from a handoff note. Sent again
+	 * with the same id when its first message fails (`failed`) or is resent.
+	 */
+	z.object({
+		type: z.literal("handoff.fresh"),
+		...Envelope,
+		id: z.uuid(),
+		path: HandoffNotePath,
+		/** The hash of the note as sent, which a resend checks the file against. */
+		hash: HandoffNoteHash.optional(),
+		failed: z.literal(true).optional(),
+	}),
+	/**
+	 * A handoff note the host wrote on its own while the student was idle,
+	 * shown as a notice where it was written and replayed on attach. Only
+	 * the newest notice in a conversation offers its buttons.
+	 */
+	z.object({
+		type: z.literal("handoff.auto"),
+		...Envelope,
+		...HandoffNotice.shape,
+	}),
 	z.object({
 		type: z.literal("settings"),
 		...Envelope,
@@ -606,15 +688,14 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		...Envelope,
 		usedTokens: z.number().int().nonnegative(),
 		windowTokens: z.number().int().positive().nullable(),
-		cache: z
-			.object({
-				/** Epoch milliseconds the cache was last written or read. */
-				at: z.number().int().nonnegative(),
-				ttlSeconds: z.union([z.literal(300), z.literal(3600)]),
-			})
-			.nullable(),
+		cache: ChatCacheFigures.nullable(),
 		/** The host's clock, epoch milliseconds, when it sent this; older hosts leave it out. */
 		now: z.number().int().nonnegative().optional(),
+		/**
+		 * How this conversation has grown, counted by the host so a reload
+		 * keeps it (SPEC.md section 10.8); older hosts leave it out.
+		 */
+		growth: ChatGrowthCounts.optional(),
 	}),
 	/** A `!` shell command: sent when it starts and again, same id, when it ends. */
 	z.object({ type: z.literal("shell"), ...Envelope, ...ShellCommandFields }),
@@ -691,6 +772,36 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("agent.switch"), agent: CodingAgent }).strict(),
 	/** Ask the agent again whether the student is signed in; a `signIn` event answers. */
 	z.object({ type: z.literal("signIn.check") }).strict(),
+	/** Ask the agent for a handoff note, as `/handoff` does (SPEC.md §10.8). */
+	z.object({ type: z.literal("handoff.start") }).strict(),
+	/** Start the fresh conversation from the note under review. */
+	z.object({ type: z.literal("handoff.continue"), id: z.uuid() }).strict(),
+	/** Replace the note under review, rewriting its file. */
+	z
+		.object({
+			type: z.literal("handoff.edit"),
+			id: z.uuid(),
+			markdown: HandoffNoteText,
+		})
+		.strict(),
+	/** Keep the current conversation; the saved note stays. */
+	z.object({ type: z.literal("handoff.cancel"), id: z.uuid() }).strict(),
+	/**
+	 * Start the fresh conversation from an automatic note, named by its
+	 * notice, as Continue does; `text` is then sent as its second message.
+	 */
+	z
+		.object({
+			type: z.literal("handoff.auto.continue"),
+			id: z.uuid(),
+			text: z.string().min(1).max(MAX_CHAT_TEXT_CHARS).optional(),
+			attachments: Attachments.optional(),
+		})
+		.strict(),
+	/** Copy an automatic note's first message, named by its notice; `handoff.prompt` answers. */
+	z.object({ type: z.literal("handoff.auto.copy"), id: z.uuid() }).strict(),
+	/** Send a failed fresh start's first message again, naming its divider. */
+	z.object({ type: z.literal("handoff.resend"), id: z.uuid() }).strict(),
 	/** Retitle the conversation; the host cleans the title (ADR 0074). */
 	z
 		.object({

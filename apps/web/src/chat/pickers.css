@@ -352,6 +352,14 @@
 	color: var(--status-error);
 }
 
+/* The fresh-chat hint is the longest readout, so on a narrow composer its words wrap
+   onto a second line rather than run past the edge. */
+.pk-ctx-restart {
+	block-size: auto;
+	min-block-size: var(--size-control-sm);
+	white-space: normal;
+}
+
 /* The cache's last minute: colour plus the icon and the word "soon". */
 .pk-ctx.is-warning {
 	gap: var(--space-1);
