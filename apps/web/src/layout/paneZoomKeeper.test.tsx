@@ -147,7 +147,13 @@ test("closing the tab sends a waiting save at once, with keepalive", () => {
 	expect(fetchMock).toHaveBeenCalledTimes(1);
 	const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 	expect(url).toBe("/me/settings");
-	expect(init).toMatchObject({ method: "PUT", keepalive: true });
+	expect(init).toEqual({
+		method: "PUT",
+		credentials: "same-origin",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ paneZooms: { "p1:t:t1": 140 } }),
+		keepalive: true,
+	});
 	expect(sentBodies()).toEqual([{ paneZooms: { "p1:t:t1": 140 } }]);
 	vi.advanceTimersByTime(SAVE_DELAY_MS);
 	expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -163,9 +169,9 @@ test("another signed-in user never sees or saves the last user's zooms", () => {
 	paneZoomsFor("user-a");
 	seedPaneZooms({ "p1:t:t1": 150 });
 	writePaneZoom("p1:t:t2", 130);
-	paneZoomsFor("user-a");
+	expect(paneZoomsFor("user-a")).toBe(false);
 	expect(readPaneZoom("p1:t:t1")).toBe(150);
-	paneZoomsFor("user-b");
+	expect(paneZoomsFor("user-b")).toBe(true);
 	expect(readPaneZoom("p1:t:t1")).toBeUndefined();
 	expect(readPaneZoom("p1:t:t2")).toBeUndefined();
 	vi.advanceTimersByTime(SAVE_DELAY_MS);

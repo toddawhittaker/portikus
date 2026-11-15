@@ -58,10 +58,15 @@ export function seedPaneZooms(zooms: PaneZooms | undefined): void {
 /**
  * The signed-in user is `userId`. Another user's zooms, and any save of
  * theirs still waiting, are dropped, so they are never shown or saved here.
+ * Returns true when that happened: the settings query may already hold the
+ * new user's settings and will not seed again on its own, so the caller must
+ * refetch it.
  */
-export function paneZoomsFor(userId: string): void {
-	if (owner !== null && owner !== userId) resetPaneZooms();
+export function paneZoomsFor(userId: string): boolean {
+	const changed = owner !== null && owner !== userId;
+	if (changed) resetPaneZooms();
 	owner = userId;
+	return changed;
 }
 
 export function readPaneZoom(key: string): number | undefined {
@@ -94,11 +99,7 @@ function flush() {
 function flushPaneZoomsOnHide(): void {
 	const changes = takePending();
 	if (changes === null) return;
-	void fetch("/me/settings", {
-		method: "PUT",
-		credentials: "same-origin",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ paneZooms: changes }),
+	sendJson(MeSettings, "/me/settings", { paneZooms: changes }, "PUT", {
 		keepalive: true,
 	}).catch(() => {});
 }
