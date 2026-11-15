@@ -149,6 +149,24 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			},
 		],
 	},
+	// Only for administrators and instructors; the dialog drops it for students (SPEC.md section 24.13).
+	{
+		id: "api-keys",
+		title: "API keys",
+		groups: [
+			{
+				title: "API keys",
+				controls: [
+					{
+						id: "api-keys-list",
+						label: "Your API keys",
+						terms: "MCP token Claude Code Codex renew revoke",
+					},
+					{ id: "api-key-create", label: "Create an API key", terms: "MCP token" },
+				],
+			},
+		],
+	},
 ];
 
 /**

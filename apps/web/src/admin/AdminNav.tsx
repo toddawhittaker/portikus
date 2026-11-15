@@ -7,6 +7,7 @@ import { ADMIN_TAB_GROUPS, ADMIN_TAB_LABEL, type AdminTab } from "./tabs.js";
 
 const TAB_ICON: Record<AdminTab, IconName> = {
 	users: "users",
+	keys: "shield",
 	health: "activity",
 	logs: "list",
 	audit: "clipboard-list",

@@ -521,7 +521,12 @@ test("the saved appearance is shown and wins over this browser's copy", async ()
 });
 
 test("every control label on the section list is a search hit", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, localPassword: true });
+	// An administrator with a local password sees every section.
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, {
+		...USER,
+		role: "administrator",
+		localPassword: true,
+	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
 	await screen.findByRole("button", { name: "Password" });
@@ -919,4 +924,20 @@ test("with no Notification API nothing is offered", async () => {
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await screen.findByText("This browser does not offer desktop notifications.");
 	expect(screen.queryByRole("group", { name: "Desktop notifications" })).toBeNull();
+});
+
+test("API keys is a section for administrators and instructors, never for students", async () => {
+	// Password shows once the account has loaded, so the check below is not too early.
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, localPassword: true });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByRole("button", { name: "Password" });
+	expect(screen.queryByRole("button", { name: "API keys" })).toBeNull();
+	// Search does not find it either.
+	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "API key" } });
+	expect(screen.getByText("No matching settings.")).toBeDefined();
+	cleanup();
+
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, { ...USER, role: "instructor" });
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	expect(await screen.findByRole("button", { name: "API keys" })).toBeDefined();
 });

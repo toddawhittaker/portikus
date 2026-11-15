@@ -173,6 +173,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 			.map((link) => link.textContent),
 	).toEqual([
 		"Users",
+		"API keys",
 		"Health",
 		"Logs",
 		"Audit",
