@@ -146,3 +146,60 @@ the Course page.
 - A session ends when the student ends it, when you press **Leave
   session**, when the project is archived, or after an hour. Your view
   closes at once.
+
+## API keys and the MCP server
+
+An API key lets a program, such as Claude Code or Codex, act as you. You
+can make keys if you teach with Portikus. A key runs the same checks you
+do, so it reaches only your own courses. It cannot see another
+instructor's course, a student's files or terminals, or anything an
+administrator alone may do. Students cannot hold keys, and a key can never
+make or renew keys; that is done in your browser.
+
+A key has a scope. **Read**, the default, lets the program look at your
+courses: their people, roster, shared projects, live-help sessions and
+agent use. **Write** also lets it do things you could undo, such as syncing
+a roster or setting a course's interface. **Destructive** is for what
+cannot be undone and rarely applies to a course.
+
+### Make, renew, rotate and revoke
+
+1. Open **Settings**, then **API keys**, and choose **New key**. Name it
+   for what uses it, pick a scope and a length of time. A key from a
+   course or single sign-in session lasts 30 days. If you sign in with a
+   Portikus password, you choose 7, 30 or 90 days, or never, and enter a
+   code or use a passkey.
+2. **Copy the key now.** It starts with `portikus_` and is shown only once.
+3. **Renew** restarts a key's time and keeps the same secret, so nothing in
+   your client changes. You can renew an expired key at any time, as long
+   as you are signed in and still teach. If you teach again next semester,
+   sign in and renew.
+4. **Renew with a new secret** also changes the secret. Use it if a key
+   may have leaked, then update your client.
+5. **Revoke** ends a key for good, and it cannot be renewed.
+
+Portikus sends you a notice seven days before a key expires, or one day
+before for a 7-day key. An administrator may expire or revoke your keys, and
+you are told when they do. A key also stops working if you are disabled.
+
+### Connect Claude Code and Codex
+
+The address is your site's name followed by `/mcp`.
+
+Claude Code, in a terminal:
+
+```
+claude mcp add --transport http portikus https://<site>/mcp --header "Authorization: Bearer <key>"
+```
+
+Codex, in `~/.codex/config.toml`:
+
+```
+[mcp_servers.portikus]
+url = "https://<site>/mcp"
+bearer_token_env_var = "PORTIKUS_MCP_KEY"
+```
+
+Put the key in the `PORTIKUS_MCP_KEY` environment variable before you start
+Codex. Keep a key as private as a password: do not paste it into a chat
+or commit it to Git.

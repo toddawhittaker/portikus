@@ -335,6 +335,14 @@ The API should manage:
 
 The API process should **not** hold direct administrative control over Incus.
 
+### MCP server
+
+The API serves a Model Context Protocol (MCP) endpoint at `/mcp` so that coding assistants such as Claude Code and Codex can run the operations an API key allows (SPEC.md section 20.4, ADR 0079). It uses `@modelcontextprotocol/server` 2.4.0, pinned exactly in `apps/api/package.json`.
+
+- The software development kit (SDK) is version 2. Version 1 of the SDK pulls in Express, a second web framework Portikus does not otherwise run; version 2's `createMcpHandler` takes a Web `Request` and returns a Web `Response`, with nothing else attached.
+- The handler is mounted on the existing Fastify app through a small bridge of our own, about 30 lines, from a Fastify request to `handler.fetch` and back. `@modelcontextprotocol/node` is not used because it needs the raw request body, which Fastify has already read, and `@modelcontextprotocol/fastify` is not used because it builds a separate app.
+- Sign-in is a fixed API key in the `Authorization` header, not OAuth, which the MCP specification makes optional.
+
 ## 5. API contracts and validation
 
 ### Zod
@@ -366,7 +374,7 @@ workspace-agent
 
 The HTTP API must expose an **OpenAPI** specification.
 
-Prefer a Zod-to-OpenAPI integration compatible with Fastify.
+The OpenAPI document is built from the operation catalog (SPEC.md section 20.4, ADR 0077) with Zod 4's own `z.toJSONSchema`, no extra library. It is served at `GET /openapi.json` and describes the operations an API key may run. No Zod-to-OpenAPI package is used: the catalog already names each operation's schemas, because routes validate by hand, so a package that reads schemas off route definitions would see nothing to read.
 
 OpenAPI is required because Portikus may eventually have:
 
@@ -1723,7 +1731,8 @@ xterm.js
 
 Fastify
 Zod
-OpenAPI
+OpenAPI (built from the operation catalog with z.toJSONSchema)
+@modelcontextprotocol/server
 
 PostgreSQL
 Kysely
@@ -1798,6 +1807,14 @@ Not selected because REST + WebSockets better matches Portikus's resource and st
 ### tRPC as the API contract
 
 Not selected because service boundaries should remain usable by non-TypeScript clients and external integrations.
+
+### Zod-to-OpenAPI packages
+
+Not selected because routes here validate input by hand, so there are no route schemas for such a package to read. The OpenAPI document is built from the operation catalog with Zod's own `z.toJSONSchema` (ADR 0077).
+
+### OAuth for the MCP endpoint
+
+Not selected because the MCP specification makes OAuth optional and Claude Code and Codex both accept a fixed bearer header. An expiring, scoped, revocable API key does the job with fewer parts (ADR 0079).
 
 ### Prisma
 

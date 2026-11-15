@@ -3539,6 +3539,135 @@ a logind scope and entries in `who`, `last` and wtmp. Setup installs
 - Anything that restarts the API ends every root shell, so upgrades and
   database maintenance belong inside tmux.
 
+### 20.4 API keys, the operation catalog and the MCP server
+
+Added by Epic 68 (ADRs 0077, 0078 and 0079). An administrator or an
+instructor may make an API key, so that a program, usually a coding
+assistant, can run some of the operations the web app runs, as that
+person. This is a new section at the end of Administration, not a new
+top-level section, so the numbers other sections quote do not change. It
+sits here because keys are an administration feature, and its trust rules
+are repeated in sections 24.1, 24.8, 24.11 and 24.13.
+
+**The operation catalog.** The catalog (`apps/api/src/catalog/`) is the
+one list of what a key may do.
+
+- It is central: one file for each family of routes, keyed by
+  `"METHOD url"` exactly as `ROUTE_POLICY` is keyed (section 5.2). The
+  route files carry no catalog data.
+- Every route is in exactly one place: an exposed operation, or the
+  not-exposed list with a reason. A test reads `ROUTE_POLICY` and fails
+  for a route that is neither, so a new route cannot ship unclassified.
+- An operation has a stable name such as `workspaces.stop`, a one-sentence
+  description, a risk, an audience (administrator, instructor or both),
+  a flag for whether it is a named MCP tool, and the Zod schemas of its
+  parameters, query and body.
+- The risk is `read` (changes nothing), `change` (changes something that
+  can be undone or redone) or `destructive` (cannot be undone, or hands
+  out a new way in).
+- A **never list** is marked `never` on the not-exposed list and pinned by
+  a test: the root shell; making, renewing or revoking keys; changing a
+  password or second factor; linking accounts (it impersonates); changing
+  where reset links go; and any route whose request or answer carries a
+  secret (one-time passwords, hub and backup credentials, alert
+  settings). No scope reaches them. Also not exposed, with reasons: a
+  person's own workspace routes (files, terminals, projects), so file
+  contents and terminal bytes never leave; WebSockets; sign-in machinery;
+  and trials that need the administrator's browser.
+- A key refused a route gets 403 `NOT_AVAILABLE_TO_API_KEYS`. A route
+  above its scope gets 403 `SCOPE_REQUIRED`. `/mcp` and `/openapi.json`
+  are open to any valid key.
+- An instructor key can run only operations whose audience includes
+  instructors, and the route's own checks still limit it to the
+  instructor's own courses.
+
+**Scope.** A key has one scope, one ordered level: `read` allows
+`read` operations; `write` also allows `change`; `destructive` also
+allows `destructive`. A new key is `read` unless its owner picks more.
+
+**Who may hold a key.** Only administrators and instructors, whatever the
+source of the role. A student can never hold or create a key. A key stops
+working when its owner is disabled, becomes a student, or is a course
+account that a link has retired. Making, renewing, rotating and revoking
+a key happen only in a signed-in browser as a staff person; a key cannot
+do any of them.
+
+**The key itself.** A key is `portikus_` followed by 32 random bytes in
+base64url. Only its SHA-256 is stored, with a short display prefix. The
+secret is shown once, when the key is made or rotated; it is never
+logged, audited, listed or returned again.
+
+**Key states.**
+
+| State | Works? | Can be renewed? | How a key gets there |
+|---|---|---|---|
+| Active | Yes | Yes, to extend it | Made or renewed |
+| Expired | No | Yes, by its owner while signed in | Its expiry passed, or an administrator expired it |
+| Revoked | No | Never; revoked is final | Its owner or an administrator revoked it, or its owner was disabled or had a password or second factor reset |
+
+- **Periods.** Accounts that signed in through an SSO provider or a
+  course launch get 30-day keys only. Dex local-password accounts choose
+  7, 30 or 90 days or never; 30 is the default. The period is stored with
+  the key.
+- **Renew** restarts the key's own period from now and keeps its secret,
+  so client settings do not change. It needs a signed-in session that
+  still holds a staff role, so each renewal checks the role again. An
+  expired key may be renewed at any time. The renew screen shows the key's
+  prefix and when it was last used.
+- **Rotate** ("Renew with a new secret") also gives the key a new secret,
+  for a key that may have leaked. The old secret stops working at once.
+  Each renewal and rotation is audited.
+- **Reminders.** A daily worker job sends an in-app notice 7 days before
+  a key expires, or 1 day before for a 7-day key, once for each expiry.
+  A renewal arms the next one. Expiring a key early notifies its owner.
+- **Administrators** may expire or revoke one key, all of one person's
+  keys, or every key on the site, and an owner may revoke their own keys.
+  The owner is told of an action by someone else.
+- Disabling a person, removing a Dex password account, and resetting a
+  person's password or second factor revoke all of that person's keys.
+
+**Making a key.** A Dex local-password account must prove a code or a
+passkey in the create dialog. SSO and course-launch sessions make a key
+with no extra check, because their second factor lives at the provider.
+Inviting an instructor or an administrator through a key needs a key
+with `destructive` scope; a `write` key may invite students only,
+because a new staff account is a way in that outlives the key.
+
+**Using a key.** The key goes in `Authorization: Bearer portikus_…`. A
+request with it ignores any cookie and skips the second factor (section
+24.1). The forced-password-change and acceptable-use gates still apply.
+Every key request writes one `api_key.used` audit row with the operation
+name and result, reads included. One exception: a request refused by the
+per-key rate limit (section 24.13) writes no row; the first refusal in
+each minute is a log line instead. Every audit row also records `via`
+(`session` or `api_key`) and, for a key, `api_key_id`, so a change made
+by a key can be told from one made in the browser. Rows written by the
+worker leave both empty.
+
+**The in-process runner.** The MCP server runs operations by calling the
+API in-process with the caller's own key and address, along a path built
+only from the catalog's pattern, with every parameter encoded. The
+caller never supplies a path. The route's own validation, role and
+course checks and audit then run unchanged, so the runner can do nothing
+the key could not do over HTTP.
+
+**The MCP server.** `/mcp` speaks the Model Context Protocol (MCP) so
+Claude Code, Codex and similar clients can use a key.
+
+- It accepts keys only. A missing or bad key gets 401 with
+  `WWW-Authenticate: Bearer` and no `resource_metadata`, and the site
+  serves no `/.well-known/oauth-*` document, so clients send the fixed
+  header and do not start OAuth.
+- It refuses any `Origin` other than the site's own.
+- A fresh server is built for each request. It lists only the tools the
+  owner's role and the key's scope allow, and refuses the rest.
+- Its tools are the named tools from the catalog plus two general ones:
+  `find_operation` searches the operations this key may run, and
+  `run_operation` runs one by name. Every tool takes `path`, `query` and
+  `body`. Results are compact JSON, capped at about 50,000 characters;
+  an error comes back as `isError` with a code and a message.
+- It offers no resources, prompts or OAuth.
+
 ## 21. Infrastructure as cattle
 
 ### 21.1 Principle
@@ -4530,6 +4659,8 @@ Added by Epic 62 (ADR 0074): a chat's title is drawn from the student's prompts;
 
 Added by Epic 58.1: assistant Markdown may show the student's own local images, so Claude can show a screenshot it saved. An image target that is a path relative to the project, or an absolute path under the home folder, loads through `GET /workspaces/:id/projects/:pid/image?path=`, which is owner-only exactly like the file routes (404 for anyone else). The API refuses a path with a `.` or `..` segment or an extension other than png, jpg, jpeg, gif or webp before calling the workspace agent. The agent resolves the path with realpath, refuses anything whose real path leaves the home folder (so a symlink cannot escape), opens it without following a link, refuses a non-regular file or one over 5 MiB, and checks the first bytes match the extension, so SVG, HTML or a renamed file is never served. The API sends the bytes with the extension's image type, `nosniff`, `private, no-store` and the inline sandbox policy. This widens what a reply can load from nothing to the student's own image files; it cannot reach another user's files or anything outside the home folder, and nothing is copied into or kept by the platform. A remote http(s) or data: image is still never loaded and shows "Remote image not shown: <host>"; a refused or missing one shows "Image not found: <path>". The agent instructions tell Claude to save images it wants to show under `.portikus/images/` in the project and link them by relative path.
 
+Added by Epic 68 (ADRs 0077 to 0079, section 20.4): an API key is a new way in to the control plane. A key is the credential of the administrator or instructor who made it, limited by its scope and by the operation catalog, so a stolen key is worth that person's role at that scope and no more. Keys skip the second factor at use, because a program cannot answer one; the check moved to creation, where a Dex local-password account must prove a code or a passkey. A request that carries a key ignores the session cookie and skips the browser origin check, because a browser cannot send that header from another site without a preflight the API never answers. A key never opens a WebSocket and never reaches the never list (the root shell, key management, password and second-factor changes, account linking and any route that carries a secret), so a key is never root on the host. The one risk the design accepts is in section 24.13: a role removed at the sign-in provider does not end a key before it expires.
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -4771,6 +4902,8 @@ unless a new one comes in the same request. Setup seeds the file once
 from the `portikus_alert_*` keys in `secrets.yaml` or the old
 `alerts.env`; after that the page owns it. A malformed file shows every
 channel as off with a notice, and the next save replaces it.
+
+Added by Epic 68 (ADR 0078): an API key's secret is shown once, when the key is made or rotated, and never again. Only its SHA-256 is stored; the list shows a short prefix and nothing that could rebuild the key. The secret is never in a log line, an audit row, a notification, a view or an error. A request's `Authorization` header is redacted from logs like any bearer token (STACK.md section 15). A reminder or notice names a key by its name and prefix only.
 
 ### 24.9 Storage security
 
@@ -5203,6 +5336,21 @@ workspace's network address, or a name a workspace looked up.
   `fields` (`email`, `username`). No row holds an address, a token or a
   password.
 
+- API keys (Epic 68, ADR 0078), never a secret: `api_key.created` (actor
+  the owner; key id, name, scope and period); `api_key.renewed` and
+  `api_key.rotated` (the owner renewed the key, or renewed it with a new
+  secret); `api_key.revoked` and `api_key.expired` (one row for each key
+  affected, actor the person who did it; when the cause was not a button,
+  `reason` is `user_disabled`, `password_reset` or `second_factor_reset`);
+  and `api_key.used`, one row for each request made with a key, with
+  the operation name, the status and the result (`ok`, `denied` or
+  `failed`), reads included. A request refused by the per-key rate limit
+  (section 24.13) writes no `api_key.used` row; the first refusal in each
+  minute is a warning log line instead. Every audit row also carries `via`
+  (`session` or `api_key`) and `api_key_id`, filled from the request, so a
+  row for a change made by a key can be told from one made in the browser;
+  rows written by the worker leave both empty.
+
 A test checks that every event this section lists writes an audit row
 (#1138).
 
@@ -5329,6 +5477,28 @@ built them (ADRs 0048 to 0050, 0053 and 0054).
   15 minutes raise one administrator alert. Whether it is raised is kept
   in the `settings` row, so a worker restart does not repeat it, and it
   is sent again only after the spike clears and returns.
+- **API keys (Epic 68, ADR 0078).** Each key may make 300 requests a
+  minute (`API_KEY_REQUESTS_PER_MINUTE`), counted for the key and not for
+  its owner, so one person's keys do not share a count. Past it the
+  answer is 429 `RATE_LIMITED` with `Retry-After`, one warning log line
+  for each key and window, and no audit row. A bearer value that names a
+  key but matches none counts against the anonymous limit, the way a
+  session cookie that matches no session does, and is refused with the
+  same 401 as a revoked or expired key, so a caller learns nothing about
+  which keys exist. The secret has 256 bits of randomness, so guessing is
+  not the risk the limit guards.
+- **A role removed at the provider (Epic 68, accepted risk).** Any
+  administrator or instructor may hold a key, whatever the source of their
+  role. When the role is removed at the sign-in provider or the LMS,
+  Portikus learns it only when the person next signs in, so their keys
+  keep working until they expire or are revoked. For SSO and
+  course-launch accounts that is at most 30 days after the removal,
+  because renewal needs a fresh sign-in and a person removed at the
+  provider cannot sign in. A Dex local-password account's key lasts its
+  chosen period, and a key made with no expiry lasts until someone
+  revokes it. The remedy is to disable the person in Portikus, which
+  revokes their keys at once, and the administrator guide says so. The
+  12-hour provider-role limit above applies to sessions, not keys.
 
 ## 25. Non-functional requirements
 
@@ -5762,7 +5932,9 @@ As built (Epic 67): finished runs are stored in `check_runs` with the project, c
 - action;
 - timestamp;
 - result;
-- safe metadata.
+- safe metadata;
+- via (Epic 68): `session` or `api_key`, empty for rows written outside a request;
+- API key id (Epic 68): the key that made the request, with no foreign key, like `actor`.
 
 ### Added by Epic 14.3
 
@@ -5798,6 +5970,11 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 - `0052_terminal_kind` (Epic 58, ADR 0069): `terminals.kind`, text with a check constraint (`terminal` or `chat`, default `terminal`), so existing rows read as terminals. Nothing about a chat's content is stored.
 - `0054_alert_state` (Epic 58.2, sections 24.4 and 24.13): `settings.alert_reboot_raised`, `alert_signin_raised` and `alert_root_fs_raised`, boolean, not null, default false, so a raised administrator alert is not announced again after a worker restart.
 
+### Added by Epic 68
+
+- `0058_api_keys` (sections 20.4, 24.8 and 24.13, ADR 0078): `api_keys` with `id`, `user_id` (cascades on delete), `name` (1 to 100 characters), unique `token_hash` (the SHA-256, never the secret), `display_prefix`, `scope` (`read`, `write` or `destructive`, default `read`, one ordered level), `period_days` (null for never), `created_at`, `expires_at` (null for never), `last_used_at`, `revoked_at`, `revoked_by` (set null on delete) and `expiry_reminded_for` (the expiry a reminder was sent for). The worker may read the table and update only `expiry_reminded_for`.
+- `0059_audit_arrival` (sections 20.4 and 24.11): `audit_events.via` (`session` or `api_key`, nullable) and `audit_events.api_key_id` (nullable, no foreign key).
+
 ## 27. API principles
 
 The UI should communicate with the platform through documented APIs.
@@ -5816,6 +5993,8 @@ Requirements:
 Added by Epic 66 (section 10.8): the workspace agent's chat-switch errors are structured codes. `CHAT_BUSY` (409) means a reply, a card or a `!` command is running; the API shows it as 409 `BUSY`. `CHAT_SAME_AGENT` (409) means the chat already runs that agent; the API treats the switch as done. `CHAT_SWITCH_TIMEOUT` (504) means the host did not prepare the swap in time; the API shows it as 503 `AGENT_UNAVAILABLE`, "could not switch", not as busy. A second switch of the same chat while one is in progress gets 409 `BUSY` from the API.
 
 OpenAPI or an equivalent machine-readable schema is strongly preferred for HTTP APIs.
+
+Added by Epic 68 (ADR 0077): the API serves an OpenAPI 3.1 document at `GET /openapi.json`. It is generated from the operation catalog (section 20.4) with Zod's own JSON Schema conversion, so it describes exactly the operations an API key may run, with each operation's name, summary, parameters, body, risk and audience, and the bearer and cookie sign-in schemes. Browser-only routes (the not-exposed list) are not described, so the document is the keys' contract and not a map of the whole API. Because the document comes from the catalog, it cannot drift from it, and the catalog's coverage test fails the build for a route that is neither exposed nor on the not-exposed list.
 
 ## 28. Error handling and user messaging
 
