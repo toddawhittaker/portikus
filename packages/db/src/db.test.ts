@@ -666,6 +666,7 @@ describe("database migrations and schema", () => {
 					"0052_terminal_kind",
 					"0053_chat_settings",
 					"0054_alert_state",
+					"0057_coding_agents_auto_update",
 				]);
 				throw rollback;
 			}),
@@ -2080,10 +2081,12 @@ describe("resource guard migration", () => {
 						"0052_terminal_kind",
 						"0053_chat_settings",
 						"0054_alert_state",
+						"0057_coding_agents_auto_update",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0054 down to 0020, and 0018 (applied 0018, 0020 to 0054, 0019).
+					// Undo 0019, 0057 down to 0020, and 0018 (applied 0018, 0020 to 0057, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2160,6 +2163,7 @@ describe("resource guard migration", () => {
 						"0052_terminal_kind",
 						"0053_chat_settings",
 						"0054_alert_state",
+						"0057_coding_agents_auto_update",
 					]);
 					throw rollback;
 				}),
