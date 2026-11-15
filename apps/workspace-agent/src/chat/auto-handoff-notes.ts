@@ -104,6 +104,11 @@ export class AutoHandoffNotes {
 		this.timer?.stop();
 	}
 
+	/** Resolves once every queued save has finished, so a stopped core leaves no write behind. */
+	settled(): Promise<void> {
+		return this.saved;
+	}
+
 	/**
 	 * The notices placed in replayed events, each after the turn of the
 	 * message that asked for its note. A notice whose message is not in the
