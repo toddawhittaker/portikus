@@ -324,6 +324,8 @@ else
 fi
 has "/lti/* reaches the API" '^[[:space:]]+@api path .* /lti/\* ' "${app}"
 has "the course list and members reach the API" '^[[:space:]]+@api path .* /courses\* ' "${app}"
+has "/mcp reaches the API" '^[[:space:]]+@api path .* /mcp ' "${app}"
+has "/openapi.json reaches the API" '^[[:space:]]+@api path .* /openapi\.json ' "${app}"
 # The setup code is gone (ADR 0031); /setup is only a page.
 lacks "no /setup route reaches the API" 'handle /setup' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
@@ -425,7 +427,7 @@ edge_open=0
 [ -n "$(api_routes "${rendered}")" ] || { bad "no API route was found in the Caddyfile"; edge_open=1; }
 while IFS= read -r m; do
   case "${m}" in
-    /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
+    /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | /mcp | /openapi.json | \
       /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset | /admin/root-shell/ws) ;;
     *)
       bad "the route '${m}' proxies to the API and could cover /edge"
