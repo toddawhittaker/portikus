@@ -1,0 +1,14 @@
+/* The API keys tab (SPEC.md section 24.13). The filter row wraps with its box, not the window. */
+
+.pk-keys-filter {
+	container-type: inline-size;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-3) var(--space-4);
+}
+
+/* A revoked key is history, so its row reads quieter than a working one. */
+.pk-table tr[data-state="revoked"] td {
+	color: var(--ink-muted);
+}

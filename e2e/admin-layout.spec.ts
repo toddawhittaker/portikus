@@ -20,6 +20,7 @@ const TEXT_SPACING =
 
 const ADMIN_TAB_NAMES = [
 	"Users",
+	"API keys",
 	"Health",
 	"Logs",
 	"Audit",
@@ -238,7 +239,7 @@ test.describe("admin layout", () => {
 		await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	});
 
-	test("tabs read Users, Health, Logs, Audit, Agent usage, Network, Backups, Workspace image, Certificate, Docker, Settings, one under another with no gaps", async ({
+	test("tabs read Users, API keys, Health, Logs, Audit, Agent usage, Network, Backups, Workspace image, Certificate, Docker, Settings, one under another with no gaps", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
@@ -510,7 +511,15 @@ test.describe("admin layout", () => {
 			await page.keyboard.press("Tab");
 			if (await users.evaluate((el) => el === document.activeElement)) break;
 		}
-		for (const name of ["Users", "Health", "Logs", "Audit", "Agent usage", "Network"]) {
+		for (const name of [
+			"Users",
+			"API keys",
+			"Health",
+			"Logs",
+			"Audit",
+			"Agent usage",
+			"Network",
+		]) {
 			if (name !== "Users") await page.keyboard.press("Tab");
 			const link = nav.getByRole("link", { name: tabName(name) });
 			await expect(link).toBeFocused();

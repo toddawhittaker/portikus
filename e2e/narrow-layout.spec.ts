@@ -394,6 +394,7 @@ for (const viewport of SHORT) {
 
 const ADMIN_TABS = [
 	"users",
+	"keys",
 	"health",
 	"logs",
 	"audit",
