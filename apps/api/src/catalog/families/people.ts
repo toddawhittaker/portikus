@@ -58,7 +58,7 @@ export const operations: OperationRecords = {
 		name: "users.disable",
 		description:
 			"Stops one person from signing in and ends their current sessions, and returns the updated account.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: true,
 		input: { params: UuidParam },
@@ -68,7 +68,7 @@ export const operations: OperationRecords = {
 		name: "users.enable",
 		description:
 			"Lets a disabled person sign in again, and returns the updated account.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: true,
 		input: { params: UuidParam },
@@ -98,7 +98,7 @@ export const operations: OperationRecords = {
 		name: "users.revoke_admin",
 		description:
 			"Removes the administrator role from one person, and returns the updated account.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam },
@@ -108,7 +108,7 @@ export const operations: OperationRecords = {
 		name: "users.revoke_instructor",
 		description:
 			"Removes the instructor role from one person, and returns the updated account.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam },
@@ -128,7 +128,7 @@ export const operations: OperationRecords = {
 		name: "settings.update",
 		description:
 			"Changes site-wide settings, such as the workspace shutdown delay or log level, and returns the settings now in force.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { body: UpdatePlatformSettingsRequest },

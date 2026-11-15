@@ -48,7 +48,7 @@ export const operations: OperationRecords = {
 		name: "courses.remove_member",
 		description:
 			"Removes one student from your course; they are added back the next time they open the course from the learning platform.",
-		risk: "change",
+		risk: "destructive",
 		audience: "instructor",
 		tool: false,
 		input: { params: CourseMemberParam },

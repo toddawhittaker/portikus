@@ -86,7 +86,7 @@ export const operations: OperationRecords = {
 		name: "workspaces.archive",
 		description:
 			"Archives a workspace: it is stopped and cannot be started again until it is unarchived. Returns the updated workspace.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam },
@@ -106,7 +106,7 @@ export const operations: OperationRecords = {
 		name: "workspaces.lift_throttle",
 		description:
 			"Removes the processor limit placed on a workspace for using too much, and tells its owner.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam },
@@ -133,7 +133,7 @@ export const operations: OperationRecords = {
 		name: "workspaces.set_quota",
 		description:
 			"Grows the disk space of a workspace's home folder or Docker storage; sizes can only go up. Returns the updated workspace.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam, body: UpdateQuotaRequest },
@@ -143,7 +143,7 @@ export const operations: OperationRecords = {
 		name: "workspaces.set_guard",
 		description:
 			"Changes the usage thresholds at which one workspace is slowed or flagged, overriding the site defaults.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam, body: UpdateGuardRequest },
@@ -152,7 +152,7 @@ export const operations: OperationRecords = {
 		name: "workspaces.set_limits",
 		description:
 			"Sets the processor, memory, and process-count limits for one workspace, or returns them to the defaults.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam, body: UpdateLimitsRequest },

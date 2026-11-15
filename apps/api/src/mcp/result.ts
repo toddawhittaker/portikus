@@ -25,7 +25,7 @@ function textResult(text: string, isError: boolean): CallToolResult {
 }
 
 /** An error in the API's own `{ code, message }` shape. */
-export function errorResult(
+function errorResult(
 	error: ApiError | z.infer<typeof ApiErrorOutline>,
 ): CallToolResult {
 	return textResult(JSON.stringify(error), true);

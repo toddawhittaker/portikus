@@ -7,6 +7,7 @@ import type { RunCaller } from "../catalog/run.js";
 
 /** The key holder an MCP request runs as, carried to the server factory in `authInfo`. */
 export interface McpCaller extends RunCaller {
+	userId: string;
 	keyId: string;
 	scope: ApiKeyScope;
 	role: Role;
@@ -17,7 +18,12 @@ export function toAuthInfo(caller: McpCaller): AuthInfo {
 		token: caller.apiKey,
 		clientId: caller.keyId,
 		scopes: [caller.scope],
-		extra: { role: caller.role, ip: caller.ip, userAgent: caller.userAgent },
+		extra: {
+			userId: caller.userId,
+			role: caller.role,
+			ip: caller.ip,
+			userAgent: caller.userAgent,
+		},
 	};
 }
 
@@ -25,11 +31,18 @@ export function toAuthInfo(caller: McpCaller): AuthInfo {
 export function fromAuthInfo(authInfo: AuthInfo | undefined): McpCaller {
 	const extra = authInfo?.extra;
 	const scope = authInfo?.scopes[0];
-	if (!authInfo || !extra || !scope || typeof extra.ip !== "string") {
+	if (
+		!authInfo ||
+		!extra ||
+		!scope ||
+		typeof extra.ip !== "string" ||
+		typeof extra.userId !== "string"
+	) {
 		throw new Error("an MCP request arrived without its key holder");
 	}
 	return {
 		apiKey: authInfo.token,
+		userId: extra.userId,
 		keyId: authInfo.clientId,
 		scope: scope as ApiKeyScope,
 		role: extra.role as Role,
@@ -39,7 +52,7 @@ export function fromAuthInfo(authInfo: AuthInfo | undefined): McpCaller {
 }
 
 /** Whether the operation's audience takes in this role. */
-export function inAudience(operation: Operation, role: Role): boolean {
+function inAudience(operation: Operation, role: Role): boolean {
 	if (operation.audience === "staff")
 		return role === "administrator" || role === "instructor";
 	return operation.audience === role;

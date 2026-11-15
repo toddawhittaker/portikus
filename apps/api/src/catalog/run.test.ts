@@ -64,13 +64,41 @@ describe("runOperation", () => {
 		]);
 	});
 
-	test("a path value is encoded, so it can never name another route", async () => {
+	test("a path value is encoded, so it stays one segment", async () => {
 		await runOperation(app, CALLER, "courses.members", {
-			path: { courseId: "../../admin/users?x=1#y" },
+			path: { courseId: "a b?x=1#y%2F" },
 		});
-		expect(seen[0]?.url).toBe(
-			`/courses/${encodeURIComponent("../../admin/users?x=1#y")}/members`,
-		);
+		expect(seen[0]?.url).toBe(`/courses/${encodeURIComponent("a b?x=1#y%2F")}/members`);
+	});
+
+	test.each([".", "..", "../../admin/users", "a/b", "/"])(
+		"a path value of %j could name another route, so it is refused without a request",
+		async (courseId) => {
+			const result = await runOperation(app, CALLER, "courses.members", {
+				path: { courseId },
+			});
+			expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+			expect(seen).toEqual([]);
+		},
+	);
+
+	test("an id of .. is refused before any request", async () => {
+		const result = await runOperation(app, CALLER, "users.disable", {
+			path: { id: ".." },
+		});
+		expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+		expect(seen).toEqual([]);
+	});
+
+	test("a path value the operation does not name is refused without a request", async () => {
+		const result = await runOperation(app, CALLER, "courses.members", {
+			path: { courseId: "c1", userId: "u1" },
+		});
+		expect(result).toMatchObject({
+			ok: false,
+			error: { code: "VALIDATION_FAILED", message: expect.stringContaining("userId") },
+		});
+		expect(seen).toEqual([]);
 	});
 
 	test("query values, lists included, are encoded into the query string", async () => {
@@ -97,7 +125,10 @@ describe("runOperation", () => {
 
 	test("an unknown operation is refused without a request", async () => {
 		const result = await runOperation(app, CALLER, "nothing.here", {});
-		expect(result).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+		expect(result).toMatchObject({
+			ok: false,
+			error: { code: "NOT_AVAILABLE_TO_API_KEYS" },
+		});
 		expect(seen).toEqual([]);
 	});
 
