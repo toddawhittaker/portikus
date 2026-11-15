@@ -177,7 +177,13 @@ export function registerProviders(monaco: typeof Monaco): void {
 		monaco.languages.registerDocumentFormattingEditProvider(language, {
 			async provideDocumentFormattingEdits(model, options) {
 				const found = lookup(model, "format");
-				if (!found?.client.ready?.documentFormattingProvider) return null;
+				if (!found?.client.ready?.documentFormattingProvider) {
+					// The bar shows the main server's state, and Python formats with
+					// another one, so a silent no-op here would look like a fault.
+					const editor = editorOf(monaco, model);
+					if (editor) showEditorMessage(editor, "Format is not available right now.");
+					return null;
+				}
 				const edits = await found.client.request<TextEdit[]>(
 					model,
 					"textDocument/formatting",
