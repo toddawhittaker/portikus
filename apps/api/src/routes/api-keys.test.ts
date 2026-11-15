@@ -304,6 +304,7 @@ describe.skipIf(skip)("renewal and revocation by the owner", () => {
 		const key = await makeKey(ivy.id);
 		const expired = await post(carol.jar, `/admin/api-keys/${key.id}/expire`);
 		expect(expired.json()).toEqual({ affected: 1 });
+		expect(await auditRows("api_key.expired")).toHaveLength(1);
 		expect(await keyStatus(key.secret)).toBe(401);
 		expect(await notices(ivy.id)).toEqual([
 			expect.objectContaining({ title: "An administrator expired your API key" }),
