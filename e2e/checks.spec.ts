@@ -96,7 +96,10 @@ test.describe("checks", () => {
 		await expect(page.getByTestId("check-output-name")).toHaveText("Lint");
 	});
 
-	test("each finished run is kept and listed after a reload", async ({ page, context }) => {
+	test("each finished run is kept and listed after a reload", async ({
+		page,
+		context,
+	}) => {
 		// Check result metadata outlives the page and the agent (SPEC.md §25).
 		const student = await createStudent(context);
 		await openChecks(page, student.workspaceId, "History", CHECKS);
@@ -126,7 +129,10 @@ test.describe("checks", () => {
 			"exit code 0",
 		);
 
-		await history.getByRole("button", { name: /Show output/ }).first().click();
+		await history
+			.getByRole("button", { name: /Show output/ })
+			.first()
+			.click();
 		await expect(history.getByTestId("check-history-output")).toContainText(
 			"all tests passed",
 		);
