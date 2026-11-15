@@ -712,7 +712,9 @@ test("the nightly update switch beside Update coding agents is off by default an
 			name: "Update automatically each night",
 		});
 		await expect(toggle).not.toBeChecked();
-		await expect(toggle).toHaveAccessibleDescription(/once between 3 and 4 a\.m\./);
+		await expect(toggle).toHaveAccessibleDescription(
+			/once between 08:00 and 09:00 UTC/,
+		);
 
 		await toggle.click();
 		// Radix also copies the toast into a hidden live region; this is the visible toast.

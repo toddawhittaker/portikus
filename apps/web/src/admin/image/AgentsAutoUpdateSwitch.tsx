@@ -43,9 +43,9 @@ export function AgentsAutoUpdateSwitch() {
 			<label className="pk-switch text-[13px]">
 				<input
 					type="checkbox"
+					// biome-ignore lint/a11y/useAriaPropsForRole: a native checkbox exposes its checked state to the switch role, so aria-checked would only repeat it.
 					role="switch"
 					data-testid="image-agents-auto-switch"
-					aria-checked={on}
 					checked={on}
 					aria-disabled={save.isPending || undefined}
 					aria-describedby={NOTE}
@@ -55,7 +55,7 @@ export function AgentsAutoUpdateSwitch() {
 			</label>
 			<p id={NOTE} className="pk-muted m-0 text-[13px]">
 				When the daily check finds a newer version, the host runs this update once
-				between 3 and 4 a.m. server time, unless another image job is running.
+				between 08:00 and 09:00 UTC, unless another image job is running.
 			</p>
 			{save.isError ? (
 				<p className="m-0 text-[13px] text-status-error" role="alert">

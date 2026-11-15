@@ -125,7 +125,11 @@ export const IMAGE_JOB_STALE_MS = 3 * 3_600_000 + 5 * 60_000;
 
 export const ImageJobId = z.string().uuid();
 
-/** `requestedBy` for a job the platform asked for itself, such as the nightly agents update (SPEC.md section 22.6). */
+/**
+ * `requestedBy` for a job the platform asked for itself, such as the nightly
+ * agents update (SPEC.md section 22.6). packaging/image/image-job accepts
+ * this same literal in validate_request; change both together.
+ */
 export const IMAGE_JOB_SYSTEM_REQUESTER = "system";
 
 /** `request-<id>.json` as the API writes it. */

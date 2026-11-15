@@ -17,9 +17,9 @@ import {
 } from "./agents-auto-update.js";
 import { imageJobLock } from "./image-jobs.js";
 
-/** Local time on a fixed night, so the test does not depend on the clock. */
+/** UTC on a fixed night, so the test does not depend on the clock or the zone. */
 function at(day: number, hour: number, minute = 10): Date {
-	return new Date(2026, 10, day, hour, minute);
+	return new Date(Date.UTC(2026, 10, day, hour, minute));
 }
 
 const TONIGHT = at(14, AUTO_UPDATE_HOUR);
@@ -88,6 +88,15 @@ describe("decideAgentsAutoUpdate", () => {
 				jobs: [{ ...job("failed", lastNight), kind: "agents-update" }],
 			}),
 		).toBe("start");
+	});
+
+	test("the hour is 08:00 to 09:00 UTC, 03:00 US Eastern standard time", () => {
+		expect(AUTO_UPDATE_HOUR).toBe(8);
+		expect(decideAgentsAutoUpdate({ ...base, now: at(14, 7, 59) })).toBe("not-tonight");
+		expect(decideAgentsAutoUpdate({ ...base, now: at(14, 8, 0) })).toBe("start");
+		expect(decideAgentsAutoUpdate({ ...base, now: at(14, 8, 59) })).toBe("start");
+		expect(decideAgentsAutoUpdate({ ...base, now: at(14, 9, 0) })).toBe("not-tonight");
+		expect(decideAgentsAutoUpdate({ ...base, now: at(14, 3, 0) })).toBe("not-tonight");
 	});
 
 	test("runs only in its hour of the night", () => {
