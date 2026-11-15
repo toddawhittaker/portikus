@@ -1,12 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createApiKey } from "@portikus/auth";
 import {
 	CookieJar,
 	loginAs,
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import type { ApiKeyScope } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -178,6 +180,8 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/api-keys/:id/revoke": 404,
 	// The matrix staff sign in through SSO, which owes no passkey to make a key.
 	"POST /me/api-keys/passkey/start": 400,
+	// The MCP server serves each request on its own, so it has no stream to resume.
+	"GET /mcp": 405,
 	// The sample names nobody who teaches A; live-help.test.ts covers a start.
 	"POST /workspaces/:id/projects/:pid/live-help": 400,
 };
@@ -387,6 +391,16 @@ const QUERIES: Record<string, string> = {
 };
 
 const PAYLOADS: Record<string, object> = {
+	"POST /mcp": {
+		jsonrpc: "2.0",
+		id: 1,
+		method: "initialize",
+		params: {
+			protocolVersion: "2025-06-18",
+			capabilities: {},
+			clientInfo: { name: "matrix", version: "1.0.0" },
+		},
+	},
 	"POST /me/notifications": { tone: "neutral", title: "Saved" },
 	"PATCH /me/notifications/:id": { read: true },
 	"POST /me/acceptable-use": { version: 1 },
@@ -518,6 +532,9 @@ function sampleFor(
 		// Aim at A's real preview host, so only a session could open it.
 		sample.headers.host = `${world.a.label}-5173.preview.localhost`;
 	}
+	if (pattern === "/mcp") {
+		sample.headers.accept = "application/json, text/event-stream";
+	}
 	if (key === "PUT /workspaces/:id/projects/:pid/file") {
 		sample.payload = "hello";
 		sample.headers["content-type"] = "text/plain";
@@ -564,6 +581,22 @@ function actorsOf(world: World) {
 			headers: { authorization: `Bearer ${world.a.agentToken}` },
 		},
 	} satisfies Record<string, Actor>;
+}
+
+/** A fresh API key for a matrix staff member, by sign-in subject. */
+async function keyOf(subject: string, scope: ApiKeyScope): Promise<string> {
+	const owner = await testDb.db
+		.selectFrom("users")
+		.select("id")
+		.where("oidc_subject", "=", subject)
+		.executeTakeFirstOrThrow();
+	const made = await createApiKey(testDb.db, owner.id, {
+		name: "Matrix key",
+		scope,
+		periodDays: 30,
+	});
+	if (!made.ok) throw new Error(`no key for ${subject}: ${made.reason}`);
+	return made.secret;
 }
 
 /**
@@ -735,6 +768,7 @@ const httpKeys = Object.keys(ROUTE_POLICY).filter((key) => {
 });
 
 const signedInOnly: AccessClass[] = [
+	"api-key",
 	"self",
 	"staff",
 	"owner",
@@ -763,8 +797,10 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 						name: "A from a preview Origin",
 						headers: { cookie, origin: preview },
 					};
-					await expectRefused(app, world, key, own, noOrigin, 403);
-					await expectRefused(app, world, key, own, fromPreview, 403);
+					// The MCP door answers every keyless refusal with 401 (SPEC.md section 24.8).
+					const refusal = access === "api-key" ? 401 : 403;
+					await expectRefused(app, world, key, own, noOrigin, refusal);
+					await expectRefused(app, world, key, own, fromPreview, refusal);
 				}
 
 				if (signedInOnly.includes(access)) {
@@ -773,8 +809,21 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
-				if (signedInOnly.includes(access) && !passesGate(key)) {
-					const flagged = withOrigin(key, actors.flagged);
+				const a = withOrigin(key, actors.a);
+				const b = withOrigin(key, actors.b);
+				const admin = withOrigin(key, actors.admin);
+				const instructor = withOrigin(key, actors.instructor);
+				const flagged = withOrigin(key, actors.flagged);
+				const unaccepted = withOrigin(key, actors.unaccepted);
+
+				if (access === "api-key") {
+					// No browser session gets in, whatever it may otherwise reach.
+					for (const actor of [a, b, admin, instructor, flagged, unaccepted]) {
+						await expectRefused(app, world, key, own, actor, 401);
+					}
+				}
+
+				if (signedInOnly.includes(access) && access !== "api-key" && !passesGate(key)) {
 					await expectRefused(app, world, key, own, flagged, 403);
 					if (!key.startsWith("HEAD ")) {
 						const { res } = await send(app, key, own, flagged.headers);
@@ -784,8 +833,11 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
-				if (signedInOnly.includes(access) && !passesUseGate(key)) {
-					const unaccepted = withOrigin(key, actors.unaccepted);
+				if (
+					signedInOnly.includes(access) &&
+					access !== "api-key" &&
+					!passesUseGate(key)
+				) {
 					await expectRefused(app, world, key, own, unaccepted, 403);
 					if (!key.startsWith("HEAD ")) {
 						const { res } = await send(app, key, own, unaccepted.headers);
@@ -795,10 +847,6 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 					}
 				}
 
-				const a = withOrigin(key, actors.a);
-				const b = withOrigin(key, actors.b);
-				const admin = withOrigin(key, actors.admin);
-				const instructor = withOrigin(key, actors.instructor);
 				if (access === "owner" || access === "owner-or-admin") {
 					await expectRefused(app, world, key, own, b, 404);
 					// Teaching A's course gives no way into A's workspace.
@@ -926,6 +974,21 @@ describe.skipIf(skip)("allowed callers get through", () => {
 						case "course-instructor":
 							await expectAllowed(app, key, own, instructor);
 							break;
+						case "api-key": {
+							// Both kinds of key holder get in, whatever the key's scope.
+							for (const [subject, scope] of [
+								["carol", "read"],
+								["ivy", "read"],
+							] as const) {
+								const secret = await keyOf(subject, scope);
+								const holder = {
+									name: `${subject}'s key`,
+									headers: { authorization: `Bearer ${secret}` },
+								};
+								await expectAllowed(app, key, own, holder);
+							}
+							break;
+						}
 					}
 				});
 		});

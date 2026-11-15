@@ -1,11 +1,12 @@
 import { type ApiKeyHooks, touchApiKey } from "@portikus/auth";
-import type { ApiError, ApiKeyScope } from "@portikus/contracts";
+import type { ApiError } from "@portikus/contracts";
 import { auditArrival, type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
-import { operationByKey, type Risk } from "../catalog/index.js";
+import { operationByKey } from "../catalog/index.js";
 import { apiKeyLimit } from "../rate-limit.js";
 import { requestMetadata } from "../sessions/start-session.js";
+import { riskWithinScope, scopeRequiredMessage } from "./scope.js";
 
 /**
  * The scope gate for API key requests (SPEC.md sections 24.8 and 24.13). A
@@ -20,10 +21,6 @@ const KEY_ROUTES: ReadonlySet<string> = new Set([
 	"POST /mcp",
 	"GET /openapi.json",
 ]);
-
-/** Scope is one ordered level: destructive includes write includes read. */
-const SCOPE_LEVEL: Record<ApiKeyScope, number> = { read: 0, write: 1, destructive: 2 };
-const RISK_LEVEL: Record<Risk, number> = { read: 0, change: 1, destructive: 2 };
 
 /** The route a request matched, as `"METHOD url"`; a HEAD counts as its GET. */
 function routeKeyOf(request: FastifyRequest): string {
@@ -106,12 +103,8 @@ export function registerApiKeyGate(
 					"This action is not available to API keys.",
 				);
 			}
-			if (RISK_LEVEL[operation.risk] > SCOPE_LEVEL[key.scope]) {
-				return refuse(
-					reply,
-					"SCOPE_REQUIRED",
-					`This action needs a key with ${operation.risk === "destructive" ? "destructive" : "write"} scope.`,
-				);
+			if (!riskWithinScope(operation.risk, key.scope)) {
+				return refuse(reply, "SCOPE_REQUIRED", scopeRequiredMessage(operation.risk));
 			}
 		}
 		await touchApiKey(db, key.id);
