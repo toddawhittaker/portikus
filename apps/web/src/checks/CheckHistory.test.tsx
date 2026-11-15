@@ -159,3 +159,57 @@ test("a check with no kept runs says so, and a failed load is reported", async (
 	render();
 	await screen.findByTestId("check-history-error");
 });
+
+const FINISHED_RUN = {
+	id: RUN_A,
+	checkId: "tests",
+	state: "passed",
+	startedAt: "2026-11-14T10:05:00.000Z",
+	endedAt: "2026-11-14T10:05:01.000Z",
+	durationMs: 1000,
+	exitCode: 0,
+};
+
+test("opened output can take focus and is named by the time of its run (SPEC.md §25.8)", async () => {
+	stub({ runs: [FINISHED_RUN] }, { [RUN_A]: { output: btoa("all passed\n") } });
+	render();
+	fireEvent.click(await screen.findByRole("button", { name: /Show output/ }));
+	const output = await screen.findByTestId("check-history-output");
+	const when = screen.getByText((_, el) => el?.tagName === "TIME").textContent;
+	expect(output.getAttribute("tabindex")).toBe("0");
+	expect(output.getAttribute("aria-label")).toBe(`Output of the run at ${when}`);
+	expect(screen.getByRole("group", { name: `Output of the run at ${when}` })).toBe(
+		output,
+	);
+});
+
+test("the loading and no-longer-kept messages are status messages (SPEC.md §25.8)", async () => {
+	let release: () => void = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			if (String(input).endsWith("/output")) {
+				await gate;
+				return json({ code: "NOT_FOUND", message: "gone" }, 404);
+			}
+			return json({ runs: [FINISHED_RUN] });
+		}),
+	);
+	render();
+	fireEvent.click(await screen.findByRole("button", { name: /Show output/ }));
+	expect((await screen.findByText("Loading…")).getAttribute("role")).toBe("status");
+	release();
+	const gone = await screen.findByText("The output of this run is no longer kept.");
+	expect(gone.getAttribute("role")).toBe("status");
+});
+
+test("loaded output is not a live region", async () => {
+	stub({ runs: [FINISHED_RUN] }, { [RUN_A]: { output: btoa("all passed\n") } });
+	render();
+	fireEvent.click(await screen.findByRole("button", { name: /Show output/ }));
+	const output = await screen.findByTestId("check-history-output");
+	expect(output.closest('[role="status"], [aria-live]')).toBeNull();
+});

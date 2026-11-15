@@ -106,11 +106,24 @@ function HistoryRow({
 			{open && (
 				<div id={outputId}>
 					{output.isError ? (
-						<p className="pk-hint">The output of this run is no longer kept.</p>
+						<p className="pk-hint" role="status">
+							The output of this run is no longer kept.
+						</p>
 					) : output.data === undefined ? (
-						<p className="pk-hint">Loading…</p>
+						<p className="pk-hint" role="status">
+							Loading…
+						</p>
 					) : (
-						<pre className="pk-check-history-output" data-testid="check-history-output">
+						// Focusable so keyboard users can scroll long output in every browser (SPEC.md §25.8).
+						// biome-ignore lint/a11y/useSemanticElements: a pre cannot be a fieldset; the role lets it carry a name
+						<pre
+							className="pk-check-history-output pk-focus-inset"
+							data-testid="check-history-output"
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling box must be reachable by keyboard
+							tabIndex={0}
+							role="group"
+							aria-label={`Output of the run at ${when}`}
+						>
 							{plainOutput(output.data) || "(no output)"}
 						</pre>
 					)}
