@@ -357,7 +357,13 @@ function growing(used: number) {
 				effort: "medium",
 				mode: "default",
 			},
-			growth: { firstUsedTokens: 58_000, messagesSent: 1, contextEvents: 1 },
+			growth: {
+				firstUsedTokens: 58_000,
+				messagesSent: 1,
+				contextEvents: 1,
+				usedAfterFirstMessage: null,
+				firstMessageEvents: 0,
+			},
 			context: report(used, 1_000_000, { agoSeconds: 0, ttlSeconds: 3600 }),
 		}),
 	);
@@ -444,7 +450,13 @@ test("a Codex chat on the 30-minute cache goes cold too", () => {
 				effort: "medium",
 				mode: "default",
 			},
-			growth: { firstUsedTokens: 58_000, messagesSent: 1, contextEvents: 1 },
+			growth: {
+				firstUsedTokens: 58_000,
+				messagesSent: 1,
+				contextEvents: 1,
+				usedAfterFirstMessage: null,
+				firstMessageEvents: 0,
+			},
 			context: {
 				...report(100_000, 475_000, null),
 				cache: { at: START, ttlSeconds: 1800 },

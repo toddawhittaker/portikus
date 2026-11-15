@@ -87,6 +87,8 @@ test("the fallbacks stand until two messages are seen, then the observed rates",
 		windowTokens: 1_000_000,
 		firstUsedTokens: 58_000,
 		contextEvents: 1,
+		usedAfterFirstMessage: null,
+		firstMessageEvents: 0,
 		prices: ONE_HOUR,
 	};
 	// Fallbacks reproduce the first reference: S = 66,000, C* = 156,000.
@@ -96,12 +98,15 @@ test("the fallbacks stand until two messages are seen, then the observed rates",
 	expect(FALLBACK_REQUESTS).toBe(14);
 	expect(HANDOFF_TOKENS).toBe(8000);
 
-	// Observed: g = (94,000 - 58,000) / 2 = 18,000; q = 28 / 2 = 14.
+	// Observed: a warm-up of 76,000 - 58,000 = 18,000 in 14 requests, then
+	// g = 94,000 - 76,000 = 18,000 and q = 28 - 14 = 14 for the second message.
 	const observed = estimateRestart({
 		...base,
 		usedTokens: 94_000,
 		messagesSent: 2,
 		contextEvents: 28,
+		usedAfterFirstMessage: 76_000,
+		firstMessageEvents: 14,
 	});
 	expect(observed).toEqual({ messagesLeft: 3, restartAt: 156_000, bestRun: 5 });
 });
@@ -113,6 +118,8 @@ test("growth is floored at 1000 and requests at 1", () => {
 		firstUsedTokens: 50_000,
 		messagesSent: 4,
 		contextEvents: 0,
+		usedAfterFirstMessage: 50_000,
+		firstMessageEvents: 0,
 		prices: ONE_HOUR,
 	});
 	// With g = 1000, the restart size and messages left step in thousands.
@@ -139,6 +146,8 @@ test("messages left is never negative", () => {
 		firstUsedTokens: 58_000,
 		messagesSent: 1,
 		contextEvents: 14,
+		usedAfterFirstMessage: null,
+		firstMessageEvents: 0,
 		prices: ONE_HOUR,
 	});
 	expect(late.messagesLeft).toBe(0);
@@ -152,6 +161,8 @@ describe("a cold cache", () => {
 		firstUsedTokens: 48_000,
 		messagesSent: 1,
 		contextEvents: 14,
+		usedAfterFirstMessage: null,
+		firstMessageEvents: 0,
 		prices: ONE_HOUR,
 	};
 
@@ -167,5 +178,87 @@ describe("a cold cache", () => {
 		// At the fresh chat's own size, a cold write costs the same either way.
 		expect(estimateRestart({ ...small, cold: true })).toEqual(warm);
 		expect(estimateRestart({ ...small, cold: false })).toEqual(warm);
+	});
+});
+
+describe("the first message is a warm-up", () => {
+	const opus = priceRatios("claude", "claude-opus-5-5", 3600);
+	/** A chat that starts at 30k and whose first message adds `warmup` tokens in `warmupRequests` requests. */
+	function counts(
+		warmup: number,
+		warmupRequests: number,
+		later: readonly (readonly [number, number])[],
+	): number[] {
+		const firstUsedTokens = 30_000;
+		const after = firstUsedTokens + warmup;
+		let used = after;
+		let events = warmupRequests;
+		const estimate = (messagesSent: number) =>
+			estimateRestart({
+				usedTokens: used,
+				windowTokens: 1_000_000,
+				firstUsedTokens,
+				messagesSent,
+				contextEvents: events,
+				usedAfterFirstMessage: after,
+				firstMessageEvents: warmupRequests,
+				prices: opus,
+			}).messagesLeft;
+		const shown = [estimate(1)];
+		later.forEach(([tokens, requests], index) => {
+			used += tokens;
+			events += requests;
+			shown.push(estimate(index + 2));
+		});
+		return shown;
+	}
+	const MIXED = [
+		[6000, 4],
+		[10_000, 7],
+		[4000, 2],
+		[12_000, 9],
+		[8000, 5],
+		[5000, 3],
+	] as const;
+	const SIMILAR = Array.from(
+		{ length: 8 },
+		(_, i) => [i % 2 ? 9000 : 7000, 5] as const,
+	);
+
+	test("a heavy warm-up does not make a fresh chat look cheaper right away", () => {
+		for (const left of counts(45_000, 30, MIXED)) expect(left).toBeGreaterThan(0);
+	});
+
+	test("messages of similar size move the count by at most one", () => {
+		// From the third message on, once the steady rate rests on observed messages.
+		const shown = counts(45_000, 30, SIMILAR).slice(2);
+		for (let i = 1; i < shown.length; i++) {
+			expect(Math.abs((shown[i] ?? 0) - (shown[i - 1] ?? 0))).toBeLessThanOrEqual(1);
+		}
+	});
+
+	test("a heavier warm-up makes restarting later, not sooner", () => {
+		const light = counts(10_000, 5, SIMILAR);
+		const heavy = counts(45_000, 30, SIMILAR);
+		light.forEach((left, i) => {
+			expect(heavy[i] ?? 0).toBeGreaterThanOrEqual(left);
+		});
+		expect(heavy.at(-1) ?? 0).toBeGreaterThan(light.at(-1) ?? 0);
+	});
+
+	test("the fresh chat's first message repeats the warm-up, written cold", () => {
+		const start = 66_000;
+		const warmup = { growth: 40_000, requests: 30 };
+		// One message run: the fresh chat ends at its start plus the warm-up.
+		expect(bestRestart(start, 18_000, 14, 120_000, ONE_HOUR, warmup)).toEqual({
+			bestRun: 1,
+			restartAt: 106_000,
+		});
+		const run = bestRestart(start, 18_000, 14, 1_000_000, ONE_HOUR, warmup);
+		expect(run.restartAt).toBe(start + 40_000 + (run.bestRun - 1) * 18_000);
+		// A costlier first message is spread over a longer run.
+		expect(run.bestRun).toBeGreaterThan(
+			bestRestart(start, 18_000, 14, 1_000_000, ONE_HOUR).bestRun,
+		);
 	});
 });

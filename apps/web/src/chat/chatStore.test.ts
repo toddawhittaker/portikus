@@ -1087,32 +1087,46 @@ test("the conversation's growth is counted for the fresh-chat hint, and a snapsh
 		frame("context", 3, used(30_000)),
 		frame("context", 4, used(34_000)),
 		frame("message", 5, { id: "a1", role: "assistant", markdown: "ok" }),
+		// The first message's end is its warm-up, kept apart for the estimate.
+		frame("turn.finished", 6, { status: "done", at: 1 }),
 		// The same message again updates it in place and is not counted twice.
-		frame("message", 6, { id: "u1", role: "user", markdown: "one" }),
-		frame("message", 7, { id: "u2", role: "user", markdown: "two" }),
-		frame("context", 8, used(50_000)),
+		frame("message", 7, { id: "u1", role: "user", markdown: "one" }),
+		frame("message", 8, { id: "u2", role: "user", markdown: "two" }),
+		frame("context", 9, used(50_000)),
+		// A later turn's end leaves the warm-up alone.
+		frame("turn.finished", 10, { status: "done", at: 2 }),
 	]);
 	expect(state.growth).toEqual({
 		firstUsedTokens: 30_000,
 		messagesSent: 2,
 		contextEvents: 3,
+		usedAfterFirstMessage: 34_000,
+		firstMessageEvents: 2,
 	});
 
 	// /clear and an agent swap both arrive as a new snapshot.
-	state = feed([snapshot(9)], state);
+	state = feed([snapshot(11)], state);
 	expect(state.growth).toEqual({
 		firstUsedTokens: null,
 		messagesSent: 0,
 		contextEvents: 0,
+		usedAfterFirstMessage: null,
+		firstMessageEvents: 0,
 	});
-	state = feed([frame("context", 10, used(12_000))], state);
+	state = feed([frame("context", 12, used(12_000))], state);
 	expect(state.growth.firstUsedTokens).toBe(12_000);
 });
 
 test("the host's growth counts win over the browser's, and survive a reconnect", () => {
 	const context = (
 		usedTokens: number,
-		growth: { startTokens: number; messages: number; requests: number },
+		growth: {
+			startTokens: number;
+			messages: number;
+			requests: number;
+			firstMessageTokens?: number;
+			firstMessageRequests?: number;
+		},
 	) => ({
 		usedTokens,
 		windowTokens: 1_000_000,
@@ -1125,13 +1139,21 @@ test("the host's growth counts win over the browser's, and survive a reconnect",
 		frame(
 			"context",
 			2,
-			context(80_000, { startTokens: 20_000, messages: 9, requests: 30 }),
+			context(80_000, {
+				startTokens: 20_000,
+				messages: 9,
+				requests: 30,
+				firstMessageTokens: 45_000,
+				firstMessageRequests: 12,
+			}),
 		),
 	]);
 	expect(before.growth).toEqual({
 		firstUsedTokens: 20_000,
 		messagesSent: 9,
 		contextEvents: 30,
+		usedAfterFirstMessage: 45_000,
+		firstMessageEvents: 12,
 	});
 
 	// A reconnect replays only the last turns, then the host's context.
@@ -1141,7 +1163,13 @@ test("the host's growth counts win over the browser's, and survive a reconnect",
 		frame(
 			"context",
 			12,
-			context(80_000, { startTokens: 20_000, messages: 9, requests: 30 }),
+			context(80_000, {
+				startTokens: 20_000,
+				messages: 9,
+				requests: 30,
+				firstMessageTokens: 45_000,
+				firstMessageRequests: 12,
+			}),
 		),
 	]);
 	expect(after.growth).toEqual(before.growth);
@@ -1153,4 +1181,16 @@ test("the host's growth counts win over the browser's, and survive a reconnect",
 		frame("context", 1, context(0, { startTokens: 0, messages: 0, requests: 0 })),
 	]);
 	expect(fresh.growth.firstUsedTokens).toBeNull();
+
+	// An older host sends no warm-up; the estimate waits for it as before one is recorded.
+	const older = feed([
+		snapshot(0),
+		frame(
+			"context",
+			1,
+			context(50_000, { startTokens: 20_000, messages: 2, requests: 8 }),
+		),
+	]);
+	expect(older.growth.usedAfterFirstMessage).toBeNull();
+	expect(older.growth.firstMessageEvents).toBe(0);
 });

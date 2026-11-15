@@ -304,12 +304,19 @@ describe("agent swaps", () => {
 		before.send({ type: "send", text: "hi", attachments: [] });
 		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
 		agent.sink.context({ usedTokens: 300, windowTokens: 100, cache: null }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 2 });
 		const next = await startAfter(BEFORE, true);
 		next.historyContext = { usedTokens: 300, windowTokens: 100, cache: null };
 		const client = await attached();
 		await vi.waitFor(() => expect(types(client)).toContain("context"));
 		expect(client.events.find((event) => event.type === "context")).toMatchObject({
-			growth: { startTokens: 0, messages: 0, requests: 0 },
+			growth: {
+				startTokens: 0,
+				messages: 0,
+				requests: 0,
+				firstMessageTokens: 0,
+				firstMessageRequests: 0,
+			},
 		});
 	});
 

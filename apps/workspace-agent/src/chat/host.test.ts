@@ -1411,6 +1411,8 @@ describe("context usage", () => {
 			startTokens: 700,
 			messages: 0,
 			requests: 0,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
 		});
 	});
 

@@ -307,6 +307,8 @@ describe.each(["claude", "codex"] as const)("a handoff in a %s chat", (name) => 
 				startTokens: 10,
 				messages: 1,
 				requests: 1,
+				firstMessageTokens: 0,
+				firstMessageRequests: 0,
 			}),
 		);
 		// No error reached the student.

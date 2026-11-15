@@ -402,6 +402,27 @@ describe("the automatic handoff", () => {
 		expect(prompts()).toBe(0);
 	});
 
+	test("a restarted host keeps the first message's warm-up for the fresh-chat estimate", async () => {
+		await startCore();
+		const client = await attached();
+		await longChat(client);
+		await vi.waitFor(async () =>
+			expect((await readAutoHandoff(dir, ID))?.growth).toMatchObject({
+				firstMessageTokens: 20_000,
+				firstMessageRequests: 1,
+			}),
+		);
+		const again = await restart(client);
+		again.send({ type: "send", text: "more", attachments: [] });
+		await vi.waitFor(() =>
+			expect(last(again, "context")?.growth).toMatchObject({
+				messages: 3,
+				firstMessageTokens: 20_000,
+				firstMessageRequests: 1,
+			}),
+		);
+	});
+
 	test("a restarted host with no saved start size writes no note until it knows one", async () => {
 		await startCore();
 		const client = await attached();

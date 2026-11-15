@@ -506,6 +506,23 @@ export const ChatSubagentEvent = z.discriminatedUnion("type", [
 ]);
 export type ChatSubagentEvent = z.infer<typeof ChatSubagentEvent>;
 
+/**
+ * How a conversation has grown, counted by the host so a reload keeps it
+ * (SPEC.md section 10.8). The first message's figures are its warm-up.
+ */
+export const ChatGrowthCounts = z.object({
+	/** The first nonzero used-token figure; 0 until one arrives. */
+	startTokens: z.number().int().nonnegative(),
+	/** Messages the student has sent. */
+	messages: z.number().int().nonnegative(),
+	/** Requests to the model, one per figure with tokens in use. */
+	requests: z.number().int().nonnegative(),
+	/** Context size once the first message finished; 0 until it has. Older hosts leave it out. */
+	firstMessageTokens: z.number().int().nonnegative().optional(),
+	/** Requests to the model the first message took. */
+	firstMessageRequests: z.number().int().nonnegative().optional(),
+});
+
 export const ChatServerEvent = z.discriminatedUnion("type", [
 	SnapshotEvent,
 	TurnStartedEvent,
@@ -672,16 +689,7 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		 * How this conversation has grown, counted by the host so a reload
 		 * keeps it (SPEC.md section 10.8); older hosts leave it out.
 		 */
-		growth: z
-			.object({
-				/** The first nonzero used-token figure; 0 until one arrives. */
-				startTokens: z.number().int().nonnegative(),
-				/** Messages the student has sent. */
-				messages: z.number().int().nonnegative(),
-				/** Requests to the model, one per figure with tokens in use. */
-				requests: z.number().int().nonnegative(),
-			})
-			.optional(),
+		growth: ChatGrowthCounts.optional(),
 	}),
 	/** A `!` shell command: sent when it starts and again, same id, when it ends. */
 	z.object({ type: z.literal("shell"), ...Envelope, ...ShellCommandFields }),

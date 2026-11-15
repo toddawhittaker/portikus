@@ -14,6 +14,15 @@ import {
 /** How the conversation has grown, which the core counts and this keeps across a restart. */
 export type ChatGrowth = NonNullable<AutoHandoffRecord["growth"]>;
 
+/** A conversation that has not started. */
+export const NO_GROWTH: ChatGrowth = {
+	startTokens: 0,
+	messages: 0,
+	requests: 0,
+	firstMessageTokens: 0,
+	firstMessageRequests: 0,
+};
+
 /**
  * The automatic handoff's notes and notices for one chat (SPEC.md §10.8):
  * the timer, the note it writes, the notices kept for replay, and starting

@@ -15,7 +15,13 @@ const WINDOW = 1_000_000;
 async function setUsed(
 	id: string,
 	usedTokens: number,
-	growth?: { startTokens: number; messages: number; requests: number },
+	growth?: {
+		startTokens: number;
+		messages: number;
+		requests: number;
+		firstMessageTokens?: number;
+		firstMessageRequests?: number;
+	},
 ) {
 	const sent = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/context`, {
 		method: "POST",
@@ -52,10 +58,16 @@ for (const colorScheme of ["dark", "light"] as const) {
 		await setUsed(id, 30_000);
 		await sendMessage(view, "first");
 		await expect(view.getByText("first", { exact: true })).toBeVisible();
-		await setUsed(id, 50_000);
 		await sendMessage(view, "second");
 		await expect(view.getByText("second", { exact: true })).toBeVisible();
-		await setUsed(id, 70_000);
+		// The host's counts: a heavy warm-up of 30k to 60k, then 10k for the second message.
+		await setUsed(id, 70_000, {
+			startTokens: 30_000,
+			messages: 2,
+			requests: 4,
+			firstMessageTokens: 60_000,
+			firstMessageRequests: 2,
+		});
 
 		await expect(hint.locator(".pk-ctx-sight")).toHaveText(
 			/^About \d+ more messages? before a fresh chat saves usage$/,
@@ -129,8 +141,14 @@ test("a reload keeps the estimate, from the counts the host keeps", async ({
 	await expect(view.getByText("first", { exact: true })).toBeVisible();
 	await sendMessage(view, "second");
 	await expect(view.getByText("second", { exact: true })).toBeVisible();
-	// Three requests a message, which a reloaded browser could not count itself.
-	await setUsed(id, 70_000, { startTokens: 30_000, messages: 2, requests: 7 });
+	// A warm-up and request counts a reloaded browser could not count itself.
+	await setUsed(id, 70_000, {
+		startTokens: 30_000,
+		messages: 2,
+		requests: 7,
+		firstMessageTokens: 60_000,
+		firstMessageRequests: 4,
+	});
 	// Read the estimate only once the new figures have reached the page.
 	await expect(view.getByTestId("composer-context")).toContainText("70.0k");
 	const sight = view.getByTestId("composer-restart").locator(".pk-ctx-sight");

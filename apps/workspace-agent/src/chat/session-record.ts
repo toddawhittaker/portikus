@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import {
 	ChatCacheFigures,
+	ChatGrowthCounts,
 	CodingAgent,
 	HandoffNoteHash,
 	HandoffNotePath,
@@ -244,13 +245,11 @@ export const AutoHandoffRecord = z.object({
 		})
 		.nullable(),
 	/** How the conversation has grown since it began; a file from before this was kept has none. */
-	growth: z
-		.object({
-			startTokens: z.number().int().nonnegative(),
-			messages: z.number().int().nonnegative(),
-			requests: z.number().int().nonnegative(),
-		})
-		.optional(),
+	growth: ChatGrowthCounts.extend({
+		// Older files have no warm-up: 0 means none recorded yet.
+		firstMessageTokens: z.number().int().nonnegative().default(0),
+		firstMessageRequests: z.number().int().nonnegative().default(0),
+	}).optional(),
 	notices: z
 		.array(
 			z.object({

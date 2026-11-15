@@ -2,7 +2,9 @@
  * How many more messages the student can send before a fresh chat would use
  * less of their plan (SPEC.md §10.8). Every request re-reads the whole
  * conversation, so a long chat costs more per message; this compares that
- * with a fresh chat that starts from a handoff note. It assumes plan usage
+ * with a fresh chat that starts from a handoff note. The first message is
+ * a warm-up: it is left out of the per-message rates, and the fresh chat is
+ * assumed to repeat it. It assumes plan usage
  * tracks API prices, so it is an estimate.
  */
 
@@ -49,9 +51,9 @@ const PRICE_TABLE = {
 } as const;
 
 export { HANDOFF_TOKENS };
-/** Context growth per message until two messages have been seen. */
+/** Context growth per message until a second message has been sent. */
 export const FALLBACK_GROWTH = 18_000;
-/** Requests to the model per message until two messages have been seen. */
+/** Requests to the model per message until a second message has been sent. */
 export const FALLBACK_REQUESTS = 14;
 const MIN_GROWTH = 1000;
 const MIN_REQUESTS = 1;
@@ -90,6 +92,10 @@ export interface RestartInputs {
 	firstUsedTokens: number;
 	messagesSent: number;
 	contextEvents: number;
+	/** Context size once the first message finished; null until it has. */
+	usedAfterFirstMessage: number | null;
+	/** Requests to the model the first message took. */
+	firstMessageEvents: number;
 	prices: PriceRatios;
 	/** The prompt cache is known to have expired, so the next message re-writes it. */
 	cold?: boolean;
@@ -104,17 +110,34 @@ export interface RestartEstimate {
 	bestRun: number;
 }
 
-/** Growth and requests per message: observed after two messages, else the fallbacks. */
-function chatRates(inputs: RestartInputs): { growth: number; requests: number } {
-	if (inputs.messagesSent < 2) {
-		return { growth: FALLBACK_GROWTH, requests: FALLBACK_REQUESTS };
-	}
+export interface Rates {
+	growth: number;
+	requests: number;
+}
+
+/**
+ * The first message is a warm-up (the agent explores the project), so it is
+ * kept out of the steady rates and repeated by a fresh chat (SPEC.md §10.8).
+ */
+function chatRates(inputs: RestartInputs): { steady: Rates; warmup: Rates } {
+	const fallback = { growth: FALLBACK_GROWTH, requests: FALLBACK_REQUESTS };
+	const after = inputs.usedAfterFirstMessage;
+	if (after === null) return { steady: fallback, warmup: fallback };
+	const warmup = {
+		growth: Math.max(MIN_GROWTH, after - inputs.firstUsedTokens),
+		requests: Math.max(MIN_REQUESTS, inputs.firstMessageEvents),
+	};
+	if (inputs.messagesSent < 2) return { steady: fallback, warmup };
+	const later = inputs.messagesSent - 1;
 	return {
-		growth: Math.max(
-			MIN_GROWTH,
-			(inputs.usedTokens - inputs.firstUsedTokens) / inputs.messagesSent,
-		),
-		requests: Math.max(MIN_REQUESTS, inputs.contextEvents / inputs.messagesSent),
+		steady: {
+			growth: Math.max(MIN_GROWTH, (inputs.usedTokens - after) / later),
+			requests: Math.max(
+				MIN_REQUESTS,
+				(inputs.contextEvents - inputs.firstMessageEvents) / later,
+			),
+		},
+		warmup,
 	};
 }
 
@@ -136,40 +159,40 @@ export function messageCost(
 	);
 }
 
-/** The best run length and restart size for a fresh chat starting at `start`. */
+/**
+ * The best run length and restart size for a fresh chat starting at `start`.
+ * Its first message costs `warmup`, written cold; later ones grow at the steady rates.
+ */
 export function bestRestart(
 	start: number,
 	growth: number,
 	requests: number,
 	windowTokens: number,
 	prices: PriceRatios,
+	warmup: Rates = { growth, requests },
 ): { bestRun: number; restartAt: number } {
+	const sizeAfter = (run: number) => start + warmup.growth + (run - 1) * growth;
 	const maxRun = Math.max(
 		1,
-		Math.floor((WINDOW_SHARE * windowTokens - start) / growth),
+		Math.floor((WINDOW_SHARE * windowTokens - start - warmup.growth) / growth) + 1,
 	);
-	let total = 0;
+	let total = messageCost(start, true, warmup.growth, warmup.requests, prices);
 	let bestRun = 1;
-	let bestAverage = Number.POSITIVE_INFINITY;
-	for (let run = 1; run <= maxRun; run++) {
-		total += messageCost(
-			start + (run - 1) * growth,
-			run === 1,
-			growth,
-			requests,
-			prices,
-		);
+	let bestAverage = total;
+	for (let run = 2; run <= maxRun; run++) {
+		total += messageCost(sizeAfter(run - 1), false, growth, requests, prices);
 		const average = total / run;
 		if (average < bestAverage) {
 			bestAverage = average;
 			bestRun = run;
 		}
 	}
-	return { bestRun, restartAt: start + bestRun * growth };
+	return { bestRun, restartAt: sizeAfter(bestRun) };
 }
 
 export function estimateRestart(inputs: RestartInputs): RestartEstimate {
-	const { growth, requests } = chatRates(inputs);
+	const { steady, warmup } = chatRates(inputs);
+	const { growth, requests } = steady;
 	const start = inputs.firstUsedTokens + HANDOFF_TOKENS;
 	const { bestRun, restartAt } = bestRestart(
 		start,
@@ -177,10 +200,11 @@ export function estimateRestart(inputs: RestartInputs): RestartEstimate {
 		requests,
 		inputs.windowTokens,
 		inputs.prices,
+		warmup,
 	);
 	if (
 		inputs.cold &&
-		coldCostsMore(inputs.usedTokens, start, growth, requests, inputs.prices)
+		coldCostsMore(inputs.usedTokens, start, steady, warmup, inputs.prices)
 	) {
 		return { messagesLeft: 0, restartAt, bestRun };
 	}
@@ -199,12 +223,12 @@ export function estimateRestart(inputs: RestartInputs): RestartEstimate {
 function coldCostsMore(
 	used: number,
 	start: number,
-	growth: number,
-	requests: number,
+	steady: Rates,
+	warmup: Rates,
 	prices: PriceRatios,
 ): boolean {
-	const extra = (size: number) =>
-		messageCost(size, true, growth, requests, prices) -
-		messageCost(size, false, growth, requests, prices);
-	return extra(used) > extra(start);
+	const extra = (size: number, rates: Rates) =>
+		messageCost(size, true, rates.growth, rates.requests, prices) -
+		messageCost(size, false, rates.growth, rates.requests, prices);
+	return extra(used, steady) > extra(start, warmup);
 }

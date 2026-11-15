@@ -176,11 +176,30 @@ test("the automatic handoff state holds paths, hashes and growth, and refuses mo
 	const record = {
 		written: false,
 		figures: null,
-		growth: { startTokens: 20_000, messages: 2, requests: 3 },
+		growth: {
+			startTokens: 20_000,
+			messages: 2,
+			requests: 3,
+			firstMessageTokens: 26_000,
+			firstMessageRequests: 2,
+		},
 		notices: [notice],
 	};
 	await writeAutoHandoff(home, A, record);
 	expect(await readAutoHandoff(home, A)).toEqual(record);
+	// A file from before the warm-up was kept reads as no warm-up yet.
+	const {
+		firstMessageTokens: _t,
+		firstMessageRequests: _r,
+		...olderGrowth
+	} = record.growth;
+	const autoPath = join(chatSessionsDir(home), `${A}.auto-handoff.json`);
+	await writeFile(autoPath, JSON.stringify({ ...record, growth: olderGrowth }));
+	expect((await readAutoHandoff(home, A))?.growth).toEqual({
+		...olderGrowth,
+		firstMessageTokens: 0,
+		firstMessageRequests: 0,
+	});
 	await writeAutoHandoff(home, A, {
 		...record,
 		notices: Array.from({ length: 21 }, () => notice),

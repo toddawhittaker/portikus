@@ -632,7 +632,58 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			startTokens: 500,
 			messages: 2,
 			requests: 2,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
 		});
+	});
+
+	test("the first message's end is kept as its warm-up, and a later turn leaves it alone", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.context({ ...FIGURES, usedTokens: 900 }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 2 });
+		// The recorded warm-up reaches the browser without waiting for another figure.
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toEqual({
+				startTokens: 300,
+				messages: 1,
+				requests: 2,
+				firstMessageTokens: 900,
+				firstMessageRequests: 2,
+			}),
+		);
+		client.send({ type: "send", text: "more", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "more", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 1000 }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 3 });
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({ messages: 2, requests: 3 }),
+		);
+		expect(growthOf(client)?.growth).toMatchObject({
+			firstMessageTokens: 900,
+			firstMessageRequests: 2,
+		});
+	});
+
+	test("a conversation reset forgets the warm-up", async () => {
+		const client = await attached();
+		client.send({ type: "send", text: "hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
+		agent.sink.context({ ...FIGURES, usedTokens: 300 }, true);
+		agent.sink.emit({ type: "turn.finished", status: "done", at: 2 });
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({ firstMessageTokens: 300 }),
+		);
+		agent.sink.conversationReset(FIGURES);
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({
+				messages: 0,
+				firstMessageTokens: 0,
+				firstMessageRequests: 0,
+			}),
+		);
 	});
 
 	test("a browser attaching later is sent the counts with the context", async () => {
@@ -647,6 +698,8 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			startTokens: 300,
 			messages: 1,
 			requests: 1,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
 		});
 	});
 
@@ -663,6 +716,8 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			startTokens: 0,
 			messages: 0,
 			requests: 0,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
 		});
 	});
 
@@ -682,6 +737,8 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			startTokens: 600,
 			messages: 0,
 			requests: 1,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
 		});
 		// The conversation itself is untouched: no new snapshot.
 		expect(client.events.filter((event) => event.type === "snapshot")).toHaveLength(1);
@@ -704,6 +761,8 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			startTokens: 250,
 			messages: 0,
 			requests: 0,
+			firstMessageTokens: 0,
+			firstMessageRequests: 0,
 		});
 	});
 });

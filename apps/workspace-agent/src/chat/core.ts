@@ -27,7 +27,7 @@ import type {
 	ContextFigures,
 } from "./agent.js";
 import { type Clock, systemClock } from "./auto-handoff.js";
-import { AutoHandoffNotes } from "./auto-handoff-notes.js";
+import { AutoHandoffNotes, type ChatGrowth, NO_GROWTH } from "./auto-handoff-notes.js";
 import { type FreshDivider, FreshStart, HANDOFF_COMMAND_INFO } from "./fresh-start.js";
 import { capLog, lastTurns, newHandoffId, turnsFromEvents } from "./handoff.js";
 import { OpenCards } from "./open-cards.js";
@@ -126,7 +126,9 @@ export class ChatCore {
 	 * keeps it (SPEC.md section 10.8). A resumed session counts from the resume;
 	 * a restarted host takes it up from the automatic handoff's state.
 	 */
-	private growth = { startTokens: 0, messages: 0, requests: 0 };
+	private growth: ChatGrowth = { ...NO_GROWTH };
+	/** The latest figures, re-sent when the first message's warm-up is recorded. */
+	private lastFigures: ContextFigures | null = null;
 	/** The last used-token figure, to see a compaction no driver reported. */
 	private lastUsedTokens = 0;
 	/** A compaction happened; the next figures restart the growth counts (SPEC.md §10.8). */
@@ -173,9 +175,10 @@ export class ChatCore {
 			if (figures.usedTokens > 0 && figures.usedTokens < last / 2)
 				this.compacted = true;
 			if (figures.usedTokens > 0) this.lastUsedTokens = figures.usedTokens;
+			this.lastFigures = figures;
 			if (this.compacted && figures.usedTokens > 0) {
 				this.compacted = false;
-				this.growth = { startTokens: figures.usedTokens, messages: 0, requests: 0 };
+				this.growth = { ...NO_GROWTH, startTokens: figures.usedTokens };
 				this.auto.growthChanged();
 			} else if (request && figures.usedTokens > 0) {
 				if (this.growth.startTokens === 0) this.growth.startTokens = figures.usedTokens;
@@ -418,11 +421,13 @@ export class ChatCore {
 
 	/** Broadcast one event, keeping the turn's state and streaming reply for late attachers. */
 	private relay(event: ChatEventBody): void {
+		let warmedUp = false;
 		if (event.type === "turn.started") {
 			this.turnRunning = true;
 		} else if (event.type === "turn.finished") {
 			this.turnRunning = false;
 			this.partial = null;
+			warmedUp = this.recordWarmup();
 		} else if (event.type === "text.delta") {
 			const text = this.partial?.id === event.messageId ? this.partial.text : "";
 			this.partial = { id: event.messageId, text: text + event.text };
@@ -431,6 +436,22 @@ export class ChatCore {
 		}
 		this.fresh.observe(event);
 		this.broadcast(event);
+		if (warmedUp && this.lastFigures)
+			this.broadcast(this.contextEvent(this.lastFigures));
+	}
+
+	/**
+	 * The first message is the agent's warm-up; its size and requests are kept
+	 * apart from the steady rates the fresh-chat estimate uses (SPEC.md §10.8).
+	 */
+	private recordWarmup(): boolean {
+		const growth = this.growth;
+		if (growth.messages !== 1 || growth.firstMessageTokens > 0) return false;
+		if (this.lastUsedTokens === 0) return false;
+		growth.firstMessageTokens = this.lastUsedTokens;
+		growth.firstMessageRequests = growth.requests;
+		this.auto.growthChanged();
+		return true;
 	}
 
 	/**
@@ -492,7 +513,8 @@ export class ChatCore {
 	private conversationReset(context: ContextFigures | null): void {
 		this.resets += 1;
 		this.partial = null;
-		this.growth = { startTokens: 0, messages: 0, requests: 0 };
+		this.growth = { ...NO_GROWTH };
+		this.lastFigures = context;
 		this.lastUsedTokens = 0;
 		this.compacted = false;
 		this.auto.reset();

@@ -33,6 +33,7 @@ import {
 	grownBy,
 	NO_GROWTH,
 	sentOne,
+	turnFinished,
 } from "./chatGrowth.js";
 import {
 	applyFreshStart,
@@ -359,7 +360,13 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 		case "turn.started":
 			return startTurn(state, event);
 		case "turn.finished":
-			return finishTurn(state, event);
+			return finishTurn(
+				{
+					...state,
+					growth: turnFinished(state.growth, state.context?.usedTokens ?? 0),
+				},
+				event,
+			);
 		case "text.delta":
 			return appendText(state, event, now);
 		case "message":
