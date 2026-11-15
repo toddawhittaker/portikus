@@ -668,6 +668,8 @@ describe("database migrations and schema", () => {
 					"0054_alert_state",
 					"0055_check_runs",
 					"0057_coding_agents_auto_update",
+					"0058_api_keys",
+					"0059_audit_arrival",
 				]);
 				throw rollback;
 			}),
@@ -2084,10 +2086,14 @@ describe("resource guard migration", () => {
 						"0054_alert_state",
 						"0055_check_runs",
 						"0057_coding_agents_auto_update",
+						"0058_api_keys",
+						"0059_audit_arrival",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0057 down to 0020, and 0018 (applied 0018, 0020 to 0057, 0019).
+					// Undo 0019, 0059 down to 0020, and 0018 (applied 0018, 0020 to 0059, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2168,6 +2174,8 @@ describe("resource guard migration", () => {
 						"0054_alert_state",
 						"0055_check_runs",
 						"0057_coding_agents_auto_update",
+						"0058_api_keys",
+						"0059_audit_arrival",
 					]);
 					throw rollback;
 				}),
