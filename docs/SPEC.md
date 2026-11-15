@@ -3690,7 +3690,10 @@ API in-process with the caller's own key and address, along a path built
 only from the catalog's pattern, with every parameter encoded. The
 caller never supplies a path. A path value that is `.` or `..`, or that
 contains `/`, is refused with `VALIDATION_FAILED`, as is a path value
-the operation does not take, or a missing one. The route's own validation, role
+the operation does not take, or a missing one. The runner also checks
+each path value against the operation's own parameter schema (a uuid
+where the route takes a uuid), so a malformed value is refused before a
+route runs. The route's own validation, role
 and course checks and audit then run unchanged, so the runner can do
 nothing the key could not do over HTTP.
 
@@ -3702,6 +3705,9 @@ Claude Code, Codex and similar clients can use a key.
   serves no `/.well-known/oauth-*` document, so clients send the fixed
   header and do not start OAuth.
 - It refuses any `Origin` other than the site's own.
+- It refuses a JSON-RPC batch (an array body) with a JSON-RPC error, so
+  each tool call is its own request and counts against the per-key limit
+  (section 24.13).
 - A fresh server is built for each request. It lists only the tools the
   owner's role and the key's scope allow, and refuses the rest.
 - The server sends instructions to the AI tool, and repeats them in each
@@ -6189,8 +6195,8 @@ Known gaps after Epic 3, to be closed later:
   workspaces. Revisit before the 25-concurrent-workspace target in §25.2.
 - There is no re-provision path after a failed create; the row stays in
   `error` and an operator has to clear it.
-- OpenAPI generation from the Zod contracts (ADR 0003) is not wired up yet.
-  Tracked in issue #1221.
+- OpenAPI generation from the Zod contracts (ADR 0003) was not wired up
+  yet. Closed by Epic 68: see section 27.
 - When the controller is unreachable the worker records an audit event, but
   the API still reported the last known state instead of marking it
   unverified. Closed by Epic 31: see section 18.3.
@@ -7756,6 +7762,24 @@ Acceptance:
 - a student's own default model, effort or Explore agent wins over the seeded one;
 - check history keeps at most 20 runs per check and 640 per project, and never logs a check's output;
 - the nightly update runs only when the administrator has turned it on.
+
+### Epic 68 — Operation catalog, API keys and the MCP server
+
+Built on `epic/68-catalog-keys-mcp`. Migrations 0058 (`api_keys`) and 0059 (`via` and `api_key_id` on `audit_events`). See ADRs 0077 to 0079 and sections 5.2, 20.4, 24.1, 24.8, 24.11, 24.13 and 27.
+
+Includes:
+
+- the operation catalog: every route is an exposed operation with a name, description, risk and audience, or is on the not-exposed list with a reason, and a test fails for a route that is neither;
+- an OpenAPI 3.1 document at `GET /openapi.json`, built from the catalog (closes #1221);
+- API keys for administrators and instructors: shown once, stored as a SHA-256 hash, read, write or destructive scope, renewable expiry with reminders, and revoke or expire by the owner or an administrator;
+- the Settings page for keys, the administrator's page to expire or revoke one key, one person's keys or every key, and a `via` column in the Audit tab;
+- an MCP server at `/mcp` with named tools, `find_operation` and `run_operation`, which runs operations in process as the key's owner.
+
+Acceptance:
+
+- a student can never make or hold a key, and a key never reaches the never list;
+- each operation, run through the catalog, gets the same answer as its HTTP route for each role and scope;
+- every key request is audited with how it arrived, except one refused by the per-key rate limit.
 
 ### Estimated total
 
