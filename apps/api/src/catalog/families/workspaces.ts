@@ -212,6 +212,3 @@ export const operations: OperationRecords = {
 		output: ProcessStopResponse,
 	},
 };
-
-/** Routes of this family that are exposed but have no record yet. */
-export const pending: readonly string[] = [];

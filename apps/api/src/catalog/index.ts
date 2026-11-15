@@ -31,20 +31,7 @@ function mergeOperations(): OperationRecords {
 /** Every exposed operation, keyed by `"METHOD url"` as in `ROUTE_POLICY`. */
 export const OPERATIONS: OperationRecords = mergeOperations();
 
-/** Exposed routes whose record has not been written yet. */
-export const PENDING: readonly string[] = FAMILIES.flatMap((family) => family.pending);
-
 export { NOT_EXPOSED };
-
-/**
- * Catalog routes that `ROUTE_POLICY` does not list yet: the MCP and OpenAPI
- * routes, which are built after the catalog.
- */
-export const NEW_ROUTES: ReadonlySet<string> = new Set([
-	"GET /mcp",
-	"POST /mcp",
-	"GET /openapi.json",
-]);
 
 const BY_NAME = new Map(Object.entries(OPERATIONS).map(([key, op]) => [op.name, key]));
 
