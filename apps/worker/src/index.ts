@@ -6,6 +6,7 @@ import { httpAgentFactory } from "./agent-client.js";
 import { startAgentUsage } from "./agent-usage.js";
 import { startAlertSources } from "./alert-sources.js";
 import { startAlertForwarding } from "./alerts.js";
+import { startApiKeyReminders } from "./api-key-reminders.js";
 import { startAuditRetention } from "./audit-retention.js";
 import { startBackupVmLoop } from "./backups.js";
 import { HttpControllerClient } from "./controller-client.js";
@@ -97,6 +98,7 @@ async function main(): Promise<void> {
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
 	startAuditRetention({ db, logger });
+	startApiKeyReminders({ db, logger });
 	startAlertSources({ db, logger });
 	startAlertForwarding({
 		db,
