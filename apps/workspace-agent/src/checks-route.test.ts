@@ -661,3 +661,19 @@ sys.exit(code)'`,
 		await capped.close();
 	}
 }, 30_000);
+
+test("the finished runs of a project are served for the control plane", async () => {
+	await writeChecks(JSON.stringify(CHECKS));
+	await call("POST", `/projects/${SLUG}/checks/lint/runs`);
+	await vi.waitFor(
+		async () => {
+			const runs = (await call("GET", `/projects/${SLUG}/checks/finished`)).json().runs;
+			expect(runs.at(-1)).toMatchObject({
+				checkId: "lint",
+				state: "failed",
+				exitCode: 3,
+			});
+		},
+		{ timeout: 10_000 },
+	);
+}, 15_000);

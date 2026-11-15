@@ -180,6 +180,7 @@ export async function createTestDb(): Promise<TestDb> {
 		await db.deleteFrom("lti_deep_link_requests").execute();
 		await db.deleteFrom("preview_sessions").execute();
 		await db.deleteFrom("preview_grants").execute();
+		await db.deleteFrom("check_runs").execute();
 		await db.deleteFrom("terminals").execute();
 		await db.deleteFrom("projects").execute();
 		await db.deleteFrom("workspace_connections").execute();

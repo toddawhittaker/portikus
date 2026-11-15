@@ -70,6 +70,7 @@ export interface Database {
 	docker_image_presence: DockerImagePresenceTable;
 	signin_counters: SigninCountersTable;
 	account_email_tokens: AccountEmailTokensTable;
+	check_runs: CheckRunsTable;
 }
 
 interface UsersTable {
@@ -533,6 +534,21 @@ interface AgentUsageDaysTable {
 	lines_added: ColumnType<string, number | undefined, number>;
 	lines_removed: ColumnType<string, number | undefined, number>;
 	updated_at: ColumnType<Date, string | undefined, string>;
+}
+
+/** One finished check run of one project ("Check result metadata", SPEC.md §25). */
+interface CheckRunsTable {
+	id: Generated<string>;
+	project_id: string;
+	check_id: string;
+	/** The workspace agent's own id for the run, so a run is stored once. */
+	agent_run_id: string;
+	state: "passed" | "failed" | "error" | "stopped";
+	started_at: ColumnType<Date, string, never>;
+	ended_at: ColumnType<Date, string, never>;
+	exit_code: number | null;
+	/** The tail of the output, at most 64 KiB. */
+	output: ColumnType<Buffer, Buffer | undefined, never>;
 }
 
 /** One toast the user was shown, kept as their notification history (ADR 0033). */

@@ -48,6 +48,7 @@ import { registerAgentMeterRoutes } from "./routes/agent-meter.js";
 import { registerAgentUsageRoutes } from "./routes/agent-usage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChatSocket } from "./routes/chat.js";
+import { registerCheckHistoryRoutes } from "./routes/check-history.js";
 import { registerCheckRoutes } from "./routes/checks.js";
 import { registerCourseLiveHelpRoutes } from "./routes/course-live-help.js";
 import { registerCourseLiveHelpPreviewRoutes } from "./routes/course-live-help-preview.js";
@@ -306,6 +307,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerGitSearchRoutes(instance, deps);
 		registerFileSearchRoutes(instance, deps);
 		registerCheckRoutes(instance, deps);
+		registerCheckHistoryRoutes(instance, deps);
 		registerUsageRoutes(instance, deps);
 		registerAgentMeterRoutes(instance, deps);
 		registerProcessRoutes(instance, deps);
