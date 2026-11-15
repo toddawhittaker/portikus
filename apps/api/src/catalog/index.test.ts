@@ -20,14 +20,12 @@ async function loadCatalog(families: {
 	vi.resetModules();
 	vi.doMock("./families/people.js", () => ({
 		operations: families.people ?? {},
-		pending: ["GET /admin/users"],
 	}));
 	vi.doMock("./families/workspaces.js", () => ({
 		operations: families.workspaces ?? {},
-		pending: [],
 	}));
-	vi.doMock("./families/site.js", () => ({ operations: {}, pending: [] }));
-	vi.doMock("./families/courses.js", () => ({ operations: {}, pending: [] }));
+	vi.doMock("./families/site.js", () => ({ operations: {} }));
+	vi.doMock("./families/courses.js", () => ({ operations: {} }));
 	return import("./index.js");
 }
 
@@ -40,7 +38,7 @@ afterEach(() => {
 });
 
 describe("the merged catalog", () => {
-	test("joins every family and collects their pending lists", async () => {
+	test("joins every family", async () => {
 		const catalog = await loadCatalog({
 			people: { "GET /admin/settings": operation("settings.get") },
 			workspaces: { "GET /workspaces/:id": operation("workspaces.get") },
@@ -49,7 +47,6 @@ describe("the merged catalog", () => {
 			"GET /admin/settings",
 			"GET /workspaces/:id",
 		]);
-		expect(catalog.PENDING).toEqual(["GET /admin/users"]);
 	});
 
 	test("finds an operation by key, by the key's HEAD twin, and by name", async () => {
