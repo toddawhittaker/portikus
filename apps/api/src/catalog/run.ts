@@ -108,6 +108,15 @@ export async function runOperation(
 	const { method, url: pattern } = splitKey(found.key);
 	const path = fillPath(pattern, input.path ?? {});
 	if ("refusal" in path) return refused("VALIDATION_FAILED", path.refusal);
+	// The operation's own schema decides what a path value may be, so "search"
+	// cannot stand in for an id and reach a neighbouring fixed route.
+	const params = found.operation.input.params?.safeParse(input.path ?? {});
+	if (params && !params.success) {
+		return refused(
+			"VALIDATION_FAILED",
+			`A path value is not valid: ${params.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}.`,
+		);
+	}
 	const query = queryString(input.query ?? {});
 	if (query === null) {
 		return refused(

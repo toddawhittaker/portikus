@@ -229,6 +229,13 @@ function pathValues(
 				sid: course.sid,
 				port: "5173",
 				server: "python",
+				// Forms the operation's params schema accepts, so the runner sends them.
+				stamp: "20260101T000000Z",
+				file: "portikus-pre-x.dump",
+				volume: url.includes("/kept-homes/")
+					? "ws-000000000000000000000000-home-replaced-1"
+					: "ws-000000000000000000000000-home",
+				snapshot: "pre-x",
 			}[name] ?? name;
 	}
 	return values;

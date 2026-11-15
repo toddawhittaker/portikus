@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	createApiKey,
 	createOidcClient,
 	createSession,
 	type LtiPlatform,
@@ -381,6 +382,51 @@ describe.skipIf(skip)("a good launch", () => {
 		expect(sessionCookie(res)).toBeTruthy();
 		const rows = await testDb.db.selectFrom("lti_memberships").selectAll().execute();
 		expect(rows).toEqual([]);
+	});
+
+	test("a launch that lowers an instructor to student revokes their API keys, audited", async () => {
+		await launch({ sub: "ivy", roles: [`${ROLE}Instructor`] });
+		const user = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.executeTakeFirstOrThrow();
+		const made = await createApiKey(testDb.db, user.id, {
+			name: "Laptop",
+			scope: "read",
+			periodDays: 30,
+		});
+		if (!made.ok) throw new Error(made.reason);
+		const revoked = async () =>
+			(
+				await testDb.db
+					.selectFrom("api_keys")
+					.select("revoked_at")
+					.where("id", "=", made.key.id)
+					.executeTakeFirstOrThrow()
+			).revoked_at !== null;
+
+		// Still staff on the next launch: the key keeps working (SPEC.md section 24.13).
+		await launch({ sub: "ivy", roles: [`${ROLE}Instructor`] });
+		expect(await revoked()).toBe(false);
+
+		await launch({ sub: "ivy", roles: [`${ROLE}Learner`] });
+		expect(await revoked()).toBe(true);
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.select(["actor", "target", "metadata"])
+			.where("action", "=", "api_key.revoked")
+			.execute();
+		expect(rows).toEqual([
+			{
+				actor: "identity-provider",
+				target: user.id,
+				metadata: expect.objectContaining({
+					keyId: made.key.id,
+					reason: "role_removed",
+					source: "lti",
+				}),
+			},
+		]);
 	});
 
 	test("a second launch refreshes the role and audits the change", async () => {
