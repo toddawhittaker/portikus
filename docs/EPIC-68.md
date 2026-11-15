@@ -56,7 +56,8 @@ exclusions: `docs/EPIC-68-HANDOFF.md`. Rulings behind it:
   fresh server per request lists only what the key's owner and scope
   allow. Results are compact JSON, capped at about 50,000 characters.
 - **Tables.** Migration 0058 `api_keys` (hash, display prefix, scope as
-  one ordered level, optional expiry, last used, revoked). Migration 0059
+  one ordered level, expiry, renewal period, last used, revoked, and
+  the last expiry reminder sent). Migration 0059
   adds `via` and `api_key_id` to `audit_events`, filled from a
   request-scoped context so none of the 101 audit call sites change.
 - **Rate limit.** 300 requests a minute per key; unknown keys count
@@ -76,15 +77,16 @@ run split across all three.
 | ID | Agent, model | Machine | Owns | Starts after | Size |
 |---|---|---|---|---|---|
 | T1 | builder, Sonnet high | local | `apps/api/src/catalog/{types,index,not-exposed,openapi}.ts`, `catalog.test.ts`, `openapi.test.ts`; stub family files with `pending` lists | none | M |
-| T2a | builder, Sonnet high | desk | Migrations 0058 and 0059 with tests, `migrations/index.ts`, `packages/db/src/{schema,index,audit-context}.ts`, `packages/auth/src/{api-keys,plugin,index,second-factor}.ts` with tests, `packages/contracts/src/{api-keys,index,admin}.ts` | none | M |
+| T2a | builder, Sonnet high | desk | Migrations 0058 and 0059 with tests (0058 grants the worker read access to `api_keys` and update access to its reminder column), `migrations/index.ts`, `packages/db/src/{schema,index,audit-context}.ts`, `packages/auth/src/{api-keys,plugin,index,second-factor}.ts` with tests, `packages/contracts/src/{api-keys,index,admin}.ts` | none | M |
+| T2c | builder, Sonnet high | pve (after T7) | `apps/worker/src/api-key-reminders.ts` with tests, and its line in `apps/worker/src/index.ts`: the daily expiry reminder | T2a | S |
 | T7 | infra, Sonnet | pve | `Caddyfile.j2`: add `/mcp` and `/openapi.json` to the API routes; verified on this host | none | XS |
-| T2b | builder, Opus | local | `routes/api-keys.ts`, `api-keys/gate.ts`, `sessions/step-up.ts` (extracted from `routes/links.ts`), `audit-arrival.ts`; edits to `links.ts`, `rate-limit.ts`, `admin-audit.ts`, `admin-invitations.ts`, `admin.ts`, `admin-dex-users.ts`; first owner of `server.ts`, `route-policy.ts`, `authz-matrix.test.ts` | T1, T2a | L |
+| T2b | builder, Opus | local | `routes/api-keys.ts`, `api-keys/gate.ts`, `sessions/step-up.ts` (extracted from `routes/links.ts`), `audit-arrival.ts`; edits to `links.ts`, `rate-limit.ts`, `admin-audit.ts`, `admin-invitations.ts`, `admin.ts`, `admin-dex-users.ts`; renew, renew with a new secret, owner revoke, and the administrator expire and revoke actions (one key, one person, every key); first owner of `server.ts`, `route-policy.ts`, `authz-matrix.test.ts` | T1, T2a | L |
 | T3a | builder, Sonnet high | pve | `catalog/families/people.ts` (29 operations) | T1 | M |
 | T3b | builder, Sonnet high | desk | `catalog/families/workspaces.ts` (20) | T1 | S |
 | T3c | builder, Sonnet high | pve (after T3a) | `catalog/families/site.ts` (39) | T1 | M |
 | T3d | builder, Sonnet high | desk (after T3b) | `catalog/families/courses.ts` (14) | T1 | S |
 | T4 | builder, Opus | local | `apps/api/src/mcp/`, `catalog/run.ts`, `routes/mcp.ts`, `routes/openapi.ts`, `apps/api/package.json`, `pnpm-lock.yaml`; then `server.ts`, `route-policy.ts`, `authz-matrix.test.ts` | T2b | M-L |
-| T6 | ui-designer, then a11y-reviewer | desk | `apps/web/src/settings/{ApiKeysPane.tsx,sections.ts,SettingsDialog.tsx}`, `apps/web/src/admin/api-keys/`, `admin/tabs.ts`, the `via` column in `admin/audit/AuditTab.tsx`, three Playwright specs (dark mode first) | T2b | M |
+| T6 | ui-designer, then a11y-reviewer | desk | `apps/web/src/settings/{ApiKeysPane.tsx,sections.ts,SettingsDialog.tsx}`, `apps/web/src/admin/api-keys/` (including expire and revoke for one key, one person and every key), `admin/tabs.ts`, Renew and Renew with a new secret on the owner's page, the `via` column in `admin/audit/AuditTab.tsx`, three Playwright specs (dark mode first) | T2b | M |
 | T5 | tester, Opus | pve | `security/catalog-parity.test.ts` (every exposed operation as an administrator key, an instructor key on its own and another's course, and a read key, compared with the browser answer; every unexposed route gives 403 to a key); `testing/matrix-samples.ts`; removes `pending` and the new-route allowance | T3a-d, T4 | M |
 | T8 | security-reviewer, Opus | local | Read-only review of the key path, gate, runner and `/mcp` | T4, T6 | S |
 | T9 | builder, Sonnet | desk | `docs/SPEC.md` (new section; 24.1, 24.8, 24.11, 24.13, 27, 29), `docs/STACK.md`, ADRs 0077-0079, `ADMIN-GUIDE.md`, `INSTRUCTOR-GUIDE.md` | T4; lands after T8's fixes | M |
@@ -94,7 +96,7 @@ Files shared in sequence, never at once: `server.ts` (T2b then T4);
 test and not-exposed list (T1, T5); each family stub (T1, then its T3
 task). No task edits `docs/STATUS.md`.
 
-Waves, for reading only: T1, T2a, T7 start at once. T3a-d start when T1
+Waves, for reading only: T1, T2a, T7 start at once; T2c when T2a lands. T3a-d start when T1
 lands; T2b when T1 and T2a land. T4 and T6 start when T2b lands. T5 and
 T8 follow T4. T9 runs alongside T5 and T8.
 
@@ -113,8 +115,39 @@ T8 follow T4. T9 runs alongside T5 and T8.
   `admin-invitations.ts`, owned by T2b, with a test).
 - **D4. Audit.** Every request made with a key writes one `api_key.used`
   row with the operation name and result, reads included.
-- **D5. Expiry.** The create dialog offers 7, 30 or 90 days or "never";
-  default 30. `api_keys.expires_at` may be empty, meaning never.
+- **D5. Expiry, renewal and revocation (replaces the first D5).** A key
+  is in one of three states:
+
+  | State | Works? | Can be renewed? | How a key gets there |
+  |---|---|---|---|
+  | Active | Yes | Yes, to extend it | Created or renewed |
+  | Expired | No | Yes, by its owner while signed in | Its expiry passed, or an administrator expired it |
+  | Revoked | No | Never | Its owner or an administrator revoked it, or its owner was disabled or had a password or second-factor reset |
+
+  - **Periods.** SSO and course-launch accounts get 30-day keys only.
+    Dex local-password accounts choose 7, 30 or 90 days or "never",
+    default 30. The period is stored with the key.
+  - **Renew** restarts the key's own period from that moment and keeps
+    the same secret, so client configuration does not change. It needs
+    a signed-in session that still holds a staff role, so each renewal
+    re-checks the role with the provider. There is no time limit on
+    renewing an expired key. The renew screen shows the key's prefix and
+    when it was last used, and offers **Renew with a new secret** beside
+    plain Renew for a key that may have leaked. Each renewal is audited.
+  - **Reminder.** A daily worker job sends an in-app notification seven
+    days before a key expires (one day before for 7-day keys), once per
+    expiry. Expiring a key early also notifies its owner.
+  - **Administrators** can expire or revoke one key, all of one
+    person's keys, or every key on the site. Owners can revoke their own
+    keys. Revoked keys can never be renewed.
+  - Why renewable expiry: an instructor who teaches in one semester and
+    again months later only signs in and clicks Renew. A person removed
+    at the provider cannot sign in, so cannot renew, and their key stops
+    within 30 days. Prior art differs: GitHub and Azure DevOps
+    "regenerate" an expired token with a new secret; Okta extends a
+    token's 30 days on every use; Kerberos renews a ticket only while it
+    is still valid. Renewing the same secret after expiry is our choice
+    for client convenience, with "new secret" as the leak escape hatch.
 
 ## Rehearsal and verification
 
@@ -124,7 +157,10 @@ T8 follow T4. T9 runs alongside T5 and T8.
 3. On the pilot: connect Claude Code to `/mcp` with a read key and a
    write key, and Codex with a read key; record what worked. Check a
    student cannot create a key, a read key cannot stop a workspace, and
-   an instructor key cannot see another instructor's course.
+   an instructor key cannot see another instructor's course. Expire a
+   key as an administrator, confirm it stops, renew it as its owner and
+   confirm the same key works again; revoke it and confirm Renew is
+   refused.
 
 ## Left out
 
