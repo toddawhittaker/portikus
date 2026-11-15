@@ -13,7 +13,7 @@ import {
 	startApiKeyReminders,
 } from "./api-key-reminders.js";
 
-// SPEC.md sections 24.8 and 24.13, docs/EPIC-68.md D5: a key's owner is told
+// SPEC.md sections 24.8 and 24.13: a key's owner is told
 // 7 days before it expires (1 day for a 7-day key), once per expiry.
 const skip = !hasTestDb();
 let tdb: TestDb;

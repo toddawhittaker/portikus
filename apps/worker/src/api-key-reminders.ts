@@ -8,7 +8,7 @@ export const API_KEY_REMINDER_SECONDS = 24 * 60 * 60;
 
 const DAY_MS = 86_400_000;
 
-/** Days before expiry a key's owner is reminded; 7-day keys get one day (docs/EPIC-68.md, D5). */
+/** Days before expiry a key's owner is reminded; 7-day keys get one day (SPEC.md section 24.13). */
 function reminderWindowDays(periodDays: number | null): number {
 	return periodDays === 7 ? 1 : 7;
 }
