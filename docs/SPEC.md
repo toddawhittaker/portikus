@@ -5736,7 +5736,7 @@ The exact schema is implementation-defined, but the platform must represent at l
 - result: running/passed/failed/error;
 - terminal/session reference for output.
 
-As built (Epic 67): finished runs are stored in `check_runs` with the project, check id, start and end times, result, exit code and the last 64 KiB of output, the newest 20 per check (§18.1).
+As built (Epic 67): finished runs are stored in `check_runs` with the project, check id, start and end times, result, exit code and the last 64 KiB of output, the newest 20 per check (§18.1). A project keeps at most 640 stored runs in all (20 for each of the 32 checks a project may define), the oldest deleted first, because the agent is the student's to control and could report runs under any number of made-up check ids (§24.1). A history read asks the agent only for that check's runs that ended since the newest one stored.
 
 ### Preview metadata
 

@@ -148,6 +148,8 @@ export function createFakeAgentState(token: string) {
 
 	const flags = {
 		failCreateWith: null as string | null,
+		/** While true, the finished-runs read ignores its query, as an old agent does. */
+		ignoreFinishedQuery: false,
 		openAttachments: 0,
 		failLogLevel: false,
 		searchAborted: 0,

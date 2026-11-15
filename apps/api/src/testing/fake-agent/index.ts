@@ -89,6 +89,8 @@ export interface FakeAgent {
 	readonly openAttachments: number;
 	/** Make the next create call fail with this agent error code. */
 	failCreateWith: string | null;
+	/** While true, the finished-runs read ignores its query, as an old agent does. */
+	ignoreFinishedQuery: boolean;
 	/** Log levels pushed to `PUT /log-level`, in order. */
 	readonly logLevels: (string | null)[];
 	/** While true, `PUT /log-level` fails so a retry can be observed. */
@@ -370,6 +372,12 @@ export async function startFakeAgent(
 		},
 		get openAttachments() {
 			return flags.openAttachments;
+		},
+		get ignoreFinishedQuery() {
+			return flags.ignoreFinishedQuery;
+		},
+		set ignoreFinishedQuery(value: boolean) {
+			flags.ignoreFinishedQuery = value;
 		},
 		get failCreateWith() {
 			return flags.failCreateWith;

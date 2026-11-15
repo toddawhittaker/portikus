@@ -5,8 +5,8 @@ import {
 	type CheckHistoryResponse,
 	CheckId,
 	FinishedCheckRunsResponse,
-	MAX_HELD_FINISHED_RUNS,
 	MAX_STORED_CHECK_OUTPUT_BYTES,
+	MAX_STORED_RUNS_PER_PROJECT,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { errorMessage } from "@portikus/observability";
@@ -23,9 +23,13 @@ import type { ServerDeps } from "../deps.js";
 import { ProjectParam, sendError } from "../http.js";
 import { agentUrl, ownedProject, ownedScope } from "../workspaces/project-scope.js";
 
-/** A full hold of finished runs, base64 output and all, with room for the fields. */
+/**
+ * One check's kept runs, base64 output and all, with room for the fields and
+ * a few runs more. The read asks for one check only, so this is enough.
+ */
 const FINISHED_LIMIT_BYTES =
-	MAX_HELD_FINISHED_RUNS * (Math.ceil(MAX_STORED_CHECK_OUTPUT_BYTES / 3) * 4 + 1024);
+	(CHECK_HISTORY_PER_CHECK + 4) *
+	(Math.ceil(MAX_STORED_CHECK_OUTPUT_BYTES / 3) * 4 + 1024);
 
 const RunId = z.string().uuid();
 
@@ -41,10 +45,25 @@ async function storeFinishedRuns(
 	agent: AgentClient,
 	projectId: string,
 	slug: string,
+	checkId: string,
 ): Promise<void> {
-	const response = await agent.fetchRaw("GET", agentUrl(slug, "checks/finished"), {
-		signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
-	});
+	// Only the one check's runs that ended since the newest one stored. An
+	// agent that ignores the query sends everything, which the insert dedupes.
+	const newest = await db
+		.selectFrom("check_runs")
+		.select((eb) => eb.fn.max("ended_at").as("ended_at"))
+		.where("project_id", "=", projectId)
+		.where("check_id", "=", checkId)
+		.executeTakeFirst();
+	const query: Record<string, string> = { checkId };
+	if (newest?.ended_at) query.after = new Date(newest.ended_at).toISOString();
+	const response = await agent.fetchRaw(
+		"GET",
+		agentUrl(slug, "checks/finished", query),
+		{
+			signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+		},
+	);
 	if (!response.ok) throw new Error(`agent answered ${response.status}`);
 	const parsed = FinishedCheckRunsResponse.safeParse(
 		await readCappedJson(response, FINISHED_LIMIT_BYTES),
@@ -73,7 +92,27 @@ async function storeFinishedRuns(
 			.execute();
 		const checkIds = [...new Set(parsed.data.runs.map((run) => run.checkId))];
 		await pruneCheckRuns(trx, projectId, checkIds);
+		await pruneProjectRuns(trx, projectId);
 	});
+}
+
+/** Delete the oldest runs of a project over MAX_STORED_RUNS_PER_PROJECT. */
+export async function pruneProjectRuns(
+	db: Kysely<Database>,
+	projectId: string,
+): Promise<void> {
+	const keep = db
+		.selectFrom("check_runs")
+		.select("id")
+		.where("project_id", "=", projectId)
+		.orderBy("started_at", "desc")
+		.orderBy("id", "desc")
+		.limit(MAX_STORED_RUNS_PER_PROJECT);
+	await db
+		.deleteFrom("check_runs")
+		.where("project_id", "=", projectId)
+		.where("id", "not in", keep)
+		.execute();
 }
 
 /** Delete all but the newest CHECK_HISTORY_PER_CHECK runs of each check. */
@@ -133,10 +172,11 @@ async function syncQuietly(
 	agent: AgentClient,
 	projectId: string,
 	slug: string,
+	checkId: string,
 	log: FastifyBaseLogger,
 ): Promise<void> {
 	try {
-		await storeFinishedRuns(db, agent, projectId, slug);
+		await storeFinishedRuns(db, agent, projectId, slug, checkId);
 	} catch (error) {
 		// What is already stored still answers; the next read tries again.
 		log.warn({ error: errorMessage(error) }, "could not read finished check runs");
@@ -165,6 +205,7 @@ export function registerCheckHistoryRoutes(
 					owned.scope.agent,
 					owned.row.id,
 					owned.row.slug,
+					owned.checkId,
 					request.log,
 				);
 			}

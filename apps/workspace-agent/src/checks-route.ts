@@ -18,6 +18,7 @@ import {
 	ChecksFile,
 	type ChecksResponse,
 	type FinishedCheckRun,
+	FinishedCheckRunsQuery,
 	type FinishedCheckRunsResponse,
 	MAX_CHECK_OUTPUT_BYTES,
 	MAX_HELD_FINISHED_RUNS,
@@ -472,9 +473,27 @@ export async function checksRoute(
 
 	// Finished runs, read by the control plane to keep (SPEC.md §25). Output
 	// is student content and is never logged.
-	instance.get("/projects/:slug/checks/finished", async (request) => {
+	instance.get("/projects/:slug/checks/finished", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
-		const body: FinishedCheckRunsResponse = { runs: runner.finishedFor(slug) };
+		const query = FinishedCheckRunsQuery.safeParse(request.query);
+		if (!query.success) {
+			const failure = new AgentFailure(
+				"BAD_REQUEST",
+				"that is not a finished-runs query",
+			);
+			return sendError(request, reply, failure, "BAD_REQUEST");
+		}
+		const { checkId, after } = query.data;
+		const since = after === undefined ? null : Date.parse(after);
+		const body: FinishedCheckRunsResponse = {
+			runs: runner
+				.finishedFor(slug)
+				.filter(
+					(run) =>
+						(checkId === undefined || run.checkId === checkId) &&
+						(since === null || Date.parse(run.endedAt) >= since),
+				),
+		};
 		return body;
 	});
 
