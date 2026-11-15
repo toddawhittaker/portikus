@@ -5,12 +5,13 @@ import {
 	type CheckRun,
 	ChecksFile,
 	type FinishedCheckRun,
+	FinishedCheckRunsQuery,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { FakeAgentState } from "./state.js";
 
 export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): void {
-	const { projectNotFound, keyOf, dirs, nodeAt } = s;
+	const { projectNotFound, keyOf, dirs, nodeAt, flags } = s;
 	// Project checks (SPEC.md §18.1). The definitions come from the fake
 	// filesystem, so a browser test seeds `.portikus/checks.json` the way a
 	// student would. A "run" prints its command and ends with 0 or 1; a
@@ -97,7 +98,16 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 
 	app.get("/projects/:slug/checks/finished", async (request) => {
 		const slug = (request.params as { slug: string }).slug;
-		return { runs: finishedRuns.get(`${keyOf(request)}\u0000${slug}`) ?? [] };
+		const query = flags.ignoreFinishedQuery
+			? {}
+			: FinishedCheckRunsQuery.parse(request.query);
+		const since = query.after === undefined ? null : Date.parse(query.after);
+		const runs = (finishedRuns.get(`${keyOf(request)}\u0000${slug}`) ?? []).filter(
+			(run) =>
+				(query.checkId === undefined || run.checkId === query.checkId) &&
+				(since === null || Date.parse(run.endedAt) >= since),
+		);
+		return { runs };
 	});
 
 	app.post("/projects/:slug/checks/:id/runs", async (request, reply) => {

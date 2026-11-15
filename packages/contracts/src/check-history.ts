@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CheckId } from "./checks.js";
+import { CheckId, MAX_CHECKS_PER_PROJECT } from "./checks.js";
 
 /**
  * Finished check runs the control plane keeps, so a result outlives the
@@ -8,6 +8,14 @@ import { CheckId } from "./checks.js";
 
 /** Finished runs kept per check per project; the oldest go first. */
 export const CHECK_HISTORY_PER_CHECK = 20;
+
+/**
+ * Stored runs kept per project in all. An agent the student controls can
+ * report runs under any number of made-up check ids, so the per-check bound
+ * alone would let the table grow without end (SPEC.md §24.1).
+ */
+export const MAX_STORED_RUNS_PER_PROJECT =
+	CHECK_HISTORY_PER_CHECK * MAX_CHECKS_PER_PROJECT;
 
 /** Most output one stored run keeps; the tail is kept, as the replay buffer does. */
 export const MAX_STORED_CHECK_OUTPUT_BYTES = 64 * 1024;
@@ -42,6 +50,16 @@ export type FinishedCheckRun = z.infer<typeof FinishedCheckRun>;
  * over all its projects; the oldest go first. 100 runs of 64 KiB is 6.4 MiB.
  */
 export const MAX_HELD_FINISHED_RUNS = 100;
+
+/**
+ * Query of `GET /projects/:slug/checks/finished`: only one check's runs, and
+ * only those that ended at or after `after`, so a read carries what is new.
+ */
+export const FinishedCheckRunsQuery = z.object({
+	checkId: CheckId.optional(),
+	after: z.string().datetime().optional(),
+});
+export type FinishedCheckRunsQuery = z.infer<typeof FinishedCheckRunsQuery>;
 
 /** `GET /projects/:slug/checks/finished` on the workspace agent, oldest first. */
 export const FinishedCheckRunsResponse = z.object({

@@ -10,13 +10,17 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { CHECK_HISTORY_PER_CHECK, CHECKS_FILE_PATH } from "@portikus/contracts";
+import {
+	CHECK_HISTORY_PER_CHECK,
+	CHECKS_FILE_PATH,
+	MAX_STORED_RUNS_PER_PROJECT,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
-import { pruneCheckRuns } from "./check-history.js";
+import { pruneCheckRuns, pruneProjectRuns } from "./check-history.js";
 
 const skip = !hasTestDb();
 const AGENT_TOKEN = "fake-agent-token";
@@ -285,3 +289,90 @@ test.skipIf(skip)(
 		expect(response.json().runs).toHaveLength(1);
 	},
 );
+
+test.skipIf(skip)(
+	"a hostile agent's made-up check ids cannot grow a project past its cap (SPEC.md §24.1, §25)",
+	async () => {
+		const values = Array.from({ length: 100 }, (_, check) =>
+			Array.from({ length: 10 }, (_, sync) => ({
+				project_id: aliceProject,
+				check_id: `made-up-${check}`,
+				agent_run_id: `r${sync}`,
+				state: "passed" as const,
+				started_at: new Date(Date.UTC(2026, 10, 1, sync, check)).toISOString(),
+				ended_at: new Date(Date.UTC(2026, 10, 1, sync, check, 5)).toISOString(),
+				exit_code: 0,
+			})),
+		);
+		for (let sync = 0; sync < 10; sync += 1) {
+			await testDb.db
+				.insertInto("check_runs")
+				.values(values.map((runs) => runs[sync] as (typeof runs)[number]))
+				.execute();
+			await pruneProjectRuns(testDb.db, aliceProject);
+			expect((await storedFor(aliceProject)).length).toBeLessThanOrEqual(
+				MAX_STORED_RUNS_PER_PROJECT,
+			);
+		}
+		const kept = await storedFor(aliceProject);
+		expect(kept).toHaveLength(MAX_STORED_RUNS_PER_PROJECT);
+		// The oldest go first: nothing from the first syncs survives.
+		const oldest = Math.min(...kept.map((row) => row.started_at.getTime()));
+		expect(oldest).toBeGreaterThanOrEqual(Date.UTC(2026, 10, 1, 3, 0));
+
+		// The route applies the cap on every sync too.
+		await run(alice, aliceWs, aliceProject);
+		await history(alice, aliceWs, aliceProject);
+		expect((await storedFor(aliceProject)).length).toBeLessThanOrEqual(
+			MAX_STORED_RUNS_PER_PROJECT,
+		);
+	},
+);
+
+test.skipIf(skip)("a sync asks the agent only for the check's new runs", async () => {
+	await run(alice, aliceWs, aliceProject);
+	await run(alice, aliceWs, aliceProject, "lint");
+	await history(alice, aliceWs, aliceProject);
+	const reads = () =>
+		agent.requests.filter((r) => r.url.startsWith(`/projects/${slug}/checks/finished`));
+	expect(reads().at(-1)?.url).toBe(`/projects/${slug}/checks/finished?checkId=tests`);
+	const stored = await storedFor(aliceProject);
+	expect(stored.map((row) => row.check_id)).toEqual(["tests"]);
+
+	await run(alice, aliceWs, aliceProject);
+	await history(alice, aliceWs, aliceProject);
+	const url = new URL(`http://agent${reads().at(-1)?.url}`);
+	expect(url.searchParams.get("checkId")).toBe("tests");
+	expect(url.searchParams.get("after")).toBe(stored[0]?.ended_at.toISOString());
+	// What the agent sends for that query is the new run, and the boundary one
+	// at most; the lint run never travels.
+	const sent = await fetch(
+		`http://127.0.0.1:${agent.port}${url.pathname}${url.search}`,
+		{
+			headers: { authorization: `Bearer ${AGENT_TOKEN}` },
+		},
+	);
+	const runs: { checkId: string }[] = (
+		(await sent.json()) as { runs: { checkId: string }[] }
+	).runs;
+	expect(runs.length).toBeGreaterThanOrEqual(1);
+	expect(runs.length).toBeLessThanOrEqual(2);
+	expect(runs.every((r) => r.checkId === "tests")).toBe(true);
+	expect(await storedFor(aliceProject)).toHaveLength(2);
+});
+
+test.skipIf(skip)("an older agent that ignores the query still works", async () => {
+	agent.ignoreFinishedQuery = true;
+	try {
+		await run(alice, aliceWs, aliceProject);
+		await run(alice, aliceWs, aliceProject, "lint");
+		const runs = (await history(alice, aliceWs, aliceProject)).json().runs;
+		expect(runs).toHaveLength(1);
+		await history(alice, aliceWs, aliceProject);
+		await history(alice, aliceWs, aliceProject, "lint");
+		// Both checks arrived on the first read, and rereads stored nothing twice.
+		expect(await storedFor(aliceProject)).toHaveLength(2);
+	} finally {
+		agent.ignoreFinishedQuery = false;
+	}
+});
