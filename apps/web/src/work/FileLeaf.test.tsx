@@ -68,7 +68,10 @@ const restoredViewStates: unknown[] = [];
 /** Reports a cursor move the way Monaco would. */
 let moveCursor: (() => void) | null = null;
 
-vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
+vi.mock("../editor/features.js", () => ({
+	loadEditorFeatures: async () => {},
+	loadLanguageServices: async () => {},
+}));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
 vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
 	jsonDefaults: { setDiagnosticsOptions: () => {} },

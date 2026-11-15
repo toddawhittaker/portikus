@@ -39,7 +39,7 @@ async function adminPage(browser: Browser) {
 	return { context, page: await context.newPage() };
 }
 
-const COMING_LATER = ["HTML, CSS and JSON", "Java", "C and C++", "SQL"];
+const COMING_LATER = ["Java", "C and C++", "SQL"];
 
 test.describe("languages not shipped yet", () => {
 	test("are listed, cannot be ticked, stay in the tab order and say why", async ({
@@ -65,6 +65,9 @@ test.describe("languages not shipped yet", () => {
 			"No unsaved changes.",
 		);
 		await expect(page.getByTestId("code-help-languages")).toContainText("Coming later");
+		// They run in the browser and are always on, so they are a sentence, not a box.
+		await expect(tools.getByRole("checkbox", { name: /HTML/ })).toHaveCount(0);
+		await expect(tools).toContainText("HTML, CSS and JSON always have code help");
 	});
 
 	test("the API refuses a language that has not shipped, a duplicate, and a non-array", async ({

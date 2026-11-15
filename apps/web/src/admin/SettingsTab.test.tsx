@@ -464,7 +464,10 @@ describe("Student tools", () => {
 			document.getElementById(python.getAttribute("aria-describedby") ?? "")
 				?.textContent,
 		).toBe("pyright and ruff, in each workspace. About 185 MiB per student.");
-		for (const name of ["HTML, CSS and JSON", "Java", "C and C++", "SQL"]) {
+		// HTML, CSS and JSON run in the browser, always on: a sentence, not a box.
+		expect(within(list).queryByRole("checkbox", { name: /HTML/ })).toBeNull();
+		expect(screen.getByText(/HTML, CSS and JSON\s+always have code help/)).toBeTruthy();
+		for (const name of ["Java", "C and C++", "SQL"]) {
 			const box = within(list).getByRole("checkbox", { name }) as HTMLInputElement;
 			expect(box.getAttribute("aria-disabled")).toBe("true");
 			expect(box.disabled).toBe(false);

@@ -21,7 +21,6 @@ export const SHIPPED_LANGUAGES: Record<CodeHelpLanguage, LanguageRow> = {
  * contract once its server is installed and measured.
  */
 export const COMING_LATER_LANGUAGES: readonly LanguageRow[] = [
-	{ name: "HTML, CSS and JSON", runs: "In the student's browser" },
 	{ name: "Java", runs: "Eclipse JDT (jdtls), in each workspace" },
 	{ name: "C and C++", runs: "clangd, in each workspace" },
 	{ name: "SQL", runs: "Language server not chosen yet" },

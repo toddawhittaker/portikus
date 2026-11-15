@@ -48,7 +48,10 @@ function nameSide(side: "original" | "modified") {
 	};
 }
 
-vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
+vi.mock("../editor/features.js", () => ({
+	loadEditorFeatures: async () => {},
+	loadLanguageServices: async () => {},
+}));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
 vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
 	jsonDefaults: { setDiagnosticsOptions: () => {} },

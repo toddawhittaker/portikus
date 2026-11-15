@@ -3,12 +3,12 @@
  * worker the editor needs, and the themes for the student's colour scheme
  * (schemes/), defined when first used.
  *
- * Only highlighting is loaded, not the TypeScript, CSS or HTML language
- * services: their diagnostics do not know the project's configuration and
- * would confuse students (SPEC.md §13.2: this is not a VS Code clone).
- * Leaving them out also keeps about nine megabytes of language-server
- * workers out of the bundle. Code help comes instead from language servers
- * in the workspace, which do know it (SPEC.md §13.6, src/lsp).
+ * Monaco's TypeScript service is left out: its diagnostics do not know the
+ * project's configuration and would confuse students, and its worker is most
+ * of the nine megabytes editor.main.js would add. Code help for it comes from
+ * language servers in the workspace, which do know it (SPEC.md §13.6,
+ * src/lsp). HTML, CSS and JSON need no project configuration, so their
+ * in-browser services are kept, loaded only when such a file opens.
  */
 import type { EditorScheme } from "@portikus/contracts";
 import type * as Monaco from "monaco-editor";
@@ -16,9 +16,11 @@ import type * as Monaco from "monaco-editor";
 // A bare `new URL(..., import.meta.url)` does not resolve a package specifier
 // in this build.
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import CssWorker from "monaco-editor/language/css/css.worker.js?worker";
+import HtmlWorker from "monaco-editor/language/html/html.worker.js?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import { currentPlatform, type Platform, tabFocusKey } from "../platform.js";
-import { loadEditorFeatures } from "./features.js";
+import { loadEditorFeatures, loadLanguageServices } from "./features.js";
 import { detectLanguage } from "./language.js";
 import { onThemeChange as onPageThemeChange, pageIsDark } from "./pageTheme.js";
 import { activeEditorScheme, onEditorSchemeChange } from "./schemes/active.js";
@@ -36,11 +38,28 @@ export function onThemeChange(callback: () => void): () => void {
 	};
 }
 
+type WorkerKind = "html" | "css" | "json" | "editor";
+
+/**
+ * Which worker a Monaco worker label needs. The HTML and CSS services also
+ * serve the template and preprocessor dialects registered beside them.
+ */
+export function workerKind(label: string): WorkerKind {
+	if (label === "html" || label === "handlebars" || label === "razor") return "html";
+	if (label === "css" || label === "scss" || label === "less") return "css";
+	if (label === "json") return "json";
+	return "editor";
+}
+
+const WORKERS: Record<WorkerKind, new () => Worker> = {
+	html: HtmlWorker,
+	css: CssWorker,
+	json: JsonWorker,
+	editor: EditorWorker,
+};
+
 const environment: Monaco.Environment = {
-	// JSON is the one language service kept, because JSON files are named in
-	// SPEC.md §13.2; its diagnostics are turned off in getMonaco below.
-	getWorker: (_id: string, label: string) =>
-		label === "json" ? new JsonWorker() : new EditorWorker(),
+	getWorker: (_id: string, label: string) => new WORKERS[workerKind(label)](),
 };
 
 (self as unknown as { MonacoEnvironment: Monaco.Environment }).MonacoEnvironment =
@@ -197,19 +216,9 @@ export function getMonaco(): Promise<typeof Monaco> {
 			"monaco-editor/editor/editor.api.js"
 		)) as unknown as typeof Monaco;
 		await loadEditorFeatures(monaco);
-		// Highlighting for the languages students write. JSON is the one
-		// language with a service rather than a highlighter, because SPEC.md
-		// §13.2 names it; it only checks JSON syntax and asks for no schemas.
+		// Highlighting for the languages students write.
 		await import("monaco-editor/basic-languages/monaco.contribution.js");
-		const json = await import("monaco-editor/language/json/monaco.contribution.js");
-		// No schemas and no validation: a student's JSON is checked by the tool
-		// that reads it, not by the editor guessing at a schema.
-		json.jsonDefaults.setDiagnosticsOptions({
-			validate: false,
-			allowComments: true,
-			schemas: [],
-			enableSchemaRequest: false,
-		});
+		await loadLanguageServices();
 		ensureThemes(monaco, activeEditorScheme());
 		// A scheme chosen later is defined as it is chosen, so a caller that
 		// sets the theme by name never finds it missing.
