@@ -1,6 +1,25 @@
 /** OIDC login, server-side sessions, and authorization helpers (SPEC.md sections 5 and 24, STACK.md section 8). */
 
 export {
+	type ApiKeyIdentity,
+	allowedKeyPeriods,
+	bearerApiKey,
+	type ChangedKey,
+	type CreateKeyInput,
+	type CreateKeyRefusal,
+	createApiKey,
+	expireApiKeys,
+	hashApiKey,
+	type KeyTarget,
+	listApiKeys,
+	listApiKeysForAdmin,
+	type RenewRefusal,
+	renewApiKey,
+	resolveApiKey,
+	revokeApiKeys,
+	touchApiKey,
+} from "./api-keys.js";
+export {
 	BREACHED_PASSWORD_MESSAGE,
 	isBreachedPassword,
 } from "./breached-passwords.js";
@@ -106,6 +125,7 @@ export {
 	verifyPasskeyRegistration,
 } from "./passkey.js";
 export {
+	type ApiKeyHooks,
 	authPlugin,
 	connectorCookieName,
 	connectorCookieOptions,

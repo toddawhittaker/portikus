@@ -105,6 +105,8 @@ describe("instructor feature tables", () => {
 					"0054_alert_state",
 					"0055_check_runs",
 					"0057_coding_agents_auto_update",
+					"0058_api_keys",
+					"0059_audit_arrival",
 				]);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(6);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(4);

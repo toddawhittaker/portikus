@@ -71,6 +71,7 @@ export interface Database {
 	signin_counters: SigninCountersTable;
 	account_email_tokens: AccountEmailTokensTable;
 	check_runs: CheckRunsTable;
+	api_keys: ApiKeysTable;
 }
 
 interface UsersTable {
@@ -405,6 +406,10 @@ interface AuditEventsTable {
 	at: ColumnType<Date, string | undefined, never>;
 	result: string;
 	metadata: ColumnType<Record<string, unknown> | null, string | null, string | null>;
+	/** How the request arrived; null for older rows and the worker's. */
+	via: ColumnType<"session" | "api_key" | null, string | null | undefined, never>;
+	/** The key behind a `via` of `api_key`; no foreign key, so the row outlives the key. */
+	api_key_id: ColumnType<string | null, string | null | undefined, never>;
 }
 
 interface PreviewGrantsTable {
@@ -737,6 +742,43 @@ interface AccountEmailTokensTable {
 		Date | string | null
 	>;
 	revoked_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
+interface ApiKeysTable {
+	id: Generated<string>;
+	user_id: string;
+	name: string;
+	/** SHA-256 of the key, hex; the key itself is never stored. */
+	token_hash: string;
+	/** The start of the key, shown so its owner can tell their keys apart. */
+	display_prefix: string;
+	scope: ColumnType<"read" | "write" | "destructive", string | undefined, string>;
+	/** Days a renewal restarts the key with; null means it never expires. */
+	period_days: number | null;
+	created_at: Generated<Date>;
+	/** Null means the key never expires. */
+	expires_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	last_used_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	revoked_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	revoked_by: ColumnType<string | null, string | null | undefined, string | null>;
+	/** The `expires_at` the last reminder was sent for. */
+	expiry_reminded_for: ColumnType<
 		Date | null,
 		Date | string | null | undefined,
 		Date | string | null

@@ -28,6 +28,10 @@ REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "portikus-worker";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM "portikus-worker";
 
 GRANT SELECT ON users TO "portikus-worker";
+-- The daily expiry reminder reads keys and records which expiry it told about
+-- (SPEC.md section 24.13); it never sees a secret, only the stored hash.
+GRANT SELECT ON api_keys TO "portikus-worker";
+GRANT UPDATE (expiry_reminded_for) ON api_keys TO "portikus-worker";
 GRANT SELECT ON egress_entries, egress_blocked_entries TO "portikus-worker";
 GRANT INSERT ON audit_events TO "portikus-worker";
 -- Enough to count failed sign-ins for an alert; never who, what or details.
