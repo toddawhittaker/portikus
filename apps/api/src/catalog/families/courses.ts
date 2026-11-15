@@ -22,7 +22,7 @@ import {
 } from "../../http.js";
 import type { OperationRecords } from "../types.js";
 
-/** This family's operations, keyed by `"METHOD url"`; move each key out of `pending` as its record lands. */
+/** This family's operations, keyed by `"METHOD url"`. */
 export const operations: OperationRecords = {
 	"GET /courses": {
 		name: "courses.list",
@@ -161,6 +161,3 @@ export const operations: OperationRecords = {
 		output: NotificationList,
 	},
 };
-
-/** Routes of this family that are exposed but have no record yet. */
-export const pending: readonly string[] = [];

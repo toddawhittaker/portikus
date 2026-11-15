@@ -32,7 +32,7 @@ import {
 import { CourseParam, UuidParam } from "../../http.js";
 import type { OperationRecords } from "../types.js";
 
-/** This family's operations, keyed by `"METHOD url"`; move each key out of `pending` as its record lands. */
+/** This family's operations, keyed by `"METHOD url"`. */
 export const operations: OperationRecords = {
 	"GET /admin/users": {
 		name: "users.list",
@@ -309,6 +309,3 @@ export const operations: OperationRecords = {
 		output: CourseProfileResponse,
 	},
 };
-
-/** Routes of this family that are exposed but have no record yet. */
-export const pending: readonly string[] = [];
