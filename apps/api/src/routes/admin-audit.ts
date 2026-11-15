@@ -48,6 +48,8 @@ export function registerAdminAuditRoutes(
 					"a.target",
 					"a.result",
 					"a.metadata",
+					"a.via",
+					"a.api_key_id",
 					"u.display_name as actor_name",
 					sql<string | null>`coalesce(tu.display_name, owner.display_name)`.as(
 						"target_name",
@@ -91,6 +93,8 @@ export function registerAdminAuditRoutes(
 				targetName: row.target_name ?? null,
 				result: row.result,
 				metadata: row.metadata,
+				via: row.via,
+				apiKeyId: row.api_key_id,
 			}));
 			const last = events.at(-1);
 			const body: AuditPage = {

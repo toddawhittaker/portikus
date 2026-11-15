@@ -170,6 +170,14 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/signin/keep": 404,
 	"POST /admin/signin/rollback": 404,
 	"POST /admin/signin/test": 404,
+	// The matrix world has no API keys; the sample names a key id that is nobody's.
+	"POST /me/api-keys/:id/renew": 404,
+	"POST /me/api-keys/:id/rotate": 404,
+	"POST /me/api-keys/:id/revoke": 404,
+	"POST /admin/api-keys/:id/expire": 404,
+	"POST /admin/api-keys/:id/revoke": 404,
+	// The matrix staff sign in through SSO, which owes no passkey to make a key.
+	"POST /me/api-keys/passkey/start": 400,
 	// The sample names nobody who teaches A; live-help.test.ts covers a start.
 	"POST /workspaces/:id/projects/:pid/live-help": 400,
 };
@@ -382,6 +390,7 @@ const PAYLOADS: Record<string, object> = {
 	"POST /me/notifications": { tone: "neutral", title: "Saved" },
 	"PATCH /me/notifications/:id": { read: true },
 	"POST /me/acceptable-use": { version: 1 },
+	"POST /me/api-keys": { name: "Matrix key" },
 	"PUT /me/settings": { timezone: "America/New_York" },
 	"PUT /me/profile": { github: null },
 	"PUT /admin/settings": { logLevel: null },
@@ -727,6 +736,7 @@ const httpKeys = Object.keys(ROUTE_POLICY).filter((key) => {
 
 const signedInOnly: AccessClass[] = [
 	"self",
+	"staff",
 	"owner",
 	"owner-or-admin",
 	"admin",
@@ -796,6 +806,10 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 				}
 				if (access === "owner") {
 					await expectRefused(app, world, key, own, admin, 404);
+				}
+				if (access === "staff") {
+					await expectRefused(app, world, key, own, a, 403);
+					await expectRefused(app, world, key, own, b, 403);
 				}
 				if (access === "admin") {
 					await expectRefused(app, world, key, own, a, 403);
@@ -893,6 +907,13 @@ describe.skipIf(skip)("allowed callers get through", () => {
 							await expectAllowed(app, key, own, a);
 							break;
 						}
+						case "staff": {
+							const forAdmin = await expectAllowed(app, key, own, admin);
+							expectNoTraceOfA(world, forAdmin.body, "administrator");
+							const forInstructor = await expectAllowed(app, key, own, instructor);
+							expectNoTraceOfA(world, forInstructor.body, "instructor");
+							break;
+						}
 						case "owner":
 							await expectAllowed(app, key, own, a);
 							break;
@@ -910,6 +931,30 @@ describe.skipIf(skip)("allowed callers get through", () => {
 		});
 	}
 });
+
+// --- Students hold no API keys ------------------------------------
+
+const ownKeyRoutes = Object.keys(ROUTE_POLICY).filter((key) =>
+	splitKey(key).url.startsWith("/me/api-keys"),
+);
+
+test("the key routes are all on the staff class", () => {
+	expect(ownKeyRoutes.length).toBeGreaterThanOrEqual(7);
+	for (const key of ownKeyRoutes) expect(ROUTE_POLICY[key]?.access, key).toBe("staff");
+});
+
+test.skipIf(skip)("a student session gets 403 on every /me/api-keys route", () =>
+	withWorld(async (app, world) => {
+		const a = actorsOf(world).a;
+		for (const key of ownKeyRoutes) {
+			const own = sampleFor(key, world, world.a);
+			const { res } = await send(app, key, own, withOrigin(key, a).headers);
+			expect(res.statusCode, key).toBe(403);
+		}
+		const keys = await testDb.db.selectFrom("api_keys").select("id").execute();
+		expect(keys).toEqual([]);
+	}),
+);
 
 // --- A's workspace with B's child id is a 404 -----------------
 
