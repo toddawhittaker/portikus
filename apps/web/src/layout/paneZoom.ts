@@ -2,16 +2,11 @@
  * The hooks that give each pane its kept zoom (SPEC.md §13.1); the keeping
  * itself is in paneZoomKeeper.ts.
  */
-import type { MeSettings } from "@portikus/contracts";
-import { QueryClientContext } from "@tanstack/react-query";
 import { useCallback, useContext, useState, useSyncExternalStore } from "react";
-import { editorSettingsKey } from "../editor/settingsQueries.js";
 import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import {
 	fileZoomKey,
-	paneZoomsSeeded,
 	readPaneZoom,
-	seedPaneZooms,
 	subscribePaneZooms,
 	terminalZoomKey,
 	writePaneZoom,
@@ -19,19 +14,14 @@ import {
 import { LayoutStoreContext } from "./store.js";
 
 /**
- * The zoom kept for `key`, and a way to change it. The settings have
- * already been read when the workspace first paints, so the first render
- * has the saved zoom and nothing jumps. A null key keeps the zoom in this
- * component only.
+ * The zoom kept for `key`, and a way to change it. The settings query seeds
+ * the kept zooms when it resolves, which is before the workspace first
+ * paints, and a pane drawn sooner takes them up then. A null key keeps the
+ * zoom in this component only.
  */
 export function usePersistedZoom(
 	key: string | null,
 ): [number, (percent: number) => void] {
-	const client = useContext(QueryClientContext);
-	if (!paneZoomsSeeded() && client) {
-		const settings = client.getQueryData<MeSettings>(editorSettingsKey);
-		if (settings) seedPaneZooms(settings.paneZooms);
-	}
 	const [own, setOwn] = useState(DEFAULT_ZOOM);
 	const held = useSyncExternalStore(subscribePaneZooms, () =>
 		key === null ? undefined : readPaneZoom(key),

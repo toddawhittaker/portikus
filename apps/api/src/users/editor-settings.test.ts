@@ -46,3 +46,13 @@ test("merging pane zooms sets, forgets, and keeps only the newest", () => {
 	expect(over.k1).toBeUndefined();
 	expect(over.a).toBeDefined();
 });
+
+test("a pane key of __proto__ is stored and read back as an ordinary entry", () => {
+	const merged = mergePaneZooms(null, JSON.parse('{"__proto__": 150}'), 1);
+	expect(Object.keys(merged)).toEqual(["__proto__"]);
+	const stored = JSON.parse(JSON.stringify({ paneZooms: merged }));
+	const zooms = toPaneZooms(stored);
+	expect(Object.keys(zooms)).toEqual(["__proto__"]);
+	expect(Object.entries(zooms)).toEqual([["__proto__", 150]]);
+	expect(Object.getPrototypeOf(zooms)).toBeNull();
+});

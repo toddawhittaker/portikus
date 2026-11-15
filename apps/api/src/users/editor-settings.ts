@@ -31,10 +31,13 @@ export function toEditorSettings(stored: unknown): EditorSettings {
 /** One stored pane zoom: the percentage and when it was last set, in ms. */
 type StoredPaneZoom = [number, number];
 
-/** The stored pane zooms, keeping only well-formed entries. */
+/**
+ * The stored pane zooms, keeping only well-formed entries. Keys are file
+ * paths, so the maps have no prototype: a key of `__proto__` is an entry.
+ */
 function storedPaneZooms(stored: unknown): Record<string, StoredPaneZoom> {
 	const raw = (stored as { paneZooms?: unknown } | null | undefined)?.paneZooms;
-	const out: Record<string, StoredPaneZoom> = {};
+	const out: Record<string, StoredPaneZoom> = Object.create(null);
 	if (typeof raw !== "object" || raw === null) return out;
 	for (const [key, entry] of Object.entries(raw)) {
 		if (!Array.isArray(entry) || !PaneZoomKey.safeParse(key).success) continue;
@@ -48,7 +51,7 @@ function storedPaneZooms(stored: unknown): Record<string, StoredPaneZoom> {
 
 /** Each pane's zoom as `GET /me/settings` returns it (SPEC.md §7.5). */
 export function toPaneZooms(stored: unknown): PaneZooms {
-	const out: PaneZooms = {};
+	const out: PaneZooms = Object.create(null);
 	for (const [key, [zoom]] of Object.entries(storedPaneZooms(stored))) out[key] = zoom;
 	return out;
 }

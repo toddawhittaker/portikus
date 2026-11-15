@@ -1,6 +1,7 @@
 import { MeResponse } from "@portikus/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, request, SessionEndedError } from "./api/request.js";
+import { paneZoomsFor } from "./layout/paneZoomKeeper.js";
 
 export type MeUser = MeResponse;
 
@@ -22,7 +23,9 @@ export function useMe(): MeState {
 		// is caught rather than left to the QueryClient's session handler.
 		queryFn: async (): Promise<MeState> => {
 			try {
-				return { status: "authenticated", user: await request(MeResponse, "/auth/me") };
+				const user = await request(MeResponse, "/auth/me");
+				paneZoomsFor(user.id);
+				return { status: "authenticated", user };
 			} catch (error) {
 				if (error instanceof SessionEndedError) return { status: "anonymous" };
 				if (error instanceof ApiError && error.status === 403) {

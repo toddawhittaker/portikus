@@ -761,8 +761,9 @@ Each pane's zoom (section 13.1) is kept on the server in the student's
 per-user settings, not in the browser, so it follows the student to any
 browser or device. A terminal or chat is keyed by its project and
 terminal id, a file by its project and path. Zoom steps are saved once
-the student stops for half a second, and a failed save keeps the zoom in
-that tab. Once a project's saved layout and terminal list are both in,
+the student stops for half a second, a save still waiting when the tab
+closes is sent as it closes, and a failed save keeps the zoom in that
+tab. Once a project's saved layout and terminal list are both in,
 the zooms of that project's panes no longer in the layout are dropped,
 and closing a file drops its zoom; nothing is dropped before the stored
 zooms have loaded. Each value is 50% to 300%, a request changes at most

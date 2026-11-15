@@ -24,6 +24,10 @@ export function fileZoomKey(projectId: string, path: string): string {
 	return `${projectId}:f:${path}`;
 }
 
+// These outlive a client-side page change, so a different signed-in user
+// clears them first (paneZoomsFor). Sign-in and sign-out are full loads.
+/** Whose zooms these are, once the session is known. */
+let owner: string | null = null;
 /** What the server sent with the settings, or null before they arrive. */
 let fromServer: PaneZooms | null = null;
 /** What this tab has set since; null forgets a pane. */
@@ -41,9 +45,23 @@ export function subscribePaneZooms(listener: () => void) {
 	return () => listeners.delete(listener);
 }
 
-/** Take the server's zooms once; later answers never undo what this tab set. */
+/**
+ * Take the server's zooms once; later answers never undo what this tab set.
+ * Panes already on screen take them up.
+ */
 export function seedPaneZooms(zooms: PaneZooms | undefined): void {
-	fromServer ??= zooms ?? {};
+	if (fromServer !== null) return;
+	fromServer = zooms ?? {};
+	notify();
+}
+
+/**
+ * The signed-in user is `userId`. Another user's zooms, and any save of
+ * theirs still waiting, are dropped, so they are never shown or saved here.
+ */
+export function paneZoomsFor(userId: string): void {
+	if (owner !== null && owner !== userId) resetPaneZooms();
+	owner = userId;
 }
 
 export function readPaneZoom(key: string): number | undefined {
@@ -53,14 +71,40 @@ export function readPaneZoom(key: string): number | undefined {
 	return value === undefined ? undefined : clampZoom(value);
 }
 
-function flush() {
+/** The waiting changes, now taken; null when there are none. */
+function takePending(): PaneZoomChanges | null {
+	if (timer !== null) clearTimeout(timer);
 	timer = null;
 	const changes = pending;
 	pending = {};
-	if (Object.keys(changes).length === 0) return;
+	return Object.keys(changes).length === 0 ? null : changes;
+}
+
+function flush() {
+	const changes = takePending();
+	if (changes === null) return;
 	// A failed save loses nothing here: the zoom stays in `local`.
 	sendJson(MeSettings, "/me/settings", { paneZooms: changes }, "PUT").catch(() => {});
 }
+
+/**
+ * The tab is closing: send a save still waiting now, with keepalive so the
+ * browser finishes it after the page is gone.
+ */
+function flushPaneZoomsOnHide(): void {
+	const changes = takePending();
+	if (changes === null) return;
+	void fetch("/me/settings", {
+		method: "PUT",
+		credentials: "same-origin",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ paneZooms: changes }),
+		keepalive: true,
+	}).catch(() => {});
+}
+
+if (typeof window !== "undefined")
+	window.addEventListener("pagehide", flushPaneZoomsOnHide);
 
 function change(key: string, percent: number | null) {
 	local = { ...local, [key]: percent };
@@ -113,23 +157,18 @@ export function movePaneZooms(projectId: string, from: string, to: string): void
 	}
 }
 
-/** For tests: forget everything, including a save still waiting. */
+/** Forget everything, including a save still waiting. */
 export function resetPaneZooms(): void {
 	if (timer !== null) clearTimeout(timer);
 	timer = null;
+	owner = null;
 	fromServer = null;
 	local = {};
 	pending = {};
 	notify();
 }
 
-/** Whether the server's zooms have been taken yet. */
-export function paneZoomsSeeded(): boolean {
-	return fromServer !== null;
-}
-
 /** For tests: send the waiting save now. */
 export function flushPaneZooms(): void {
-	if (timer !== null) clearTimeout(timer);
 	flush();
 }
