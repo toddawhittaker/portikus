@@ -44,8 +44,8 @@ export function AgentsAutoUpdateSwitch() {
 				<input
 					type="checkbox"
 					role="switch"
-					data-testid="image-agents-auto-switch"
 					aria-checked={on}
+					data-testid="image-agents-auto-switch"
 					checked={on}
 					aria-disabled={save.isPending || undefined}
 					aria-describedby={NOTE}
@@ -55,7 +55,7 @@ export function AgentsAutoUpdateSwitch() {
 			</label>
 			<p id={NOTE} className="pk-muted m-0 text-[13px]">
 				When the daily check finds a newer version, the host runs this update once
-				between 3 and 4 a.m. server time, unless another image job is running.
+				between 08:00 and 09:00 UTC, unless another image job is running.
 			</p>
 			{save.isError ? (
 				<p className="m-0 text-[13px] text-status-error" role="alert">

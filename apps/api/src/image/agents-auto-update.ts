@@ -18,8 +18,11 @@ import {
 } from "./image-jobs.js";
 import { readPublished } from "./release-notices.js";
 
-/** The nightly run starts in this hour of the server's local time, when few students work. */
-export const AUTO_UPDATE_HOUR = 3;
+/**
+ * The nightly run starts in this hour of UTC: 08:00 UTC is 03:00 US Eastern
+ * standard time, when few students work. The site has no timezone setting.
+ */
+export const AUTO_UPDATE_HOUR = 8;
 /** Short enough that one tick always lands inside the hour. */
 const TICK_MS = 15 * 60_000;
 
@@ -31,9 +34,9 @@ export type AutoUpdateDecision =
 	| "busy"
 	| "start";
 
-/** Midnight before `now`, server local time: the start of tonight's single attempt. */
+/** Midnight UTC before `now`: the start of tonight's single attempt. */
 function startOfNight(now: Date): Date {
-	return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
 /**
@@ -49,7 +52,7 @@ export function decideAgentsAutoUpdate(input: {
 	jobs: readonly ImageJobView[];
 }): AutoUpdateDecision {
 	if (!input.enabled) return "off";
-	if (input.now.getHours() !== AUTO_UPDATE_HOUR) return "not-tonight";
+	if (input.now.getUTCHours() !== AUTO_UPDATE_HOUR) return "not-tonight";
 	if (input.lastAttemptAt && input.lastAttemptAt >= startOfNight(input.now)) {
 		return "tried-tonight";
 	}
@@ -86,15 +89,8 @@ export async function runAgentsAutoUpdate(
 		.where("id", "=", 1)
 		.executeTakeFirst();
 	const enabled = settings?.coding_agents_auto_update ?? false;
-	if (!enabled || now.getHours() !== AUTO_UPDATE_HOUR) {
-		return decideAgentsAutoUpdate({
-			enabled,
-			now,
-			lastAttemptAt: null,
-			newer: { claude: null, codex: null },
-			jobs: [],
-		});
-	}
+	if (!enabled) return "off";
+	if (now.getUTCHours() !== AUTO_UPDATE_HOUR) return "not-tonight";
 	if (imageJobLock.held) return "busy";
 	imageJobLock.held = true;
 	try {
