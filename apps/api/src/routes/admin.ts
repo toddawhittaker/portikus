@@ -63,6 +63,7 @@ const SETTINGS_COLUMNS = [
 	"voice_input_enabled",
 	"code_help_languages",
 	"account_email_enabled",
+	"coding_agents_auto_update",
 	"acceptable_use_text",
 	"acceptable_use_version",
 	"updated_at",
@@ -85,6 +86,7 @@ type SettingsRow = {
 	voice_input_enabled: boolean;
 	code_help_languages: string[];
 	account_email_enabled: boolean;
+	coding_agents_auto_update: boolean;
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
 	updated_at: Date | null;
@@ -110,6 +112,7 @@ function toPlatformSettings(row: SettingsRow): PlatformSettings {
 		voiceInputEnabled: row.voice_input_enabled,
 		codeHelpLanguages: knownCodeHelpLanguages(row.code_help_languages),
 		accountEmailEnabled: row.account_email_enabled,
+		codingAgentsAutoUpdate: row.coding_agents_auto_update,
 		acceptableUseText: row.acceptable_use_text,
 		acceptableUseVersion: row.acceptable_use_version,
 		updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
@@ -216,6 +219,11 @@ function applySingleSettings(
 		["keepRunningMaxHours", "keep_running_max_hours", "settings.keep_running_updated"],
 		["voiceInputEnabled", "voice_input_enabled", "settings.voice_input_updated"],
 		["accountEmailEnabled", "account_email_enabled", "settings.account_email_updated"],
+		[
+			"codingAgentsAutoUpdate",
+			"coding_agents_auto_update",
+			"settings.coding_agents_auto_update_updated",
+		],
 	] as const;
 	for (const [field, column, action] of singleFields) {
 		const value = body[field];

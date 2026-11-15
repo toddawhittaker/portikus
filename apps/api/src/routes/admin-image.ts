@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
@@ -13,21 +12,26 @@ import {
 	ImageHealth,
 	ImageJobId,
 	ImageJobRequest,
-	ImageJobRequestFile,
-	ImageJobStatusFile,
 	type ImageJobView,
 	ImageManifest,
 	ImageSizeFile,
 	ImageVersion,
 	type ImageView,
 	isJobActive,
-	newerCodingAgent,
 	newerPublishedImage,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError } from "../http.js";
+import {
+	allImageJobs,
+	imageJobLock,
+	newerCodingAgentsOf,
+	queuedImageJobs,
+	queueImageJob,
+	readImageJob,
+} from "../image/image-jobs.js";
 import { diffManifests } from "../image/manifest-diff.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import {
@@ -36,7 +40,6 @@ import {
 	readJson,
 	removeStaleRequests,
 	tailLines,
-	writeRequestFile,
 } from "../job-files.js";
 
 /** The disk the image store is on, which also holds Incus's image files on a standard install. */
@@ -53,24 +56,6 @@ async function diskOf(path: string): Promise<AdminImage["disk"]> {
 }
 
 const adminOnly = { preHandler: requireRole("administrator") };
-const REQUEST_FILE = /^request-([0-9a-f-]{36})\.json$/;
-
-/** A request the job has not taken yet. */
-function queuedView(file: ImageJobRequestFile): ImageJobView {
-	return {
-		id: file.id,
-		kind: file.request.kind,
-		state: "queued",
-		step: "Waiting to start",
-		version: "version" in file.request ? (file.request.version ?? null) : null,
-		message: null,
-		requestedAt: file.requestedAt,
-		startedAt: null,
-		finishedAt: null,
-		request: file.request,
-	};
-}
-
 function summarize(manifest: ImageManifest | null): ImageView["manifest"] {
 	if (!manifest) return null;
 	const { packages, ...rest } = manifest;
@@ -92,54 +77,11 @@ export function registerAdminImageRoutes(
 ): void {
 	const jobsDir = config.IMAGE_JOBS_DIR;
 	const imagesDir = jobsDir ? imagesDirOf(jobsDir) : null;
-	// One API process: this closes the gap between checking and writing.
-	let writing = false;
 
 	function off(reply: FastifyReply): boolean {
 		if (jobsDir) return false;
 		sendError(reply, 404, "NOT_FOUND", "Not found.");
 		return true;
-	}
-
-	async function queuedJobs(dir: string): Promise<ImageJobView[]> {
-		const jobs: ImageJobView[] = [];
-		for (const name of await listDir(dir)) {
-			if (!REQUEST_FILE.test(name)) continue;
-			const file = await readJson(join(dir, name), ImageJobRequestFile);
-			if (!file) continue;
-			jobs.push(queuedView(file));
-		}
-		return jobs;
-	}
-
-	async function readJob(dir: string, id: string): Promise<ImageJobView | null> {
-		const status = await readJson(join(dir, id, "status.json"), ImageJobStatusFile);
-		const request = await readJson(join(dir, id, "request.json"), ImageJobRequestFile);
-		// The job moves the request in before it writes its first status: still waiting.
-		if (!status) return request && request.id === id ? queuedView(request) : null;
-		if (status.id !== id) return null;
-		return {
-			id,
-			kind: status.kind,
-			state: status.state,
-			step: status.step,
-			version: status.version,
-			message: status.message,
-			requestedAt: request?.requestedAt ?? null,
-			startedAt: status.startedAt,
-			finishedAt: status.finishedAt,
-			request: request?.request ?? null,
-		};
-	}
-
-	async function allJobs(dir: string): Promise<ImageJobView[]> {
-		const jobs = await queuedJobs(dir);
-		for (const name of await listDir(dir)) {
-			if (!ImageJobId.safeParse(name).success) continue;
-			const job = await readJob(dir, name);
-			if (job) jobs.push(job);
-		}
-		return jobs;
 	}
 
 	/** Write image.job_finished the first time the API sees a job finished. */
@@ -188,7 +130,7 @@ export function registerAdminImageRoutes(
 		if (off(reply) || !jobsDir || !imagesDir) return;
 		// Jobs first: the root job moves the aliases before it writes "succeeded",
 		// so a finished job is never paired with the aliases from before it.
-		const job = currentJob(await allJobs(jobsDir), IMAGE_JOB_STALE_MS);
+		const job = currentJob(await allImageJobs(jobsDir), IMAGE_JOB_STALE_MS);
 		const { aliases, images } = await readStore(imagesDir);
 		const counts = await db
 			.selectFrom("workspaces")
@@ -231,7 +173,6 @@ export function registerAdminImageRoutes(
 			join(imagesDir, "coding-agents.json"),
 			CodingAgentsFile,
 		);
-		const newest = published?.codingAgents ?? null;
 		const out: AdminImage = {
 			default: aliases.default,
 			previous: aliases.previous,
@@ -243,15 +184,7 @@ export function registerAdminImageRoutes(
 				images.map((image) => image.version),
 			),
 			codingAgents,
-			// Only against a recorded current version: with no file the page shows setup, not an update.
-			newerCodingAgents: {
-				claude: codingAgents
-					? newerCodingAgent(newest?.claude ?? null, codingAgents.claude.current)
-					: null,
-				codex: codingAgents
-					? newerCodingAgent(newest?.codex ?? null, codingAgents.codex.current)
-					: null,
-			},
+			newerCodingAgents: newerCodingAgentsOf(published, codingAgents),
 			disk: await diskOf(imagesDir),
 		};
 		return reply.header("cache-control", "no-store").send(out);
@@ -287,8 +220,8 @@ export function registerAdminImageRoutes(
 		if (!id.success)
 			return sendError(reply, 400, "VALIDATION_FAILED", "invalid job id");
 		const job =
-			(await readJob(jobsDir, id.data)) ??
-			(await queuedJobs(jobsDir)).find((j) => j.id === id.data) ??
+			(await readImageJob(jobsDir, id.data)) ??
+			(await queuedImageJobs(jobsDir)).find((j) => j.id === id.data) ??
 			null;
 		if (!job) return sendError(reply, 404, "NOT_FOUND", "No such job.");
 		await noteFinished(job);
@@ -393,7 +326,7 @@ export function registerAdminImageRoutes(
 			"unknown kind, choice or version",
 		);
 		if (!wanted) return reply;
-		if (writing) {
+		if (imageJobLock.held) {
 			return sendError(
 				reply,
 				409,
@@ -401,9 +334,9 @@ export function registerAdminImageRoutes(
 				"An image job is already waiting or running.",
 			);
 		}
-		writing = true;
+		imageJobLock.held = true;
 		try {
-			const jobs = await allJobs(jobsDir);
+			const jobs = await allImageJobs(jobsDir);
 			if (jobs.some((j) => isJobActive(j, IMAGE_JOB_STALE_MS))) {
 				return sendError(
 					reply,
@@ -418,24 +351,10 @@ export function registerAdminImageRoutes(
 				return sendError(reply, refused.status, refused.code, refused.message);
 			}
 
-			const id = randomUUID();
-			const file: ImageJobRequestFile = {
-				id,
-				requestedAt: new Date().toISOString(),
-				requestedBy: admin.id,
-				request: wanted,
-			};
-			await writeRequestFile(jobsDir, file, 0o640);
-			await recordAudit(db, {
-				actor: `user:${admin.id}`,
-				target: id,
-				action: "image.job_requested",
-				result: "ok",
-				metadata: wanted,
-			});
-			return reply.status(202).send(queuedView(file));
+			const job = await queueImageJob(db, jobsDir, wanted, admin.id);
+			return reply.status(202).send(job);
 		} finally {
-			writing = false;
+			imageJobLock.held = false;
 		}
 	});
 }

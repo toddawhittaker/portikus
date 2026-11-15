@@ -757,6 +757,18 @@ screen but is not saved on its own. A late save's version is kept only if
 its mount is still live and the store is still on the version it was
 based on.
 
+Each pane's zoom (section 13.1) is kept on the server in the student's
+per-user settings, not in the browser, so it follows the student to any
+browser or device. A terminal or chat is keyed by its project and
+terminal id, a file by its project and path. Zoom steps are saved once
+the student stops for half a second, and a failed save keeps the zoom in
+that tab. Once a project's saved layout and terminal list are both in,
+the zooms of that project's panes no longer in the layout are dropped,
+and closing a file drops its zoom; nothing is dropped before the stored
+zooms have loaded. Each value is 50% to 300%, a request changes at most
+500 panes, and at most 500 are kept per user, the least recently set
+going first. The keys hold file paths, so they are never logged.
+
 ### 7.6 Project API and storage
 
 A project is a durable control-plane row (§26) that mirrors a directory under
@@ -1882,11 +1894,11 @@ The project is not intended to become a complete VS Code clone.
 
 Added by Epic 52 (ADR 0065): the editor has real code help, from language servers in the workspace, for Python, TypeScript and JavaScript (section 13.6). Monaco's own TypeScript, CSS and HTML language services stay out of the bundle. An administrator chooses which languages have code help, and a file of a language that is off is the plain editor described here.
 
-Added by Epic 62: terminal and chat panes zoom on their own, like the editor: 50% to 300% in 10% steps, by Ctrl (Cmd on a Mac) + wheel over the pane or by the zoom buttons in its title bar, where the percentage button returns to 100%. A chat also takes the editor's zoom keys; a terminal leaves Ctrl+= and Ctrl+- to the shell. A terminal's zoom changes its font size, refits the grid and sends the new rows and columns to tmux. Each pane keeps its zoom for the browser session, through splits, moves and leaving the workspace; it is held in the tab's sessionStorage and never sent to the server (section 7.5).
+Added by Epic 62: terminal and chat panes zoom on their own, like the editor: 50% to 300% in 10% steps, by Ctrl (Cmd on a Mac) + wheel over the pane or by the zoom buttons in its title bar, where the percentage button returns to 100%. A chat also takes the editor's zoom keys; a terminal leaves Ctrl+= and Ctrl+- to the shell. A terminal's zoom changes its font size, refits the grid and sends the new rows and columns to tmux. Each pane keeps its zoom through splits, moves, leaving the workspace, a workspace restart and a reload, and in any other browser or device: it is kept on the server with the student's own settings (section 7.5). The saved zoom applies before the pane first paints, so nothing jumps, and a terminal's first rows and columns sent to tmux are the zoomed ones.
 
 Added by Epic 65: a student picks an editor colour scheme in Settings (Appearance). Each scheme is a light and dark pair that follows the page appearance. Portikus Light and Dark are the default and the only schemes held to the 4.5:1 contrast of section 25.8. The reference schemes (VS Code, IntelliJ, GitHub, Solarized, Catppuccin and High contrast) are copied exactly as published, with their licence notices shipped in the build, and their contrast is the student's choice. In every scheme the scrollbar's Git and problem marks keep the Portikus colours.
 
-Also added by Epic 65: a file pane switched to Diff keeps the editor's zoom. The diff has the same bar under it with the zoom buttons and percentage, and the zoom keys and Ctrl (Cmd) + wheel work on either side of it. A file has one zoom, shared by Edit and Diff: the diff opens at the editor's zoom, both sides zoom together, and a change made in the diff shows in the editor. The diff's bar has no language or code help status.
+Also added by Epic 65: a file pane switched to Diff keeps the editor's zoom. The diff has the same bar under it with the zoom buttons and percentage, and the zoom keys and Ctrl (Cmd) + wheel work on either side of it. A file has one zoom, shared by Edit and Diff and kept by its project and path like a pane's (section 7.5): the diff opens at the editor's zoom, both sides zoom together, and a change made in the diff shows in the editor. The diff's bar has no language or code help status.
 
 ### 13.2 Editing scope
 
@@ -4010,7 +4022,10 @@ language-aware editor".
   **Roll back** button for each tool start the jobs of §22.6. A rollback
   with no previous version is refused (409 `CODING_AGENT_NO_PREVIOUS`) and
   its button says why. While any image job runs every button is off. After a
-  rollback the next update moves forward to the newest version again. Until
+  rollback the next update moves forward to the newest version again. Beside
+  **Update coding agents** a switch, "Update automatically each night", turns
+  on the nightly update of §22.6. It is off on a new site, saves when
+  changed, and is audited as `settings.coding_agents_auto_update_updated`. Until
   setup has seeded the folder the card says so. New image manifests do not
   list claude or codex; older ones that do are not shown as changed or
   removed.
@@ -4140,6 +4155,7 @@ Added by Epic 40 (ADR 0056). The root image job (§22.4) gained three commands u
 
 - **`agents-update`.** Refused when there is no default image or less than 2 GiB is free. Claude Code takes the version from the `stable` channel at `downloads.claude.ai`. Its `manifest.json` is checked with `gpgv` against a keyring shipped in the package, and the job requires the signature to come from the pinned fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. The binary must match the manifest's SHA-256. Codex takes the latest GitHub release with a plain `rust-v<x.y.z>` tag, builds the download URL itself, and requires GitHub's asset digest to equal the hash in `codex-package_SHA256SUMS`. Downloads have size caps. Archives unpack into a `0700` staging folder, `.staging-<job id>`, with only regular files and folders (no links, devices, setuid or setgid files, absolute paths or `..`), capped in members and size, then set to `root:root` with mode 0755 or 0644. A version name must match `[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}` before it joins a path.
 - **Health check and switch.** One throwaway `imgcheck-<hex>` container from the default image, with the workspace profile, runs each candidate by its absolute path as the student (uid 1000), plus the Claude login check. Boot is awaited for at most five minutes in total. Each tool that passes switches on its own, by writing a temporary relative link and renaming it over `current`; the old `current` becomes `previous`. A failed candidate is deleted, and the job fails with a message that says which tools switched. An error while staging one tool does not stop the other. An update never moves a tool below its current version: the stable pointer is unsigned, so an older offer leaves the tool as it is and the message says so.
+- **Nightly update.** With the site setting on (`settings.coding_agents_auto_update`, off by default; §22.4), the API checks every quarter hour and, between 03:00 and 04:00 server local time, queues the same `agents-update` request the button does when `newerCodingAgents` names either tool. It never queues while another image job waits or runs. It tries once a night: a request it made since local midnight stops another until the next night, so a failing update cannot loop, and a failure the night before does not stop tonight's try. The request file's `requestedBy` is `"system"`, which the job accepts in place of a user id, and the audit row is the button's `image.job_requested` with actor `system`. Everything else is the update above: the same verification, the health check as the student, the previous version kept for **Roll back**, and open sessions keep their version.
 - **`agents-rollback {tool}`.** Swaps `current` and `previous` for that tool with no health check, and leaves the other tool alone. Refused when there is no previous version.
 - **`agents-links`.** Run by the package's install script before the services restart (`image-job agents-links`). It makes the shared folder and the two `bin` links, downloads nothing and takes no job lock. Setup downloads the tools afterwards with `agents-seed`.
 - **`agents-seed`.** Runs from setup only, never as a job. For any tool with no `current` it installs the version pinned in `image-job`, checked against a SHA-256 pinned there, and prints `changed` or `unchanged`. Setup stops, naming the tool, if either tool is still missing.

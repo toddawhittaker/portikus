@@ -10,7 +10,11 @@ import {
 	EditorSettings,
 	githubHref,
 	MAX_ACCEPTABLE_USE_LENGTH,
+	MAX_PANE_ZOOM,
+	MAX_PANE_ZOOM_KEY_LENGTH,
+	MAX_PANE_ZOOMS,
 	MeSettings,
+	MIN_PANE_ZOOM,
 	PlatformSettings,
 	SetLogLevelRequest,
 	systemTimezones,
@@ -36,6 +40,7 @@ const GUARD_SETTINGS = {
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
+	codingAgentsAutoUpdate: false,
 	acceptableUseVersion: 1,
 };
 
@@ -613,4 +618,50 @@ test("writing is strict: unshipped ids, duplicates and non-arrays are refused", 
 	expect(
 		UpdatePlatformSettingsRequest.safeParse({ codeHelpEnabled: false }).success,
 	).toBe(false);
+});
+
+test("UpdateEditorSettingsRequest takes pane zoom changes, null forgetting one", () => {
+	expect(
+		UpdateEditorSettingsRequest.parse({
+			paneZooms: { "p:t:a": 150, "p:f:x.ts": null },
+		}),
+	).toEqual({ paneZooms: { "p:t:a": 150, "p:f:x.ts": null } });
+});
+
+test("UpdateEditorSettingsRequest keeps pane zooms inside the zoom range", () => {
+	for (const zoom of [MIN_PANE_ZOOM - 1, MAX_PANE_ZOOM + 1, 125.5, Number.NaN]) {
+		expect(
+			UpdateEditorSettingsRequest.safeParse({ paneZooms: { k: zoom } }).success,
+		).toBe(false);
+	}
+	expect(
+		UpdateEditorSettingsRequest.safeParse({
+			paneZooms: { a: MIN_PANE_ZOOM, b: MAX_PANE_ZOOM },
+		}).success,
+	).toBe(true);
+});
+
+test("UpdateEditorSettingsRequest rejects oversized pane zoom payloads", () => {
+	const many = Object.fromEntries(
+		Array.from({ length: MAX_PANE_ZOOMS + 1 }, (_, i) => [`k${i}`, 100]),
+	);
+	expect(UpdateEditorSettingsRequest.safeParse({ paneZooms: many }).success).toBe(
+		false,
+	);
+	const longKey = "x".repeat(MAX_PANE_ZOOM_KEY_LENGTH + 1);
+	expect(
+		UpdateEditorSettingsRequest.safeParse({ paneZooms: { [longKey]: 100 } }).success,
+	).toBe(false);
+	expect(
+		UpdateEditorSettingsRequest.safeParse({ paneZooms: { "": 100 } }).success,
+	).toBe(false);
+	expect(UpdateEditorSettingsRequest.safeParse({ paneZooms: {} }).success).toBe(false);
+});
+
+test("MeSettings carries the pane zooms, and parses without them", () => {
+	const base = { ...EDITOR_SETTINGS_DEFAULTS, timezones: [] };
+	expect(MeSettings.parse(base).paneZooms).toBeUndefined();
+	expect(MeSettings.parse({ ...base, paneZooms: { k: 120 } }).paneZooms).toEqual({
+		k: 120,
+	});
 });

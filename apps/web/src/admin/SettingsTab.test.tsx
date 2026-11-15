@@ -24,6 +24,7 @@ const SETTINGS = {
 	accountEmailEnabled: false,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
+	codingAgentsAutoUpdate: false,
 	acceptableUseVersion: 1,
 	updatedAt: "2026-10-14T15:02:00.000Z",
 };

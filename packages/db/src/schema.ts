@@ -384,6 +384,8 @@ interface SettingsTable {
 	docker_seed_max_gib: Generated<number>;
 	docker_seed_images: ColumnType<string[], string | undefined, string>;
 	docker_seed_images_set: Generated<boolean>;
+	/** Whether the API runs the coding-agents update each night (SPEC.md section 22.6). */
+	coding_agents_auto_update: Generated<boolean>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }

@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useRef } from "react";
-import { useEditorZoom } from "../layout/store.js";
+import { useEditorZoom } from "../layout/paneZoom.js";
 import { stepZoom, wheelZoom } from "./zoom.js";
 
 /**

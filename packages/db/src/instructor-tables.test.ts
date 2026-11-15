@@ -104,6 +104,7 @@ describe("instructor feature tables", () => {
 					"0053_chat_settings",
 					"0054_alert_state",
 					"0055_check_runs",
+					"0057_coding_agents_auto_update",
 				]);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(6);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(4);

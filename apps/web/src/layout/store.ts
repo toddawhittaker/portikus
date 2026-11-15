@@ -15,10 +15,16 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { createStore, useStore } from "zustand";
-import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import { movedPath } from "../files/paths.js";
 import { forgetFiles, moveKeys } from "./fileState.js";
 import type { LocalLayout } from "./local.js";
+import {
+	fileZoomKey,
+	forgetFileZooms,
+	movePaneZooms,
+	prunePaneZooms,
+	terminalZoomKey,
+} from "./paneZoomKeeper.js";
 import * as tree from "./tree.js";
 
 /** One request for a file pane: show the diff or the editor, maybe at a line. */
@@ -48,12 +54,8 @@ export interface LayoutState {
 	 * the layout rather than in the saved document.
 	 */
 	viewStates: Record<string, unknown>;
-	/**
-	 * The editor zoom of each open file, by project-relative path. It
-	 * lasts the session only, so this one lives here and is
-	 * never written to this browser's storage.
-	 */
-	zooms: Record<string, number>;
+	/** The project this layout is for; null for a layout with nothing kept. */
+	projectId: string | null;
 	/**
 	 * Which view each open file shows, by project-relative path, so a pane
 	 * moved to a new place keeps showing its diff. Like zoom, session only.
@@ -164,8 +166,6 @@ export interface LayoutState {
 	setActive: (tabId: string) => void;
 	/** Remember where the cursor and scroll are in one open file. */
 	setViewState: (path: string, viewState: unknown) => void;
-	/** Remember the editor zoom of one open file for this session. */
-	setZoom: (path: string, percent: number) => void;
 	/** Remember which view one open file shows for this session. */
 	setFileView: (path: string, view: FileView) => void;
 	/** Put back what this browser remembered for this project. */
@@ -215,7 +215,7 @@ function pruneHistory(history: string[], layout: ProjectLayout): string[] {
 	return history.filter((id) => ids.has(id));
 }
 
-export function createLayoutStore() {
+export function createLayoutStore(projectId: string | null = null) {
 	return createStore<LayoutState>()((set, get) => {
 		let seq = 0;
 		const nextSeq = () => ++seq;
@@ -224,9 +224,10 @@ export function createLayoutStore() {
 		const liveBuffers = new Map<string, () => unknown>();
 		const carried = new Map<string, unknown>();
 
-		/** Forget the unsaved text kept for files that were closed. */
+		/** Forget the unsaved text and the zoom kept for files that were closed. */
 		function dropCarried(paths: string[]) {
 			for (const path of paths) carried.delete(path);
+			if (projectId !== null) forgetFileZooms(projectId, paths);
 		}
 
 		/**
@@ -324,6 +325,18 @@ export function createLayoutStore() {
 			};
 		}
 
+		/** The zoom key of every pane in the layout. */
+		function livePaneZoomKeys(project: string): Set<string> {
+			const keys = new Set<string>();
+			for (const tab of get().layout.tabs) {
+				for (const id of tree.terminalIds(tab.root))
+					keys.add(terminalZoomKey(project, id));
+				for (const path of tree.filePaths(tab.root))
+					keys.add(fileZoomKey(project, path));
+			}
+			return keys;
+		}
+
 		return {
 			layout: tree.emptyLayout(),
 			activeTabId: null,
@@ -331,7 +344,7 @@ export function createLayoutStore() {
 			pendingView: {},
 			diffBaseline: {},
 			viewStates: {},
-			zooms: {},
+			projectId,
 			fileViews: {},
 			tabHistory: [],
 			unsavedTabs: {},
@@ -573,9 +586,6 @@ export function createLayoutStore() {
 			setViewState: (path, viewState) =>
 				set((state) => ({ viewStates: { ...state.viewStates, [path]: viewState } })),
 
-			setZoom: (path, percent) =>
-				set((state) => ({ zooms: { ...state.zooms, [path]: percent } })),
-
 			setFileView: (path, view) =>
 				set((state) => ({ fileViews: { ...state.fileViews, [path]: view } })),
 
@@ -595,6 +605,7 @@ export function createLayoutStore() {
 
 			retargetTabs: (from, to) => {
 				const replaced = moveBuffers(from, to);
+				if (projectId !== null) movePaneZooms(projectId, from, to);
 				set((state) => {
 					const layout = tree.retargetFiles(state.layout, from, to);
 					const files = tree.fileTabId("");
@@ -617,7 +628,6 @@ export function createLayoutStore() {
 						diffBaseline: moveKeys(state.diffBaseline, files, from, to),
 						unsavedTabs: moveKeys(state.unsavedTabs, files, from, to),
 						viewStates: moveKeys(state.viewStates, "", from, to),
-						zooms: moveKeys(state.zooms, "", from, to),
 						fileViews: moveKeys(state.fileViews, "", from, to),
 						dirty: state.dirty || layout !== state.layout,
 					};
@@ -644,7 +654,7 @@ export function createLayoutStore() {
 				return text;
 			},
 
-			reconcile: (terminalIds, endedIds) =>
+			reconcile: (terminalIds, endedIds) => {
 				set((state) => {
 					if (state.remoteBase !== null && !state.dirty) {
 						return reconcileRemote(state, state.remoteBase, terminalIds, endedIds);
@@ -668,7 +678,11 @@ export function createLayoutStore() {
 						reconciled: true,
 						dirty: state.dirty || removed || !state.reconciled,
 					};
-				}),
+				});
+				// The saved layout and the terminal list are both in now, so the
+				// panes on screen are every pane this project has.
+				if (projectId !== null) prunePaneZooms(projectId, livePaneZoomKeys(projectId));
+			},
 
 			setTabUnsaved: (paneId, unsaved) =>
 				set((state) => {
@@ -701,7 +715,10 @@ export function useLayoutStore(projectId: string): LayoutStore {
 	const shared = useContext(LayoutStoreContext);
 	const held = useRef<{ projectId: string; store: LayoutStore } | null>(null);
 	if (held.current === null || held.current.projectId !== projectId) {
-		held.current = { projectId, store: createLayoutStore() };
+		held.current = {
+			projectId,
+			store: createLayoutStore(projectId === "none" ? null : projectId),
+		};
 	}
 	return shared ?? held.current.store;
 }
@@ -745,32 +762,6 @@ export function useEditorViewState(path: string): {
 		[store, path],
 	);
 	return { initial: initial.current.value, save };
-}
-
-/**
- * The editor zoom of one open file. It is held in the layout
- * store, beside the cursor and scroll position, so there is one place that
- * remembers what a tab looked like; unlike those it is never written to this
- * browser's storage, so a reload starts at 100% again. The editor and the
- * diff of one file both read it, so a change in either shows in the other. A
- * file tab rendered outside a workspace has no store and keeps its own zoom.
- */
-export function useEditorZoom(path: string): [number, (percent: number) => void] {
-	const store = useContext(LayoutStoreContext);
-	const [own, setOwn] = useState(DEFAULT_ZOOM);
-	const subscribe = useCallback(
-		(listener: () => void) => store?.subscribe(listener) ?? (() => {}),
-		[store],
-	);
-	const held = useSyncExternalStore(subscribe, () => store?.getState().zooms[path]);
-	const set = useCallback(
-		(percent: number) => {
-			if (store) store.getState().setZoom(path, percent);
-			else setOwn(percent);
-		},
-		[store, path],
-	);
-	return [store ? (held ?? DEFAULT_ZOOM) : own, set];
 }
 
 /**

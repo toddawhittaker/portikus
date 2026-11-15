@@ -56,6 +56,7 @@ import { down as down0052, up as up0052 } from "./0052_terminal_kind.js";
 import { down as down0053, up as up0053 } from "./0053_chat_settings.js";
 import { down as down0054, up as up0054 } from "./0054_alert_state.js";
 import { down as down0055, up as up0055 } from "./0055_check_runs.js";
+import { down as down0057, up as up0057 } from "./0057_coding_agents_auto_update.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -116,4 +117,5 @@ export const migrations: Record<string, Migration> = {
 	"0053_chat_settings": { up: up0053, down: down0053 },
 	"0054_alert_state": { up: up0054, down: down0054 },
 	"0055_check_runs": { up: up0055, down: down0055 },
+	"0057_coding_agents_auto_update": { up: up0057, down: down0057 },
 };

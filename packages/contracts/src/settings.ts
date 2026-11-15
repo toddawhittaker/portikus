@@ -54,6 +54,8 @@ export const PlatformSettings = z.object({
 	codeHelpLanguages: z.array(z.string()),
 	/** Off means no reset or invitation email is sent, even with SMTP set (SPEC.md §5.3). */
 	accountEmailEnabled: z.boolean(),
+	/** On runs the coding-agents update each night when a newer version is recorded (SPEC.md §22.6). */
+	codingAgentsAutoUpdate: z.boolean(),
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
 	/** Read-only: goes up by one whenever the text changes. */
@@ -101,6 +103,7 @@ export const UpdatePlatformSettingsRequest = z
 			.refine((ids) => new Set(ids).size === ids.length, "Languages must be unique")
 			.optional(),
 		accountEmailEnabled: z.boolean().optional(),
+		codingAgentsAutoUpdate: z.boolean().optional(),
 		acceptableUseText: z
 			.string()
 			.trim()
@@ -317,6 +320,36 @@ export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	editorScheme: "portikus",
 };
 
+/** The smallest and largest pane zoom, as a percentage (SPEC.md §13.1). */
+export const MIN_PANE_ZOOM = 50;
+export const MAX_PANE_ZOOM = 300;
+
+/** Most pane zooms kept for one user; the oldest go first. */
+export const MAX_PANE_ZOOMS = 500;
+
+/** Longest pane zoom key: a project id and a terminal id or file path. */
+export const MAX_PANE_ZOOM_KEY_LENGTH = 2048;
+
+export const PaneZoomKey = z.string().min(1).max(MAX_PANE_ZOOM_KEY_LENGTH);
+export const PaneZoomPercent = z.number().int().min(MIN_PANE_ZOOM).max(MAX_PANE_ZOOM);
+
+/** Each pane's zoom, by key (SPEC.md §7.5, §13.1). */
+export const PaneZooms = z.record(PaneZoomKey, PaneZoomPercent);
+export type PaneZooms = z.infer<typeof PaneZooms>;
+
+/**
+ * Changes to the pane zooms: a percentage sets a pane's zoom, null forgets
+ * it. Panes not named keep theirs. At most MAX_PANE_ZOOMS at once.
+ */
+export const PaneZoomChanges = z
+	.record(PaneZoomKey, PaneZoomPercent.nullable())
+	.refine((changes) => Object.keys(changes).length > 0, "Give at least one pane")
+	.refine(
+		(changes) => Object.keys(changes).length <= MAX_PANE_ZOOMS,
+		`At most ${MAX_PANE_ZOOMS} panes at once`,
+	);
+export type PaneZoomChanges = z.infer<typeof PaneZoomChanges>;
+
 /**
  * Request body for `PUT /me/settings`. Every field is optional and is merged
  * into the stored settings; a request that changes nothing is rejected. The
@@ -327,6 +360,7 @@ export const UpdateEditorSettingsRequest = EditorSettings.extend({
 	timezone: Timezone,
 })
 	.partial()
+	.extend({ paneZooms: PaneZoomChanges.optional() })
 	.strict()
 	.refine((body) => Object.values(body).some((value) => value !== undefined), {
 		message: "At least one setting must be given",
@@ -347,6 +381,8 @@ export const MeSettings = EditorSettings.extend({
 	codeHelpLanguages: z.array(z.string()).optional(),
 	/** The fullest profile among the user's courses; read-only, missing means agentic. */
 	courseProfile: CourseProfile.optional(),
+	/** Each pane's zoom in the student's workspace; missing means every pane is at 100%. */
+	paneZooms: PaneZooms.optional(),
 });
 export type MeSettings = z.infer<typeof MeSettings>;
 

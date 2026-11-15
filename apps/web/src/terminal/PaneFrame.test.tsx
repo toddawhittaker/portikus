@@ -9,11 +9,18 @@ import {
 import { useContext } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { PaneZoomContext } from "../editor/zoom";
+import {
+	fileZoomKey,
+	readPaneZoom,
+	resetPaneZooms,
+	seedPaneZooms,
+	terminalZoomKey,
+} from "../layout/paneZoomKeeper";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store";
 import { PaneFrame, type PaneFrameProps } from "./PaneFrame";
 
 afterEach(cleanup);
-beforeEach(() => sessionStorage.clear());
+beforeEach(() => resetPaneZooms());
 
 function frameProps(): PaneFrameProps {
 	return {
@@ -237,7 +244,7 @@ function ZoomProbe() {
 
 function renderInWorkspace(
 	overrides: Partial<PaneFrameProps> = {},
-	layout = createLayoutStore(),
+	layout = createLayoutStore("p1"),
 ) {
 	const props: PaneFrameProps = {
 		...frameProps(),
@@ -261,24 +268,22 @@ test("outside a workspace the pane offers no zoom", () => {
 	expect(screen.getByTestId("inside-zoom").textContent).toBe("100");
 });
 
-test("the buttons zoom the pane, the value goes back to 100%, and sessionStorage keeps it", () => {
+test("the buttons zoom the pane, the value goes back to 100%, and the zoom is kept by terminal id", () => {
 	renderInWorkspace();
 	expect(shown()).toBe("100%");
 	fireEvent.click(screen.getByLabelText("Zoom root in"));
 	fireEvent.click(screen.getByLabelText("Zoom root in"));
 	expect(shown()).toBe("120%");
 	expect(screen.getByTestId("inside-zoom").textContent).toBe("120");
-	expect(JSON.parse(sessionStorage.getItem("portikus.paneZoom") ?? "{}")).toEqual({
-		t1: 120,
-	});
+	expect(readPaneZoom(terminalZoomKey("p1", "t1"))).toBe(120);
 	fireEvent.click(screen.getByLabelText("Zoom root out"));
 	expect(shown()).toBe("110%");
 	fireEvent.click(screen.getByLabelText("Zoom root to 100%, now 110%"));
 	expect(shown()).toBe("100%");
 });
 
-test("a pane that mounts again, as a split or a move does, keeps its zoom", () => {
-	sessionStorage.setItem("portikus.paneZoom", JSON.stringify({ t1: 70 }));
+test("a pane opens at the zoom the server kept for it, before its first paint", () => {
+	seedPaneZooms({ [terminalZoomKey("p1", "t1")]: 70, [fileZoomKey("p1", "t1")]: 200 });
 	renderInWorkspace();
 	expect(shown()).toBe("70%");
 	expect(
@@ -286,12 +291,18 @@ test("a pane that mounts again, as a split or a move does, keeps its zoom", () =
 	).toBe("0.7");
 });
 
-test("a pane's zoom outlives its workspace's layout store for the browser session", () => {
+test("a pane's zoom outlives its workspace's layout store", () => {
 	const { view } = renderInWorkspace();
 	fireEvent.click(screen.getByLabelText("Zoom root in"));
 	view.unmount();
-	renderInWorkspace();
+	renderInWorkspace(undefined, createLayoutStore("p1"));
 	expect(shown()).toBe("110%");
+});
+
+test("the same terminal id in another project has its own zoom", () => {
+	seedPaneZooms({ [terminalZoomKey("p2", "t1")]: 150 });
+	renderInWorkspace();
+	expect(shown()).toBe("100%");
 });
 
 const announced = () => screen.getByRole("status").textContent;
@@ -329,12 +340,12 @@ test("Ctrl + wheel does not announce a zoom", () => {
 	expect(announced()).toBe("");
 });
 
-test("a refused or corrupt sessionStorage starts the pane at 100%", () => {
-	sessionStorage.setItem("portikus.paneZoom", "not json");
-	renderInWorkspace();
+test("a pane with no project kept keeps its zoom to itself", () => {
+	renderInWorkspace(undefined, createLayoutStore());
 	expect(shown()).toBe("100%");
 	fireEvent.click(screen.getByLabelText("Zoom root in"));
 	expect(shown()).toBe("110%");
+	expect(readPaneZoom(terminalZoomKey("p1", "t1"))).toBeUndefined();
 });
 
 test("Ctrl + wheel anywhere over the pane zooms it, focused or not, and takes the event", () => {
