@@ -189,6 +189,8 @@ let keyDir: string;
 const MATRIX_KEY = fakeKey("matrix server");
 /** A recovery point of A's project, made fresh with each world. */
 let pointId: string;
+/** A's one kept run of the "lint" check, made fresh with each world. */
+let checkRunId: string;
 /** A's open live help session with the instructor, made fresh with each world. */
 let liveHelpId: string;
 
@@ -294,6 +296,20 @@ async function withWorld(
 				// Old enough that "Create recovery point now" is not cooling down.
 				created_at: new Date(Date.now() - 3_600_000).toISOString(),
 				expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+			})
+			.execute();
+		checkRunId = crypto.randomUUID();
+		await testDb.db
+			.insertInto("check_runs")
+			.values({
+				id: checkRunId,
+				project_id: world.a.projectId,
+				check_id: "lint",
+				agent_run_id: "matrix-1",
+				state: "passed",
+				started_at: new Date(Date.now() - 2000).toISOString(),
+				ended_at: new Date(Date.now() - 1000).toISOString(),
+				exit_code: 0,
 			})
 			.execute();
 		// A has shared the project, so every owner route below is shown to
@@ -479,6 +495,7 @@ function sampleFor(
 		.replace(":courseUserId", world.a.userId)
 		.replace(":userId", world.a.userId)
 		.replace(":rpid", pointId)
+		.replace(":runId", checkRunId)
 		.replace(":sid", liveHelpId)
 		.replace(":port", "5173")
 		.replace("*", "index.html");
