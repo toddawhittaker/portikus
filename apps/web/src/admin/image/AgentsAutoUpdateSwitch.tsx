@@ -43,8 +43,8 @@ export function AgentsAutoUpdateSwitch() {
 			<label className="pk-switch text-[13px]">
 				<input
 					type="checkbox"
-					// biome-ignore lint/a11y/useAriaPropsForRole: a native checkbox exposes its checked state to the switch role, so aria-checked would only repeat it.
 					role="switch"
+					aria-checked={on}
 					data-testid="image-agents-auto-switch"
 					checked={on}
 					aria-disabled={save.isPending || undefined}
