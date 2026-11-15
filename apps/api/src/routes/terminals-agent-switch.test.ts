@@ -115,9 +115,12 @@ test.skipIf(skip)(
 			url: `/terminals/${id}/chat-agent`,
 		});
 		// Asking for the agent it already runs changes nothing on the agent.
-		const calls = agent.requests.length;
+		// Counted by URL because the listening-port watcher polls the same agent on its own.
+		const terminalCalls = () =>
+			agent.requests.filter((request) => request.url.startsWith("/terminals")).length;
+		const calls = terminalCalls();
 		expect((await patch(id, { agent: "codex" })).statusCode).toBe(200);
-		expect(agent.requests.length).toBe(calls);
+		expect(terminalCalls()).toBe(calls);
 	},
 );
 
