@@ -11,24 +11,19 @@ import * as tree from "./tree.js";
 export function forgetFiles(
 	state: LayoutState,
 	paths: string[],
-): Pick<
-	LayoutState,
-	"pendingView" | "diffBaseline" | "viewStates" | "zooms" | "fileViews"
-> {
+): Pick<LayoutState, "pendingView" | "diffBaseline" | "viewStates" | "fileViews"> {
 	const pendingView = { ...state.pendingView };
 	const diffBaseline = { ...state.diffBaseline };
 	const viewStates = { ...state.viewStates };
-	const zooms = { ...state.zooms };
 	const fileViews = { ...state.fileViews };
 	for (const path of paths) {
 		const id = tree.fileTabId(path);
 		delete pendingView[id];
 		delete diffBaseline[id];
 		delete viewStates[path];
-		delete zooms[path];
 		delete fileViews[path];
 	}
-	return { pendingView, diffBaseline, viewStates, zooms, fileViews };
+	return { pendingView, diffBaseline, viewStates, fileViews };
 }
 
 /**

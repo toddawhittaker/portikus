@@ -756,6 +756,18 @@ screen but is not saved on its own. A late save's version is kept only if
 its mount is still live and the store is still on the version it was
 based on.
 
+Each pane's zoom (section 13.1) is kept on the server in the student's
+per-user settings, not in the browser, so it follows the student to any
+browser or device. A terminal or chat is keyed by its project and
+terminal id, a file by its project and path. Zoom steps are saved once
+the student stops for half a second, and a failed save keeps the zoom in
+that tab. Once a project's saved layout and terminal list are both in,
+the zooms of that project's panes no longer in the layout are dropped,
+and closing a file drops its zoom; nothing is dropped before the stored
+zooms have loaded. Each value is 50% to 300%, a request changes at most
+500 panes, and at most 500 are kept per user, the least recently set
+going first. The keys hold file paths, so they are never logged.
+
 ### 7.6 Project API and storage
 
 A project is a durable control-plane row (§26) that mirrors a directory under
@@ -1877,11 +1889,11 @@ The project is not intended to become a complete VS Code clone.
 
 Added by Epic 52 (ADR 0065): the editor has real code help, from language servers in the workspace, for Python, TypeScript and JavaScript (section 13.6). Monaco's own TypeScript, CSS and HTML language services stay out of the bundle. An administrator chooses which languages have code help, and a file of a language that is off is the plain editor described here.
 
-Added by Epic 62: terminal and chat panes zoom on their own, like the editor: 50% to 300% in 10% steps, by Ctrl (Cmd on a Mac) + wheel over the pane or by the zoom buttons in its title bar, where the percentage button returns to 100%. A chat also takes the editor's zoom keys; a terminal leaves Ctrl+= and Ctrl+- to the shell. A terminal's zoom changes its font size, refits the grid and sends the new rows and columns to tmux. Each pane keeps its zoom for the browser session, through splits, moves and leaving the workspace; it is held in the tab's sessionStorage and never sent to the server (section 7.5).
+Added by Epic 62: terminal and chat panes zoom on their own, like the editor: 50% to 300% in 10% steps, by Ctrl (Cmd on a Mac) + wheel over the pane or by the zoom buttons in its title bar, where the percentage button returns to 100%. A chat also takes the editor's zoom keys; a terminal leaves Ctrl+= and Ctrl+- to the shell. A terminal's zoom changes its font size, refits the grid and sends the new rows and columns to tmux. Each pane keeps its zoom through splits, moves, leaving the workspace, a workspace restart and a reload, and in any other browser or device: it is kept on the server with the student's own settings (section 7.5). The saved zoom applies before the pane first paints, so nothing jumps, and a terminal's first rows and columns sent to tmux are the zoomed ones.
 
 Added by Epic 65: a student picks an editor colour scheme in Settings (Appearance). Each scheme is a light and dark pair that follows the page appearance. Portikus Light and Dark are the default and the only schemes held to the 4.5:1 contrast of section 25.8. The reference schemes (VS Code, IntelliJ, GitHub, Solarized, Catppuccin and High contrast) are copied exactly as published, with their licence notices shipped in the build, and their contrast is the student's choice. In every scheme the scrollbar's Git and problem marks keep the Portikus colours.
 
-Also added by Epic 65: a file pane switched to Diff keeps the editor's zoom. The diff has the same bar under it with the zoom buttons and percentage, and the zoom keys and Ctrl (Cmd) + wheel work on either side of it. A file has one zoom, shared by Edit and Diff: the diff opens at the editor's zoom, both sides zoom together, and a change made in the diff shows in the editor. The diff's bar has no language or code help status.
+Also added by Epic 65: a file pane switched to Diff keeps the editor's zoom. The diff has the same bar under it with the zoom buttons and percentage, and the zoom keys and Ctrl (Cmd) + wheel work on either side of it. A file has one zoom, shared by Edit and Diff and kept by its project and path like a pane's (section 7.5): the diff opens at the editor's zoom, both sides zoom together, and a change made in the diff shows in the editor. The diff's bar has no language or code help status.
 
 ### 13.2 Editing scope
 

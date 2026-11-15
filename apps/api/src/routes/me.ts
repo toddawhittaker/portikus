@@ -15,7 +15,11 @@ import { effectiveProfile } from "../courses/profile.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError } from "../http.js";
 import { siteSwitches } from "../site/switches.js";
-import { toEditorSettings } from "../users/editor-settings.js";
+import {
+	mergePaneZooms,
+	toEditorSettings,
+	toPaneZooms,
+} from "../users/editor-settings.js";
 
 /**
  * The zone list this build knows, built once. It is the same list for every
@@ -70,6 +74,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			appearanceStored: hasStoredAppearance(row?.editor_settings),
 			...(await siteSwitches(db)),
 			courseProfile: await effectiveProfile(db, user),
+			paneZooms: toPaneZooms(row?.editor_settings),
 		};
 		return body;
 	});
@@ -80,16 +85,33 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 		const body = parseOr400(UpdateEditorSettingsRequest, request.body ?? {}, reply);
 		if (!body) return reply;
 
-		// Merged in the one statement, so two saves at once both survive.
-		const updated = await db
-			.updateTable("users")
-			.set({
-				editor_settings: sql`coalesce(editor_settings, '{}'::jsonb) || ${JSON.stringify(body)}::jsonb`,
-				updated_at: new Date().toISOString(),
-			})
-			.where("id", "=", user.id)
-			.returning("editor_settings")
-			.executeTakeFirst();
+		// Merged in the one statement, so two saves at once both survive. Pane
+		// zooms are merged key by key under a row lock instead, for the same reason.
+		const { paneZooms, ...rest } = body;
+		const updated = await db.transaction().execute(async (trx) => {
+			let changes: Record<string, unknown> = rest;
+			if (paneZooms) {
+				const row = await trx
+					.selectFrom("users")
+					.select("editor_settings")
+					.where("id", "=", user.id)
+					.forUpdate()
+					.executeTakeFirst();
+				changes = {
+					...rest,
+					paneZooms: mergePaneZooms(row?.editor_settings, paneZooms, Date.now()),
+				};
+			}
+			return trx
+				.updateTable("users")
+				.set({
+					editor_settings: sql`coalesce(editor_settings, '{}'::jsonb) || ${JSON.stringify(changes)}::jsonb`,
+					updated_at: new Date().toISOString(),
+				})
+				.where("id", "=", user.id)
+				.returning("editor_settings")
+				.executeTakeFirst();
+		});
 		if (!updated) {
 			return sendError(reply, 404, "NOT_FOUND", "User not found");
 		}
@@ -101,6 +123,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			appearanceStored: hasStoredAppearance(updated.editor_settings),
 			...(await siteSwitches(db)),
 			courseProfile: await effectiveProfile(db, user),
+			paneZooms: toPaneZooms(updated.editor_settings),
 		};
 		return out;
 	});

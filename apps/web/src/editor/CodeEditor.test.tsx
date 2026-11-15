@@ -12,7 +12,7 @@ vi.mock("./monaco.js", () => ({
 	watchTheme: () => {},
 }));
 vi.mock("./settingsQueries.js", () => ({ useScreenReaderMode: () => false }));
-vi.mock("../layout/store.js", () => ({ useEditorZoom: () => [100, () => {}] }));
+vi.mock("../layout/paneZoom.js", () => ({ useEditorZoom: () => [100, () => {}] }));
 
 const { CodeEditor } = await import("./CodeEditor");
 

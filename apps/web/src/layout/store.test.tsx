@@ -1,7 +1,21 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { expect, test } from "vitest";
-import { createLayoutStore, LayoutStoreContext, useEditorZoom } from "./store";
+import { beforeEach, expect, test } from "vitest";
+import { useEditorZoom } from "./paneZoom";
+import {
+	fileZoomKey,
+	readPaneZoom,
+	resetPaneZooms,
+	seedPaneZooms,
+	terminalZoomKey,
+	writePaneZoom,
+} from "./paneZoomKeeper";
+import { createLayoutStore, LayoutStoreContext } from "./store";
+
+beforeEach(() => resetPaneZooms());
+
+const fz = (path: string) => readPaneZoom(fileZoomKey("p1", path));
+
 import { filePaths, layoutTerminalIds, terminalIds } from "./tree";
 
 /** SPEC.md §11.2: a rename or move from the files pane keeps the file's tab. */
@@ -11,7 +25,7 @@ test("a renamed file keeps its tab, active, with what this browser kept for it",
 	layout.getState().openFile("a.txt", { diff: true, baseline: "abc123" });
 	layout.getState().setTabUnsaved("file:a.txt", true);
 	layout.getState().setViewState("a.txt", { cursor: 4 });
-	layout.getState().setZoom("a.txt", 120);
+	writePaneZoom(fileZoomKey("p1", "a.txt"), 120);
 	layout.getState().clearDirty();
 
 	layout.getState().retargetTabs("a.txt", "b.txt");
@@ -24,7 +38,8 @@ test("a renamed file keeps its tab, active, with what this browser kept for it",
 	expect(state.pendingView["file:a.txt"]).toBeUndefined();
 	expect(state.unsavedTabs).toEqual({ "file:b.txt": true });
 	expect(state.viewStates).toEqual({ "b.txt": { cursor: 4 } });
-	expect(state.zooms).toEqual({ "b.txt": 120 });
+	expect(fz("b.txt")).toBe(120);
+	expect(fz("a.txt")).toBeUndefined();
 	expect(state.dirty).toBe(true);
 });
 
@@ -107,7 +122,7 @@ test("text kept across a remount is dropped once its file is closed", () => {
 });
 
 function store() {
-	return createLayoutStore();
+	return createLayoutStore("p1");
 }
 
 test("adding a tab activates it and marks the layout dirty", () => {
@@ -405,13 +420,38 @@ test("a file's view is kept across a move and a rename, and dropped with the tab
 	expect(layout.getState().fileViews).toEqual({});
 });
 
-test("a file's zoom is kept for the session and dropped with the tab", () => {
+test("a file's zoom is kept by project and path and dropped with the tab", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");
-	layout.getState().setZoom("src/app.ts", 130);
-	expect(layout.getState().zooms).toEqual({ "src/app.ts": 130 });
+	writePaneZoom(fileZoomKey("p1", "src/app.ts"), 130);
+	expect(fz("src/app.ts")).toBe(130);
+	expect(readPaneZoom(fileZoomKey("p2", "src/app.ts"))).toBeUndefined();
 	layout.getState().closeTab("file:src/app.ts");
-	expect(layout.getState().zooms).toEqual({});
+	expect(fz("src/app.ts")).toBeUndefined();
+});
+
+test("reconciling forgets the zooms of this project's panes that are gone, and no others", () => {
+	seedPaneZooms({
+		[terminalZoomKey("p1", "a")]: 120,
+		[terminalZoomKey("p1", "gone")]: 130,
+		[fileZoomKey("p1", "src/app.ts")]: 140,
+		[fileZoomKey("p1", "old.ts")]: 150,
+		[terminalZoomKey("p2", "gone")]: 160,
+	});
+	const layout = fileBesideTerminal();
+	layout.getState().reconcile(["a"], []);
+	expect(readPaneZoom(terminalZoomKey("p1", "a"))).toBe(120);
+	expect(fz("src/app.ts")).toBe(140);
+	expect(readPaneZoom(terminalZoomKey("p1", "gone"))).toBeUndefined();
+	expect(fz("old.ts")).toBeUndefined();
+	expect(readPaneZoom(terminalZoomKey("p2", "gone"))).toBe(160);
+});
+
+test("nothing is pruned before the server's zooms are in", () => {
+	const layout = store();
+	layout.getState().reconcile([], []);
+	seedPaneZooms({ [terminalZoomKey("p1", "a")]: 120 });
+	expect(readPaneZoom(terminalZoomKey("p1", "a"))).toBe(120);
 });
 
 test("the editor and the diff of one file read one zoom, outside a workspace each keeps its own", () => {
@@ -586,13 +626,13 @@ test("a file moved beside a terminal shows the tab it landed in", () => {
 test("closing a file in a split leaves the terminal and forgets the file", () => {
 	const layout = fileBesideTerminal();
 	layout.getState().setViewState("src/app.ts", { top: 9 });
-	layout.getState().setZoom("src/app.ts", 120);
+	writePaneZoom(fileZoomKey("p1", "src/app.ts"), 120);
 	layout.getState().closeFile("src/app.ts");
 	expect(layoutTerminalIds(layout.getState().layout)).toEqual(["a"]);
 	expect(layout.getState().layout.tabs.map((tab) => tab.id)).toEqual(["a"]);
 	expect(layout.getState().activeTabId).toBe("a");
 	expect(layout.getState().viewStates).toEqual({});
-	expect(layout.getState().zooms).toEqual({});
+	expect(fz("src/app.ts")).toBeUndefined();
 	expect(layout.getState().pendingView).toEqual({});
 });
 
