@@ -250,6 +250,9 @@ function selectMessagesLeft(state: ChatState, cold: boolean): number | null {
 		contextEvents: growth.contextEvents,
 		usedAfterFirstMessage: growth.usedAfterFirstMessage,
 		firstMessageEvents: growth.firstMessageEvents,
+		messagesDone: growth.messagesDone,
+		usedAtLastDone: growth.usedAtLastDone,
+		eventsAtLastDone: growth.eventsAtLastDone,
 		cold,
 		prices: priceRatios(
 			settings.agent,

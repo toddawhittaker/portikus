@@ -567,7 +567,14 @@ describe("host clock and ignored plan mode", () => {
 	test("a context event may carry the host's growth counts, and an older host's need not", () => {
 		const growth = { startTokens: 900, messages: 2, requests: 5 };
 		expect(ChatServerEvent.safeParse({ ...context, growth }).success).toBe(true);
-		const warmedUp = { ...growth, firstMessageTokens: 4000, firstMessageRequests: 3 };
+		const warmedUp = {
+			...growth,
+			firstMessageTokens: 4000,
+			firstMessageRequests: 3,
+			doneMessages: 1,
+			doneTokens: 4000,
+			doneRequests: 3,
+		};
 		expect(ChatServerEvent.safeParse({ ...context, growth: warmedUp }).success).toBe(
 			true,
 		);
@@ -575,6 +582,12 @@ describe("host clock and ignored plan mode", () => {
 			ChatServerEvent.safeParse({
 				...context,
 				growth: { ...warmedUp, firstMessageTokens: -1 },
+			}).success,
+		).toBe(false);
+		expect(
+			ChatServerEvent.safeParse({
+				...context,
+				growth: { ...warmedUp, doneMessages: 0.5 },
 			}).success,
 		).toBe(false);
 		expect(

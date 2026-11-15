@@ -21,6 +21,9 @@ async function setUsed(
 		requests: number;
 		firstMessageTokens?: number;
 		firstMessageRequests?: number;
+		doneMessages?: number;
+		doneTokens?: number;
+		doneRequests?: number;
 	},
 ) {
 	const sent = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/context`, {
@@ -67,6 +70,9 @@ for (const colorScheme of ["dark", "light"] as const) {
 			requests: 4,
 			firstMessageTokens: 60_000,
 			firstMessageRequests: 2,
+			doneMessages: 2,
+			doneTokens: 70_000,
+			doneRequests: 4,
 		});
 
 		await expect(hint.locator(".pk-ctx-sight")).toHaveText(
@@ -148,6 +154,9 @@ test("a reload keeps the estimate, from the counts the host keeps", async ({
 		requests: 7,
 		firstMessageTokens: 60_000,
 		firstMessageRequests: 4,
+		doneMessages: 2,
+		doneTokens: 70_000,
+		doneRequests: 7,
 	});
 	// Read the estimate only once the new figures have reached the page.
 	await expect(view.getByTestId("composer-context")).toContainText("70.0k");

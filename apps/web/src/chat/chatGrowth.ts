@@ -16,6 +16,12 @@ export interface ChatGrowth {
 	usedAfterFirstMessage: number | null;
 	/** Context reports the first message took. */
 	firstMessageEvents: number;
+	/** Messages whose turn has finished; a running one is not counted. */
+	messagesDone: number;
+	/** Context size when the last finished turn ended. */
+	usedAtLastDone: number;
+	/** Context reports by the end of the last finished turn. */
+	eventsAtLastDone: number;
 }
 
 export const NO_GROWTH: ChatGrowth = {
@@ -24,6 +30,9 @@ export const NO_GROWTH: ChatGrowth = {
 	contextEvents: 0,
 	usedAfterFirstMessage: null,
 	firstMessageEvents: 0,
+	messagesDone: 0,
+	usedAtLastDone: 0,
+	eventsAtLastDone: 0,
 };
 
 /** A context report arrived. */
@@ -41,14 +50,20 @@ export function sentOne(growth: ChatGrowth): ChatGrowth {
 	return { ...growth, messagesSent: growth.messagesSent + 1 };
 }
 
-/** A turn finished with `usedTokens` in use; the first message's end is kept as its warm-up. */
+/**
+ * A turn finished with `usedTokens` in use, so every message sent is done.
+ * The first message's end is kept as its warm-up.
+ */
 export function turnFinished(growth: ChatGrowth, usedTokens: number): ChatGrowth {
-	if (growth.messagesSent !== 1 || growth.usedAfterFirstMessage !== null) return growth;
-	if (usedTokens <= 0) return growth;
+	if (growth.messagesSent === 0 || usedTokens <= 0) return growth;
+	const first = growth.messagesSent === 1 && growth.usedAfterFirstMessage === null;
 	return {
 		...growth,
-		usedAfterFirstMessage: usedTokens,
-		firstMessageEvents: growth.contextEvents,
+		usedAfterFirstMessage: first ? usedTokens : growth.usedAfterFirstMessage,
+		firstMessageEvents: first ? growth.contextEvents : growth.firstMessageEvents,
+		messagesDone: growth.messagesSent,
+		usedAtLastDone: usedTokens,
+		eventsAtLastDone: growth.contextEvents,
 	};
 }
 
@@ -65,5 +80,8 @@ export function fromHost(growth: HostGrowth): ChatGrowth {
 				? growth.firstMessageTokens
 				: null,
 		firstMessageEvents: growth.firstMessageRequests ?? 0,
+		messagesDone: growth.doneMessages ?? 0,
+		usedAtLastDone: growth.doneTokens ?? 0,
+		eventsAtLastDone: growth.doneRequests ?? 0,
 	};
 }

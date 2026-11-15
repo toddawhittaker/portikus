@@ -634,10 +634,13 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			requests: 2,
 			firstMessageTokens: 0,
 			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
 		});
 	});
 
-	test("the first message's end is kept as its warm-up, and a later turn leaves it alone", async () => {
+	test("the first message's end is kept as its warm-up, and each turn's end as the finished counts", async () => {
 		const client = await attached();
 		client.send({ type: "send", text: "hi", attachments: [] });
 		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "hi", []]));
@@ -652,6 +655,9 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 				requests: 2,
 				firstMessageTokens: 900,
 				firstMessageRequests: 2,
+				doneMessages: 1,
+				doneTokens: 900,
+				doneRequests: 2,
 			}),
 		);
 		client.send({ type: "send", text: "more", attachments: [] });
@@ -661,10 +667,16 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 		await vi.waitFor(() =>
 			expect(growthOf(client)?.growth).toMatchObject({ messages: 2, requests: 3 }),
 		);
-		expect(growthOf(client)?.growth).toMatchObject({
-			firstMessageTokens: 900,
-			firstMessageRequests: 2,
-		});
+		// The second turn's end updates the finished counts the steady rates use.
+		await vi.waitFor(() =>
+			expect(growthOf(client)?.growth).toMatchObject({
+				firstMessageTokens: 900,
+				firstMessageRequests: 2,
+				doneMessages: 2,
+				doneTokens: 1000,
+				doneRequests: 3,
+			}),
+		);
 	});
 
 	test("a conversation reset forgets the warm-up", async () => {
@@ -682,6 +694,9 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 				messages: 0,
 				firstMessageTokens: 0,
 				firstMessageRequests: 0,
+				doneMessages: 0,
+				doneTokens: 0,
+				doneRequests: 0,
 			}),
 		);
 	});
@@ -700,6 +715,9 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			requests: 1,
 			firstMessageTokens: 0,
 			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
 		});
 	});
 
@@ -718,6 +736,9 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			requests: 0,
 			firstMessageTokens: 0,
 			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
 		});
 	});
 
@@ -739,6 +760,9 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			requests: 1,
 			firstMessageTokens: 0,
 			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
 		});
 		// The conversation itself is untouched: no new snapshot.
 		expect(client.events.filter((event) => event.type === "snapshot")).toHaveLength(1);
@@ -763,6 +787,9 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 			requests: 0,
 			firstMessageTokens: 0,
 			firstMessageRequests: 0,
+			doneMessages: 0,
+			doneTokens: 0,
+			doneRequests: 0,
 		});
 	});
 });

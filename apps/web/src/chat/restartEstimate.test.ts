@@ -89,6 +89,9 @@ test("the fallbacks stand until two messages are seen, then the observed rates",
 		contextEvents: 1,
 		usedAfterFirstMessage: null,
 		firstMessageEvents: 0,
+		messagesDone: 0,
+		usedAtLastDone: 0,
+		eventsAtLastDone: 0,
 		prices: ONE_HOUR,
 	};
 	// Fallbacks reproduce the first reference: S = 66,000, C* = 156,000.
@@ -107,6 +110,9 @@ test("the fallbacks stand until two messages are seen, then the observed rates",
 		contextEvents: 28,
 		usedAfterFirstMessage: 76_000,
 		firstMessageEvents: 14,
+		messagesDone: 2,
+		usedAtLastDone: 94_000,
+		eventsAtLastDone: 28,
 	});
 	expect(observed).toEqual({ messagesLeft: 3, restartAt: 156_000, bestRun: 5 });
 });
@@ -120,6 +126,9 @@ test("growth is floored at 1000 and requests at 1", () => {
 		contextEvents: 0,
 		usedAfterFirstMessage: 50_000,
 		firstMessageEvents: 0,
+		messagesDone: 4,
+		usedAtLastDone: 50_000,
+		eventsAtLastDone: 0,
 		prices: ONE_HOUR,
 	});
 	// With g = 1000, the restart size and messages left step in thousands.
@@ -148,6 +157,9 @@ test("messages left is never negative", () => {
 		contextEvents: 14,
 		usedAfterFirstMessage: null,
 		firstMessageEvents: 0,
+		messagesDone: 0,
+		usedAtLastDone: 0,
+		eventsAtLastDone: 0,
 		prices: ONE_HOUR,
 	});
 	expect(late.messagesLeft).toBe(0);
@@ -163,6 +175,9 @@ describe("a cold cache", () => {
 		contextEvents: 14,
 		usedAfterFirstMessage: null,
 		firstMessageEvents: 0,
+		messagesDone: 0,
+		usedAtLastDone: 0,
+		eventsAtLastDone: 0,
 		prices: ONE_HOUR,
 	};
 
@@ -202,6 +217,9 @@ describe("the first message is a warm-up", () => {
 				contextEvents: events,
 				usedAfterFirstMessage: after,
 				firstMessageEvents: warmupRequests,
+				messagesDone: messagesSent,
+				usedAtLastDone: used,
+				eventsAtLastDone: events,
 				prices: opus,
 			}).messagesLeft;
 		const shown = [estimate(1)];
@@ -261,4 +279,53 @@ describe("the first message is a warm-up", () => {
 			bestRestart(start, 18_000, 14, 1_000_000, ONE_HOUR).bestRun,
 		);
 	});
+});
+
+test("a message still running does not move the steady rates", () => {
+	const prices = priceRatios("claude", "claude-opus-5-5", 3600);
+	const at = (
+		usedTokens: number,
+		contextEvents: number,
+		messagesSent: number,
+		done: { messages: number; used: number; events: number },
+	) =>
+		estimateRestart({
+			usedTokens,
+			windowTokens: 1_000_000,
+			firstUsedTokens: 30_000,
+			messagesSent,
+			contextEvents,
+			usedAfterFirstMessage: 75_000,
+			firstMessageEvents: 30,
+			messagesDone: done.messages,
+			usedAtLastDone: done.used,
+			eventsAtLastDone: done.events,
+			prices,
+		}).messagesLeft;
+	const afterFirst = { messages: 1, used: 75_000, events: 30 };
+	const settled = at(75_000, 30, 1, afterFirst);
+	// Message 2 is sent and reports a few small requests before its turn ends.
+	for (const [used, events] of [
+		[75_000, 30],
+		[75_500, 31],
+		[76_000, 32],
+		[77_000, 33],
+	] as const) {
+		const shown = at(used, events, 2, afterFirst);
+		expect(shown).toBeLessThanOrEqual(settled);
+		expect(settled - shown).toBeLessThanOrEqual(1);
+	}
+	// Once it finishes, its growth sets the steady rate.
+	const afterSecond = { messages: 2, used: 81_000, events: 34 };
+	const second = at(81_000, 34, 2, afterSecond);
+	// Message 3 in flight: the count only falls with the live size.
+	for (const [used, events] of [
+		[81_000, 34],
+		[82_000, 35],
+		[84_000, 36],
+	] as const) {
+		const shown = at(used, events, 3, afterSecond);
+		expect(shown).toBeLessThanOrEqual(second);
+		expect(second - shown).toBeLessThanOrEqual(1);
+	}
 });

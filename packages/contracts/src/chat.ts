@@ -521,6 +521,12 @@ export const ChatGrowthCounts = z.object({
 	firstMessageTokens: z.number().int().nonnegative().optional(),
 	/** Requests to the model the first message took. */
 	firstMessageRequests: z.number().int().nonnegative().optional(),
+	/** Messages whose turn has finished, as of the last turn's end. */
+	doneMessages: z.number().int().nonnegative().optional(),
+	/** Context size when the last finished turn ended; 0 until one has. */
+	doneTokens: z.number().int().nonnegative().optional(),
+	/** Requests to the model by the end of the last finished turn. */
+	doneRequests: z.number().int().nonnegative().optional(),
 });
 
 export const ChatServerEvent = z.discriminatedUnion("type", [

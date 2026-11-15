@@ -127,7 +127,7 @@ export class ChatCore {
 	 * a restarted host takes it up from the automatic handoff's state.
 	 */
 	private growth: ChatGrowth = { ...NO_GROWTH };
-	/** The latest figures, re-sent when the first message's warm-up is recorded. */
+	/** The latest figures, re-sent when a finished turn is recorded. */
 	private lastFigures: ContextFigures | null = null;
 	/** The last used-token figure, to see a compaction no driver reported. */
 	private lastUsedTokens = 0;
@@ -421,13 +421,13 @@ export class ChatCore {
 
 	/** Broadcast one event, keeping the turn's state and streaming reply for late attachers. */
 	private relay(event: ChatEventBody): void {
-		let warmedUp = false;
+		let recorded = false;
 		if (event.type === "turn.started") {
 			this.turnRunning = true;
 		} else if (event.type === "turn.finished") {
 			this.turnRunning = false;
 			this.partial = null;
-			warmedUp = this.recordWarmup();
+			recorded = this.recordTurnEnd();
 		} else if (event.type === "text.delta") {
 			const text = this.partial?.id === event.messageId ? this.partial.text : "";
 			this.partial = { id: event.messageId, text: text + event.text };
@@ -436,20 +436,25 @@ export class ChatCore {
 		}
 		this.fresh.observe(event);
 		this.broadcast(event);
-		if (warmedUp && this.lastFigures)
+		if (recorded && this.lastFigures)
 			this.broadcast(this.contextEvent(this.lastFigures));
 	}
 
 	/**
-	 * The first message is the agent's warm-up; its size and requests are kept
-	 * apart from the steady rates the fresh-chat estimate uses (SPEC.md §10.8).
+	 * A turn ended, so every message sent so far is done. The fresh-chat
+	 * estimate takes its rates from finished messages only, and keeps the first
+	 * message, the agent's warm-up, apart from them (SPEC.md §10.8).
 	 */
-	private recordWarmup(): boolean {
+	private recordTurnEnd(): boolean {
 		const growth = this.growth;
-		if (growth.messages !== 1 || growth.firstMessageTokens > 0) return false;
-		if (this.lastUsedTokens === 0) return false;
-		growth.firstMessageTokens = this.lastUsedTokens;
-		growth.firstMessageRequests = growth.requests;
+		if (growth.messages === 0 || this.lastUsedTokens === 0) return false;
+		if (growth.messages === 1 && growth.firstMessageTokens === 0) {
+			growth.firstMessageTokens = this.lastUsedTokens;
+			growth.firstMessageRequests = growth.requests;
+		}
+		growth.doneMessages = growth.messages;
+		growth.doneTokens = this.lastUsedTokens;
+		growth.doneRequests = growth.requests;
 		this.auto.growthChanged();
 		return true;
 	}

@@ -1093,15 +1093,26 @@ test("the conversation's growth is counted for the fresh-chat hint, and a snapsh
 		frame("message", 7, { id: "u1", role: "user", markdown: "one" }),
 		frame("message", 8, { id: "u2", role: "user", markdown: "two" }),
 		frame("context", 9, used(50_000)),
-		// A later turn's end leaves the warm-up alone.
-		frame("turn.finished", 10, { status: "done", at: 2 }),
 	]);
+	// The second message is still running: only the first counts as done.
 	expect(state.growth).toEqual({
 		firstUsedTokens: 30_000,
 		messagesSent: 2,
 		contextEvents: 3,
 		usedAfterFirstMessage: 34_000,
 		firstMessageEvents: 2,
+		messagesDone: 1,
+		usedAtLastDone: 34_000,
+		eventsAtLastDone: 2,
+	});
+	// A later turn's end moves the finished counts and leaves the warm-up alone.
+	state = feed([frame("turn.finished", 10, { status: "done", at: 2 })], state);
+	expect(state.growth).toMatchObject({
+		usedAfterFirstMessage: 34_000,
+		firstMessageEvents: 2,
+		messagesDone: 2,
+		usedAtLastDone: 50_000,
+		eventsAtLastDone: 3,
 	});
 
 	// /clear and an agent swap both arrive as a new snapshot.
@@ -1112,6 +1123,9 @@ test("the conversation's growth is counted for the fresh-chat hint, and a snapsh
 		contextEvents: 0,
 		usedAfterFirstMessage: null,
 		firstMessageEvents: 0,
+		messagesDone: 0,
+		usedAtLastDone: 0,
+		eventsAtLastDone: 0,
 	});
 	state = feed([frame("context", 12, used(12_000))], state);
 	expect(state.growth.firstUsedTokens).toBe(12_000);
@@ -1126,6 +1140,9 @@ test("the host's growth counts win over the browser's, and survive a reconnect",
 			requests: number;
 			firstMessageTokens?: number;
 			firstMessageRequests?: number;
+			doneMessages?: number;
+			doneTokens?: number;
+			doneRequests?: number;
 		},
 	) => ({
 		usedTokens,
@@ -1145,6 +1162,9 @@ test("the host's growth counts win over the browser's, and survive a reconnect",
 				requests: 30,
 				firstMessageTokens: 45_000,
 				firstMessageRequests: 12,
+				doneMessages: 9,
+				doneTokens: 80_000,
+				doneRequests: 30,
 			}),
 		),
 	]);
@@ -1154,6 +1174,9 @@ test("the host's growth counts win over the browser's, and survive a reconnect",
 		contextEvents: 30,
 		usedAfterFirstMessage: 45_000,
 		firstMessageEvents: 12,
+		messagesDone: 9,
+		usedAtLastDone: 80_000,
+		eventsAtLastDone: 30,
 	});
 
 	// A reconnect replays only the last turns, then the host's context.
@@ -1169,6 +1192,9 @@ test("the host's growth counts win over the browser's, and survive a reconnect",
 				requests: 30,
 				firstMessageTokens: 45_000,
 				firstMessageRequests: 12,
+				doneMessages: 9,
+				doneTokens: 80_000,
+				doneRequests: 30,
 			}),
 		),
 	]);

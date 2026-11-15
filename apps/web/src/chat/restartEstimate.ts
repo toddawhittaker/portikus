@@ -51,9 +51,9 @@ const PRICE_TABLE = {
 } as const;
 
 export { HANDOFF_TOKENS };
-/** Context growth per message until a second message has been sent. */
+/** Context growth per message until two messages have finished. */
 export const FALLBACK_GROWTH = 18_000;
-/** Requests to the model per message until a second message has been sent. */
+/** Requests to the model per message until two messages have finished. */
 export const FALLBACK_REQUESTS = 14;
 const MIN_GROWTH = 1000;
 const MIN_REQUESTS = 1;
@@ -96,6 +96,12 @@ export interface RestartInputs {
 	usedAfterFirstMessage: number | null;
 	/** Requests to the model the first message took. */
 	firstMessageEvents: number;
+	/** Messages whose turn has finished; a running one never counts toward the rates. */
+	messagesDone: number;
+	/** Context size when the last finished turn ended. */
+	usedAtLastDone: number;
+	/** Requests to the model by the end of the last finished turn. */
+	eventsAtLastDone: number;
 	prices: PriceRatios;
 	/** The prompt cache is known to have expired, so the next message re-writes it. */
 	cold?: boolean;
@@ -117,7 +123,8 @@ export interface Rates {
 
 /**
  * The first message is a warm-up (the agent explores the project), so it is
- * kept out of the steady rates and repeated by a fresh chat (SPEC.md §10.8).
+ * kept out of the steady rates and repeated by a fresh chat. The steady rates
+ * come from finished messages only, so a running one cannot swing them (SPEC.md §10.8).
  */
 function chatRates(inputs: RestartInputs): { steady: Rates; warmup: Rates } {
 	const fallback = { growth: FALLBACK_GROWTH, requests: FALLBACK_REQUESTS };
@@ -127,14 +134,14 @@ function chatRates(inputs: RestartInputs): { steady: Rates; warmup: Rates } {
 		growth: Math.max(MIN_GROWTH, after - inputs.firstUsedTokens),
 		requests: Math.max(MIN_REQUESTS, inputs.firstMessageEvents),
 	};
-	if (inputs.messagesSent < 2) return { steady: fallback, warmup };
-	const later = inputs.messagesSent - 1;
+	if (inputs.messagesDone < 2) return { steady: fallback, warmup };
+	const later = inputs.messagesDone - 1;
 	return {
 		steady: {
-			growth: Math.max(MIN_GROWTH, (inputs.usedTokens - after) / later),
+			growth: Math.max(MIN_GROWTH, (inputs.usedAtLastDone - after) / later),
 			requests: Math.max(
 				MIN_REQUESTS,
-				(inputs.contextEvents - inputs.firstMessageEvents) / later,
+				(inputs.eventsAtLastDone - inputs.firstMessageEvents) / later,
 			),
 		},
 		warmup,

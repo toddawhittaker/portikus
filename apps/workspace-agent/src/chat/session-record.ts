@@ -249,6 +249,9 @@ export const AutoHandoffRecord = z.object({
 		// Older files have no warm-up: 0 means none recorded yet.
 		firstMessageTokens: z.number().int().nonnegative().default(0),
 		firstMessageRequests: z.number().int().nonnegative().default(0),
+		doneMessages: z.number().int().nonnegative().default(0),
+		doneTokens: z.number().int().nonnegative().default(0),
+		doneRequests: z.number().int().nonnegative().default(0),
 	}).optional(),
 	notices: z
 		.array(

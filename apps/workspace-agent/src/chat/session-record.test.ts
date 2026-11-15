@@ -182,6 +182,9 @@ test("the automatic handoff state holds paths, hashes and growth, and refuses mo
 			requests: 3,
 			firstMessageTokens: 26_000,
 			firstMessageRequests: 2,
+			doneMessages: 2,
+			doneTokens: 30_000,
+			doneRequests: 3,
 		},
 		notices: [notice],
 	};
@@ -191,6 +194,9 @@ test("the automatic handoff state holds paths, hashes and growth, and refuses mo
 	const {
 		firstMessageTokens: _t,
 		firstMessageRequests: _r,
+		doneMessages: _m,
+		doneTokens: _d,
+		doneRequests: _q,
 		...olderGrowth
 	} = record.growth;
 	const autoPath = join(chatSessionsDir(home), `${A}.auto-handoff.json`);
@@ -199,6 +205,9 @@ test("the automatic handoff state holds paths, hashes and growth, and refuses mo
 		...olderGrowth,
 		firstMessageTokens: 0,
 		firstMessageRequests: 0,
+		doneMessages: 0,
+		doneTokens: 0,
+		doneRequests: 0,
 	});
 	await writeAutoHandoff(home, A, {
 		...record,

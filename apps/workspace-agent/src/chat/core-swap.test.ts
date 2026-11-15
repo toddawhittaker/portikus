@@ -316,6 +316,9 @@ describe("agent swaps", () => {
 				requests: 0,
 				firstMessageTokens: 0,
 				firstMessageRequests: 0,
+				doneMessages: 0,
+				doneTokens: 0,
+				doneRequests: 0,
 			},
 		});
 	});
