@@ -268,6 +268,7 @@ export class ChatCore {
 		for (const client of this.clients) client.socket.destroy();
 		this.clients.clear();
 		await this.closeListener();
+		await this.auto.settled();
 	}
 
 	/**

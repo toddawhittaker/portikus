@@ -375,7 +375,10 @@ describe("the automatic handoff", () => {
 				"Now add tests",
 			]),
 		);
-		expect(last(client, "handoff.fresh")).toMatchObject({ path: notice.path });
+		// The fake agent records sends at once; the client's events come over a socket.
+		await vi.waitFor(() =>
+			expect(last(client, "handoff.fresh")).toMatchObject({ path: notice.path }),
+		);
 		// The new conversation has no notices of its own.
 		await vi.waitFor(async () =>
 			expect((await readAutoHandoff(dir, ID))?.notices).toEqual([]),
@@ -538,10 +541,12 @@ describe("the automatic handoff", () => {
 				"Now add tests",
 			]),
 		);
-		expect(last(client, "handoff.fresh")).toMatchObject({
-			path: notice.path,
-			hash: noteHash(planted),
-		});
+		await vi.waitFor(() =>
+			expect(last(client, "handoff.fresh")).toMatchObject({
+				path: notice.path,
+				hash: noteHash(planted),
+			}),
+		);
 	});
 
 	test("cancelling the review of a changed note sends nothing and says the message was kept", async () => {
