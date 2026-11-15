@@ -141,3 +141,34 @@ test("revoke every key asks first and says how many keys it reaches", async ({
 	await expect(confirm).toBeHidden();
 	expect(posts).toEqual(["POST"]);
 });
+
+test("a row's buttons are described by the key's name and its owner", async ({
+	page,
+}) => {
+	const dora = await instructorWithKeys(["active"]);
+	await openKeysTab(page);
+	await filterTo(page, dora.name);
+	const row = rowFor(page, dora.keys[0] ?? "");
+	for (const button of ["Expire…", "Revoke…"]) {
+		const description = row.getByRole("button", { name: button });
+		await expect(description).toHaveAccessibleDescription(
+			new RegExp(`${dora.keys[0]}.*${dora.name}|${dora.name}.*${dora.keys[0]}`),
+		);
+	}
+});
+
+test("the tab's About line links to its administrator help topic", async ({
+	page,
+	context,
+}) => {
+	await openKeysTab(page);
+	const intro = page.getByTestId("intro-admin-api-keys");
+	await expect(intro).toContainText("use Portikus as their owner");
+	await intro.getByText("About API keys", { exact: true }).click();
+	const link = intro.getByRole("link", { name: /More in Help/ });
+	await expect(link).toHaveAttribute("href", "/admin/help#admin-api-keys");
+	const [help] = await Promise.all([context.waitForEvent("page"), link.click()]);
+	await expect(help.getByRole("heading", { level: 3, name: "API keys" })).toBeFocused({
+		timeout: 15_000,
+	});
+});

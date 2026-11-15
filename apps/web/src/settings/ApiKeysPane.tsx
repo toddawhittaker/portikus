@@ -95,11 +95,10 @@ export function ApiKeysPane({
 				/>
 			) : null}
 
-			<section
+			<div
 				id="settings-control-api-keys-list"
 				tabIndex={-1}
 				className="grid gap-3 outline-none"
-				aria-labelledby="api-keys-list-title"
 			>
 				<h3 id="api-keys-list-title" className="pk-text-heading m-0 text-ink">
 					Your API keys
@@ -138,13 +137,12 @@ export function ApiKeysPane({
 				>
 					{status}
 				</p>
-			</section>
+			</div>
 
-			<section
+			<div
 				id="settings-control-api-key-create"
 				tabIndex={-1}
 				className="grid gap-3 outline-none"
-				aria-labelledby={CREATE_TITLE_ID}
 			>
 				<h3
 					id={CREATE_TITLE_ID}
@@ -181,7 +179,7 @@ export function ApiKeysPane({
 						</Button>
 					</div>
 				)}
-			</section>
+			</div>
 		</section>
 	);
 }
@@ -322,7 +320,12 @@ function KeyRow({
 					setConfirm(null);
 					onNewSecret(created);
 				}}
-				returnFocusTo={() => document.getElementById(headingId)}
+				// The new secret's heading holds focus; pulling it back to the row would lose it.
+				returnFocusTo={() =>
+					document.getElementById(NEW_SECRET_HEADING_ID)
+						? null
+						: document.getElementById(headingId)
+				}
 			/>
 			<ConfirmDialogRoot
 				open={confirm === "revoke"}

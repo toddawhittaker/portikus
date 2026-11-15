@@ -4,6 +4,7 @@ import { CopyButton } from "../second-factor/CopyButton.js";
 import { claudeCommand } from "./apiKeyText.js";
 
 export const NEW_SECRET_HEADING_ID = "api-key-secret-title";
+const WARNING_ID = "api-key-secret-warning";
 
 /**
  * A key's secret, shown once right after it is made or given a new secret
@@ -30,11 +31,12 @@ export function NewApiKeySecret({
 			<h3
 				id={NEW_SECRET_HEADING_ID}
 				tabIndex={-1}
+				aria-describedby={WARNING_ID}
 				className="pk-text-heading m-0 text-ink outline-none"
 			>
 				Copy the secret for {created.key.name}
 			</h3>
-			<p className="pk-key-warning pk-text-body m-0 text-ink">
+			<p id={WARNING_ID} className="pk-key-warning pk-text-body m-0 text-ink">
 				<Icon name="alert" size="sm" className="mt-0.5 flex-none text-status-warning" />
 				<span>
 					This is the only time Portikus shows it. Store it where you keep passwords; if

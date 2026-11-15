@@ -21,6 +21,7 @@ export function StepUpFields({
 	passkeyLabel,
 	passkeyTestId,
 	onPasskey,
+	onSubmit,
 }: {
 	codeId: string;
 	code: string;
@@ -30,6 +31,8 @@ export function StepUpFields({
 	passkeyTestId: string;
 	/** Prove a passkey and run the action; a failure is shown beside the button. */
 	onPasskey: () => Promise<void>;
+	/** Enter in the code field, for a caller whose field is not inside a form. */
+	onSubmit?: () => void;
 }) {
 	const factors = useQuery({
 		queryKey: ["me", "api-keys", "second-factor"],
@@ -52,6 +55,11 @@ export function StepUpFields({
 				value={code}
 				error={codeError}
 				onChange={(event) => onCodeChange(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key !== "Enter" || !onSubmit) return;
+					event.preventDefault();
+					onSubmit();
+				}}
 			/>
 		</fieldset>
 	);
