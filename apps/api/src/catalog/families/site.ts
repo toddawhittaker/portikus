@@ -1,0 +1,47 @@
+import type { OperationRecords } from "../types.js";
+
+/** This family's operations, keyed by `"METHOD url"`; move each key out of `pending` as its record lands. */
+export const operations: OperationRecords = {};
+
+/** Routes of this family that are exposed but have no record yet. */
+export const pending: readonly string[] = [
+	"GET /admin/egress",
+	"PUT /admin/egress/mode",
+	"PUT /admin/egress/presets",
+	"PUT /admin/egress/ports",
+	"POST /admin/egress/entries",
+	"PUT /admin/egress/entries/:id",
+	"DELETE /admin/egress/entries/:id",
+	"POST /admin/egress/blocked-sites",
+	"PUT /admin/egress/blocked-sites/:id",
+	"DELETE /admin/egress/blocked-sites/:id",
+	"GET /admin/proxy-hosts",
+	"PUT /admin/proxy-hosts",
+	"GET /admin/lms",
+	"PUT /admin/lms",
+	"GET /admin/signin",
+	"GET /admin/address",
+	"GET /admin/certificate",
+	"GET /admin/certificate/jobs/:id",
+	"GET /admin/image",
+	"GET /admin/image/diff",
+	"GET /admin/image/jobs/:id",
+	"POST /admin/image/jobs",
+	"GET /admin/docker",
+	"GET /admin/docker/seed/jobs",
+	"GET /admin/docker/usage",
+	"PUT /admin/docker/settings",
+	"POST /admin/docker/cache/clear",
+	"PUT /admin/docker/seed/images",
+	"POST /admin/docker/seed/jobs",
+	"POST /admin/docker/seed/match",
+	"GET /admin/backups",
+	"POST /admin/backups/run",
+	"POST /admin/backups/restores",
+	"DELETE /admin/backups/sets/:stamp",
+	"DELETE /admin/backups/dumps/:file",
+	"DELETE /admin/backups/snapshots/:volume/:snapshot",
+	"DELETE /admin/backups/kept-homes/:volume",
+	"POST /admin/backups/restores/:id/replace-home",
+	"GET /admin/backups/key",
+];
