@@ -4,7 +4,7 @@
  * reads the whole conversation again at the cache-write price. A fresh chat
  * from a handoff note is the cheaper way to switch.
  */
-import { Button, ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
+import { ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
 
 const CHANGE_MODEL = "Change model";
 const MODEL_CHANGE_HANDOFF = "Start fresh chat with handoff";
@@ -43,15 +43,8 @@ export function ModelChangeConfirm({
 				onConfirm={onChange}
 				onCancel={onCancel}
 				returnFocusTo={returnFocusTo}
-			>
-				<Button
-					variant="secondary"
-					data-testid="dialog-model-change-handoff"
-					onClick={onHandoff}
-				>
-					{MODEL_CHANGE_HANDOFF}
-				</Button>
-			</ConfirmDialog>
+				secondaryAction={{ label: MODEL_CHANGE_HANDOFF, onSelect: onHandoff }}
+			/>
 		</ConfirmDialogRoot>
 	);
 }

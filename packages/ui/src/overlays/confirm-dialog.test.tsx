@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -310,6 +310,42 @@ describe("ConfirmDialog", () => {
 		expect(screen.getByRole("alertdialog").textContent).toContain(
 			"Three workspaces will be rebuilt.",
 		);
+	});
+
+	it("puts the secondary action in the footer before Cancel, and it runs and closes", async () => {
+		const onSelect = vi.fn();
+		const onCancel = vi.fn();
+		render(
+			<ConfirmDialogRoot defaultOpen>
+				<ConfirmDialog
+					title="Change the model?"
+					confirmLabel="Change model"
+					onCancel={onCancel}
+					secondaryAction={{ label: "Start fresh chat", onSelect }}
+				/>
+			</ConfirmDialogRoot>,
+		);
+		const names = within(screen.getByRole("alertdialog"))
+			.getAllByRole("button")
+			.map((button) => button.textContent);
+		expect(names).toEqual(["Start fresh chat", "Cancel", "Change model"]);
+		const secondary = screen.getByRole("button", { name: "Start fresh chat" });
+		expect(secondary.className).toBe(
+			screen.getByRole("button", { name: "Cancel" }).className,
+		);
+
+		fireEvent.click(secondary);
+		expect(onSelect).toHaveBeenCalledTimes(1);
+		expect(onCancel).not.toHaveBeenCalled();
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	});
+
+	it("shows only Cancel and confirm without a secondary action", () => {
+		render(<Fixture />);
+		const names = within(screen.getByRole("alertdialog"))
+			.getAllByRole("button")
+			.map((button) => button.textContent);
+		expect(names).toEqual(["Cancel", "Archive project"]);
 	});
 
 	it("focuses the element returnFocusTo gives on close", async () => {

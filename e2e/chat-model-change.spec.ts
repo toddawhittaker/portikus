@@ -78,6 +78,39 @@ for (const colorScheme of ["dark", "light"] as const) {
 	});
 }
 
+test("Tab goes from Cancel to Change model, and Shift+Tab reaches the handoff first", async ({
+	page,
+	context,
+}) => {
+	const { view } = await open(page, context);
+	await pick(page, view, "composer-model", "Opus");
+	const ask = dialog(page);
+	const handoff = ask.getByRole("button", { name: "Start fresh chat with handoff" });
+	const cancel = ask.getByRole("button", { name: "Cancel" });
+	const change = ask.getByRole("button", { name: "Change model" });
+	// One row in the footer, left to right.
+	const boxes = await Promise.all(
+		[handoff, cancel, change].map((button) => button.boundingBox()),
+	);
+	expect(boxes[0]?.y).toBeCloseTo(boxes[1]?.y ?? -1, 0);
+	expect(boxes[1]?.y).toBeCloseTo(boxes[2]?.y ?? -1, 0);
+	expect(boxes[0]?.x).toBeLessThan(boxes[1]?.x ?? 0);
+	expect(boxes[1]?.x).toBeLessThan(boxes[2]?.x ?? 0);
+	// Focus starts on Cancel; the handoff is one step back, Change model one forward.
+	await expect(cancel).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(change).toBeFocused();
+	await page.keyboard.press("Shift+Tab");
+	await expect(cancel).toBeFocused();
+	await page.keyboard.press("Shift+Tab");
+	await expect(handoff).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(ask).toHaveCount(0);
+	await expect(
+		view.getByRole("region", { name: "Review the handoff note" }),
+	).toBeVisible();
+});
+
 test("Escape cancels and focus returns to the Model picker", async ({
 	page,
 	context,
