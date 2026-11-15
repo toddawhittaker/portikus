@@ -72,6 +72,7 @@ export class AutoHandoffNotes {
 				clock: this.host.clock,
 				idle: () => this.host.idle(),
 				startTokens: () => this.host.growth().startTokens,
+				firstMessageTokens: () => this.host.growth().firstMessageTokens,
 				write: () => this.write(),
 				save: () => void this.save(),
 			},

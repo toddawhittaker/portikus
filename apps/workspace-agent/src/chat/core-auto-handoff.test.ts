@@ -263,6 +263,30 @@ describe("the automatic handoff", () => {
 		);
 	});
 
+	test("counts the warm-up in the fresh chat's size, so a heavy one waits longer", async () => {
+		await startCore();
+		const client = await attached();
+		// The chat starts at 20k and its first message, the warm-up, ends at 60k.
+		agent.sink.context(
+			{ usedTokens: 20_000, windowTokens: 1_000_000, cache: null },
+			true,
+		);
+		sizes.warm = 60_000;
+		client.send({ type: "send", text: "warm", attachments: [] });
+		// 100k passes 2 × (20k + 8k) but not 2 × (20k + 8k + 40k) = 136k.
+		client.send({ type: "send", text: "big", attachments: [] });
+		await vi.waitFor(() => expect(sent()).toEqual(["warm", "big"]));
+		await reachFireTime();
+		await flush();
+		expect(prompts()).toBe(0);
+		sizes.bigger = 140_000;
+		client.send({ type: "send", text: "bigger", attachments: [] });
+		await vi.waitFor(() => expect(sent()).toContain("bigger"));
+		await reachFireTime();
+		await noticed(client);
+		expect(prompts()).toBe(1);
+	});
+
 	test("writes one note per idle period, and a student message arms the next", async () => {
 		await startCore();
 		const client = await attached();

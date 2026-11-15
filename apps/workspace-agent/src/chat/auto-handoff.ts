@@ -34,8 +34,10 @@ export interface AutoHandoffHost {
 	clock: Clock;
 	/** Nothing is running: no reply, card, `!` command, handoff or swap. */
 	idle(): boolean;
-	/** The conversation's first used-token figure, which a fresh chat starts near. */
+	/** The conversation's first used-token figure, which a fresh chat starts near; 0 when unknown. */
 	startTokens(): number;
+	/** The context size when the first message finished; 0 until it has. */
+	firstMessageTokens(): number;
 	/** Write the note and post the notice. */
 	write(): Promise<void>;
 	/** Keep `written` and `figures`, so a restarted host takes up where this one was. */
@@ -51,11 +53,19 @@ function cacheColdAt(figures: ContextFigures): number | null {
 
 /**
  * Whether a chat this size is worth a note: twice the size a fresh chat
- * would start at, the same start the fresh-chat estimate uses. With no
- * known start, as after a restart that lost it, nothing is worth one.
+ * reaches once it has repeated this chat's warm-up, its first message, as
+ * the fresh-chat estimate assumes (SPEC.md §10.8). With no warm-up recorded
+ * the fresh chat is its start; with no known start, as after a restart that
+ * lost it, nothing is worth one.
  */
-function bigEnough(usedTokens: number, startTokens: number): boolean {
-	return startTokens > 0 && usedTokens >= 2 * (startTokens + HANDOFF_TOKENS);
+function bigEnough(
+	usedTokens: number,
+	startTokens: number,
+	firstMessageTokens: number,
+): boolean {
+	if (startTokens <= 0) return false;
+	const warmup = Math.max(0, firstMessageTokens - startTokens);
+	return usedTokens >= 2 * (startTokens + HANDOFF_TOKENS + warmup);
 }
 
 export class AutoHandoff {
@@ -127,7 +137,11 @@ export class AutoHandoff {
 			this.wroteThisIdle ||
 			this.host.clock.now() >= coldAt ||
 			!this.host.idle() ||
-			!bigEnough(figures.usedTokens, this.host.startTokens())
+			!bigEnough(
+				figures.usedTokens,
+				this.host.startTokens(),
+				this.host.firstMessageTokens(),
+			)
 		) {
 			return;
 		}
