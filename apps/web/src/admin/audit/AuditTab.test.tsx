@@ -87,6 +87,8 @@ function event(id: number, overrides: Record<string, unknown> = {}) {
 		target: `workspace:${WORKSPACE_ID}`,
 		result: "success",
 		metadata: null,
+		via: "session",
+		apiKeyId: null,
 		...overrides,
 	};
 }
