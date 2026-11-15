@@ -96,6 +96,82 @@ test.describe("checks", () => {
 		await expect(page.getByTestId("check-output-name")).toHaveText("Lint");
 	});
 
+	test("each finished run is kept and listed after a reload", async ({
+		page,
+		context,
+	}) => {
+		// Check result metadata outlives the page and the agent (SPEC.md §25).
+		const student = await createStudent(context);
+		await openChecks(page, student.workspaceId, "History", CHECKS);
+		await expect(page.getByTestId("check-history-empty")).toHaveText(
+			"No finished runs yet.",
+		);
+
+		await page.getByTestId("check-run-tests").click();
+		await expect(page.getByTestId("check-history-item")).toHaveCount(1, {
+			timeout: 15_000,
+		});
+		await page.getByTestId("check-run-tests").click();
+		await expect(page.getByTestId("check-history-item")).toHaveCount(2, {
+			timeout: 15_000,
+		});
+
+		await page.reload();
+		await page.getByTestId("right-pane-tab-checks").click();
+		const history = page.getByRole("region", { name: /^History/ });
+		await expect(history.getByTestId("check-history-item")).toHaveCount(2, {
+			timeout: 15_000,
+		});
+		await expect(history.getByTestId("check-history-item").first()).toContainText(
+			"Passed",
+		);
+		await expect(history.getByTestId("check-history-item").first()).toContainText(
+			"exit code 0",
+		);
+
+		await history
+			.getByRole("button", { name: /Show output/ })
+			.first()
+			.click();
+		await expect(history.getByTestId("check-history-output")).toContainText(
+			"all tests passed",
+		);
+		await expectNoViolations(page);
+	});
+
+	test("a long history output takes focus by Tab and scrolls by keyboard", async ({
+		page,
+		context,
+	}) => {
+		// A scrolling box must be reachable and scrollable without a mouse (SPEC.md §25.8).
+		const student = await createStudent(context);
+		// The fake agent echoes the command first, so a long command makes long output.
+		const command = `npm test ${"--reporter=verbose ".repeat(50)}`.trim();
+		await openChecks(page, student.workspaceId, "Long output", {
+			checks: [{ id: "tests", name: "Tests", command }],
+		});
+		await page.getByTestId("check-run-tests").click();
+		const history = page.getByRole("region", { name: /^History/ });
+		await expect(history.getByTestId("check-history-item")).toHaveCount(1, {
+			timeout: 15_000,
+		});
+		const toggle = history.getByRole("button", { name: /Show output/ });
+		await toggle.click();
+		const output = history.getByTestId("check-history-output");
+		await expect(output).toContainText("all tests passed");
+		await expect(output).toHaveAccessibleName(/^Output of the run at /);
+		const overflows = await output.evaluate((el) => el.scrollHeight > el.clientHeight);
+		expect(overflows).toBe(true);
+
+		await history.getByRole("button", { name: /Hide output/ }).focus();
+		await page.keyboard.press("Tab");
+		await expect(output).toBeFocused();
+		expect(await output.evaluate((el) => el.scrollTop)).toBe(0);
+		await page.keyboard.press("End");
+		await expect.poll(() => output.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+		await expectNoViolations(page);
+	});
+
 	test("a passing check shows Passed and its output", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openChecks(page, student.workspaceId, "Passing", CHECKS);

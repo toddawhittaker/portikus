@@ -87,6 +87,7 @@ test.skipIf(skip)("a new user gets the defaults", async () => {
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: false,
 	});
 });
@@ -111,6 +112,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: false,
 	});
 
@@ -129,6 +131,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: false,
 	});
 
@@ -151,6 +154,7 @@ test.skipIf(skip)("a change is merged and the rest keeps its value", async () =>
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: false,
 	});
 });
@@ -250,6 +254,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: false,
 	});
 
@@ -274,6 +279,7 @@ test.skipIf(skip)("one user's settings never reach another user", async () => {
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: false,
 	});
 });
@@ -318,6 +324,7 @@ test.skipIf(skip)(
 			voiceInputEnabled: true,
 			codeHelpLanguages: ["python", "typescript"],
 			courseProfile: "agentic",
+			paneZooms: {},
 			appearanceStored: false,
 		});
 
@@ -338,6 +345,7 @@ test.skipIf(skip)(
 			voiceInputEnabled: true,
 			codeHelpLanguages: ["python", "typescript"],
 			courseProfile: "agentic",
+			paneZooms: {},
 		});
 	},
 );
@@ -385,6 +393,7 @@ test.skipIf(skip)("an unknown stored zone loses only the zone", async () => {
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: false,
 	});
 });
@@ -427,6 +436,7 @@ test.skipIf(skip)("an invalid stored key loses only that key", async () => {
 		voiceInputEnabled: true,
 		codeHelpLanguages: ["python", "typescript"],
 		courseProfile: "agentic",
+		paneZooms: {},
 		appearanceStored: true,
 	});
 
@@ -722,3 +732,71 @@ test.skipIf(skip)(
 		]);
 	},
 );
+
+test.skipIf(skip)(
+	"pane zooms are saved, merged per pane, and forgotten by null",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+
+		const first = await put(jar, { paneZooms: { "p1:t:a": 150, "p1:f:src/x.ts": 80 } });
+		expect(first.statusCode).toBe(200);
+		expect(first.json().paneZooms).toEqual({ "p1:t:a": 150, "p1:f:src/x.ts": 80 });
+
+		// Another setting leaves the zooms alone; a zoom change leaves other panes alone.
+		await put(jar, { wordWrap: false });
+		const second = await put(jar, { paneZooms: { "p1:t:a": null, "p1:t:b": 200 } });
+		expect(second.json().paneZooms).toEqual({ "p1:f:src/x.ts": 80, "p1:t:b": 200 });
+		expect(second.json().wordWrap).toBe(false);
+
+		const read = await app.inject({
+			method: "GET",
+			url: "/me/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(read.json().paneZooms).toEqual({ "p1:f:src/x.ts": 80, "p1:t:b": 200 });
+	},
+);
+
+test.skipIf(skip)("pane zooms are per user", async () => {
+	const alice = new CookieJar();
+	const bob = new CookieJar();
+	await loginAs(app, "alice", alice);
+	await loginAs(app, "bob", bob);
+	await put(alice, { paneZooms: { "p1:t:a": 150 } });
+	const read = await app.inject({
+		method: "GET",
+		url: "/me/settings",
+		headers: { cookie: bob.cookieHeader() },
+	});
+	expect(read.json().paneZooms).toEqual({});
+});
+
+test.skipIf(skip)(
+	"a zoom outside the range or an oversized change is a 400",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+		expect((await put(jar, { paneZooms: { k: 301 } })).statusCode).toBe(400);
+		expect((await put(jar, { paneZooms: { k: 49 } })).statusCode).toBe(400);
+		const many = Object.fromEntries(
+			Array.from({ length: 501 }, (_, i) => [`k${i}`, 100]),
+		);
+		expect((await put(jar, { paneZooms: many })).statusCode).toBe(400);
+	},
+);
+
+test.skipIf(skip)("the stored map keeps the 500 most recently set panes", async () => {
+	const jar = new CookieJar();
+	await loginAs(app, "alice", jar);
+	const old = Object.fromEntries(
+		Array.from({ length: 500 }, (_, i) => [`old${i}`, 110]),
+	);
+	await put(jar, { paneZooms: old });
+	// Saved later, so the oldest entries make room for it.
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	const res = await put(jar, { paneZooms: { newest: 120 } });
+	const zooms = res.json().paneZooms as Record<string, number>;
+	expect(Object.keys(zooms)).toHaveLength(500);
+	expect(zooms.newest).toBe(120);
+});

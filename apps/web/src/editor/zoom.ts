@@ -1,18 +1,18 @@
 /**
  * Pane zoom (SPEC.md §13.1): the editor, terminal and chat panes each zoom
- * on their own. The zoom is a percentage of the pane's base font size, held
- * for this session only, and the browser's own zoom is left alone. The value
- * for each file and each pane lives in the layout store (layout/store.ts);
- * this module holds the arithmetic and the wheel handling they share.
+ * on their own. The zoom is a percentage of the pane's base font size, kept
+ * with the student's settings, and the browser's own zoom is left alone. The
+ * value for each file and each pane is kept by layout/paneZoom.ts; this module holds the arithmetic and the wheel handling they share.
  */
+import { MAX_PANE_ZOOM, MIN_PANE_ZOOM } from "@portikus/contracts";
 import { createContext } from "react";
 
 /** The font size at 100%, matching baseEditorOptions in monaco.ts. */
 export const BASE_FONT_SIZE = 14;
 
 export const DEFAULT_ZOOM = 100;
-export const MIN_ZOOM = 50;
-export const MAX_ZOOM = 300;
+export const MIN_ZOOM = MIN_PANE_ZOOM;
+export const MAX_ZOOM = MAX_PANE_ZOOM;
 /** One keypress or one wheel notch. */
 const ZOOM_STEP = 10;
 /**

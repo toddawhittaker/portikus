@@ -14,7 +14,8 @@
  * Each picker is a menu button with a radio menu, like the New tab menu,
  * so every choice can say what it is for and Bypass can warn before it is
  * chosen (SPEC.md §25.8). The panel is a disclosure, not a menu: it holds
- * those buttons, and their menus portal above it.
+ * those buttons, and their menus portal above it. A model or version change
+ * in a chat with history asks first (ModelChangeConfirm.tsx).
  */
 
 import {
@@ -47,6 +48,7 @@ import {
 	selectSessionRulesActive,
 } from "./chatStore.js";
 import { McpServers } from "./McpServers.js";
+import { ModelChangeConfirm } from "./ModelChangeConfirm.js";
 import {
 	effortChoices,
 	effortLabel,
@@ -362,6 +364,13 @@ export function ComposerPickers({
 	pendingNow.current = pending;
 	const errorAtAsk = useRef<number>(-1);
 	const rulesActive = useStore(store, selectSessionRulesActive);
+	const usedTokens = useStore(store, (state) => state.context?.usedTokens ?? null);
+	/** A model the student chose in a chat with history, waiting for their word, and the picker it came from. */
+	const [confirming, setConfirming] = useState<{ model: string; from: string } | null>(
+		null,
+	);
+	const confirmingNow = useRef(confirming);
+	confirmingNow.current = confirming;
 	/** The agent asked for, shown until the host reports it runs. */
 	const [agentAsked, setAgentAsked] = useState<CodingAgent | null>(null);
 	const agentAskedNow = useRef(agentAsked);
@@ -408,7 +417,8 @@ export function ComposerPickers({
 		setPending({});
 	}, [lastError, onAnnounce]);
 
-	// A press outside closes the panel, unless it closes a picker's open menu first.
+	// A press outside closes the panel, unless it closes a picker's open menu first
+	// or answers the model-change question, which portals out of the panel.
 	useEffect(() => {
 		if (!open) return;
 		function onPointerDown(event: PointerEvent) {
@@ -416,6 +426,7 @@ export function ComposerPickers({
 			if (!(target instanceof Node)) return;
 			if (panel.current?.contains(target) || button.current?.contains(target)) return;
 			if (document.querySelector('[role="menu"].pk-picker-menu')) return;
+			if (confirmingNow.current !== null) return;
 			onOpenChange(false);
 		}
 		document.addEventListener("pointerdown", onPointerDown);
@@ -447,6 +458,12 @@ export function ComposerPickers({
 	function ask(change: Change) {
 		errorAtAsk.current = lastError?.seq ?? -1;
 		if (onSet(change)) setPending((waiting) => ({ ...waiting, ...change }));
+	}
+
+	/** A new model costs the whole conversation's cache, so a chat with history asks first (SPEC.md §10.2). */
+	function chooseModel(model: string, from: string) {
+		if (empty) ask({ model });
+		else setConfirming({ model, from });
 	}
 
 	// While another agent starts, the old agent's pickers mean nothing.
@@ -519,7 +536,7 @@ export function ComposerPickers({
 									testId="composer-model"
 									value={current?.family ?? shown.model}
 									choices={familyChoices(models, shown.model, agent)}
-									onChoose={(model) => ask({ model })}
+									onChoose={(model) => chooseModel(model, "composer-model")}
 								/>
 								{versions.length > 0 ? (
 									<Pick
@@ -527,7 +544,7 @@ export function ComposerPickers({
 										testId="composer-version"
 										value={current?.pinned ?? current?.family ?? shown.model}
 										choices={versions}
-										onChoose={(model) => ask({ model })}
+										onChoose={(model) => chooseModel(model, "composer-version")}
 									/>
 								) : null}
 							</div>
@@ -574,6 +591,24 @@ export function ComposerPickers({
 				</p>
 			) : null}
 			<ContextMeter store={store} onAnnounce={onAnnounce} />
+			{confirming === null ? null : (
+				<ModelChangeConfirm
+					usedTokens={usedTokens}
+					onChange={() => {
+						ask({ model: confirming.model });
+						setConfirming(null);
+					}}
+					onHandoff={() => {
+						store.getState().startHandoff();
+						setConfirming(null);
+					}}
+					onCancel={() => setConfirming(null)}
+					returnFocusTo={() =>
+						document.querySelector<HTMLElement>(`[data-testid="${confirming.from}"]`) ??
+						document.querySelector<HTMLElement>('[data-testid="composer-model"]')
+					}
+				/>
+			)}
 		</>
 	);
 }

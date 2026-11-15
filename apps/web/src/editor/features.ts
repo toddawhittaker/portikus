@@ -9,6 +9,37 @@
  */
 import type * as Monaco from "monaco-editor";
 
+/**
+ * JSON is checked for syntax only. No schema is ever applied or fetched, so
+ * nothing leaves the browser for a `$schema` address (SPEC.md §13.6, §24.1),
+ * and the tool that reads a file is the judge of its contents. Comments and
+ * trailing commas pass, because tsconfig.json and similar files use them.
+ */
+export const JSON_DIAGNOSTICS = {
+	validate: true,
+	allowComments: true,
+	comments: "ignore",
+	trailingCommas: "ignore",
+	schemas: [],
+	enableSchemaRequest: false,
+	schemaRequest: "ignore",
+	schemaValidation: "ignore",
+} as const;
+
+/**
+ * Monaco's in-browser services for HTML, CSS and JSON (SPEC.md §13.6). Each
+ * contribution only registers its language; Monaco loads the service's code
+ * and starts its worker the first time a model of that language is created.
+ */
+export async function loadLanguageServices(): Promise<void> {
+	const [json] = await Promise.all([
+		import("monaco-editor/language/json/monaco.contribution.js"),
+		import("monaco-editor/language/css/monaco.contribution.js"),
+		import("monaco-editor/language/html/monaco.contribution.js"),
+	]);
+	json.jsonDefaults.setDiagnosticsOptions(JSON_DIAGNOSTICS);
+}
+
 export async function loadEditorFeatures(monaco: typeof Monaco): Promise<void> {
 	await Promise.all([
 		// The icon font the widgets draw their buttons with. Only

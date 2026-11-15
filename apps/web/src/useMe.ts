@@ -1,6 +1,8 @@
 import { MeResponse } from "@portikus/contracts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, request, SessionEndedError } from "./api/request.js";
+import { editorSettingsKey } from "./editor/settingsQueries.js";
+import { paneZoomsFor } from "./layout/paneZoomKeeper.js";
 
 export type MeUser = MeResponse;
 
@@ -16,13 +18,20 @@ export type MeState =
  * (SPEC.md §5.2), which the not-authorized page explains.
  */
 export function useMe(): MeState {
+	const client = useQueryClient();
 	const query = useQuery({
 		queryKey: ["me"],
 		// A 401 here is the normal signed-out answer, not a lost session, so it
 		// is caught rather than left to the QueryClient's session handler.
 		queryFn: async (): Promise<MeState> => {
 			try {
-				return { status: "authenticated", user: await request(MeResponse, "/auth/me") };
+				const user = await request(MeResponse, "/auth/me");
+				// A different user's settings may already be cached, and their queryFn
+				// is what seeds the pane zooms, so make it run again.
+				if (paneZoomsFor(user.id)) {
+					void client.invalidateQueries({ queryKey: editorSettingsKey, exact: true });
+				}
+				return { status: "authenticated", user };
 			} catch (error) {
 				if (error instanceof SessionEndedError) return { status: "anonymous" };
 				if (error instanceof ApiError && error.status === 403) {

@@ -122,6 +122,8 @@ function choose(name: string, option: string) {
 
 beforeEach(() => {
 	store = createChatStore(() => true);
+	// A loaded chat with nothing sent: a model change asks nothing of the student.
+	store.setState({ loaded: true });
 	asked = [];
 	accept = true;
 	announced = [];
@@ -897,4 +899,130 @@ test("with no MCP servers the field says None and the list says none are set up"
 	const list = screen.getByRole("region", { name: "MCP servers" });
 	expect(list.textContent).toContain("No MCP servers are set up.");
 	expect(list.textContent).toContain("with claude mcp.");
+});
+
+function withHistory(usedTokens: number | null) {
+	store.setState({
+		items: HISTORY,
+		context:
+			usedTokens === null
+				? null
+				: { usedTokens, windowTokens: 1_000_000, cache: null, clockOffsetMs: 0 },
+	});
+}
+
+function warning(): HTMLElement {
+	return screen.getByRole("alertdialog");
+}
+
+test("a model change in a chat with history asks first, naming the size to the nearest thousand", () => {
+	withHistory(30_499);
+	draw();
+	choose("Model", "Fable");
+	expect(asked).toEqual([]);
+	expect(warning().textContent).toContain(
+		"The new model reads this whole conversation again at full price, about 30k tokens. Starting a fresh chat with a handoff is cheaper.",
+	);
+	// The picker has not moved while the question is open.
+	expect(screen.getByTestId("composer-model").textContent).toBe("Model Sonnet");
+	const names = within(warning())
+		.getAllByRole("button")
+		.map((button) => button.textContent);
+	expect(names).toEqual(["Start fresh chat with handoff", "Cancel", "Change model"]);
+});
+
+test("the size is rounded up from half a thousand and left out when the meter has no figure", () => {
+	withHistory(30_500);
+	draw();
+	choose("Model", "Fable");
+	expect(warning().textContent).toContain("again at full price, about 31k tokens.");
+	cleanup();
+	withHistory(null);
+	draw();
+	choose("Model", "Fable");
+	expect(warning().textContent).toContain(
+		"again at full price. Starting a fresh chat with a handoff is cheaper.",
+	);
+	expect(warning().textContent).not.toContain("about");
+});
+
+test("Change model applies the change and closes the question", () => {
+	withHistory(30_000);
+	draw();
+	choose("Model", "Fable");
+	fireEvent.click(within(warning()).getByRole("button", { name: "Change model" }));
+	expect(asked).toEqual([{ model: "fable" }]);
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+	expect(picker("Model").textContent).toBe("Model Fable");
+});
+
+test("Cancel and Escape change nothing and the picker keeps the old value", () => {
+	withHistory(30_000);
+	draw();
+	choose("Model", "Fable");
+	fireEvent.click(within(warning()).getByRole("button", { name: "Cancel" }));
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+	choose("Model", "Haiku");
+	fireEvent.keyDown(warning(), { key: "Escape" });
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+	expect(asked).toEqual([]);
+	expect(picker("Model").textContent).toBe("Model Sonnet");
+});
+
+test("Start fresh chat with handoff asks the host for a handoff and changes no model", () => {
+	withHistory(30_000);
+	const sent: unknown[] = [];
+	store = createChatStore((event) => {
+		sent.push(event);
+		return true;
+	});
+	store.setState({ loaded: true });
+	withHistory(30_000);
+	draw();
+	choose("Model", "Fable");
+	fireEvent.click(
+		within(warning()).getByRole("button", { name: "Start fresh chat with handoff" }),
+	);
+	expect(sent).toEqual([{ type: "handoff.start" }]);
+	expect(asked).toEqual([]);
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+test("a version change asks too, and effort and permission changes do not", () => {
+	withHistory(30_000);
+	draw({ ...START, model: "opus" });
+	choose("Version", "4.8");
+	expect(warning()).toBeTruthy();
+	fireEvent.click(within(warning()).getByRole("button", { name: "Cancel" }));
+	choose("Effort", "Low");
+	choose("Permissions", "Plan");
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+	expect(asked).toEqual([{ effort: "low" }, { mode: "plan" }]);
+});
+
+test("a Codex chat with history asks before a model change too", () => {
+	withHistory(12_000);
+	drawCodex();
+	choose("Model", "GPT-5.4 mini");
+	expect(warning().textContent).toContain("about 12k tokens");
+	fireEvent.click(within(warning()).getByRole("button", { name: "Change model" }));
+	expect(asked).toEqual([{ model: "gpt-5.4-mini" }]);
+});
+
+test("an empty chat changes model with no question", () => {
+	draw();
+	choose("Model", "Fable");
+	expect(screen.queryByRole("alertdialog")).toBeNull();
+	expect(asked).toEqual([{ model: "fable" }]);
+});
+
+test("answering the question does not close the options panel", () => {
+	withHistory(30_000);
+	draw();
+	choose("Model", "Fable");
+	const change = within(warning()).getByRole("button", { name: "Change model" });
+	fireEvent.pointerDown(change);
+	expect(toggled).toEqual([]);
+	fireEvent.click(change);
+	expect(toggled).toEqual([]);
 });

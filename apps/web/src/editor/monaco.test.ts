@@ -8,21 +8,39 @@ import {
 	fenceLanguage,
 	getMonaco,
 	onThemeChange,
+	workerKind,
 } from "./monaco.js";
 import { setEditorScheme } from "./schemes/active.js";
 
-vi.mock("./features.js", () => ({ loadEditorFeatures: async () => {} }));
+vi.mock("./features.js", () => ({
+	loadEditorFeatures: async () => {},
+	loadLanguageServices: async () => {},
+}));
 
 const defineTheme = vi.hoisted(() => vi.fn());
 vi.mock("monaco-editor/editor/editor.api.js", () => ({ editor: { defineTheme } }));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
-vi.mock("monaco-editor/language/json/monaco.contribution.js", () => ({
-	jsonDefaults: { setDiagnosticsOptions: () => {} },
-}));
 vi.mock("monaco-editor/editor/editor.worker.js?worker", () => ({ default: class {} }));
 vi.mock("monaco-editor/language/json/json.worker.js?worker", () => ({
 	default: class {},
 }));
+vi.mock("monaco-editor/language/css/css.worker.js?worker", () => ({
+	default: class {},
+}));
+vi.mock("monaco-editor/language/html/html.worker.js?worker", () => ({
+	default: class {},
+}));
+
+/** SPEC.md §13.6: HTML, CSS and JSON get their own service; the rest only the editor's worker. */
+test("each label gets the worker of its language service, and the rest the editor's", () => {
+	for (const label of ["html", "handlebars", "razor"])
+		expect(workerKind(label)).toBe("html");
+	for (const label of ["css", "scss", "less"]) expect(workerKind(label)).toBe("css");
+	expect(workerKind("json")).toBe("json");
+	for (const label of ["editorWorkerService", "typescript", "javascript", "python"]) {
+		expect(workerKind(label)).toBe("editor");
+	}
+});
 
 /** SPEC.md §13.2: a scrollbar with change and problem marks, not a minimap. */
 test("every editor marks changes and problems in the scrollbar, with no minimap", () => {

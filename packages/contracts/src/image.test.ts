@@ -6,6 +6,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	compareImageVersions,
+	IMAGE_JOB_SYSTEM_REQUESTER,
 	ImageAliasesFile,
 	ImageHealth,
 	ImageJobRequest,
@@ -18,6 +19,12 @@ import {
 } from "./image.js";
 
 const ID = "550e8400-e29b-41d4-a716-446655440000";
+
+describe("IMAGE_JOB_SYSTEM_REQUESTER", () => {
+	test('is "system", the literal packaging/image/image-job accepts', () => {
+		expect(IMAGE_JOB_SYSTEM_REQUESTER).toBe("system");
+	});
+});
 
 describe("ImageVersion", () => {
 	test.each(["2026.09.9", "2026.10.12", "2026.09.9-local.202609281530"])(

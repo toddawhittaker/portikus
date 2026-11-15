@@ -8,12 +8,18 @@ import {
 	Toggletip,
 } from "@portikus/ui";
 import { useState } from "react";
+import { CheckHistory } from "./CheckHistory.js";
 import { CheckOutput } from "./CheckOutput.js";
 import { CHECK_BADGE } from "./checkBadge.js";
 import "./checks.css";
 import { PaneSplit } from "../shell/paneSplit.js";
 import { EditChecksDialog } from "./EditChecksDialog.js";
-import { useChecks, useRunCheck, useStopCheck } from "./queries.js";
+import {
+	useChecks,
+	useRefreshCheckHistory,
+	useRunCheck,
+	useStopCheck,
+} from "./queries.js";
 
 /**
  * The Checks pane (SPEC.md §18.1): the commands `.portikus/checks.json`
@@ -31,6 +37,7 @@ export function ChecksPane({
 	const checks = useChecks(workspaceId, projectId);
 	const run = useRunCheck(workspaceId, projectId);
 	const stop = useStopCheck(workspaceId, projectId);
+	const refreshHistory = useRefreshCheckHistory(workspaceId, projectId);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [editing, setEditing] = useState(false);
 	// Bumped on every start, so the output panel reconnects for a new run.
@@ -72,7 +79,10 @@ export function ChecksPane({
 						projectId={projectId}
 						checkId={shown}
 						name={shownCheck?.name ?? ""}
-						onFinished={() => void checks.refetch()}
+						onFinished={() => {
+							void checks.refetch();
+							void refreshHistory(shown);
+						}}
 					/>
 				) : (
 					<p className="pk-check-empty" data-testid="check-output-empty">
@@ -180,6 +190,15 @@ export function ChecksPane({
 								);
 							})}
 						</ul>
+						{shownCheck && (
+							<CheckHistory
+								key={shownCheck.id}
+								workspaceId={workspaceId}
+								projectId={projectId}
+								checkId={shownCheck.id}
+								name={shownCheck.name}
+							/>
+						)}
 						<p className="pk-pane-note" data-testid="checks-note">
 							<Icon name="info" />
 							<span>

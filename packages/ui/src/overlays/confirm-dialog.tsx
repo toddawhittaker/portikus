@@ -38,6 +38,8 @@ export interface ConfirmDialogProps {
 	destructive?: boolean;
 	/** Where focus goes on close; null falls back to the usual return. */
 	returnFocusTo?: () => HTMLElement | null;
+	/** A second way forward, in the footer before Cancel; choosing it closes the dialog. */
+	secondaryAction?: { label: string; onSelect: () => void };
 }
 
 /** Cancel, which can be held off: it stays focusable, its reason is its description, and it does not close. */
@@ -188,6 +190,7 @@ export function ConfirmDialog({
 	typedValue,
 	destructive = true,
 	returnFocusTo,
+	secondaryAction,
 }: ConfirmDialogProps): React.ReactElement {
 	const [typed, setTyped] = React.useState(typedValue ?? "");
 	const ready = !confirmText || typed === confirmText;
@@ -238,6 +241,13 @@ export function ConfirmDialog({
 					</div>
 				) : null}
 				<div className="flex justify-end gap-2 p-6">
+					{secondaryAction ? (
+						<RadixAlertDialog.Action asChild>
+							<Button variant="secondary" onClick={secondaryAction.onSelect}>
+								{secondaryAction.label}
+							</Button>
+						</RadixAlertDialog.Action>
+					) : null}
 					<CancelButton
 						id={id}
 						label={cancelLabel ?? "Cancel"}

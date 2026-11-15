@@ -4,12 +4,14 @@ import {
 	type CheckDefinition,
 	type CheckRun,
 	ChecksFile,
+	type FinishedCheckRun,
+	FinishedCheckRunsQuery,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { FakeAgentState } from "./state.js";
 
 export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): void {
-	const { projectNotFound, keyOf, dirs, nodeAt } = s;
+	const { projectNotFound, keyOf, dirs, nodeAt, flags } = s;
 	// Project checks (SPEC.md §18.1). The definitions come from the fake
 	// filesystem, so a browser test seeds `.portikus/checks.json` the way a
 	// student would. A "run" prints its command and ends with 0 or 1; a
@@ -19,8 +21,12 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 		lines: string[];
 		sockets: Set<WebSocket>;
 		final: { type: "exit"; exitCode: number; stopped?: boolean } | null;
+		/** Where the run is held once it finishes, as the real agent holds it. */
+		holdKey: string;
 	}
 	const checkRuns = new Map<string, FakeCheckRun>();
+	// Finished runs by workspace and project, for the control plane (SPEC.md §25).
+	const finishedRuns = new Map<string, FinishedCheckRun[]>();
 	let checkRunCounter = 0;
 
 	function checkRunKey(request: FastifyRequest, slug: string, id: string): string {
@@ -57,6 +63,19 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 		run.final = stopped
 			? { type: "exit", exitCode, stopped }
 			: { type: "exit", exitCode };
+		const held = finishedRuns.get(run.holdKey) ?? [];
+		held.push({
+			id: run.meta.id,
+			checkId: run.meta.checkId,
+			state: run.meta.state as FinishedCheckRun["state"],
+			startedAt: run.meta.startedAt,
+			endedAt: run.meta.endedAt,
+			exitCode,
+			output: Buffer.from(run.lines.map((line) => `${line}\r\n`).join("")).toString(
+				"base64",
+			),
+		});
+		finishedRuns.set(run.holdKey, held);
 		for (const socket of run.sockets) {
 			if (socket.readyState !== socket.OPEN) continue;
 			socket.send(JSON.stringify(run.final));
@@ -75,6 +94,20 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 			if (id.startsWith(prefix)) runs.push(run.meta);
 		}
 		return { checks: file.checks, error: file.error, runs };
+	});
+
+	app.get("/projects/:slug/checks/finished", async (request) => {
+		const slug = (request.params as { slug: string }).slug;
+		const query = flags.ignoreFinishedQuery
+			? {}
+			: FinishedCheckRunsQuery.parse(request.query);
+		const since = query.after === undefined ? null : Date.parse(query.after);
+		const runs = (finishedRuns.get(`${keyOf(request)}\u0000${slug}`) ?? []).filter(
+			(run) =>
+				(query.checkId === undefined || run.checkId === query.checkId) &&
+				(since === null || Date.parse(run.endedAt) >= since),
+		);
+		return { runs };
 	});
 
 	app.post("/projects/:slug/checks/:id/runs", async (request, reply) => {
@@ -106,6 +139,7 @@ export function registerCheckRoutes(app: FastifyInstance, s: FakeAgentState): vo
 			lines: [`$ ${check.command}`, `running ${check.name}`],
 			sockets: new Set<WebSocket>(),
 			final: null,
+			holdKey: `${keyOf(request)}\u0000${slug}`,
 		};
 		checkRuns.set(runKey, run);
 		if (!check.command.includes("sleep")) {

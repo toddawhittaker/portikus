@@ -10,11 +10,19 @@ declare module "monaco-editor/language/json/monaco.contribution.js" {
 		setDiagnosticsOptions(options: {
 			validate: boolean;
 			allowComments: boolean;
-			schemas: unknown[];
+			comments: "ignore";
+			trailingCommas: "ignore";
+			schemas: readonly unknown[];
 			enableSchemaRequest: boolean;
+			schemaRequest: "ignore";
+			schemaValidation: "ignore";
 		}): void;
 	};
 }
+
+/** The CSS and HTML services register on import; nothing of theirs is used. */
+declare module "monaco-editor/language/css/monaco.contribution.js";
+declare module "monaco-editor/language/html/monaco.contribution.js";
 
 /** Monaco's editing features; imported for their side effects only. */
 declare module "monaco-editor/features/find/register.js";

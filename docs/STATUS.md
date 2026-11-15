@@ -88,6 +88,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 64, admin and instructor redesign.** The winner of a graded design hill climb for the administrator and instructor pages: one page frame with a left rail, an attention summary, a side inspector with Overview, Activity and Account tabs, quiet dot-and-word states, Logs and Audit as workbenches, a Class now summary and dot per student on the course page, and live help in a workspace-style terminal frame; plus the graders' remaining notes, the code and accessibility review fixes, and the design system and mockups brought up to date (DESIGN.md sections 9 and 11, SPEC.md 20.1).
 - **Epic 65, fix batch with editor colour schemes.** Students pick an editor colour scheme in Settings: Portikus (the default), VS Code, IntelliJ, GitHub, Solarized, Catppuccin or High contrast, each in light and dark; the Health page says "Worker not reporting" when the worker has never reported; a terminal question is announced to screen readers when focus is in another pane; the Files pane gains database, binary, slides and log icons; the design README says what the console stylesheet is built from; and three flaky tests are fixed.
 - **Epic 66, Codex in the chat.** A Codex (GUI) chat tab at parity with Claude Code, through one shared chat core with a driver for each agent (ADR 0076); skills and MCP servers for both agents, Codex subagent rows in the left pane and the chat, switching a chat between Claude Code and Codex mid-conversation, Up and Down through the chat's sent messages, and a warning when the student is not signed in to either agent.
+- **Epic 67, fix batch for usage savings.** Claude Code in a terminal starts at Opus with medium effort and its Explore subagent runs on Haiku; Codex waits on subagents for at least 20 minutes; the chat shows Claude at most 30,000 characters of a `!` command's output and asks before a model change in a chat with history, offering a fresh chat with a handoff; pane zoom is kept in the student's settings on the server; the shared coding agents can update themselves each night behind an admin switch; finished check runs are kept and listed as check history; HTML, CSS and JSON get code help in the browser; and the Claude Agent SDK is upgraded.
 
 ## Open items
 
@@ -152,15 +153,14 @@ list was made and may already be fixed.
 - A PDF over 50 MB is offered as a download, and CSV view is read-only with at most 1,000 rows and 200 columns.
 - Screen-reader mode is off by default, because xterm.js then drops text that arrives without a key press, such as dictation.
 - Turning a code help language off does not close sockets already open.
-- Code help for more languages is #1652 and a debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
-- Wanted: picking an element in the preview to send to the agent (#1708), and stored check history (#1237).
+- HTML, CSS and JSON code help ignores the site's code-help switch, and HTML has no diagnostics in Monaco 0.57.
+- Java, C/C++ and SQL code help is still open (#1652). A debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
+- Wanted: picking an element in the preview to send to the agent (#1708).
 - The Playwright projects other than `terminal-webgl` run Chromium with 3D off, so most terminal specs exercise the DOM renderer; only `e2e/terminal-webgl.spec.ts` covers WebGL.
-- The editor's per-file zoom is lost when the student leaves the workspace route, because it lives only in the layout store; SPEC.md says it survives. Terminal and chat zoom do survive, in the tab's sessionStorage.
 
 ### Chat and coding agents
 
 - The full chat path with a signed-in Claude account (subagent rows, `!` commands, read aloud, the context meter) has not been run end to end on a VM. The pilot still needs a check that `SubagentStop` hooks fire under the SDK and that only `/clear` changes the session id.
-- Haiku sometimes ignores a message sent while Claude works (#1801).
 - Permission decisions shown in the chat live in the chat host's memory, so a host restart or a resumed ended chat loses them.
 - Answering a permission card splits an open tool group, because a call with a decision stands alone (a visual jump).
 - The "Answered in the terminal or timed out" notice on a terminal's question card shows for 4 seconds only.
@@ -203,7 +203,8 @@ list was made and may already be fixed.
 - Setup fetches a provider's discovery document directly as root rather than through Squid (accepted, ADR 0059).
 - The shared coding-agent tools arrive only when setup runs, about two minutes after an upgrade restart.
 - Certificates: only Cloudflare DNS-01 is tested end to end, re-applying the same settings leaves Caddy serving its old certificate until renewal, split-horizon DNS can make a public name read as private, and the internal authority's 12-hour certificates show the red expiry notice.
-- Monaco bundles DOMPurify 3.4.15 (#1829). Wanted: an OpenAPI document from the contracts (#1221), the libvirt provider 0.9 (#767), and self-hosted CI runners (#958).
+- An OpenAPI document from the contracts (#1221) is deferred to its own epic.
+- Monaco bundles DOMPurify 3.4.15 (#1829). Wanted: the libvirt provider 0.9 (#767), and self-hosted CI runners (#958).
 
 ### Tests and docs
 

@@ -60,17 +60,22 @@ export async function request<T>(
 	return schema.parse(await response.json());
 }
 
-/** Send `body` as JSON and parse the response through `schema`, as `request` does. */
+/**
+ * Send `body` as JSON and parse the response through `schema`, as `request`
+ * does. `keepalive` lets the browser finish the call after the page is gone.
+ */
 export function sendJson<T>(
 	schema: ZodType<T>,
 	input: string,
 	body: unknown,
 	method: "POST" | "PUT" | "PATCH" | "DELETE" = "POST",
+	options: { keepalive?: boolean } = {},
 ): Promise<T> {
 	return request(schema, input, {
 		method,
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body),
+		...(options.keepalive ? { keepalive: true } : {}),
 	});
 }
 

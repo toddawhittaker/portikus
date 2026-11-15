@@ -661,3 +661,59 @@ sys.exit(code)'`,
 		await capped.close();
 	}
 }, 30_000);
+
+test("the finished runs of a project are served for the control plane", async () => {
+	await writeChecks(JSON.stringify(CHECKS));
+	// Earlier tests share this agent and may still finish runs of their own,
+	// so the run is found by its id rather than by its place in the list.
+	const started = (await call("POST", `/projects/${SLUG}/checks/lint/runs`)).json();
+	await vi.waitFor(
+		async () => {
+			const runs: { id: string }[] = (
+				await call("GET", `/projects/${SLUG}/checks/finished`)
+			).json().runs;
+			expect(runs.find((run) => run.id === started.id)).toMatchObject({
+				checkId: "lint",
+				state: "failed",
+				exitCode: 3,
+			});
+		},
+		{ timeout: 10_000 },
+	);
+}, 15_000);
+
+test("the finished runs can be narrowed to one check and a time", async () => {
+	await writeChecks(JSON.stringify(CHECKS));
+	const started = (await call("POST", `/projects/${SLUG}/checks/lint/runs`)).json();
+	let endedAt = "";
+	await vi.waitFor(
+		async () => {
+			const runs: { id: string; endedAt: string }[] = (
+				await call("GET", `/projects/${SLUG}/checks/finished?checkId=lint`)
+			).json().runs;
+			const found = runs.find((run) => run.id === started.id);
+			expect(found).toBeDefined();
+			endedAt = found?.endedAt ?? "";
+		},
+		{ timeout: 10_000 },
+	);
+	const only = await call("GET", `/projects/${SLUG}/checks/finished?checkId=lint`);
+	expect(
+		only.json().runs.every((run: { checkId: string }) => run.checkId === "lint"),
+	).toBe(true);
+	const at = (
+		await call("GET", `/projects/${SLUG}/checks/finished?checkId=lint&after=${endedAt}`)
+	).json().runs;
+	expect(at.map((run: { id: string }) => run.id)).toContain(started.id);
+	const later = new Date(Date.parse(endedAt) + 1).toISOString();
+	const none = (
+		await call("GET", `/projects/${SLUG}/checks/finished?checkId=lint&after=${later}`)
+	).json().runs;
+	expect(none.map((run: { id: string }) => run.id)).not.toContain(started.id);
+	expect(
+		(await call("GET", `/projects/${SLUG}/checks/finished?checkId=Bad_Id`)).statusCode,
+	).toBe(400);
+	expect(
+		(await call("GET", `/projects/${SLUG}/checks/finished?after=yesterday`)).statusCode,
+	).toBe(400);
+}, 15_000);

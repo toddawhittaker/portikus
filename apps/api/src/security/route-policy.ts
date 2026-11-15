@@ -211,6 +211,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /workspaces/:id/projects/:pid/checks/:checkId/runs": owner,
 	"DELETE /workspaces/:id/projects/:pid/checks/:checkId/runs/current": owner,
 	"GET /workspaces/:id/projects/:pid/checks/:checkId/runs/current": ownerSocket,
+	"GET /workspaces/:id/projects/:pid/checks/:checkId/history": owner,
+	"HEAD /workspaces/:id/projects/:pid/checks/:checkId/history": owner,
+	"GET /workspaces/:id/projects/:pid/checks/:checkId/history/:runId/output": owner,
+	"HEAD /workspaces/:id/projects/:pid/checks/:checkId/history/:runId/output": owner,
 
 	"GET /workspaces/:id/projects/:pid/recovery-points": owner,
 	"HEAD /workspaces/:id/projects/:pid/recovery-points": owner,

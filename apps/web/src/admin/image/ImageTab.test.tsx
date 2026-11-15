@@ -2,6 +2,7 @@ import type { AdminImage, ImageJobView, ImageView } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
+import { settingsBody } from "../users/testRows.js";
 import { ImageTab } from "./ImageTab.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -513,4 +514,44 @@ test("a refused request still reloads the page's data, so a stale Roll back corr
 		([url, init]) => url === "/admin/image" && init?.method !== "POST",
 	);
 	expect(reads.length).toBeGreaterThanOrEqual(2);
+});
+
+test("the nightly update switch beside Update coding agents shows the setting and saves a change", async () => {
+	let stored = await settingsBody().json();
+	const puts: unknown[] = [];
+	stubFetch((url, init) => {
+		if (url === "/admin/settings") {
+			if (init?.method === "PUT") {
+				const body = JSON.parse(String(init.body));
+				puts.push(body);
+				stored = { ...stored, ...body };
+			}
+			return json(200, stored);
+		}
+		return json(
+			200,
+			data({
+				codingAgents: {
+					claude: { current: "2.1.5", previous: null, kept: [] },
+					codex: { current: "0.162.1", previous: null, kept: [] },
+					updatedAt: "2026-11-10T10:00:00.000Z",
+				},
+			}),
+		);
+	});
+	renderWithQuery(<ImageTab />);
+	const toggle = await screen.findByLabelText("Update automatically each night");
+	expect(toggle.getAttribute("role")).toBe("switch");
+	expect(screen.getByTestId("image-agents").contains(toggle)).toBe(true);
+	expect((toggle as HTMLInputElement).checked).toBe(false);
+	fireEvent.click(toggle);
+	await waitFor(() => expect(puts).toEqual([{ codingAgentsAutoUpdate: true }]));
+	await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(true));
+});
+
+test("no nightly update switch before setup has installed the tools", async () => {
+	stubFetch((url) => (url === "/admin/settings" ? settingsBody() : json(200, data())));
+	renderWithQuery(<ImageTab />);
+	await screen.findByTestId("image-agents-none");
+	expect(screen.queryByRole("switch")).toBeNull();
 });

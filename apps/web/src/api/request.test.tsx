@@ -104,6 +104,18 @@ test("sendJson sends the body as JSON, by POST unless told otherwise", async () 
 	expect(patchStub.mock.calls[0]?.[1]?.method).toBe("PATCH");
 });
 
+test("sendJson passes keepalive through only when asked", async () => {
+	const fetchStub = stubFetch(json({ ok: true }, 200));
+	await sendJson(schema, "/things", { a: 1 }, "PUT", { keepalive: true });
+	expect(fetchStub).toHaveBeenCalledWith("/things", {
+		credentials: "same-origin",
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: '{"a":1}',
+		keepalive: true,
+	});
+});
+
 test("errorText shows the API's sentence, or the fallback for anything else", () => {
 	expect(errorText(new ApiError(409, "Name taken.", "CONFLICT"))).toBe("Name taken.");
 	expect(errorText(new Error("boom"))).toBe(SOMETHING_WENT_WRONG);

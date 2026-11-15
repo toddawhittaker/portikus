@@ -35,6 +35,8 @@ export default defineConfig({
 			"monaco-editor/editor/editor.api.js",
 			"monaco-editor/basic-languages/monaco.contribution.js",
 			"monaco-editor/language/json/monaco.contribution.js",
+			"monaco-editor/language/css/monaco.contribution.js",
+			"monaco-editor/language/html/monaco.contribution.js",
 		],
 	},
 	build: {

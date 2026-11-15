@@ -159,7 +159,10 @@ def validate_request(raw, file_id):
         raise Refused("the request id does not match its file name")
     if not isinstance(doc["requestedAt"], str) or not DATETIME_RE.fullmatch(doc["requestedAt"]):
         raise Refused("requestedAt is not a time")
-    if not isinstance(doc["requestedBy"], str) or not UUID_RE.fullmatch(doc["requestedBy"]):
+    # "system" is the API's nightly coding-agents update (SPEC.md section 22.6);
+    # it must equal IMAGE_JOB_SYSTEM_REQUESTER in packages/contracts/src/image.ts.
+    if doc["requestedBy"] != "system" and (
+            not isinstance(doc["requestedBy"], str) or not UUID_RE.fullmatch(doc["requestedBy"])):
         raise Refused("requestedBy is not a user id")
     request = doc["request"]
     if not isinstance(request, dict):

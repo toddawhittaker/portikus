@@ -5,7 +5,7 @@ import type {
 	ImageJobRequest,
 } from "@portikus/contracts";
 import { Button, ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { CODING_AGENT_NAME } from "../../agents/codingAgentName.js";
 import { AdminGroup as Group } from "../AdminSection.js";
 import { TableBox } from "../TableBox.js";
@@ -29,6 +29,7 @@ export function CodingAgentsSection({
 	busy,
 	pending,
 	submit,
+	autoUpdate,
 }: {
 	agents: CodingAgentsFile | null;
 	/** Per tool, a released version newer than the one in use, from the daily check. */
@@ -37,6 +38,8 @@ export function CodingAgentsSection({
 	busy: boolean;
 	pending: boolean;
 	submit: (body: ImageJobRequest, done: () => void) => void;
+	/** The nightly update switch, shown beside Update coding agents once the tools are set up. */
+	autoUpdate?: ReactNode;
 }) {
 	const [confirming, setConfirming] = useState<Confirming | null>(null);
 	return (
@@ -61,6 +64,7 @@ export function CodingAgentsSection({
 				) : null
 			}
 		>
+			{agents ? autoUpdate : null}
 			{agents && busy ? (
 				<p id={BUSY_NOTE} className="pk-muted m-0 text-[13px]">
 					{IMAGE_BUSY_REASON}
