@@ -1661,6 +1661,60 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"the nightly coding-agents update is off by default and only an administrator turns it on, with an audit row",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const student = await studentJar();
+		const before = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(before.json().codingAgentsAutoUpdate).toBe(false);
+
+		const refused = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(student, PUBLIC_URL),
+			payload: { codingAgentsAutoUpdate: true },
+		});
+		expect(refused.statusCode).toBe(403);
+		const notBoolean = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { codingAgentsAutoUpdate: "yes" },
+		});
+		expect(notBoolean.statusCode).toBe(400);
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { codingAgentsAutoUpdate: true },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json().codingAgentsAutoUpdate).toBe(true);
+		const stored = await testDb.db
+			.selectFrom("settings")
+			.select("coding_agents_auto_update")
+			.executeTakeFirstOrThrow();
+		expect(stored.coding_agents_auto_update).toBe(true);
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual([
+			"settings.coding_agents_auto_update_updated",
+		]);
+		expect(rows[0]?.metadata).toMatchObject({ from: false, to: true });
+	},
+);
+
 const CODE_HELP_BOTH = ["python", "typescript"];
 
 test.skipIf(skip)(

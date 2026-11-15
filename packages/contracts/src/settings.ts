@@ -54,6 +54,8 @@ export const PlatformSettings = z.object({
 	codeHelpLanguages: z.array(z.string()),
 	/** Off means no reset or invitation email is sent, even with SMTP set (SPEC.md §5.3). */
 	accountEmailEnabled: z.boolean(),
+	/** On runs the coding-agents update each night when a newer version is recorded (SPEC.md §22.6). */
+	codingAgentsAutoUpdate: z.boolean(),
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
 	/** Read-only: goes up by one whenever the text changes. */
@@ -101,6 +103,7 @@ export const UpdatePlatformSettingsRequest = z
 			.refine((ids) => new Set(ids).size === ids.length, "Languages must be unique")
 			.optional(),
 		accountEmailEnabled: z.boolean().optional(),
+		codingAgentsAutoUpdate: z.boolean().optional(),
 		acceptableUseText: z
 			.string()
 			.trim()

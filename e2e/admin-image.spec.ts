@@ -1,7 +1,14 @@
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, WEB_ORIGIN } from "./helpers";
+import {
+	createStudent,
+	lockSharedState,
+	loginAs,
+	query,
+	SETTINGS_ROW_LOCK,
+	WEB_ORIGIN,
+} from "./helpers";
 import {
 	IMAGE_JOBS_DIR,
 	IMAGES_DIR,
@@ -678,6 +685,63 @@ test("the update-available chip shows only on a tool the daily check found newer
 		{ timeout: 15_000 },
 	);
 	await expect(page.getByTestId("image-agents-newer-codex")).toHaveCount(0);
+});
+
+test("the nightly update switch beside Update coding agents is off by default and saves each change", async ({
+	page,
+}) => {
+	// The wait for other workers' settings tests counts against this test.
+	test.setTimeout(600_000);
+	const release = await lockSharedState(SETTINGS_ROW_LOCK);
+	const stored = async () =>
+		(
+			await query("select coding_agents_auto_update as on from settings where id = 1")
+		)[0]?.on;
+	try {
+		await query("update settings set coding_agents_auto_update = false where id = 1");
+		await putCodingAgents({
+			claude: { current: "2.1.5", previous: null },
+			codex: { current: "0.162.1", previous: null },
+		});
+		await open(page);
+		const card = agentsCard(page);
+		await expect(
+			card.getByRole("button", { name: "Update coding agents" }),
+		).toBeVisible();
+		const toggle = card.getByRole("switch", {
+			name: "Update automatically each night",
+		});
+		await expect(toggle).not.toBeChecked();
+		await expect(toggle).toHaveAccessibleDescription(/once between 3 and 4 a\.m\./);
+
+		await toggle.click();
+		// Radix also copies the toast into a hidden live region; this is the visible toast.
+		await expect(
+			page.getByRole("listitem").filter({ hasText: "Nightly update turned on" }),
+		).toBeVisible();
+		await expect(toggle).toBeChecked();
+		expect(await stored()).toBe(true);
+		const audit = await query(
+			"select metadata from audit_events where action = 'settings.coding_agents_auto_update_updated' order by id desc limit 1",
+		);
+		expect(audit[0]?.metadata).toMatchObject({ from: false, to: true });
+
+		await page.reload();
+		await expect(
+			agentsCard(page).getByRole("switch", { name: "Update automatically each night" }),
+		).toBeChecked({ timeout: 15_000 });
+		await agentsCard(page)
+			.getByRole("switch", { name: "Update automatically each night" })
+			.click();
+		// Radix also copies the toast into a hidden live region; this is the visible toast.
+		await expect(
+			page.getByRole("listitem").filter({ hasText: "Nightly update turned off" }),
+		).toBeVisible();
+		expect(await stored()).toBe(false);
+	} finally {
+		await query("update settings set coding_agents_auto_update = false where id = 1");
+		await release();
+	}
 });
 
 test("before setup writes the shared folder, Coding agents says how to set it up", async ({
