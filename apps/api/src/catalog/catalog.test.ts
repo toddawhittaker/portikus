@@ -88,6 +88,8 @@ const ACCESS_AUDIENCES: Record<AccessClass, readonly Audience[]> = {
 	staff: [],
 	public: [],
 	"preview-edge": [],
+	// The MCP door itself, never an operation.
+	"api-key": [],
 };
 
 describe("route coverage", () => {
