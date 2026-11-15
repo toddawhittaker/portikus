@@ -204,7 +204,7 @@ list was made and may already be fixed.
 - The shared coding-agent tools arrive only when setup runs, about two minutes after an upgrade restart.
 - Certificates: only Cloudflare DNS-01 is tested end to end, re-applying the same settings leaves Caddy serving its old certificate until renewal, split-horizon DNS can make a public name read as private, and the internal authority's 12-hour certificates show the red expiry notice.
 - An OpenAPI document from the contracts (#1221) is deferred to its own epic.
-- Monaco bundles DOMPurify 3.4.15 (#1829). Wanted: the libvirt provider 0.9 (#767), and self-hosted CI runners (#958).
+- Monaco bundles DOMPurify 3.4.15 (#1829). Wanted: the libvirt provider 0.9 (#767).
 
 ### Tests and docs
 
