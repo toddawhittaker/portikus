@@ -664,11 +664,15 @@ sys.exit(code)'`,
 
 test("the finished runs of a project are served for the control plane", async () => {
 	await writeChecks(JSON.stringify(CHECKS));
-	await call("POST", `/projects/${SLUG}/checks/lint/runs`);
+	// Earlier tests share this agent and may still finish runs of their own,
+	// so the run is found by its id rather than by its place in the list.
+	const started = (await call("POST", `/projects/${SLUG}/checks/lint/runs`)).json();
 	await vi.waitFor(
 		async () => {
-			const runs = (await call("GET", `/projects/${SLUG}/checks/finished`)).json().runs;
-			expect(runs.at(-1)).toMatchObject({
+			const runs: { id: string }[] = (
+				await call("GET", `/projects/${SLUG}/checks/finished`)
+			).json().runs;
+			expect(runs.find((run) => run.id === started.id)).toMatchObject({
 				checkId: "lint",
 				state: "failed",
 				exitCode: 3,
