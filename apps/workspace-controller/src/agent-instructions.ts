@@ -49,13 +49,16 @@ const CODEX_UPDATE_LINE = "check_for_update_on_startup = false";
 /**
  * Each `wait_agent` timeout re-reads the parent's whole conversation, and the
  * older multi-agent toolset fixes it at 30 seconds (openai/codex#41875). The
- * newer toolset takes a default; 20 minutes stays inside GPT-5.6's 30-minute
- * prompt cache. It sits in the system layer so a student can switch it back
- * with `features.multi_agent_v2 = false` in `~/.codex/config.toml`.
+ * newer toolset takes a floor as well as a default, and the floor matters
+ * because the model passes its own short timeouts; a wait still ends when a
+ * subagent finishes. 20 minutes stays inside GPT-5.6's 30-minute prompt
+ * cache. It sits in the system layer so a student can switch it back with
+ * `features.multi_agent_v2 = false` in `~/.codex/config.toml`.
  */
 const CODEX_MULTI_AGENT_TABLE =
 	"[features.multi_agent_v2]\n" +
 	"enabled = true\n" +
+	"min_wait_timeout_ms = 1200000\n" +
 	"default_wait_timeout_ms = 1200000\n";
 
 /**

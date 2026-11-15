@@ -212,12 +212,13 @@ describe("writeClaudeManagedSettings", () => {
 });
 
 describe("codexSystemConfig", () => {
-	test("holds the update switch the image ships and the 20-minute multi-agent wait", () => {
+	test("holds the update switch the image ships and the 20-minute multi-agent wait floor", () => {
 		expect(codexSystemConfig()).toBe(
 			"# Written by Portikus at every workspace start; edits do not last.\n" +
 				"check_for_update_on_startup = false\n" +
 				"\n[features.multi_agent_v2]\n" +
 				"enabled = true\n" +
+				"min_wait_timeout_ms = 1200000\n" +
 				"default_wait_timeout_ms = 1200000\n",
 		);
 	});
@@ -226,11 +227,16 @@ describe("codexSystemConfig", () => {
 		const config = parse(codexSystemConfig()) as {
 			check_for_update_on_startup: unknown;
 			features: {
-				multi_agent_v2: { enabled: unknown; default_wait_timeout_ms: number };
+				multi_agent_v2: {
+					enabled: unknown;
+					min_wait_timeout_ms: number;
+					default_wait_timeout_ms: number;
+				};
 			};
 		};
 		expect(config.check_for_update_on_startup).toBe(false);
 		expect(config.features.multi_agent_v2.enabled).toBe(true);
+		expect(config.features.multi_agent_v2.min_wait_timeout_ms).toBe(20 * 60 * 1000);
 		expect(config.features.multi_agent_v2.default_wait_timeout_ms).toBe(20 * 60 * 1000);
 	});
 

@@ -210,6 +210,9 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "Codex waits up to 20 minutes for a subagent" \
     "default_wait_timeout_ms = 1200000" \
     ws_exec "grep -F -x 'default_wait_timeout_ms = 1200000' /etc/codex/config.toml"
+  check_output "and never polls a subagent sooner" \
+    "min_wait_timeout_ms = 1200000" \
+    ws_exec "grep -F -x 'min_wait_timeout_ms = 1200000' /etc/codex/config.toml"
   # 17ab2. Playwright's headless Chromium ships in the image and the login
   # script links it into the student's Playwright folder (SPEC.md 21.7).
   # Launched by hand without --disable-dev-shm-usage, unlike Playwright, so
