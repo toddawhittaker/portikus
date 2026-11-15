@@ -73,6 +73,18 @@ export type ApiKeyList = z.infer<typeof ApiKeyList>;
 export const AdminApiKeyList = z.object({ keys: z.array(AdminApiKey) });
 export type AdminApiKeyList = z.infer<typeof AdminApiKeyList>;
 
+/** The second-factor proof a Dex local-password account sends with an action that issues a secret. */
+const secondFactorProof = {
+	code: z.string().trim().min(1).max(64).optional(),
+	credential: PasskeyCredential.optional(),
+};
+
+/** A code or a passkey answer, never both. */
+function oneProofOnly(body: { code?: string | undefined; credential?: unknown }) {
+	return body.code === undefined || body.credential === undefined;
+}
+const ONE_PROOF_MESSAGE = { message: "Send a code or a passkey, not both." };
+
 /**
  * `POST /me/api-keys`. A Dex local-password account also sends the code or
  * the passkey answer that proves its second factor; never both.
@@ -82,29 +94,21 @@ export const CreateApiKeyRequest = z
 		name: z.string().trim().min(1).max(100),
 		scope: ApiKeyScope.default("read"),
 		periodDays: ApiKeyPeriod.default(API_KEY_PERIOD_DEFAULT),
-		code: z.string().trim().min(1).max(64).optional(),
-		credential: PasskeyCredential.optional(),
+		...secondFactorProof,
 	})
 	.strict()
-	.refine((body) => body.code === undefined || body.credential === undefined, {
-		message: "Send a code or a passkey, not both.",
-	});
+	.refine(oneProofOnly, ONE_PROOF_MESSAGE);
 export type CreateApiKeyRequest = z.infer<typeof CreateApiKeyRequest>;
 
-/** `POST /me/api-keys/:id/renew` and `.../renew-with-new-secret`: nothing to say but which key. */
-export const RenewApiKeyRequest = z.object({}).strict();
-export type RenewApiKeyRequest = z.infer<typeof RenewApiKeyRequest>;
-
-/** `POST /me/api-keys/:id/revoke`. */
-export const RevokeApiKeyRequest = z.object({}).strict();
-export type RevokeApiKeyRequest = z.infer<typeof RevokeApiKeyRequest>;
-
 /**
- * The administrator's expire and revoke actions on one key, one person's
- * keys, or every key on the site. The target is in the path.
+ * `POST /me/api-keys/:id/rotate`: a new secret is as sensitive as a new key, so
+ * it takes the same proof as `POST /me/api-keys` (SPEC.md section 24.13).
  */
-export const AdminApiKeyActionRequest = z.object({}).strict();
-export type AdminApiKeyActionRequest = z.infer<typeof AdminApiKeyActionRequest>;
+export const RotateApiKeyRequest = z
+	.object(secondFactorProof)
+	.strict()
+	.refine(oneProofOnly, ONE_PROOF_MESSAGE);
+export type RotateApiKeyRequest = z.infer<typeof RotateApiKeyRequest>;
 
 /** How many keys an expire or revoke action changed. */
 export const ApiKeyActionResult = z.object({

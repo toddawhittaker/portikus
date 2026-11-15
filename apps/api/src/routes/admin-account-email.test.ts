@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	createApiKey,
 	createOidcClient,
 	createSession,
 	DEX_ACCOUNT_ISSUER,
@@ -537,6 +538,47 @@ describe.skipIf(skip)("Editing a Dex user", () => {
 		expect(sessions).toEqual([]);
 		const live = (await tokenRows(user.id)).filter((r) => r.revoked_at === null);
 		expect(live).toEqual([]);
+	});
+
+	test("a new email revokes the person's API keys even when Dex then fails; a new username does not", async () => {
+		const jar = await adminJar();
+		const { user } = await addDana(jar, { role: "instructor" });
+		const made = await createApiKey(testDb.db, user.id, {
+			name: "Laptop",
+			scope: "read",
+			periodDays: 30,
+		});
+		if (!made.ok) throw new Error(made.reason);
+		const revokedAt = async () =>
+			(
+				await testDb.db
+					.selectFrom("api_keys")
+					.select("revoked_at")
+					.where("id", "=", made.key.id)
+					.executeTakeFirstOrThrow()
+			).revoked_at;
+
+		await send(jar, "PATCH", `/admin/dex-users/${user.id}`, { username: "dana2" });
+		expect(await revokedAt()).toBeNull();
+
+		// Access ends before Dex is touched, so a Dex failure leaves no live key.
+		stub.dex.deletePassword = async () => {
+			throw Object.assign(new Error("unavailable"), { code: 14 });
+		};
+		const res = await send(jar, "PATCH", `/admin/dex-users/${user.id}`, {
+			email: "dana.new@example.edu",
+		});
+		expect(res.statusCode).toBe(503);
+		expect(await revokedAt()).not.toBeNull();
+		expect(await audit("api_key.revoked")).toEqual([
+			expect.objectContaining({
+				target: user.id,
+				metadata: expect.objectContaining({
+					keyId: made.key.id,
+					reason: "email_changed",
+				}),
+			}),
+		]);
 	});
 
 	test("an interrupted email change still shows the account as a Dex user", async () => {

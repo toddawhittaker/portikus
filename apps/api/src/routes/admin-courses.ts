@@ -6,14 +6,11 @@ import {
 	SetCourseProfileRequest,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
 import { setCourseProfile } from "../courses/profile.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError } from "../http.js";
+import { CourseParam, parseOr400, sendError } from "../http.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
-
-const CourseParam = z.object({ courseId: z.string().uuid() });
 
 /**
  * The administrator's view of every course and its profile (SPEC.md §8.7,

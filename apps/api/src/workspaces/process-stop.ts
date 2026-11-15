@@ -4,7 +4,7 @@ import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Kysely } from "kysely";
 import type { ZodType } from "zod";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
-import { sendError } from "../http.js";
+import { PID_PATTERN, sendError } from "../http.js";
 import { check, createCounter } from "../rate-limit.js";
 
 /** Stops one person may ask for in a minute. Counted in this process (ADR 0010). */
@@ -34,7 +34,7 @@ export function parseProcessTarget<T>(
 	rawBody: unknown,
 	schema: ZodType<T>,
 ): { pid: number; body: T } | null {
-	const pid = /^[1-9]\d{0,9}$/.test(rawPid) ? Number(rawPid) : Number.NaN;
+	const pid = PID_PATTERN.test(rawPid) ? Number(rawPid) : Number.NaN;
 	const body = schema.safeParse(rawBody ?? {});
 	if (!Number.isSafeInteger(pid) || pid > 2 ** 31 - 1 || !body.success) return null;
 	return { pid, body: body.data };

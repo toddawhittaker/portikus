@@ -438,6 +438,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 						},
 					});
 				}
+				// A key is staff-only; once the person is a student it must not come back on a later promotion.
+				if (changed.ok && changed.to === "student" && changed.from !== "student") {
+					await revokeKeys(trx, { userId: id }, actor.id, {
+						reason: "role_removed",
+						...requestMetadata(request),
+					});
+				}
 				return changed;
 			});
 			if (!result.ok) {

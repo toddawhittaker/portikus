@@ -5,6 +5,17 @@ import { type ZodType, z } from "zod";
 export const UuidParam = z.object({ id: z.string().uuid() });
 export const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 
+// Path parameters of the course routes; the routes and the catalog both use these.
+export const CourseParam = z.object({ courseId: z.string().uuid() });
+export const CourseMemberParam = CourseParam.extend({ userId: z.string().uuid() });
+export const CourseSessionParam = CourseParam.extend({ sid: z.string().uuid() });
+export const CourseSharedParam = CourseParam.extend({ projectId: z.string().uuid() });
+
+/** A process id in a path: digits with no leading zero, at most ten of them. */
+export const PID_PATTERN = /^[1-9]\d{0,9}$/;
+/** The workspace id and process id of a process action. */
+export const ProcessParam = UuidParam.extend({ pid: z.string().regex(PID_PATTERN) });
+
 /** Send the standard `{ code, message }` error body. */
 export function sendError(
 	reply: FastifyReply,

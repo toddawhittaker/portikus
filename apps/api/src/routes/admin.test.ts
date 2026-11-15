@@ -1,4 +1,4 @@
-import { DEX_ACCOUNT_ISSUER } from "@portikus/auth";
+import { createApiKey, DEX_ACCOUNT_ISSUER } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -957,6 +957,102 @@ test.skipIf(skip)("demote removes a grant and returns the provider role", async 
 		metadata: { from: "administrator", to: "student", source: "admin" },
 	});
 });
+
+/** Make a key for a person who already holds a staff role, and read back whether it is revoked. */
+async function keyFor(userId: string) {
+	const made = await createApiKey(testDb.db, userId, {
+		name: "Laptop",
+		scope: "read",
+		periodDays: 30,
+	});
+	if (!made.ok) throw new Error(made.reason);
+	return {
+		id: made.key.id,
+		revoked: async () =>
+			(
+				await testDb.db
+					.selectFrom("api_keys")
+					.select("revoked_at")
+					.where("id", "=", made.key.id)
+					.executeTakeFirstOrThrow()
+			).revoked_at !== null,
+	};
+}
+
+async function keyAudits() {
+	return testDb.db
+		.selectFrom("audit_events")
+		.select(["actor", "target", "metadata"])
+		.where("action", "=", "api_key.revoked")
+		.orderBy("id")
+		.execute();
+}
+
+test.skipIf(skip)(
+	"a role change that leaves a person a student revokes their API keys, audited",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const carolId = await userId("Carol");
+		const aliceId = await userId("Alice");
+
+		await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		const demoted = await keyFor(aliceId);
+		expect((await adminPost(carol, `/admin/users/${aliceId}/demote`)).statusCode).toBe(
+			200,
+		);
+		expect(await demoted.revoked()).toBe(true);
+
+		await adminPost(carol, `/admin/users/${aliceId}/make-instructor`);
+		const removed = await keyFor(aliceId);
+		expect(
+			(await adminPost(carol, `/admin/users/${aliceId}/remove-instructor`)).statusCode,
+		).toBe(200);
+		expect(await removed.revoked()).toBe(true);
+
+		// Promoting the person again does not bring either key back.
+		await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		expect(await demoted.revoked()).toBe(true);
+		expect(await keyAudits()).toEqual([
+			{
+				actor: `user:${carolId}`,
+				target: aliceId,
+				metadata: expect.objectContaining({
+					keyId: demoted.id,
+					reason: "role_removed",
+				}),
+			},
+			{
+				actor: `user:${carolId}`,
+				target: aliceId,
+				metadata: expect.objectContaining({
+					keyId: removed.id,
+					reason: "role_removed",
+				}),
+			},
+		]);
+	},
+);
+
+test.skipIf(skip)(
+	"a demotion that leaves the person an instructor keeps their keys",
+	async () => {
+		const carol = await adminJar();
+		await studentJar();
+		const aliceId = await userId("Alice");
+		await adminPost(carol, `/admin/users/${aliceId}/promote`);
+		await testDb.db
+			.updateTable("users")
+			.set({ provider_role: "instructor" })
+			.where("id", "=", aliceId)
+			.execute();
+		const key = await keyFor(aliceId);
+		const res = await adminPost(carol, `/admin/users/${aliceId}/demote`);
+		expect(res.json()).toMatchObject({ role: "instructor" });
+		expect(await key.revoked()).toBe(false);
+		expect(await keyAudits()).toEqual([]);
+	},
+);
 
 test.skipIf(skip)(
 	"demote refuses oneself, a provider administrator, and a non-administrator",

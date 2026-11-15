@@ -11,7 +11,6 @@ import {
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
 import { taughtCourseId, teachesCourse } from "../courses/membership.js";
 import { setCourseProfile } from "../courses/profile.js";
 import {
@@ -20,12 +19,7 @@ import {
 	selectRosterCourse,
 } from "../courses/roster.js";
 import type { ServerDeps } from "../deps.js";
-import { parseOr400, sendError } from "../http.js";
-
-const MemberParam = z.object({
-	courseId: z.string().uuid(),
-	userId: z.string().uuid(),
-});
+import { CourseMemberParam, parseOr400, sendError } from "../http.js";
 
 /**
  * The Course page. Only a course's instructors see it; for anyone else it
@@ -151,7 +145,7 @@ export function registerCourseRoutes(
 	// Deletes one membership row and nothing else; a relaunch from the LMS adds it back.
 	app.post("/courses/:courseId/members/:userId/remove", async (request, reply) => {
 		const user = requireUser(request);
-		const params = MemberParam.safeParse(request.params);
+		const params = CourseMemberParam.safeParse(request.params);
 		if (!params.success) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const { courseId, userId } = params.data;
 
