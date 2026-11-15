@@ -217,3 +217,54 @@
 	align-items: end;
 	margin-bottom: var(--space-3);
 }
+
+/*
+ * The kept runs of the selected check (SPEC.md §25), under the list: one
+ * line per run, wrapping in a narrow pane, with its output opened in place.
+ */
+.pk-check-history {
+	margin-top: var(--space-3);
+	min-width: 0;
+}
+.pk-check-history-head {
+	margin: 0 0 var(--space-1);
+	padding: 0 var(--space-2);
+	font-size: 13px;
+	font-weight: 600;
+}
+.pk-check-history-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 1px;
+}
+.pk-check-history-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	column-gap: var(--space-2);
+	row-gap: var(--space-1);
+	padding: var(--space-1) var(--space-2);
+	font-size: 13px;
+}
+.pk-check-history-meta {
+	color: var(--ink-muted);
+}
+.pk-check-history-toggle {
+	margin-inline-start: auto;
+}
+.pk-check-history-output {
+	margin: 0 var(--space-2) var(--space-2);
+	padding: var(--space-2);
+	max-height: 16rem;
+	overflow: auto;
+	background: var(--surface-raised);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}

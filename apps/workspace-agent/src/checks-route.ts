@@ -10,13 +10,18 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WebSocket } from "@fastify/websocket";
 import {
+	CHECK_HISTORY_PER_CHECK,
 	CHECKS_FILE_PATH,
 	type CheckDefinition,
 	type CheckOutputFrame,
 	type CheckRun,
 	ChecksFile,
 	type ChecksResponse,
+	type FinishedCheckRun,
+	type FinishedCheckRunsResponse,
 	MAX_CHECK_OUTPUT_BYTES,
+	MAX_HELD_FINISHED_RUNS,
+	MAX_STORED_CHECK_OUTPUT_BYTES,
 } from "@portikus/contracts";
 import { errorMessage } from "@portikus/observability";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
@@ -81,6 +86,8 @@ function send(socket: WebSocket, frame: CheckOutputFrame): void {
  */
 export class CheckRunner {
 	private readonly runs = new Map<string, LiveRun>();
+	/** Finished runs for the control plane to read and keep, oldest first (SPEC.md §25). */
+	private readonly finished: { slug: string; run: FinishedCheckRun }[] = [];
 	private counter = 0;
 
 	constructor(
@@ -99,6 +106,11 @@ export class CheckRunner {
 			if (id.startsWith(prefix)) found.push(run.meta);
 		}
 		return found;
+	}
+
+	/** The finished runs of one project this agent still holds, oldest first. */
+	finishedFor(slug: string): FinishedCheckRun[] {
+		return this.finished.filter((item) => item.slug === slug).map((item) => item.run);
 	}
 
 	/** The live or last run of one check, if this agent still has it. */
@@ -172,7 +184,7 @@ export class CheckRunner {
 			);
 		} catch (error) {
 			this.log.error({ error: errorMessage(error) }, "check failed to start");
-			this.finish(run, { type: "error", code: "SPAWN_FAILED" }, "error");
+			this.finish(options.slug, run, { type: "error", code: "SPAWN_FAILED" }, "error");
 			return run.meta;
 		}
 		run.pty = pty;
@@ -198,6 +210,7 @@ export class CheckRunner {
 				run.meta.exitCode = exitCode;
 				const stopped = run.stopRequested;
 				this.finish(
+					options.slug,
 					run,
 					stopped ? { type: "exit", exitCode, stopped } : { type: "exit", exitCode },
 					stopped ? "stopped" : exitCode === 0 ? "passed" : "failed",
@@ -290,6 +303,24 @@ export class CheckRunner {
 		run.drainTimer = null;
 	}
 
+	/**
+	 * Hold a finished run until it falls out of the bounds: the newest
+	 * CHECK_HISTORY_PER_CHECK per check, and MAX_HELD_FINISHED_RUNS in all.
+	 */
+	private hold(slug: string, run: FinishedCheckRun): void {
+		this.finished.push({ slug, run });
+		const sameCheck = this.finished.filter(
+			(item) => item.slug === slug && item.run.checkId === run.checkId,
+		);
+		const extra = sameCheck.length - CHECK_HISTORY_PER_CHECK;
+		for (const item of sameCheck.slice(0, Math.max(0, extra))) {
+			this.finished.splice(this.finished.indexOf(item), 1);
+		}
+		if (this.finished.length > MAX_HELD_FINISHED_RUNS) {
+			this.finished.splice(0, this.finished.length - MAX_HELD_FINISHED_RUNS);
+		}
+	}
+
 	/** Forget finished runs, oldest first, until the map is back in bounds. */
 	private evictOldFinishedRuns(): void {
 		while (this.runs.size > MAX_REMEMBERED_RUNS) {
@@ -321,20 +352,37 @@ export class CheckRunner {
 	}
 
 	private finish(
+		slug: string,
 		run: LiveRun,
 		frame: CheckOutputFrame,
-		state: CheckRun["state"],
+		state: Exclude<CheckRun["state"], "running">,
 	): void {
 		this.stopDrain(run);
 		run.meta.state = state;
-		run.meta.endedAt = new Date().toISOString();
+		const endedAt = new Date().toISOString();
+		run.meta.endedAt = endedAt;
 		run.final = frame;
+		this.hold(slug, {
+			id: run.meta.id,
+			checkId: run.meta.checkId,
+			state,
+			startedAt: run.meta.startedAt,
+			endedAt,
+			exitCode: run.meta.exitCode ?? null,
+			output: outputTail(run.chunks).toString("base64"),
+		});
 		for (const socket of run.watchers) {
 			send(socket, frame);
 			if (socket.readyState === socket.OPEN) socket.close(1000, "run finished");
 		}
 		run.watchers.clear();
 	}
+}
+
+/** The newest MAX_STORED_CHECK_OUTPUT_BYTES of a run's output. */
+function outputTail(chunks: Buffer[]): Buffer {
+	const all = Buffer.concat(chunks);
+	return all.subarray(Math.max(0, all.length - MAX_STORED_CHECK_OUTPUT_BYTES));
 }
 
 /**
@@ -420,6 +468,14 @@ export async function checksRoute(
 		} catch (error) {
 			return sendError(request, reply, error, "INTERNAL");
 		}
+	});
+
+	// Finished runs, read by the control plane to keep (SPEC.md §25). Output
+	// is student content and is never logged.
+	instance.get("/projects/:slug/checks/finished", async (request) => {
+		const { slug } = request.params as { slug: string };
+		const body: FinishedCheckRunsResponse = { runs: runner.finishedFor(slug) };
+		return body;
 	});
 
 	instance.post("/projects/:slug/checks/:id/runs", async (request, reply) => {

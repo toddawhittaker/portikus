@@ -96,6 +96,49 @@ test.describe("checks", () => {
 		await expect(page.getByTestId("check-output-name")).toHaveText("Lint");
 	});
 
+	test("each finished run is kept and listed after a reload", async ({
+		page,
+		context,
+	}) => {
+		// Check result metadata outlives the page and the agent (SPEC.md §25).
+		const student = await createStudent(context);
+		await openChecks(page, student.workspaceId, "History", CHECKS);
+		await expect(page.getByTestId("check-history-empty")).toHaveText(
+			"No finished runs yet.",
+		);
+
+		await page.getByTestId("check-run-tests").click();
+		await expect(page.getByTestId("check-history-item")).toHaveCount(1, {
+			timeout: 15_000,
+		});
+		await page.getByTestId("check-run-tests").click();
+		await expect(page.getByTestId("check-history-item")).toHaveCount(2, {
+			timeout: 15_000,
+		});
+
+		await page.reload();
+		await page.getByTestId("right-pane-tab-checks").click();
+		const history = page.getByRole("region", { name: /^History/ });
+		await expect(history.getByTestId("check-history-item")).toHaveCount(2, {
+			timeout: 15_000,
+		});
+		await expect(history.getByTestId("check-history-item").first()).toContainText(
+			"Passed",
+		);
+		await expect(history.getByTestId("check-history-item").first()).toContainText(
+			"exit code 0",
+		);
+
+		await history
+			.getByRole("button", { name: /Show output/ })
+			.first()
+			.click();
+		await expect(history.getByTestId("check-history-output")).toContainText(
+			"all tests passed",
+		);
+		await expectNoViolations(page);
+	});
+
 	test("a passing check shows Passed and its output", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openChecks(page, student.workspaceId, "Passing", CHECKS);
