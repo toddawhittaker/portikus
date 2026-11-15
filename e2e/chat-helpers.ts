@@ -255,3 +255,10 @@ export async function expectAnnounced(view: Locator, waiting = 0) {
 	await expect(view.getByTestId("chat-announcer")).toHaveText(`${said}${more}`);
 	return heading;
 }
+
+/** Answer the question a model change asks in a chat with history (SPEC.md section 10.2). */
+export async function confirmModelChange(page: Page): Promise<void> {
+	const dialog = page.getByTestId("dialog-model-change");
+	await dialog.getByRole("button", { name: "Change model" }).click();
+	await expect(dialog).toHaveCount(0);
+}
