@@ -7,6 +7,15 @@ import { serveMcp } from "../mcp/bridge.js";
 import { toAuthInfo } from "../mcp/caller.js";
 import { mcpServerFactory } from "../mcp/server.js";
 
+const NO_BATCH = {
+	jsonrpc: "2.0",
+	error: {
+		code: -32600,
+		message: "Invalid Request: batches are not supported; send one request per call",
+	},
+	id: null,
+} as const;
+
 const KEY_REQUIRED: ApiError = {
 	code: "UNAUTHORIZED",
 	message: "an API key is required",
@@ -17,7 +26,8 @@ const KEY_REQUIRED: ApiError = {
  * signs in here: a browser session gets 401, and so does a missing or bad
  * key, with a plain `WWW-Authenticate: Bearer` and no OAuth metadata, since
  * the site runs no OAuth for MCP. A request carrying any Origin but the
- * site's own is refused, so no other web page can drive it.
+ * site's own is refused, so no other web page can drive it. A JSON-RPC batch
+ * is refused too: one POST runs one tool call.
  */
 export function registerMcpRoutes(
 	app: FastifyInstance,
@@ -38,6 +48,9 @@ export function registerMcpRoutes(
 			const body: ApiError = { code: "FORBIDDEN", message: "origin not allowed" };
 			return reply.code(403).send(body);
 		}
+		// The per-key rate limit counts HTTP requests, and the SDK would run every
+		// call in a batch for one of them (SPEC.md section 24.8).
+		if (Array.isArray(request.body)) return reply.code(400).send(NO_BATCH);
 		const secret = bearerApiKey(request.headers.authorization) ?? "";
 		const userAgent = request.headers["user-agent"];
 		return serveMcp(handler, request, reply, {

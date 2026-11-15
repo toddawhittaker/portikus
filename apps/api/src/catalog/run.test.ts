@@ -43,18 +43,20 @@ afterEach(async () => {
 	await app.close();
 });
 
+const COURSE = "0b9d8a7e-2c1f-4d6a-9f3e-5a4b3c2d1e0f";
+const PERSON = "7f1e2d3c-4b5a-4968-8a7b-6c5d4e3f2a1b";
 const CALLER = { apiKey: "portikus_secret", ip: "203.0.113.7", userAgent: "agent/1" };
 
 describe("runOperation", () => {
 	test("builds the URL from the catalog pattern and sends the caller's key and address", async () => {
 		const result = await runOperation(app, CALLER, "courses.members", {
-			path: { courseId: "c1" },
+			path: { courseId: COURSE },
 		});
 		expect(result).toEqual({ ok: true, status: 200, body: '{"ok":true}' });
 		expect(seen).toEqual([
 			{
 				method: "GET",
-				url: "/courses/c1/members",
+				url: `/courses/${COURSE}/members`,
 				ip: "203.0.113.7",
 				authorization: "Bearer portikus_secret",
 				userAgent: "agent/1",
@@ -64,11 +66,29 @@ describe("runOperation", () => {
 		]);
 	});
 
-	test("a path value is encoded, so it stays one segment", async () => {
-		await runOperation(app, CALLER, "courses.members", {
-			path: { courseId: "a b?x=1#y%2F" },
+	test.each(["search", "c1", "a b?x=1#y%2F", "1", COURSE.toUpperCase().slice(1)])(
+		"a path value of %j is not a uuid, so it is refused without a request",
+		async (courseId) => {
+			const result = await runOperation(app, CALLER, "courses.members", {
+				path: { courseId },
+			});
+			expect(result).toMatchObject({
+				ok: false,
+				error: {
+					code: "VALIDATION_FAILED",
+					message: expect.stringContaining("courseId"),
+				},
+			});
+			expect(seen).toEqual([]);
+		},
+	);
+
+	test("a fixed route beside /admin/users/:id is never reached with a word for an id", async () => {
+		const result = await runOperation(app, CALLER, "users.disable", {
+			path: { id: "search" },
 		});
-		expect(seen[0]?.url).toBe(`/courses/${encodeURIComponent("a b?x=1#y%2F")}/members`);
+		expect(result).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED" } });
+		expect(seen).toEqual([]);
 	});
 
 	test.each([".", "..", "../../admin/users", "a/b", "/"])(
@@ -92,7 +112,7 @@ describe("runOperation", () => {
 
 	test("a path value the operation does not name is refused without a request", async () => {
 		const result = await runOperation(app, CALLER, "courses.members", {
-			path: { courseId: "c1", userId: "u1" },
+			path: { courseId: COURSE, userId: PERSON },
 		});
 		expect(result).toMatchObject({
 			ok: false,
@@ -110,12 +130,12 @@ describe("runOperation", () => {
 
 	test("a JSON body goes with a change, never with a read", async () => {
 		await runOperation(app, CALLER, "users.disable", {
-			path: { id: "u1" },
+			path: { id: PERSON },
 			body: { reason: "x" },
 		});
 		expect(seen[0]).toMatchObject({
 			method: "POST",
-			url: "/admin/users/u1/disable",
+			url: `/admin/users/${PERSON}/disable`,
 			contentType: "application/json",
 			body: { reason: "x" },
 		});
