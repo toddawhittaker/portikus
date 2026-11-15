@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { AGENT_USAGE_METRICS_PATH, AGENT_USAGE_PORT } from "@portikus/contracts";
+import {
+	AGENT_USAGE_METRICS_PATH,
+	AGENT_USAGE_PORT,
+	CHAT_START_SETTINGS,
+} from "@portikus/contracts";
 import { errorMessage } from "@portikus/observability";
-import type { IncusClient } from "./incus.js";
+import { type IncusClient, IncusError } from "./incus.js";
+import { STUDENT_UID } from "./start-setup.js";
 
 /**
  * The coding agents' platform instructions (SPEC.md §3). One
@@ -25,6 +30,29 @@ export const CLAUDE_MANAGED_SETTINGS_PATH = "/etc/claude-code/managed-settings.j
 
 /** Claude Code's system-wide memory file, read in every session. */
 export const CLAUDE_SYSTEM_PATH = "/etc/claude-code/CLAUDE.md";
+
+/** Claude Code's managed agents folder; a same-named agent here replaces a built-in one. */
+export const CLAUDE_MANAGED_AGENTS_DIR = "/etc/claude-code/.claude/agents";
+
+/** The platform's Explore agent, which replaces Claude Code's built-in one. */
+export const CLAUDE_EXPLORE_AGENT_PATH = `${CLAUDE_MANAGED_AGENTS_DIR}/Explore.md`;
+
+/**
+ * Claude Code's built-in Explore is a read-only search that runs on the
+ * session's model; this copy runs it on Haiku, which costs far less. Its
+ * prompt is a short paraphrase of the built-in's purpose: recheck it against
+ * the built-in whenever the shared Claude Code version changes. A managed
+ * agent wins over a student's own same-named agent (checked on 2.1.311), so
+ * the start removes it again when the student has one.
+ */
+export const CLAUDE_EXPLORE_AGENT =
+	"---\n" +
+	"name: Explore\n" +
+	"description: Fast read-only search agent for finding files and code. Use it to locate files by pattern, search code for keywords, or answer where something lives. Say how thorough to be: quick, medium, or very thorough.\n" +
+	"tools: Glob, Grep, Read, Bash\n" +
+	"model: haiku\n" +
+	"---\n" +
+	"You are a read-only file search specialist. Find what was asked with Glob, Grep and Read, and use Bash only for read-only commands such as ls, find, git status and git log. Never create, edit, move or delete a file. Search broadly first, then narrow down. Report absolute paths and short excerpts, and say plainly when something was not found.\n";
 
 /**
  * Codex's system config layer. A student's own `~/.codex/config.toml` wins
@@ -168,17 +196,22 @@ export async function writeAgentInstructions(
 ): Promise<boolean> {
 	const template = await readTemplate(templatePath);
 	if (template === null) return false;
-	const files: [dir: string, path: string, body: string][] = [
-		["/etc/claude-code", CLAUDE_SYSTEM_PATH, template],
+	const files: [dirs: string[], path: string, body: string][] = [
+		[["/etc/claude-code"], CLAUDE_SYSTEM_PATH, template],
+		[
+			["/etc/claude-code", "/etc/claude-code/.claude", CLAUDE_MANAGED_AGENTS_DIR],
+			CLAUDE_EXPLORE_AGENT_PATH,
+			CLAUDE_EXPLORE_AGENT,
+		],
 		// The managed file goes first, so the platform's instructions are never
 		// absent; the system file after it clears what an older start left there.
-		["/etc/codex", CODEX_MANAGED_PATH, codexManagedConfig(template)],
-		["/etc/codex", CODEX_SYSTEM_PATH, codexSystemConfig()],
+		[["/etc/codex"], CODEX_MANAGED_PATH, codexManagedConfig(template)],
+		[["/etc/codex"], CODEX_SYSTEM_PATH, codexSystemConfig()],
 	];
 	const failures: string[] = [];
-	for (const [dir, path, body] of files) {
+	for (const [dirs, path, body] of files) {
 		try {
-			await writeSystemFile(client, name, dir, path, body, signal);
+			await writeSystemFile(client, name, dirs, path, body, signal);
 		} catch (err) {
 			failures.push(`${path}: ${errorMessage(err)}`);
 		}
@@ -202,7 +235,7 @@ export async function writeClaudeManagedSettings(
 	await writeSystemFile(
 		client,
 		name,
-		"/etc/claude-code",
+		["/etc/claude-code"],
 		CLAUDE_MANAGED_SETTINGS_PATH,
 		template,
 		signal,
@@ -223,13 +256,161 @@ async function readTemplate(path: string): Promise<string | null> {
 async function writeSystemFile(
 	client: FilesClient,
 	name: string,
-	dir: string,
+	dirs: string[],
 	path: string,
 	body: string,
 	signal?: AbortSignal,
 ): Promise<void> {
 	// Incus answers success whatever already sits at the folder path;
 	// a non-folder there makes the file push below fail instead.
-	await client.pushFile(name, dir, "", ROOT_DIR, signal);
+	for (const dir of dirs) await client.pushFile(name, dir, "", ROOT_DIR, signal);
 	await client.replaceFile(name, path, body, ROOT_FILE, signal);
+}
+
+/** A student's own Explore agent, which takes the platform's place. */
+export const CLAUDE_STUDENT_EXPLORE_PATH = "/home/student/.claude/agents/Explore.md";
+
+/**
+ * Remove the platform's Explore agent when the student has their own, so
+ * theirs is the one Claude Code runs (SPEC.md §3). The check runs in the
+ * running container as the student; a check that fails keeps the platform's
+ * copy, the cheaper default. Deleting is safe while running because the
+ * student cannot write in the root-owned managed folder. Returns whether it
+ * removed the copy.
+ */
+export async function yieldExploreToStudent(
+	client: Pick<IncusClient, "exec" | "deleteFile">,
+	name: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	const check = await client.exec(
+		name,
+		["timeout", String(SEED_SECONDS), "test", "-e", CLAUDE_STUDENT_EXPLORE_PATH],
+		{ timeoutSeconds: SEED_SECONDS + 5, user: STUDENT_UID, outputMaxBytes: 1024 },
+		signal,
+	);
+	if (check.status !== 0) return false;
+	try {
+		await client.deleteFile(name, CLAUDE_EXPLORE_AGENT_PATH, signal);
+	} catch (err) {
+		if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
+	}
+	return true;
+}
+
+/** The student's own Claude Code settings, which the platform seeds once. */
+export const CLAUDE_USER_SETTINGS_PATH = "/home/student/.claude/settings.json";
+
+/**
+ * Present once the platform has seeded the settings, so a key the student
+ * deletes later stays deleted. It holds the seed's version.
+ */
+export const CLAUDE_SEED_MARKER_PATH = "/home/student/.claude/.portikus-seeded";
+
+const CLAUDE_SEED_VERSION = "1";
+
+/** A settings file past this is left alone; Claude Code's own are a few KiB. */
+const CLAUDE_SETTINGS_MAX_BYTES = 64 * 1024;
+
+/** How long each in-container step may take before `timeout` ends it. */
+const SEED_SECONDS = 10;
+
+/** Exit 4: seeded before; 3: no settings file; 5: something not a file is there. */
+const SEED_READ_SCRIPT =
+	'[ -e "$1" ] && exit 4; [ -e "$2" ] || exit 3; [ -f "$2" ] || exit 5; exec head -c "$3" -- "$2"';
+
+/** An empty body leaves the settings as they are and only writes the marker. */
+const SEED_WRITE_SCRIPT =
+	'umask 077; mkdir -p -- "$(dirname -- "$1")" || exit 1; ' +
+	'if [ -n "$3" ]; then printf %s "$3" > "$1.portikus-tmp" || exit 1; ' +
+	// A new file is the student's alone; a replaced one keeps its mode.
+	'if [ -e "$1" ]; then chmod --reference="$1" -- "$1.portikus-tmp"; fi; ' +
+	'mv -f -- "$1.portikus-tmp" "$1" || exit 1; fi; ' +
+	'printf "%s\\n" "$4" > "$2"';
+
+/**
+ * The settings with the GUI chat's starting model and effort added where the
+ * student has none (SPEC.md §10.3), or null when the text is not a JSON
+ * object and must be left alone. Null text means no file yet. Keys keep
+ * their order, but JSON cannot keep the rest of the layout, so a changed
+ * file is written with two-space indents, as Claude Code writes it.
+ */
+export function seedClaudeSettings(text: string | null): string | null {
+	let settings: unknown = {};
+	if (text !== null) {
+		try {
+			settings = JSON.parse(text);
+		} catch {
+			return null;
+		}
+	}
+	if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
+		return null;
+	}
+	const seeded: Record<string, unknown> = { ...settings };
+	seeded.model ??= CHAT_START_SETTINGS.model;
+	seeded.effortLevel ??= CHAT_START_SETTINGS.effort;
+	if (text !== null && Object.keys(seeded).length === Object.keys(settings).length) {
+		return text;
+	}
+	return `${JSON.stringify(seeded, null, 2)}\n`;
+}
+
+/**
+ * Seed the student's Claude Code settings with the GUI chat's starting
+ * model and effort, once per workspace (SPEC.md §10.3). It runs in the
+ * running container as the student, so a link or pipe planted in the home
+ * folder reaches nothing the student could not already reach (SPEC.md §24).
+ * Returns whether it seeded this time.
+ */
+export async function seedClaudeUserSettings(
+	client: Pick<IncusClient, "exec">,
+	name: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	const read = await client.exec(
+		name,
+		[
+			"timeout",
+			String(SEED_SECONDS),
+			"sh",
+			"-c",
+			SEED_READ_SCRIPT,
+			"sh",
+			CLAUDE_SEED_MARKER_PATH,
+			CLAUDE_USER_SETTINGS_PATH,
+			String(CLAUDE_SETTINGS_MAX_BYTES + 1),
+		],
+		{
+			timeoutSeconds: SEED_SECONDS + 5,
+			user: STUDENT_UID,
+			outputMaxBytes: CLAUDE_SETTINGS_MAX_BYTES,
+		},
+		signal,
+	);
+	if (read.tooLarge || (read.status !== 0 && read.status !== 3)) return false;
+	const text = read.status === 3 ? null : read.stdout.toString("utf8");
+	const seeded = seedClaudeSettings(text);
+	if (seeded === null) return false;
+	const write = await client.exec(
+		name,
+		[
+			"timeout",
+			String(SEED_SECONDS),
+			"sh",
+			"-c",
+			SEED_WRITE_SCRIPT,
+			"sh",
+			CLAUDE_USER_SETTINGS_PATH,
+			CLAUDE_SEED_MARKER_PATH,
+			seeded === text ? "" : seeded,
+			CLAUDE_SEED_VERSION,
+		],
+		{ timeoutSeconds: SEED_SECONDS + 5, user: STUDENT_UID, outputMaxBytes: 1024 },
+		signal,
+	);
+	if (write.status !== 0) {
+		throw new Error(`seeding Claude Code's settings exited with ${write.status}`);
+	}
+	return true;
 }

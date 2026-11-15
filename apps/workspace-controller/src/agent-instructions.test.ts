@@ -2,7 +2,15 @@
  * The platform's agent instructions are system files rewritten at every
  * start from one template (SPEC.md §3).
  */
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_USAGE_PORT, TERMINAL_QUESTION_TIMEOUT_MS } from "@portikus/contracts";
@@ -10,14 +18,23 @@ import { parse } from "smol-toml";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
 	AGENT_SCRIPTS_DIR,
+	CLAUDE_EXPLORE_AGENT,
+	CLAUDE_EXPLORE_AGENT_PATH,
+	CLAUDE_MANAGED_AGENTS_DIR,
 	CLAUDE_MANAGED_SETTINGS_PATH,
+	CLAUDE_SEED_MARKER_PATH,
+	CLAUDE_STUDENT_EXPLORE_PATH,
 	CLAUDE_SYSTEM_PATH,
+	CLAUDE_USER_SETTINGS_PATH,
 	CODEX_MANAGED_PATH,
 	CODEX_SYSTEM_PATH,
 	codexManagedConfig,
 	codexSystemConfig,
+	seedClaudeSettings,
+	seedClaudeUserSettings,
 	writeAgentInstructions,
 	writeClaudeManagedSettings,
+	yieldExploreToStudent,
 } from "./agent-instructions.js";
 import { FakeFiles } from "./fake-files.js";
 
@@ -100,11 +117,17 @@ describe("writeAgentInstructions", () => {
 			files.files.set(CLAUDE_SYSTEM_PATH, { type, content: "" });
 			files.files.set(CODEX_SYSTEM_PATH, { type, content: "" });
 			files.files.set(CODEX_MANAGED_PATH, { type, content: "" });
+			files.files.set(CLAUDE_EXPLORE_AGENT_PATH, { type, content: "" });
 			expect(await writeAgentInstructions(files, "ws-a", templatePath)).toBe(true);
 			expect(files.ops).toEqual([
 				"POST /etc/claude-code",
 				`DELETE ${CLAUDE_SYSTEM_PATH}`,
 				`POST ${CLAUDE_SYSTEM_PATH}`,
+				"POST /etc/claude-code",
+				"POST /etc/claude-code/.claude",
+				`POST ${CLAUDE_MANAGED_AGENTS_DIR}`,
+				`DELETE ${CLAUDE_EXPLORE_AGENT_PATH}`,
+				`POST ${CLAUDE_EXPLORE_AGENT_PATH}`,
 				"POST /etc/codex",
 				`DELETE ${CODEX_MANAGED_PATH}`,
 				`POST ${CODEX_MANAGED_PATH}`,
@@ -528,5 +551,224 @@ describe("the shipped managed settings", () => {
 		]) {
 			expect(env).not.toHaveProperty(key);
 		}
+	});
+});
+
+describe("the platform's Explore agent", () => {
+	test("is written root-owned and 0644 in Claude Code's managed agents folder", async () => {
+		await writeAgentInstructions(files, "ws-a", templatePath);
+		expect(files.files.get(CLAUDE_MANAGED_AGENTS_DIR)).toMatchObject({
+			type: "directory",
+			mode: "0755",
+			uid: 0,
+		});
+		expect(files.files.get(CLAUDE_EXPLORE_AGENT_PATH)).toEqual({
+			type: "file",
+			content: CLAUDE_EXPLORE_AGENT,
+			mode: "0644",
+			uid: 0,
+		});
+	});
+
+	test("replaces the built-in Explore by name, runs on Haiku, and stays read-only", () => {
+		const front = CLAUDE_EXPLORE_AGENT.split("---\n")[1] ?? "";
+		expect(front).toMatch(/^name: Explore$/m);
+		expect(front).toMatch(/^model: haiku$/m);
+		expect(front).toMatch(/^description: \S/m);
+		const tools = /^tools: (.*)$/m.exec(front)?.[1]?.split(", ") ?? [];
+		expect(tools).not.toContain("Edit");
+		expect(tools).not.toContain("Write");
+	});
+});
+
+describe("seedClaudeSettings", () => {
+	test("a missing file gets the GUI chat's starting model and effort", () => {
+		expect(JSON.parse(seedClaudeSettings(null) ?? "")).toEqual({
+			model: "opus",
+			effortLevel: "medium",
+		});
+	});
+
+	test("other keys are kept, in order", () => {
+		const out = seedClaudeSettings('{"theme":"dark","env":{"A":"1"}}') ?? "";
+		expect(Object.keys(JSON.parse(out))).toEqual([
+			"theme",
+			"env",
+			"model",
+			"effortLevel",
+		]);
+		expect(JSON.parse(out).env).toEqual({ A: "1" });
+	});
+
+	test("the student's own model and effort win", () => {
+		const own = '{\n    "model": "sonnet",\n    "effortLevel": "high"\n}';
+		expect(seedClaudeSettings(own)).toBe(own);
+		const out = JSON.parse(seedClaudeSettings('{"model":"sonnet"}') ?? "");
+		expect(out).toEqual({ model: "sonnet", effortLevel: "medium" });
+	});
+
+	test("text that is not a JSON object is left alone", () => {
+		for (const text of ["{ not json", "[]", "null", '"x"', ""]) {
+			expect(seedClaudeSettings(text)).toBeNull();
+		}
+	});
+});
+
+describe("seedClaudeUserSettings", () => {
+	let home: string;
+	const settingsPath = () => join(home, ".claude/settings.json");
+	const markerPath = () => join(home, ".claude/.portikus-seeded");
+
+	/** Runs the exec's command on this machine, with the student's home moved to a temp folder. */
+	const client = {
+		calls: [] as { user?: number }[],
+		async exec(_name: string, command: string[], opts: { user?: number }) {
+			client.calls.push(opts);
+			const args = command.map((a) => a.replaceAll("/home/student", home));
+			const run = spawnSync(args[0] ?? "", args.slice(1));
+			return { status: run.status, stdout: run.stdout, tooLarge: false };
+		},
+	};
+
+	beforeEach(() => {
+		home = mkdtempSync(join(tmpdir(), "claude-seed-"));
+		client.calls = [];
+	});
+
+	test("the paths are in the student's home", () => {
+		expect(CLAUDE_USER_SETTINGS_PATH).toBe("/home/student/.claude/settings.json");
+		expect(CLAUDE_SEED_MARKER_PATH.startsWith("/home/student/.claude/")).toBe(true);
+	});
+
+	test("a missing file is created, the student's alone, with the marker", async () => {
+		expect(await seedClaudeUserSettings(client, "ws-a")).toBe(true);
+		expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({
+			model: "opus",
+			effortLevel: "medium",
+		});
+		expect(statSync(settingsPath()).mode & 0o777).toBe(0o600);
+		expect(readFileSync(markerPath(), "utf8")).toBe("1\n");
+		expect(client.calls.every((c) => c.user === 1000)).toBe(true);
+	});
+
+	test("a file with other keys keeps them and its mode", async () => {
+		mkdirSync(join(home, ".claude"));
+		writeFileSync(settingsPath(), '{"theme":"dark"}', { mode: 0o644 });
+		expect(await seedClaudeUserSettings(client, "ws-a")).toBe(true);
+		expect(JSON.parse(readFileSync(settingsPath(), "utf8"))).toEqual({
+			theme: "dark",
+			model: "opus",
+			effortLevel: "medium",
+		});
+		expect(statSync(settingsPath()).mode & 0o777).toBe(0o644);
+		expect(existsSync(`${settingsPath()}.portikus-tmp`)).toBe(false);
+	});
+
+	test("the student's own model and effort leave the file byte for byte", async () => {
+		mkdirSync(join(home, ".claude"));
+		const own = '{ "model": "sonnet", "effortLevel": "low" }\n';
+		writeFileSync(settingsPath(), own);
+		expect(await seedClaudeUserSettings(client, "ws-a")).toBe(true);
+		expect(readFileSync(settingsPath(), "utf8")).toBe(own);
+		expect(existsSync(markerPath())).toBe(true);
+	});
+
+	test("once seeded, a deleted key stays deleted", async () => {
+		await seedClaudeUserSettings(client, "ws-a");
+		writeFileSync(settingsPath(), '{"theme":"dark"}');
+		expect(await seedClaudeUserSettings(client, "ws-a")).toBe(false);
+		expect(readFileSync(settingsPath(), "utf8")).toBe('{"theme":"dark"}');
+	});
+
+	test("an unparseable file is left untouched and no marker is written", async () => {
+		mkdirSync(join(home, ".claude"));
+		writeFileSync(settingsPath(), "{ broken");
+		expect(await seedClaudeUserSettings(client, "ws-a")).toBe(false);
+		expect(readFileSync(settingsPath(), "utf8")).toBe("{ broken");
+		expect(existsSync(markerPath())).toBe(false);
+	});
+
+	test("a folder where the file belongs is left alone", async () => {
+		mkdirSync(settingsPath(), { recursive: true });
+		expect(await seedClaudeUserSettings(client, "ws-a")).toBe(false);
+		expect(existsSync(markerPath())).toBe(false);
+	});
+
+	test("a file over the size limit is left alone", async () => {
+		const big = {
+			exec: async () => ({ status: 0, stdout: Buffer.from(""), tooLarge: true }),
+		};
+		expect(await seedClaudeUserSettings(big, "ws-a")).toBe(false);
+	});
+
+	test("a failed write is an error", async () => {
+		let n = 0;
+		const failing = {
+			exec: async () => ({
+				status: n++ === 0 ? 3 : 1,
+				stdout: Buffer.from(""),
+				tooLarge: false,
+			}),
+		};
+		await expect(seedClaudeUserSettings(failing, "ws-a")).rejects.toThrow(
+			/exited with 1/,
+		);
+	});
+});
+
+describe("yieldExploreToStudent", () => {
+	/** Files as the start leaves them, with an exec that answers the student's check. */
+	function client(status: number | null) {
+		const fake = Object.assign(files, {
+			checks: [] as { command: string[]; user?: number }[],
+			async exec(_name: string, command: string[], opts: { user?: number }) {
+				fake.checks.push({ command, user: opts.user });
+				return { status, stdout: Buffer.from(""), tooLarge: false };
+			},
+		});
+		return fake;
+	}
+
+	beforeEach(async () => {
+		await writeAgentInstructions(files, "ws-a", templatePath);
+	});
+
+	test("the student's own Explore removes the platform's copy", async () => {
+		const c = client(0);
+		expect(await yieldExploreToStudent(c, "ws-a")).toBe(true);
+		expect(files.files.has(CLAUDE_EXPLORE_AGENT_PATH)).toBe(false);
+		expect(c.checks).toEqual([
+			{
+				command: ["timeout", "10", "test", "-e", CLAUDE_STUDENT_EXPLORE_PATH],
+				user: 1000,
+			},
+		]);
+	});
+
+	test("with the student's own Explore and no copy left, nothing fails", async () => {
+		files.files.delete(CLAUDE_EXPLORE_AGENT_PATH);
+		expect(await yieldExploreToStudent(client(0), "ws-a")).toBe(true);
+	});
+
+	test("without the student's own Explore, the platform's copy stays", async () => {
+		expect(await yieldExploreToStudent(client(1), "ws-a")).toBe(false);
+		expect(files.files.get(CLAUDE_EXPLORE_AGENT_PATH)?.content).toBe(
+			CLAUDE_EXPLORE_AGENT,
+		);
+	});
+
+	test("a failed or timed-out check keeps the platform's copy", async () => {
+		for (const status of [124, null]) {
+			expect(await yieldExploreToStudent(client(status), "ws-a")).toBe(false);
+			expect(files.files.has(CLAUDE_EXPLORE_AGENT_PATH)).toBe(true);
+		}
+	});
+
+	test("a delete that fails for another reason is an error", async () => {
+		const c = client(0);
+		c.deleteFile = async () => {
+			throw new Error("boom");
+		};
+		await expect(yieldExploreToStudent(c, "ws-a")).rejects.toThrow(/boom/);
 	});
 });

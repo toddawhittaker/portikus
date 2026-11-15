@@ -52,10 +52,7 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					While Claude works you can still send a message. Claude reads it at its next
 					step without stopping, and the message is marked "Sent while Claude was
-					working". Some models treat a message sent this way with caution, because they
-					can read it as part of a tool's output. If Claude does not act on it, stop
-					Claude, then send it again; that always works. Esc in the message box stops
-					Claude.
+					working". Esc in the message box stops Claude.
 				</li>
 				<li>
 					Up and Down in the message box go back and forward through the messages you

@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	chatTabIn,
+	confirmModelChange,
 	inBothThemes,
 	openChat,
 	openChatOptions,
@@ -125,6 +126,7 @@ test.describe("Codex pickers", () => {
 		await menu(page, "Model")
 			.getByRole("menuitemradio", { name: /GPT-5\.4 mini/ })
 			.click();
+		await confirmModelChange(page);
 		await expect(picker(view, "composer-model")).toHaveText(/GPT-5\.4 mini/);
 		await picker(view, "composer-effort").click();
 		efforts = menu(page, "Effort").getByRole("menuitemradio");
