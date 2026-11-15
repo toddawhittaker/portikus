@@ -84,6 +84,34 @@ const ACCESS_AUDIENCES: Record<AccessClass, readonly Audience[]> = {
 	"api-key": [],
 };
 
+/**
+ * Operations that loosen a SPEC.md section 24 control (egress, the hosts the
+ * platform may reach, trusted course systems, the usage guard and limits) or
+ * take away another person's access. A key needs destructive scope for them.
+ */
+const LOOSENS_OR_REMOVES_ACCESS = [
+	"egress.set_mode",
+	"egress.set_presets",
+	"egress.set_ports",
+	"egress.add_entry",
+	"egress.update_entry",
+	"egress.update_blocked_site",
+	"egress.remove_blocked_site",
+	"proxy_hosts.set",
+	"lms.set",
+	"settings.update",
+	"users.disable",
+	"users.enable",
+	"users.revoke_admin",
+	"users.revoke_instructor",
+	"courses.remove_member",
+	"workspaces.archive",
+	"workspaces.lift_throttle",
+	"workspaces.set_guard",
+	"workspaces.set_limits",
+	"workspaces.set_quota",
+];
+
 describe("route coverage", () => {
 	test("the policy table has routes to cover", () => {
 		expect(policyKeys.length).toBeGreaterThan(200);
@@ -184,6 +212,13 @@ describe("operations", () => {
 			expect(Object.keys(json.properties ?? {}).sort(), key).toEqual(wanted);
 		}
 	});
+
+	test.each(LOOSENS_OR_REMOVES_ACCESS)(
+		"%s loosens a section 24 control or removes someone's access, so it is destructive",
+		(name) => {
+			expect(operationByName(name)?.operation.risk).toBe("destructive");
+		},
+	);
 
 	test("lookups find a record by key, by HEAD twin and by name", () => {
 		for (const [key, op] of records) {

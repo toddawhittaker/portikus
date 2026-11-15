@@ -34,11 +34,12 @@ async function auditAndNotify(
 	action: KeyAction,
 	actorId: string,
 	metadata: Record<string, unknown>,
+	actor = `user:${actorId}`,
 ): Promise<void> {
 	const byOwner = new Map<string, ChangedKey[]>();
 	for (const key of changed) {
 		await recordAudit(trx, {
-			actor: `user:${actorId}`,
+			actor,
 			target: key.userId,
 			action: action === "expired" ? "api_key.expired" : "api_key.revoked",
 			result: "ok",
@@ -71,6 +72,22 @@ export async function revokeKeys(
 ): Promise<ChangedKey[]> {
 	const changed = await revokeApiKeys(trx, target, actorId);
 	await auditAndNotify(trx, changed, "revoked", actorId, metadata);
+	return changed;
+}
+
+/**
+ * Revoke a person's keys because the identity provider or the course system
+ * left them a student at sign-in: no person made the change, so the audit
+ * actor is `identity-provider`, as on the role change itself (SPEC.md
+ * section 24.11), and no one else is notified.
+ */
+export async function revokeKeysAtSignIn(
+	trx: Kysely<Database>,
+	userId: string,
+	metadata: Record<string, unknown>,
+): Promise<ChangedKey[]> {
+	const changed = await revokeApiKeys(trx, { userId }, userId);
+	await auditAndNotify(trx, changed, "revoked", userId, metadata, "identity-provider");
 	return changed;
 }
 

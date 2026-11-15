@@ -21,10 +21,10 @@ const KEY_REQUIRED: ApiError = {
  */
 export function registerMcpRoutes(
 	app: FastifyInstance,
-	deps: Pick<ServerDeps, "config">,
+	deps: Pick<ServerDeps, "config" | "db">,
 ): void {
 	const origin = new URL(deps.config.PUBLIC_URL).origin;
-	const handler = createMcpHandler(mcpServerFactory(app), {
+	const handler = createMcpHandler(mcpServerFactory(app, deps.db), {
 		onerror: (error) => app.log.warn({ err: error }, "mcp request failed"),
 	});
 	app.addHook("onClose", () => handler.close());
@@ -44,6 +44,7 @@ export function registerMcpRoutes(
 			origin,
 			authInfo: toAuthInfo({
 				apiKey: secret,
+				userId: user.id,
 				keyId: key.id,
 				scope: key.scope,
 				role: user.role,

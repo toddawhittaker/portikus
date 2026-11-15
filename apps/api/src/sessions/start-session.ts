@@ -12,6 +12,7 @@ import {
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
+import { revokeKeysAtSignIn } from "../api-keys/actions.js";
 import { claimInvitation } from "./invitations.js";
 
 /**
@@ -105,22 +106,37 @@ export async function completeSignIn(
 		});
 		return { ok: false, reason: "not_invited" };
 	}
-	const user = await upsertUser(db, identity, role);
-	// `role` is what the provider gave; the audit follows the effective role.
-	if (user.previousRole !== null && user.previousRole !== user.role) {
-		// Roles come from identity-provider groups or LTI roles (SPEC.md §24.11).
-		await recordAudit(db, {
-			actor: "identity-provider",
-			target: user.id,
-			action: "user.role_changed",
-			result: "ok",
-			metadata: {
-				from: user.previousRole,
-				to: user.role,
+	const user = await db.transaction().execute(async (trx) => {
+		const upserted = await upsertUser(trx, identity, role);
+		const { previousRole } = upserted;
+		// `role` is what the provider gave; the audit follows the effective role.
+		if (previousRole !== null && previousRole !== upserted.role) {
+			// Roles come from identity-provider groups or LTI roles (SPEC.md §24.11).
+			await recordAudit(trx, {
+				actor: "identity-provider",
+				target: upserted.id,
+				action: "user.role_changed",
+				result: "ok",
+				metadata: {
+					from: previousRole,
+					to: upserted.role,
+					...input.roleChangeMetadata,
+				},
+			});
+		}
+		// A key is staff-only, as when an administrator demotes someone (SPEC.md §24.13).
+		if (
+			previousRole !== null &&
+			previousRole !== "student" &&
+			upserted.role === "student"
+		) {
+			await revokeKeysAtSignIn(trx, upserted.id, {
+				reason: "role_removed",
 				...input.roleChangeMetadata,
-			},
-		});
-	}
+			});
+		}
+		return upserted;
+	});
 	if (user.disabledAt) {
 		await recordAudit(db, {
 			actor: `user:${user.id}`,

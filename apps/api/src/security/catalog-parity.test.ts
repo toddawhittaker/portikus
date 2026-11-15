@@ -565,15 +565,26 @@ describe.skipIf(skip)(
 			TIMEOUT * 2,
 		);
 
+		// These answer before sign-in, so a key gains nothing there: it is told
+		// exactly what an anonymous caller is told (SPEC.md section 24.8).
 		for (const key of ANSWERED_BEFORE_SIGN_IN) {
-			test.fails(
-				`${key} answers a key before the gate can refuse it`,
+			test(
+				`${key} gives a key exactly the anonymous answer`,
 				() =>
 					withWorld(async (app, world) => {
 						const secret = await keyOf(ADMIN, "destructive");
-						expect(await keyAnswerOutside(app, world, key, secret)).toEqual(
-							REFUSED_TO_KEYS,
-						);
+						const { method } = splitKey(key);
+						const url = `${fillPath(key, pathValues(key, world, world.own))}?domain=example.org`;
+						for (const remoteAddress of ["127.0.0.1", "203.0.113.9"]) {
+							const ask = (headers: Record<string, string>) =>
+								app.inject({ method: method as "GET", url, remoteAddress, headers });
+							const anonymous = await ask({});
+							const keyed = await ask({ authorization: `Bearer ${secret}` });
+							expect(
+								{ status: keyed.statusCode, body: keyed.body },
+								`${key} from ${remoteAddress}`,
+							).toEqual({ status: anonymous.statusCode, body: anonymous.body });
+						}
 					}),
 				TIMEOUT,
 			);

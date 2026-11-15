@@ -31,21 +31,44 @@ function refused(code: ApiError["code"], message: string): RunResult {
 	return { ok: false, error: { code, message } };
 }
 
-/** The route's own pattern with each parameter filled in and encoded, or the name of a missing one. */
+const PARAM = /:([A-Za-z0-9_]+)/g;
+
+/**
+ * A value that could step out of its segment once a client or proxy decodes
+ * the URL, so it is refused rather than encoded (SPEC.md section 24.1).
+ */
+function leavesSegment(value: string): boolean {
+	return value === "." || value === ".." || value.includes("/");
+}
+
+/**
+ * The route's own pattern with each parameter filled in and encoded, or why
+ * it cannot be. The catalog test pins each operation's params schema to
+ * exactly these pattern names, so a name outside them is not the operation's.
+ */
 function fillPath(
 	pattern: string,
 	values: Record<string, unknown>,
-): { url: string } | { missing: string } {
-	let missing: string | undefined;
-	const url = pattern.replace(/:([A-Za-z0-9_]+)/g, (_match, name: string) => {
+): { url: string } | { refusal: string } {
+	const names = new Set([...pattern.matchAll(PARAM)].map((match) => match[1]));
+	const extra = Object.keys(values).find((name) => !names.has(name));
+	if (extra !== undefined) {
+		return { refusal: `This operation takes no path value named "${extra}".` };
+	}
+	let refusal: string | undefined;
+	const url = pattern.replace(PARAM, (_match, name: string) => {
 		const value = values[name];
 		if (!isQueryValue(value) || String(value) === "") {
-			missing ??= name;
+			refusal ??= `The path value "${name}" is missing.`;
+			return "";
+		}
+		if (leavesSegment(String(value))) {
+			refusal ??= `The path value "${name}" cannot be ".", ".." or contain "/".`;
 			return "";
 		}
 		return encodeURIComponent(String(value));
 	});
-	return missing === undefined ? { url } : { missing };
+	return refusal === undefined ? { url } : { refusal };
 }
 
 function queryString(values: Record<string, unknown>): string | null {
@@ -77,13 +100,14 @@ export async function runOperation(
 ): Promise<RunResult> {
 	const found = operationByName(operationName);
 	if (!found) {
-		return refused("NOT_FOUND", `There is no operation named ${operationName}.`);
+		return refused(
+			"NOT_AVAILABLE_TO_API_KEYS",
+			`There is no operation named ${operationName} that an API key may run.`,
+		);
 	}
 	const { method, url: pattern } = splitKey(found.key);
 	const path = fillPath(pattern, input.path ?? {});
-	if ("missing" in path) {
-		return refused("VALIDATION_FAILED", `The path value "${path.missing}" is missing.`);
-	}
+	if ("refusal" in path) return refused("VALIDATION_FAILED", path.refusal);
 	const query = queryString(input.query ?? {});
 	if (query === null) {
 		return refused(

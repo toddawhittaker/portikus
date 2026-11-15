@@ -65,7 +65,7 @@ export const operations: OperationRecords = {
 		name: "egress.set_mode",
 		description:
 			"Switches workspace internet access between open and allow-list only, and returns the updated egress settings.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { body: EgressModeRequest },
@@ -75,7 +75,7 @@ export const operations: OperationRecords = {
 		name: "egress.set_presets",
 		description:
 			"Chooses which ready-made groups of sites (such as package registries) workspaces may reach, and returns the updated egress settings.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { body: EgressPresetsRequest },
@@ -85,7 +85,7 @@ export const operations: OperationRecords = {
 		name: "egress.set_ports",
 		description:
 			"Sets the network ports workspaces may use to reach allowed sites, and returns the updated egress settings.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { body: EgressPortsRequest },
@@ -95,7 +95,7 @@ export const operations: OperationRecords = {
 		name: "egress.add_entry",
 		description:
 			"Allows workspaces to reach one more host name or address range, and returns the updated egress settings.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: true,
 		input: { body: EgressEntryRequest },
@@ -105,7 +105,7 @@ export const operations: OperationRecords = {
 		name: "egress.update_entry",
 		description:
 			"Changes one allowed host name or address range, and returns the updated egress settings.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam, body: EgressEntryRequest },
@@ -135,7 +135,7 @@ export const operations: OperationRecords = {
 		name: "egress.update_blocked_site",
 		description:
 			"Changes one blocked site or its label, and returns the updated egress settings.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam, body: EgressBlockedSiteRequest },
@@ -144,7 +144,7 @@ export const operations: OperationRecords = {
 	"DELETE /admin/egress/blocked-sites/:id": {
 		name: "egress.remove_blocked_site",
 		description: "Unblocks one site, and returns the updated egress settings.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { params: UuidParam, query: EgressDeleteQuery },
@@ -164,7 +164,7 @@ export const operations: OperationRecords = {
 		name: "proxy_hosts.set",
 		description:
 			"Replaces the list of extra host names added here that the platform may reach, and starts the job that applies it.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { body: ProxyHostsUpdate },
@@ -183,7 +183,7 @@ export const operations: OperationRecords = {
 		name: "lms.set",
 		description:
 			"Replaces the list of learning management systems added here, and starts the job that applies it.",
-		risk: "change",
+		risk: "destructive",
 		audience: "administrator",
 		tool: false,
 		input: { body: LtiPlatformsUpdate },
