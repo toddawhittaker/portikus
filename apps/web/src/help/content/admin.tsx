@@ -627,9 +627,11 @@ export const ADMIN_HELP: HelpPart = {
 						many keys it will change.
 					</p>
 					<p>
-						When someone leaves, disable their account in Portikus from the{" "}
-						<strong>Users</strong> tab. Revoking their keys here is a good extra step,
-						but it does not replace disabling the account.
+						When someone leaves, disable their account from the <strong>Users</strong>{" "}
+						tab. That revokes all of their keys at once, and a key whose owner is
+						disabled is refused if it is used. Resetting a person's password or two-step
+						sign-in revokes their keys too. Revoke a key here yourself when only that
+						key is the problem.
 					</p>
 				</>
 			),
