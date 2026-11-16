@@ -22,7 +22,8 @@
 	.pk-assistant {
 		position: absolute;
 		inset: 0;
-		z-index: 2;
+		/* Over the page's sticky table headers, under dialogs and menus. */
+		z-index: calc(var(--z-sticky) + 1);
 		inline-size: auto;
 		border-inline-start: 0;
 	}

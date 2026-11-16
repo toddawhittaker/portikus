@@ -212,8 +212,6 @@ test("a turn runs end to end over the socket: ask, a read tool, a change card, a
 		});
 	});
 	await within(panel).findByTestId("assistant-conv-empty");
-	// The announcer is quiet until the replayed history settles.
-	await act(() => new Promise((done) => setTimeout(done, 400)));
 	expect(within(panel).getByTestId("assistant-note").textContent).toMatch(
 		/kept 30 days and only you can see them/,
 	);

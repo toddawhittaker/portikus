@@ -93,6 +93,7 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 	const conversations = useConversations(assistant.isOpen && enabled);
 	const create = useCreateConversation();
 	const [chosen, setChosen] = useState<ConversationSummary | null>(null);
+	const [started, setStarted] = useState<string | null>(null);
 	const [startError, setStartError] = useState<unknown>(null);
 	// The row to focus when the list comes back: a conversation's id, or null for the list's heading.
 	const [returnTo, setReturnTo] = useState<string | null | undefined>(undefined);
@@ -116,7 +117,10 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 				...(body.courseId ? { courseId: body.courseId } : {}),
 			},
 			{
-				onSuccess: (summary) => setChosen(summary),
+				onSuccess: (summary) => {
+					setStarted(summary.id);
+					setChosen(summary);
+				},
 				onError: (error) => setStartError(error),
 			},
 		);
@@ -203,9 +207,11 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 				<ConversationView
 					key={active.id}
 					summary={active}
+					fresh={active.id === started}
 					onNotice={setNotice}
 					onBack={() => {
 						setReturnTo(active.id);
+						setStarted(null);
 						setChosen(null);
 					}}
 				/>
@@ -464,18 +470,22 @@ function assistantAnnouncement(state: ChatState): string {
 }
 
 /**
- * What the live region says. It stays quiet through the snapshot and the
- * history replayed after it, so opening an old conversation does not report
- * its last turn as news; only what changes once the replay settles is said.
+ * What the live region says. Opening an old conversation replays its history
+ * after the snapshot; the region stays quiet until that settles, so the last
+ * turn is not reported as news. A conversation started here has no history,
+ * so everything in it is said, until a reconnect replays it.
  */
-function useAnnouncement(store: ReturnType<typeof useAssistantConversation>["store"]) {
+function useAnnouncement(
+	store: ReturnType<typeof useAssistantConversation>["store"],
+	fresh: boolean,
+) {
 	const [text, setText] = useState("");
 	useEffect(() => {
-		let heard: string | null = null;
+		let heard: string | null = fresh ? "" : null;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const unsubscribe = store.subscribe((state, previous) => {
 			if (!state.loaded) return;
-			if (state.snapshotAt !== previous.snapshotAt) heard = null;
+			if (previous.loaded && state.snapshotAt !== previous.snapshotAt) heard = null;
 			if (heard === null) {
 				clearTimeout(timer);
 				timer = setTimeout(() => {
@@ -492,7 +502,7 @@ function useAnnouncement(store: ReturnType<typeof useAssistantConversation>["sto
 			unsubscribe();
 			clearTimeout(timer);
 		};
-	}, [store]);
+	}, [store, fresh]);
 	return text;
 }
 
@@ -531,8 +541,11 @@ function ConversationView({
 	summary,
 	onBack,
 	onNotice,
+	fresh,
 }: {
 	summary: ConversationSummary;
+	/** Started in this panel just now, so it has no history to replay. */
+	fresh: boolean;
 	onBack: () => void;
 	/** The connection's state in words, for the panel's status region. */
 	onNotice: (text: string) => void;
@@ -548,7 +561,7 @@ function ConversationView({
 	const scroll = useRef<HTMLDivElement>(null);
 	const section = useRef<HTMLElement>(null);
 	const lastCard = useRef<string | undefined>(undefined);
-	const announcement = useAnnouncement(store);
+	const announcement = useAnnouncement(store, fresh);
 
 	// Opening a conversation, or starting one, puts the keyboard where the next message goes.
 	useEffect(() => {

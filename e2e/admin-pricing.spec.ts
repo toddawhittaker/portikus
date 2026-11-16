@@ -143,11 +143,23 @@ test("a check proposes rows from the source pages; one is accepted and one rejec
 
 	await openai.getByTestId("proposal-accept").click();
 	await expect(openai).toHaveCount(0);
+	// The next proposal takes the keyboard, by its heading.
+	await expect(anthropic.getByRole("heading", { level: 4 })).toBeFocused();
+	await expect(
+		anthropic.getByRole("button", {
+			name: `Reject ${FAKE_PRICE_ROWS.anthropic.model}`,
+			exact: true,
+		}),
+	).toBeVisible();
 	await expect(
 		page.getByTestId(`price-row-${FAKE_PRICE_ROWS.openai.model}`),
 	).toContainText("$2.00");
 	await anthropic.getByTestId("proposal-reject").click();
 	await expect(page.getByTestId("pricing-proposals")).toHaveCount(0);
+	// After the last proposal, the Prices group takes the keyboard.
+	await expect(
+		page.getByRole("heading", { level: 3, name: "Prices", exact: true }),
+	).toBeFocused();
 	await expect(
 		page.getByTestId(`price-row-${FAKE_PRICE_ROWS.anthropic.model}`),
 	).toHaveCount(0);
@@ -200,8 +212,14 @@ test("rows are added, edited and deleted by hand", async ({ page }) => {
 	await dialog.getByTestId("price-row-save").click();
 	await expect(row).toContainText("$4.50");
 
-	await row.getByRole("button", { name: "Delete e2e-model-9" }).click();
+	const trash = row.getByRole("button", { name: "Delete e2e-model-9" });
+	await trash.click();
 	const confirm = page.getByTestId("price-row-delete-dialog");
+	// Cancelling returns to the row's trash button.
+	await confirm.getByRole("button", { name: "Cancel" }).click();
+	await expect(confirm).toHaveCount(0);
+	await expect(trash).toBeFocused();
+	await trash.click();
 	await confirm.getByRole("button", { name: "Delete row" }).click();
 	await expect(row).toHaveCount(0);
 	await expect(page.getByText("No prices yet")).toBeVisible();
@@ -211,6 +229,13 @@ test("the sources list the saved pages", async ({ page }) => {
 	await openPricing(page);
 	const list = page.getByTestId("pricing-source-list");
 	for (const source of SOURCES) await expect(list).toContainText(source);
+	// Remove goes with its row; the next Remove takes the keyboard. Nothing is saved.
+	const removes = list.getByRole("button");
+	const second = await removes.nth(1).getAttribute("aria-label");
+	await removes.first().click();
+	await expect(
+		list.getByRole("button", { name: second ?? "", exact: true }),
+	).toBeFocused();
 	await page.screenshot({ path: `${SHOTS}/sources-dark.png`, fullPage: true });
 	await expectNoViolations(page, "main");
 	await page.emulateMedia({ colorScheme: "light" });
