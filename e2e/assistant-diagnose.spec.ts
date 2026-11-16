@@ -161,7 +161,9 @@ test("Diagnose on an alert in the notifications list reads the notifications and
 	const panel = panelOf(page);
 	await expect(panel).toBeVisible();
 	// Focus lands in the panel, not back on the account button the dialog came from.
-	await expect(panel.getByRole("heading", { name: "Assistant", level: 2 })).toBeFocused();
+	await expect(
+		panel.getByRole("heading", { name: "Assistant", level: 2 }),
+	).toBeFocused();
 	await expect(toolBlocks(page)).toHaveCount(3, { timeout: 15_000 });
 	await expect(
 		panel.getByText("Likely cause: the backup target was full."),
