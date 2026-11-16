@@ -796,6 +796,7 @@ describe.skipIf(skip)("the loop", () => {
 			const conv = await newConversation(app, carol);
 			const client = fake([
 				toolCall("call-f1", "users_disable", { path: { id: alice.id } }),
+				reply("Left alone."),
 			]);
 			const socket = await connect(app, carol, conv.id);
 			const other = await connect(app, carol, conv.id);
@@ -806,14 +807,14 @@ describe.skipIf(skip)("the loop", () => {
 			expect(refused).toMatchObject({
 				message: expect.stringMatching(/approval card/),
 			});
-			// A later event reaches the other tab, so it had its chance at the refusal.
+			// The turn the answer starts reaches the other tab, so it had its chance at the refusal.
 			socket.send({ type: "permission.answer", id: "call-f1", optionId: "deny" });
-			await other.waitFor((f) => f.type === "card.resolved");
+			await turnsFinished(other, 2);
 			expect(other.frames.some((f) => f.type === "error")).toBe(false);
 			expect(await storedTypes(conv.id)).not.toContain("error");
 			const again = await connect(app, carol, conv.id);
 			expect(again.frames.some((f) => f.type === "error")).toBe(false);
-			expect(client.requests).toHaveLength(1);
+			expect(client.requests).toHaveLength(2);
 			for (const one of [socket, other, again]) one.socket.close();
 		}));
 
