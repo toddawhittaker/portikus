@@ -1,4 +1,5 @@
 import type {
+	AdminModelPrice,
 	ModelPrice,
 	PriceProposal,
 	PriceRowInput,
@@ -69,9 +70,7 @@ export function sameFigures(a: PriceRowInput, b: PriceRowInput): boolean {
 	);
 }
 
-export type PriceRowRecord = ModelPrice & { id: string };
-
-function modelPrice(row: Selectable<Database["model_prices"]>): PriceRowRecord {
+function modelPrice(row: Selectable<Database["model_prices"]>): AdminModelPrice {
 	return {
 		id: row.id,
 		...rowFigures(row),
@@ -80,7 +79,7 @@ function modelPrice(row: Selectable<Database["model_prices"]>): PriceRowRecord {
 	};
 }
 
-export async function listPrices(db: Kysely<Database>): Promise<PriceRowRecord[]> {
+export async function listPrices(db: Kysely<Database>): Promise<AdminModelPrice[]> {
 	const rows = await db
 		.selectFrom("model_prices")
 		.selectAll()
@@ -148,6 +147,6 @@ export async function pendingProposals(db: Kysely<Database>): Promise<PricePropo
 	});
 }
 
-export function withoutId({ id: _id, ...price }: PriceRowRecord): ModelPrice {
+export function withoutId({ id: _id, ...price }: AdminModelPrice): ModelPrice {
 	return price;
 }

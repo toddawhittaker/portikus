@@ -10,7 +10,12 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { AI_NOTICE_VERSION, PriceRun, PricingTable } from "@portikus/contracts";
+import {
+	AdminModelPrice,
+	AI_NOTICE_VERSION,
+	PriceRun,
+	PricingTable,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
@@ -284,7 +289,9 @@ describe.skipIf(skip)("manual edits", () => {
 			expect(added.statusCode).toBe(201);
 			const dup = await admin("POST", "/admin/pricing/rows", ROW);
 			expect(dup.statusCode).toBe(409);
-			const { prices } = added.json() as { prices: { id: string }[] };
+			const prices = AdminModelPrice.array().parse(
+				(added.json() as { prices: unknown }).prices,
+			);
 			const id = prices[0]?.id;
 
 			const edited = await admin("PUT", `/admin/pricing/rows/${id}`, {
