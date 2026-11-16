@@ -162,6 +162,8 @@ test("a reload keeps the estimate, from the counts the host keeps", async ({
 	await expect(view.getByTestId("composer-context")).toContainText("70.0k");
 	const sight = view.getByTestId("composer-restart").locator(".pk-ctx-sight");
 	await expect(sight).toHaveText(/^About \d+ more messages? before/);
+	// The site's price table may change the estimate once it arrives, so read after it has.
+	await page.waitForLoadState("networkidle");
 	const before = await sight.textContent();
 
 	await page.reload();
@@ -169,6 +171,7 @@ test("a reload keeps the estimate, from the counts the host keeps", async ({
 	await expect(again.getByTestId("composer-context")).toContainText("70.0k", {
 		timeout: 15_000,
 	});
+	await page.waitForLoadState("networkidle");
 	await expect(
 		again.getByTestId("composer-restart").locator(".pk-ctx-sight"),
 	).toHaveText(before ?? "");
