@@ -5,6 +5,7 @@ import type {
 	WorkspaceState,
 } from "@portikus/contracts";
 import type { ColumnType, Generated } from "kysely";
+import type * as ai from "./schema-ai.js";
 import type {
 	AccountLinkIntentsTable,
 	AccountLinksTable,
@@ -72,6 +73,14 @@ export interface Database {
 	account_email_tokens: AccountEmailTokensTable;
 	check_runs: CheckRunsTable;
 	api_keys: ApiKeysTable;
+	ai_settings: ai.AiSettingsTable;
+	assistant_conversations: ai.AssistantConversationsTable;
+	assistant_events: ai.AssistantEventsTable;
+	assistant_approvals: ai.AssistantApprovalsTable;
+	ai_usage_days: ai.AiUsageDaysTable;
+	model_prices: ai.ModelPricesTable;
+	price_runs: ai.PriceRunsTable;
+	price_proposals: ai.PriceProposalsTable;
 }
 
 interface UsersTable {
@@ -407,7 +416,11 @@ interface AuditEventsTable {
 	result: string;
 	metadata: ColumnType<Record<string, unknown> | null, string | null, string | null>;
 	/** How the request arrived; null for older rows and the worker's. */
-	via: ColumnType<"session" | "api_key" | null, string | null | undefined, never>;
+	via: ColumnType<
+		"session" | "api_key" | "assistant" | null,
+		string | null | undefined,
+		never
+	>;
 	/** The key behind a `via` of `api_key`; no foreign key, so the row outlives the key. */
 	api_key_id: ColumnType<string | null, string | null | undefined, never>;
 }
