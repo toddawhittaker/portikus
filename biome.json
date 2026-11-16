@@ -34,6 +34,19 @@
 			},
 			"suspicious": {
 				"noImportCycles": "error"
+			},
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"patterns": [
+							{
+								"group": ["ai", "ai/**", "@ai-sdk/*", "@ai-sdk/**"],
+								"message": "Only apps/api/src/ai/model.ts imports the AI SDK; everything else uses its interface."
+							}
+						]
+					}
+				}
 			}
 		}
 	},
@@ -78,6 +91,10 @@
 											"@portikus/workspace-controller/**"
 										],
 										"message": "Apps and packages never import an app's source; apps talk through packages/contracts and the network."
+									},
+									{
+										"group": ["ai", "ai/**", "@ai-sdk/*", "@ai-sdk/**"],
+										"message": "Only apps/api/src/ai/model.ts imports the AI SDK; everything else uses its interface."
 									}
 								]
 							}
@@ -122,6 +139,10 @@
 											"@portikus/config/**"
 										],
 										"message": "The browser bundle must not pull in database, server auth, server config or Node logging code."
+									},
+									{
+										"group": ["ai", "ai/**", "@ai-sdk/*", "@ai-sdk/**"],
+										"message": "Only apps/api/src/ai/model.ts imports the AI SDK; everything else uses its interface."
 									}
 								]
 							}
@@ -172,6 +193,10 @@
 											"**/testing.js"
 										],
 										"message": "Test helpers are imported only from tests."
+									},
+									{
+										"group": ["ai", "ai/**", "@ai-sdk/*", "@ai-sdk/**"],
+										"message": "Only apps/api/src/ai/model.ts imports the AI SDK; everything else uses its interface."
 									}
 								]
 							}
@@ -225,6 +250,50 @@
 											"@portikus/config/**"
 										],
 										"message": "The browser bundle must not pull in database, server auth, server config or Node logging code."
+									},
+									{
+										"group": [
+											"@portikus/*/testing",
+											"**/testing",
+											"**/testing/**",
+											"**/testing.js"
+										],
+										"message": "Test helpers are imported only from tests."
+									},
+									{
+										"group": ["ai", "ai/**", "@ai-sdk/*", "@ai-sdk/**"],
+										"message": "Only apps/api/src/ai/model.ts imports the AI SDK; everything else uses its interface."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["apps/api/src/ai/model.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@portikus/api",
+											"@portikus/api/**",
+											"@portikus/web",
+											"@portikus/web/**",
+											"@portikus/worker",
+											"@portikus/worker/**",
+											"@portikus/workspace-agent",
+											"@portikus/workspace-agent/**",
+											"@portikus/workspace-controller",
+											"@portikus/workspace-controller/**"
+										],
+										"message": "Apps and packages never import an app's source; apps talk through packages/contracts and the network."
 									},
 									{
 										"group": [

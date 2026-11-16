@@ -10,6 +10,8 @@
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "4.0.105",
+		"@ai-sdk/openai-compatible": "3.0.92",
 		"@fastify/websocket": "11.3.4",
 		"@modelcontextprotocol/server": "2.4.0",
 		"@portikus/agent-client": "workspace:*",
@@ -19,6 +21,7 @@
 		"@portikus/db": "workspace:*",
 		"@portikus/events": "workspace:*",
 		"@portikus/observability": "workspace:*",
+		"ai": "7.0.173",
 		"fastify": "5.12.7",
 		"kysely": "0.29.7",
 		"qrcode-generator": "2.0.4",
