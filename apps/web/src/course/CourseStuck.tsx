@@ -24,7 +24,8 @@ export function CourseStuck({ courseId }: { courseId: string }) {
 				the last 7 days, most likely stuck first.
 			</p>
 			{stuck.isError ? (
-				<p className="pk-error text-status-error m-0" role="alert">
+				// Not an alert: the page's own load failure is the one to announce.
+				<p className="pk-error text-status-error m-0" data-testid="course-stuck-error">
 					Portikus could not work out who is stuck. Reload the page to try again.
 				</p>
 			) : flagged === undefined ? null : flagged.length === 0 ? (

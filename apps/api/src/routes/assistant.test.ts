@@ -1120,7 +1120,7 @@ describe.skipIf(skip)("the loop", () => {
 			expect(names).toContain("courses_list");
 			expect(names.some((n) => n.startsWith("users_"))).toBe(false);
 			expect(client.requests[0]?.system).toBe(
-				systemPrompt({ role: "instructor", readOnly: false }),
+				systemPrompt({ role: "instructor", readOnly: false, courseId: course }),
 			);
 			expect(JSON.parse(outputOf(socket, "call-i1"))).toEqual(
 				(await call(app, ivy, "GET", "/courses")).json(),
