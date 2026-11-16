@@ -53,7 +53,7 @@ test("ask, see a reply and a read tool, approve a change, and keyboard focus mov
 		{ text: `Change handled ${tag}.` },
 	]);
 
-	const button = page.getByRole("button", { name: "Assistant" });
+	const button = page.getByRole("button", { name: "Assistant", exact: true });
 	const panel = await openPanel(page);
 	await expect(
 		panel.getByRole("heading", { name: "Assistant", level: 2 }),

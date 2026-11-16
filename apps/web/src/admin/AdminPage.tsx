@@ -23,6 +23,7 @@ import { HealthTab } from "./health/HealthTab.js";
 import { ImageTab } from "./image/ImageTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
+import { PricingTab } from "./pricing/PricingTab.js";
 import { RootShellTab } from "./root-shell/RootShellTab.js";
 import { useRootShellStatus } from "./root-shell/status.js";
 import { SettingsTab } from "./SettingsTab.js";
@@ -68,6 +69,8 @@ function tabContent(view: AdminTab | null, currentUserId: string) {
 			return <AddressTab />;
 		case "ai":
 			return <AiTab />;
+		case "pricing":
+			return <PricingTab />;
 		case "settings":
 			return <SettingsTab />;
 		default:

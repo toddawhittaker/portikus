@@ -20,6 +20,7 @@ const TAB_ICON: Record<AdminTab, IconName> = {
 	signin: "sign-in",
 	address: "map-pin",
 	ai: "agent",
+	pricing: "list",
 	settings: "settings",
 	shell: "terminal",
 };
