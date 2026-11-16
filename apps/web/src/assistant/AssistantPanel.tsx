@@ -20,9 +20,10 @@ import {
 	Skeleton,
 } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { errorText } from "../api/request.js";
+import { ChatSpeakerContext } from "../chat/chatAgent.js";
 import type { ChatState } from "../chat/chatStore.js";
 import { MessageList } from "../chat/MessageList.js";
 import { useMe } from "../useMe.js";
@@ -111,6 +112,8 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 		start({ context: pending.context, courseId: pending.courseId ?? courseId });
 	}, [pending, status.data]);
 
+	useEscapeCloses(panel, assistant.isOpen, assistant.close);
+
 	if (!assistant.isOpen) return null;
 
 	// The list's copy is fresher (the server names a conversation after its first message).
@@ -129,14 +132,6 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 			data-testid="assistant-panel"
 			data-density="compact"
 			data-controls="console"
-			onKeyDown={(event) => {
-				if (event.key !== "Escape" || event.defaultPrevented) return;
-				// A confirm opened from the panel sits in a portal and closes itself.
-				if (!(event.target instanceof Node) || !panel.current?.contains(event.target))
-					return;
-				event.preventDefault();
-				assistant.close();
-			}}
 		>
 			<header className="pk-assistant-head">
 				<h2
@@ -195,6 +190,46 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 			)}
 		</aside>
 	);
+}
+
+/**
+ * Escape closes the panel from anywhere in it, including after the
+ * focused control was removed (an answered card, a deleted row) and focus
+ * fell back to the page body. A confirm opened from the panel sits in a
+ * portal and closes itself.
+ */
+function useEscapeCloses(
+	panel: RefObject<HTMLElement | null>,
+	open: boolean,
+	close: () => void,
+) {
+	useEffect(() => {
+		if (!open) return;
+		let inside = true;
+		const within = (target: EventTarget | null) =>
+			target instanceof Node && panel.current?.contains(target) === true;
+		const onPointer = (event: PointerEvent) => {
+			inside = within(event.target);
+		};
+		const onFocus = (event: FocusEvent) => {
+			inside = within(event.target);
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" || event.defaultPrevented) return;
+			const lost = event.target === document.body && inside;
+			if (!within(event.target) && !lost) return;
+			event.preventDefault();
+			close();
+		};
+		document.addEventListener("pointerdown", onPointer, true);
+		document.addEventListener("focusin", onFocus);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("pointerdown", onPointer, true);
+			document.removeEventListener("focusin", onFocus);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [panel, open, close]);
 }
 
 function NotEnabled({ text, isAdmin }: { text: string; isAdmin: boolean }) {
@@ -371,6 +406,18 @@ function ConversationView({
 	const running = state.currentTurnId !== null;
 	const notice = CONNECTION_TEXT[state.connection];
 	const scroll = useRef<HTMLDivElement>(null);
+	const section = useRef<HTMLElement>(null);
+	const lastCard = useRef<string | undefined>(undefined);
+
+	// An answered card takes its buttons with it; keep the keyboard in the panel, at the message box.
+	useEffect(() => {
+		const was = lastCard.current;
+		lastCard.current = card?.id;
+		if (was === undefined || card !== undefined) return;
+		const active = document.activeElement;
+		if (active && active !== document.body && active.isConnected) return;
+		section.current?.querySelector("textarea")?.focus();
+	}, [card]);
 
 	// Keep the newest step in view as it streams in.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs as the log grows
@@ -381,6 +428,7 @@ function ConversationView({
 
 	return (
 		<section
+			ref={section}
 			className="pk-assistant-conversation"
 			aria-labelledby="pk-assistant-conv-title"
 		>
@@ -418,13 +466,15 @@ function ConversationView({
 								it changes anything.
 							</p>
 						) : (
-							<MessageList
-								items={state.items}
-								turns={state.turns}
-								currentTurnId={state.currentTurnId}
-								truncated={state.truncated}
-								asking={asking}
-							/>
+							<ChatSpeakerContext.Provider value="Assistant">
+								<MessageList
+									items={state.items}
+									turns={state.turns}
+									currentTurnId={state.currentTurnId}
+									truncated={state.truncated}
+									asking={asking}
+								/>
+							</ChatSpeakerContext.Provider>
 						)}
 					</div>
 				</div>

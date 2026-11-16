@@ -5,6 +5,8 @@
  */
 import {
 	AssistantClientMessage,
+	AssistantStatus,
+	type AssistantUnavailableReason,
 	ConversationList,
 	ConversationSummary,
 	type CreateConversationRequest,
@@ -66,16 +68,6 @@ export function useDeleteConversation() {
 	});
 }
 
-/**
- * Whether the assistant can be used, and why not. Any staff member may ask,
- * unlike the AI settings, which only an administrator reads.
- */
-export const AssistantStatus = z.object({
-	enabled: z.boolean(),
-	reason: z.enum(["off", "no-key", "notice", "monthly-cap"]).nullable(),
-});
-export type AssistantStatus = z.infer<typeof AssistantStatus>;
-
 export function useAssistantStatus(enabled: boolean) {
 	return useQuery({
 		queryKey: STATUS,
@@ -85,7 +77,7 @@ export function useAssistantStatus(enabled: boolean) {
 }
 
 /** The plain line for each reason the assistant cannot be used. */
-const NOT_ENABLED_TEXT: Record<NonNullable<AssistantStatus["reason"]>, string> = {
+const NOT_ENABLED_TEXT: Record<AssistantUnavailableReason, string> = {
 	off: "The assistant is turned off for this site.",
 	"no-key": "The assistant has no AI key yet, so it cannot answer.",
 	notice:

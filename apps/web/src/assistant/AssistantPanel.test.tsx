@@ -1,3 +1,4 @@
+import type { AssistantStatus } from "@portikus/contracts";
 import {
 	act,
 	cleanup,
@@ -9,7 +10,6 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { FakeWebSocket, json, renderApp, stubFetch, USER } from "../test-utils.js";
 import { useAssistant } from "./AssistantContext.js";
-import type { AssistantStatus } from "./useAssistant.js";
 
 const ADMIN = {
 	...USER,
@@ -306,6 +306,12 @@ test("a turn runs end to end over the socket: ask, a read tool, a change card, a
 		socket.push({ type: "turn.finished", seq: 10, status: "done", at: Date.now() });
 	});
 	expect(await within(panel).findByText("Carol is signed in.")).toBeTruthy();
+	// The reply is the assistant's, never a coding agent's.
+	const bylines = [...panel.querySelectorAll(".pk-chat-author")].map(
+		(one) => one.textContent,
+	);
+	expect(bylines.length).toBeGreaterThan(0);
+	expect(new Set(bylines)).toEqual(new Set(["Assistant"]));
 	expect(within(panel).getByTestId("approval-outcome").textContent).toBe("Approved");
 	expect(screen.getByTestId("assistant-announcer").textContent).toBe(
 		"The assistant replied.",
@@ -438,4 +444,70 @@ test("useAssistant().open with a context opens the panel and starts a conversati
 		]),
 	);
 	await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+});
+
+test("after a card is answered the keyboard stays in the panel, and Escape still closes it", async () => {
+	stubServer(
+		server({
+			conversations: [summary(CONVERSATION_ID, "Restart", "2026-11-14T10:00:00.000Z")],
+		}),
+	);
+	renderApp("/admin/users");
+	const { button, panel } = await openPanel();
+	fireEvent.click(await within(panel).findByRole("button", { name: /^Restart/ }));
+	await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+	const socket = lastSocket();
+	act(() => {
+		socket.open();
+		socket.push({
+			type: "snapshot",
+			seq: 0,
+			cards: [
+				{
+					type: "permission",
+					id: "c1",
+					toolName: "workspaces.restart",
+					title: "Restart a workspace",
+					input: {},
+					risk: "change",
+					options: [
+						{ id: "allow", label: "Allow", decision: "allowed" },
+						{ id: "deny", label: "Deny", decision: "denied" },
+					],
+				},
+			],
+			turnRunning: true,
+			truncated: false,
+		});
+	});
+	const approve = await within(panel).findByRole("button", { name: "Approve" });
+	expect(document.activeElement).toBe(approve);
+	fireEvent.click(approve);
+	act(() =>
+		socket.push({ type: "card.resolved", seq: 1, id: "c1", decision: "allowed" }),
+	);
+	await within(panel).findByTestId("approval-outcome");
+	expect(document.activeElement).toBe(
+		within(panel).getByRole("textbox", { name: "Message the assistant" }),
+	);
+
+	// Focus lost to the page body after a click inside the panel still counts as the panel.
+	fireEvent.pointerDown(within(panel).getByTestId("approval-outcome"));
+	(document.activeElement as HTMLElement).blur();
+	expect(document.activeElement).toBe(document.body);
+	fireEvent.keyDown(document.body, { key: "Escape" });
+	await waitFor(() => expect(screen.queryByTestId("assistant-panel")).toBeNull());
+	await waitFor(() => expect(document.activeElement).toBe(button));
+});
+
+test("Escape on the page outside the panel leaves it open", async () => {
+	stubServer(server());
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	await within(panel).findByTestId("assistant-empty");
+	const main = screen.getByTestId("page-admin");
+	fireEvent.pointerDown(main);
+	(document.activeElement as HTMLElement).blur();
+	fireEvent.keyDown(document.body, { key: "Escape" });
+	expect(screen.getByTestId("assistant-panel")).toBeTruthy();
 });

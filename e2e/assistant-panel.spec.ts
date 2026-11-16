@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { expectNoViolations, lockSharedState, openAdmin, WEB_ORIGIN } from "./helpers";
+import {
+	expectNoViolations,
+	lockSharedState,
+	openAdmin,
+	query,
+	WEB_ORIGIN,
+} from "./helpers";
 import { FAKE_MODEL_PORT } from "./ports";
 
 /**
@@ -27,12 +33,33 @@ async function script(match: string, steps: unknown[]): Promise<void> {
 		throw new Error(`the fake model refused the script: ${response.status}`);
 }
 
+/** Bumped with the privacy notice text (packages/contracts ai.ts; e2e cannot import the contracts). */
+const AI_NOTICE_VERSION = 1;
+
+/**
+ * Save a provider and key and accept the notice, then turn the assistant
+ * on or off. The API's AI_TEST_BASE_URL sends the model calls to the fake
+ * server whatever base address is saved.
+ */
 async function setAssistant(page: Page, enabled: boolean): Promise<void> {
-	const response = await page.request.put("/admin/ai", {
-		headers: { origin: WEB_ORIGIN },
-		data: { enabled },
+	const headers = { origin: WEB_ORIGIN };
+	const put = await page.request.put("/admin/ai", {
+		headers,
+		data: {
+			providerKind: "openai-compatible",
+			baseUrl: "https://api.openai.com/v1",
+			model: "fake-model-1",
+			key: "sk-e2e-assistant-WXYZ",
+		},
 	});
-	expect(response.ok(), await response.text()).toBe(true);
+	expect(put.ok(), await put.text()).toBe(true);
+	const notice = await page.request.post("/admin/ai/notice", {
+		headers,
+		data: { noticeVersion: AI_NOTICE_VERSION },
+	});
+	expect(notice.ok(), await notice.text()).toBe(true);
+	const toggle = await page.request.put("/admin/ai", { headers, data: { enabled } });
+	expect(toggle.ok(), await toggle.text()).toBe(true);
 }
 
 function panelOf(page: Page): Locator {
@@ -55,12 +82,25 @@ async function ask(panel: Locator, text: string): Promise<void> {
 	await box.press("Enter");
 }
 
+const ROW_COLUMNS =
+	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at";
+let saved: Record<string, unknown> | undefined;
 let release: (() => Promise<void>) | undefined;
+
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
 	release = await lockSharedState(AI_SETTINGS_LOCK);
+	[saved] = await query(`select ${ROW_COLUMNS} from ai_settings where id = 1`);
 });
 test.afterAll(async () => {
+	// Put the row back as the other holder of the lock left it.
+	if (saved) {
+		const columns = ROW_COLUMNS.split(", ");
+		await query(
+			`update ai_settings set ${columns.map((c, i) => `${c} = $${i + 1}`).join(", ")} where id = 1`,
+			columns.map((c) => saved?.[c]),
+		);
+	}
 	await release?.();
 });
 
@@ -75,11 +115,15 @@ test("ask, see a reply and a read tool, approve a change, and keyboard focus mov
 }) => {
 	const tag = randomUUID().slice(0, 8);
 	await script(`e2e-read-${tag}`, [
-		{ toolCalls: [{ name: "users_list", arguments: {} }] },
+		{ toolCalls: [{ name: "users_list", arguments: { query: {} } }] },
 		{ text: `Read done ${tag}.` },
 	]);
 	await script(`e2e-change-${tag}`, [
-		{ toolCalls: [{ name: "workspaces_restart", arguments: { id: randomUUID() } }] },
+		{
+			toolCalls: [
+				{ name: "workspaces_restart", arguments: { path: { id: randomUUID() } } },
+			],
+		},
 		{ text: `Change handled ${tag}.` },
 	]);
 
@@ -126,7 +170,9 @@ test("a destructive card stays locked until typed, a denial is shown, and the hi
 }) => {
 	const tag = randomUUID().slice(0, 8);
 	await script(`e2e-destroy-${tag}`, [
-		{ toolCalls: [{ name: "users_disable", arguments: { id: randomUUID() } }] },
+		{
+			toolCalls: [{ name: "users_disable", arguments: { path: { id: randomUUID() } } }],
+		},
 		{ text: `Left alone ${tag}.` },
 	]);
 	const panel = await openPanel(page);
