@@ -5417,7 +5417,10 @@ workspace's network address, or a name a workspace looked up.
   code. A request refused by the per-key rate limit (section 24.13)
   writes no `api_key.used` row; only the first refusal for each key in
   each minute is a warning log line, so this bends the rule that every
-  key request is audited. Every audit row also carries `via`
+  key request is audited. `assistant.used`, one row for each operation
+  the built-in assistant runs as the signed-in person (section 20.4),
+  with the operation name, the status, the refusal code if any and the
+  result, never the inputs or the conversation. Every audit row also carries `via`
   (`session` or `api_key`) and `api_key_id`, filled from the request, so a
   row for a change made by a key can be told from one made in the browser;
   rows written by the worker leave both empty.

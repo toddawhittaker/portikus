@@ -6,12 +6,12 @@ import type { Operation } from "../catalog/index.js";
 import type { RunCaller } from "../catalog/run.js";
 
 /** The key holder an MCP request runs as, carried to the server factory in `authInfo`. */
-export interface McpCaller extends RunCaller {
+export type McpCaller = Extract<RunCaller, { kind: "api_key" }> & {
 	userId: string;
 	keyId: string;
 	scope: ApiKeyScope;
 	role: Role;
-}
+};
 
 export function toAuthInfo(caller: McpCaller): AuthInfo {
 	return {
@@ -41,6 +41,7 @@ export function fromAuthInfo(authInfo: AuthInfo | undefined): McpCaller {
 		throw new Error("an MCP request arrived without its key holder");
 	}
 	return {
+		kind: "api_key",
 		apiKey: authInfo.token,
 		userId: extra.userId,
 		keyId: authInfo.clientId,
