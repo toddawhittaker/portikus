@@ -196,6 +196,9 @@ test("a Dex local-password account chooses a period and proves its second factor
 	page,
 	context,
 }) => {
+	// Three one-time codes: the third cannot reuse a 30-second step, so it may
+	// wait up to a whole step for the clock to move on.
+	test.setTimeout(60_000);
 	await createLocalPasswordAdmin(context, {
 		prefix: "api-keys-local",
 		displayName: "Local Key Maker",
