@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	expectNoViolations,
 	lockSharedState,
 	loginAs,
 	query,
+	routeApi,
 	SETTINGS_ROW_LOCK,
 	WEB_ORIGIN,
 } from "./helpers";
@@ -589,10 +591,31 @@ test("an update where one tool failed its check shows the job failed and what sw
 		null,
 		message,
 	);
+	// The assistant reads as on, so the failed job offers Diagnose (SPEC.md section 20.5).
+	await routeApi(page, "**/assistant/status", (route) =>
+		route.fulfill({ json: { enabled: true, reason: null } }),
+	);
+	await page.emulateMedia({ colorScheme: "dark" });
 	await open(page);
 	const job = page.getByTestId("image-job");
 	await expect(job.getByTestId("image-job-state")).toContainText("Failed");
 	await expect(job.getByTestId("image-job-message")).toHaveText(message);
+	const diagnose = job.getByRole("button", {
+		name: "Diagnose the failed image job",
+		exact: true,
+	});
+	await expect(diagnose).toBeVisible();
+	// It keeps its own width rather than stretching across the job group.
+	const [button, group] = await Promise.all([
+		diagnose.boundingBox(),
+		job.boundingBox(),
+	]);
+	expect(button?.width ?? 0).toBeLessThan((group?.width ?? 0) / 2);
+	await job.screenshot({ path: "/tmp/epic69/fr2/shots/image-job-diagnose-dark.png" });
+	await expectNoViolations(page, "main");
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, "main");
+	await job.screenshot({ path: "/tmp/epic69/fr2/shots/image-job-diagnose-light.png" });
 });
 
 test("roll back sends only the chosen tool, and the page shows the swap", async ({

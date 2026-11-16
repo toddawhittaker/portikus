@@ -90,7 +90,13 @@ export function NoticeGroup({ view }: { view: AiSettingsView }) {
 							variant="primary"
 							data-testid="ai-notice-accept"
 							loading={accept.isPending}
-							onClick={() => accept.mutate(AI_NOTICE_VERSION)}
+							onClick={() =>
+								accept.mutate(AI_NOTICE_VERSION, {
+									// The button goes with the full notice; the next group takes the keyboard.
+									onSuccess: () =>
+										document.getElementById("ai-provider-title")?.focus(),
+								})
+							}
 						>
 							I have read this
 						</Button>

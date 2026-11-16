@@ -1,7 +1,8 @@
 import type { AdminImage, ImageJobView, ImageView } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
+import { AssistantProvider, useAssistant } from "../../assistant/AssistantContext.js";
+import { json, renderWithQuery, stubFetch, USER } from "../../test-utils.js";
 import { settingsBody } from "../users/testRows.js";
 import { ImageTab } from "./ImageTab.js";
 
@@ -554,4 +555,40 @@ test("no nightly update switch before setup has installed the tools", async () =
 	renderWithQuery(<ImageTab />);
 	await screen.findByTestId("image-agents-none");
 	expect(screen.queryByRole("switch")).toBeNull();
+});
+
+/** Shows what a Diagnose button asked the assistant to open. */
+function Opened() {
+	const { pending } = useAssistant();
+	return <p data-testid="opened">{JSON.stringify(pending?.context ?? null)}</p>;
+}
+
+test("a failed job offers Diagnose on that job, and a finished one does not", async () => {
+	let page = data({ job: job({ state: "failed", message: "Health check failed" }) });
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/assistant/status") return json(200, { enabled: true, reason: null });
+		if (url === "/admin/packages") return json(200, NO_SURVEY);
+		if (url.startsWith("/admin/image/jobs/"))
+			return json(200, { job: page.job, log: [] });
+		return json(200, page);
+	});
+	const ui = (
+		<AssistantProvider>
+			<ImageTab />
+			<Opened />
+		</AssistantProvider>
+	);
+	renderWithQuery(ui);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Diagnose the failed image job" }),
+	);
+	expect(screen.getByTestId("opened").textContent).toBe(
+		JSON.stringify({ kind: "job", id: `image:${JOB_ID}` }),
+	);
+	cleanup();
+	page = data({ job: job({ state: "succeeded", finishedAt: "2026-09-28T10:05:00Z" }) });
+	renderWithQuery(ui);
+	await screen.findByTestId("image-job-state");
+	expect(screen.queryByTestId("diagnose-job")).toBeNull();
 });

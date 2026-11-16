@@ -20,12 +20,20 @@ import {
 	Skeleton,
 } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
-import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useStore } from "zustand";
 import { errorText } from "../api/request.js";
 import { ChatSpeakerContext } from "../chat/chatAgent.js";
 import type { ChatState } from "../chat/chatStore.js";
 import { MessageList } from "../chat/MessageList.js";
+import { useMediaQuery } from "../common/useMediaQuery.js";
 import { useMe } from "../useMe.js";
 import { ApprovalCard, type ApprovalCardData, approvalTitle } from "./ApprovalCard.js";
 import { AssistantComposer } from "./AssistantComposer.js";
@@ -65,6 +73,12 @@ export function AssistantButton() {
 
 const PANEL_ID = "pk-assistant-panel";
 
+/** Below this the panel covers the page instead of sitting beside it; assistant.css uses the same width. */
+const COVERS_QUERY = "(width < 56rem)";
+
+/** History replays as a burst right after the snapshot; the announcer speaks only of what changes once it settles. */
+const HISTORY_SETTLE_MS = 300;
+
 const DATE = new Intl.DateTimeFormat(undefined, {
 	dateStyle: "medium",
 	timeStyle: "short",
@@ -81,8 +95,14 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 	const conversations = useConversations(assistant.isOpen && enabled);
 	const create = useCreateConversation();
 	const [chosen, setChosen] = useState<ConversationSummary | null>(null);
+	const [started, setStarted] = useState<string | null>(null);
 	const [startError, setStartError] = useState<unknown>(null);
+	// The row to focus when the list comes back: a conversation's id, or null for the list's heading.
+	const [returnTo, setReturnTo] = useState<string | null | undefined>(undefined);
+	const [notice, setNotice] = useState("");
 	const { pending, takePending } = assistant;
+	const covers = useMediaQuery(COVERS_QUERY);
+	const endReturn = useCallback(() => setReturnTo(undefined), []);
 
 	useEffect(() => {
 		if (assistant.isOpen) heading.current?.focus();
@@ -99,7 +119,10 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 				...(body.courseId ? { courseId: body.courseId } : {}),
 			},
 			{
-				onSuccess: (summary) => setChosen(summary),
+				onSuccess: (summary) => {
+					setStarted(summary.id);
+					setChosen(summary);
+				},
 				onError: (error) => setStartError(error),
 			},
 		);
@@ -115,6 +138,7 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 	}, [pending, status.data]);
 
 	useEscapeCloses(panel, assistant.isOpen, assistant.close);
+	useInertBeside(panel, assistant.isOpen && covers);
 
 	if (!assistant.isOpen) return null;
 
@@ -124,6 +148,7 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 		: null;
 	const off = status.data && !status.data.enabled ? notEnabledText(status.data) : null;
 	const refused = isNotEnabled(startError) ? errorText(startError) : null;
+	const said = off ?? refused ?? (active ? notice : "");
 
 	return (
 		<aside
@@ -163,6 +188,10 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 					onClick={assistant.close}
 				/>
 			</header>
+			{/* Mounted all along, so a refusal or a lost connection is read out when it appears (SPEC.md section 25.8). */}
+			<p className="sr-only" role="status" data-testid="assistant-status">
+				{said}
+			</p>
 			{status.isPending ? (
 				<div className="pk-assistant-pad" aria-busy="true">
 					<Skeleton lines={3} />
@@ -180,7 +209,13 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 				<ConversationView
 					key={active.id}
 					summary={active}
-					onBack={() => setChosen(null)}
+					fresh={active.id === started}
+					onNotice={setNotice}
+					onBack={() => {
+						setReturnTo(active.id);
+						setStarted(null);
+						setChosen(null);
+					}}
 				/>
 			) : (
 				<ConversationIndex
@@ -188,6 +223,8 @@ export function AssistantPanel({ courseId }: { courseId?: string }) {
 					loading={conversations.isPending}
 					error={conversations.isError || (startError !== null && !refused)}
 					onOpen={setChosen}
+					returnTo={returnTo}
+					onReturned={endReturn}
 				/>
 			)}
 		</aside>
@@ -234,6 +271,25 @@ function useEscapeCloses(
 	}, [panel, open, close]);
 }
 
+/**
+ * Where the panel covers the page, the page under it leaves the tab order and
+ * the reading order until the panel closes, as under a dialog (SPEC.md
+ * section 25.8). The panel's siblings in its frame are the page.
+ */
+function useInertBeside(panel: RefObject<HTMLElement | null>, covering: boolean) {
+	useEffect(() => {
+		const self = panel.current;
+		if (!covering || !self?.parentElement) return;
+		const made = [...self.parentElement.children].filter(
+			(one) => one !== self && !one.hasAttribute("inert"),
+		);
+		for (const one of made) one.setAttribute("inert", "");
+		return () => {
+			for (const one of made) one.removeAttribute("inert");
+		};
+	}, [panel, covering]);
+}
+
 function NotEnabled({ text, isAdmin }: { text: string; isAdmin: boolean }) {
 	return (
 		<div className="pk-assistant-pad pk-assistant-off" data-testid="assistant-off">
@@ -257,14 +313,45 @@ function ConversationIndex({
 	loading,
 	error,
 	onOpen,
+	returnTo,
+	onReturned,
 }: {
 	conversations: ConversationSummary[] | undefined;
 	loading: boolean;
 	error: boolean;
 	onOpen: (conversation: ConversationSummary) => void;
+	/** A conversation's id to focus its row, null for the heading, undefined to leave focus alone. */
+	returnTo: string | null | undefined;
+	onReturned: () => void;
 }) {
 	const remove = useDeleteConversation();
 	const [deleting, setDeleting] = useState<ConversationSummary | null>(null);
+	const heading = useRef<HTMLHeadingElement>(null);
+	const list = useRef<HTMLUListElement>(null);
+	// Where the delete confirm sends focus: the trash button on cancel, the next row or the heading once deleted.
+	const opener = useRef<HTMLElement | null>(null);
+	const afterDelete = useRef<HTMLElement | null>(null);
+
+	useEffect(() => {
+		if (loading || returnTo === undefined) return;
+		const row = returnTo ? rowButton(list.current, returnTo) : null;
+		(row ?? heading.current)?.focus();
+		onReturned();
+	}, [loading, returnTo, onReturned]);
+
+	function confirmDelete(one: ConversationSummary) {
+		const next =
+			rowButton(list.current, one.id)
+				?.closest("li")
+				?.nextElementSibling?.querySelector<HTMLElement>("[data-conversation]") ?? null;
+		remove.mutate(one.id, {
+			onSuccess: () => {
+				afterDelete.current = next ?? heading.current;
+			},
+			onSettled: () => setDeleting(null),
+		});
+	}
+
 	if (loading) {
 		return (
 			<div className="pk-assistant-pad" aria-busy="true">
@@ -274,7 +361,12 @@ function ConversationIndex({
 	}
 	return (
 		<section className="pk-assistant-index" aria-labelledby="pk-assistant-list-title">
-			<h3 id="pk-assistant-list-title" className="pk-assistant-subtitle">
+			<h3
+				id="pk-assistant-list-title"
+				ref={heading}
+				tabIndex={-1}
+				className="pk-assistant-subtitle"
+			>
 				Conversations
 			</h3>
 			{error ? (
@@ -283,7 +375,11 @@ function ConversationIndex({
 				</p>
 			) : null}
 			{conversations && conversations.length > 0 ? (
-				<ul className="pk-assistant-list" data-testid="assistant-conversations">
+				<ul
+					ref={list}
+					className="pk-assistant-list"
+					data-testid="assistant-conversations"
+				>
 					{conversations.map((one) => (
 						<li
 							key={one.id}
@@ -293,6 +389,7 @@ function ConversationIndex({
 							<button
 								type="button"
 								className="pk-assistant-open pk-focus-ring"
+								data-conversation={one.id}
 								onClick={() => onOpen(one)}
 							>
 								<span className="pk-assistant-row-title">
@@ -307,7 +404,11 @@ function ConversationIndex({
 								size="sm"
 								label={`Delete ${one.title || "conversation"}`}
 								data-testid="assistant-delete"
-								onClick={() => setDeleting(one)}
+								onClick={(event) => {
+									opener.current = event.currentTarget;
+									afterDelete.current = null;
+									setDeleting(one);
+								}}
 							/>
 						</li>
 					))}
@@ -331,13 +432,22 @@ function ConversationIndex({
 						description={`"${deleting.title || "New conversation"}" and its history are removed for good.`}
 						confirmLabel="Delete conversation"
 						pending={remove.isPending}
-						onConfirm={() =>
-							remove.mutate(deleting.id, { onSettled: () => setDeleting(null) })
+						returnFocusTo={() =>
+							afterDelete.current ??
+							(opener.current?.isConnected ? opener.current : heading.current)
 						}
+						onConfirm={() => confirmDelete(deleting)}
 					/>
 				) : null}
 			</ConfirmDialogRoot>
 		</section>
+	);
+}
+
+/** A conversation's open button in the list. */
+function rowButton(list: HTMLUListElement | null, id: string): HTMLElement | null {
+	return (
+		list?.querySelector<HTMLElement>(`[data-conversation="${CSS.escape(id)}"]`) ?? null
 	);
 }
 
@@ -359,6 +469,43 @@ function assistantAnnouncement(state: ChatState): string {
 	if (last?.status === "interrupted") return "The assistant stopped.";
 	if (last?.status === "error") return "The assistant's turn failed.";
 	return "";
+}
+
+/**
+ * What the live region says. Opening an old conversation replays its history
+ * after the snapshot; the region stays quiet until that settles, so the last
+ * turn is not reported as news. A conversation started here has no history,
+ * so everything in it is said, until a reconnect replays it.
+ */
+function useAnnouncement(
+	store: ReturnType<typeof useAssistantConversation>["store"],
+	fresh: boolean,
+) {
+	const [text, setText] = useState("");
+	useEffect(() => {
+		let heard: string | null = fresh ? "" : null;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const unsubscribe = store.subscribe((state, previous) => {
+			if (!state.loaded) return;
+			if (previous.loaded && state.snapshotAt !== previous.snapshotAt) heard = null;
+			if (heard === null) {
+				clearTimeout(timer);
+				timer = setTimeout(() => {
+					heard = assistantAnnouncement(store.getState());
+				}, HISTORY_SETTLE_MS);
+				return;
+			}
+			const next = assistantAnnouncement(state);
+			if (next === heard) return;
+			heard = next;
+			setText(next);
+		});
+		return () => {
+			unsubscribe();
+			clearTimeout(timer);
+		};
+	}, [store, fresh]);
+	return text;
 }
 
 function isPermission(card: ChatOpenCard): card is ApprovalCardData {
@@ -395,9 +542,15 @@ function useResolvedCard(store: ReturnType<typeof useAssistantConversation>["sto
 function ConversationView({
 	summary,
 	onBack,
+	onNotice,
+	fresh,
 }: {
 	summary: ConversationSummary;
+	/** Started in this panel just now, so it has no history to replay. */
+	fresh: boolean;
 	onBack: () => void;
+	/** The connection's state in words, for the panel's status region. */
+	onNotice: (text: string) => void;
 }) {
 	const { store, answer } = useAssistantConversation(summary.id);
 	const state = useStore(store);
@@ -410,6 +563,17 @@ function ConversationView({
 	const scroll = useRef<HTMLDivElement>(null);
 	const section = useRef<HTMLElement>(null);
 	const lastCard = useRef<string | undefined>(undefined);
+	const announcement = useAnnouncement(store, fresh);
+
+	// Opening a conversation, or starting one, puts the keyboard where the next message goes.
+	useEffect(() => {
+		section.current?.querySelector("textarea")?.focus();
+	}, []);
+
+	useEffect(() => {
+		onNotice(notice ?? "");
+	}, [notice, onNotice]);
+	useEffect(() => () => onNotice(""), [onNotice]);
 
 	// An answered card takes its buttons with it; keep the keyboard in the panel, at the message box.
 	useEffect(() => {
@@ -481,11 +645,7 @@ function ConversationView({
 					</div>
 				</div>
 				{notice ? (
-					<p
-						className="pk-assistant-notice"
-						role="status"
-						data-testid="assistant-connection"
-					>
+					<p className="pk-assistant-notice" data-testid="assistant-connection">
 						{notice}
 					</p>
 				) : null}
@@ -524,7 +684,7 @@ function ConversationView({
 				</div>
 			</div>
 			<p className="sr-only" aria-live="polite" data-testid="assistant-announcer">
-				{assistantAnnouncement(state)}
+				{announcement}
 			</p>
 		</section>
 	);

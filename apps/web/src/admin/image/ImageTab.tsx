@@ -23,6 +23,7 @@ import {
 import { useRef, useState } from "react";
 import { CODING_AGENT_NAME } from "../../agents/codingAgentName.js";
 import { ApiError, errorText } from "../../api/request.js";
+import { DiagnoseButton } from "../../assistant/DiagnoseButton.js";
 import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
@@ -483,6 +484,12 @@ function JobGroup({
 				) : null}
 				{/* jscpd:ignore-end */}
 			</dl>
+			{shown.state === "failed" ? (
+				<DiagnoseButton
+					context={{ kind: "job", id: `image:${shown.id}` }}
+					name="Diagnose the failed image job"
+				/>
+			) : null}
 			<JobLog idPrefix="image" log={log} />
 			{made && defaultVersion ? (
 				<div className="grid gap-3" data-testid="image-job-result">

@@ -41,6 +41,7 @@ export function SourcesGroup({ view }: { view: AiSettingsView }) {
 
 	function onAdd(event: FormEvent) {
 		event.preventDefault();
+		if (full) return;
 		const address = adding.trim();
 		if (!isAiBaseUrl(address)) {
 			setAddError("Give the pricing page's https:// address, by host name.");
@@ -87,7 +88,14 @@ export function SourcesGroup({ view }: { view: AiSettingsView }) {
 							icon="x"
 							size="sm"
 							label={`Remove ${source}`}
-							onClick={() => setSources((s) => s.filter((x) => x !== source))}
+							onClick={(e) => {
+								// The button leaves with its row; the next Remove, or the add field, takes the keyboard.
+								const next = e.currentTarget
+									.closest("li")
+									?.nextElementSibling?.querySelector<HTMLElement>("button");
+								(next ?? document.getElementById("pricing-source-new"))?.focus();
+								setSources((s) => s.filter((x) => x !== source));
+							}}
 						/>
 					</li>
 				))}
@@ -113,7 +121,11 @@ export function SourcesGroup({ view }: { view: AiSettingsView }) {
 						onChange={(e) => setAdding(e.target.value)}
 					/>
 				</div>
-				<Button type="submit" aria-disabled={full || undefined} disabled={full}>
+				<Button
+					type="submit"
+					aria-disabled={full || undefined}
+					aria-describedby={full ? "pricing-source-new-hint" : undefined}
+				>
 					Add
 				</Button>
 			</form>

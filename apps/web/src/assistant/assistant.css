@@ -22,7 +22,8 @@
 	.pk-assistant {
 		position: absolute;
 		inset: 0;
-		z-index: 2;
+		/* Over the page's sticky table headers, under dialogs and menus. */
+		z-index: calc(var(--z-sticky) + 1);
 		inline-size: auto;
 		border-inline-start: 0;
 	}
@@ -279,6 +280,10 @@
 	border: 1px solid var(--line);
 	border-radius: var(--radius-sm);
 }
+.pk-assistant-batch:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
 .pk-assistant-batch .pk-assistant-inputs thead th {
 	position: sticky;
 	inset-block-start: 0;
@@ -317,8 +322,14 @@
 	color: var(--status-error);
 	font-size: var(--text-sm);
 }
+/* Hidden while empty but kept in the accessibility tree, so a message added later is announced. */
 .pk-assistant-card-error:empty {
-	display: none;
+	position: absolute;
+	inline-size: 1px;
+	block-size: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 .pk-assistant-outcome {
@@ -342,4 +353,12 @@
 			transform: translateX(0.5rem);
 		}
 	}
+}
+
+/* A Diagnose button keeps its own width in any flex or grid parent, including a narrow page's action row. */
+.pk-diagnose,
+.pk-admin-actions > .pk-diagnose {
+	flex: none;
+	align-self: start;
+	justify-self: start;
 }

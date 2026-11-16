@@ -283,10 +283,8 @@ test("a turn runs end to end over the socket: ask, a read tool, a change card, a
 	expect(screen.getByTestId("assistant-announcer").textContent).toBe(
 		"Approval needed: Disable a user's account.",
 	);
-	// The new card takes the keyboard.
-	expect(document.activeElement).toBe(
-		within(card).getByRole("button", { name: "Approve" }),
-	);
+	// The new card takes the keyboard at its heading, so it is read before its buttons.
+	expect(document.activeElement).toBe(within(card).getByRole("heading"));
 	fireEvent.click(within(card).getByRole("button", { name: "Approve" }));
 	expect(socket.sent.at(-1)).toEqual({
 		type: "permission.answer",
@@ -360,7 +358,7 @@ test("a destructive card sends the typed confirmation; a denial shows the outcom
 	const approve = within(card).getByRole("button", {
 		name: "Approve",
 	}) as HTMLButtonElement;
-	expect(approve.disabled).toBe(true);
+	expect(approve.getAttribute("aria-disabled")).toBe("true");
 	fireEvent.change(within(card).getByLabelText("Type users_delete to approve"), {
 		target: { value: "users_delete" },
 	});
@@ -482,7 +480,10 @@ test("after a card is answered the keyboard stays in the panel, and Escape still
 		});
 	});
 	const approve = await within(panel).findByRole("button", { name: "Approve" });
-	expect(document.activeElement).toBe(approve);
+	expect(document.activeElement).toBe(
+		within(panel).getByRole("heading", { name: "Restart a workspace" }),
+	);
+	approve.focus();
 	fireEvent.click(approve);
 	act(() =>
 		socket.push({ type: "card.resolved", seq: 1, id: "c1", decision: "allowed" }),
@@ -511,4 +512,191 @@ test("Escape on the page outside the panel leaves it open", async () => {
 	(document.activeElement as HTMLElement).blur();
 	fireEvent.keyDown(document.body, { key: "Escape" });
 	expect(screen.getByTestId("assistant-panel")).toBeTruthy();
+});
+
+test("opening a conversation focuses its message box, and Back returns to the row it came from", async () => {
+	stubServer(
+		server({
+			conversations: [
+				summary(OLDER_ID, "Older question", "2026-11-10T10:00:00.000Z"),
+				summary(CONVERSATION_ID, "Newer question", "2026-11-14T10:00:00.000Z"),
+			],
+		}),
+	);
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	fireEvent.click(
+		await within(panel).findByRole("button", { name: /^Older question/ }),
+	);
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(panel).getByRole("textbox", { name: "Message the assistant" }),
+		),
+	);
+	fireEvent.click(within(panel).getByRole("button", { name: "All conversations" }));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(panel).getByRole("button", { name: /^Older question/ }),
+		),
+	);
+});
+
+test("New conversation moves focus into the new conversation", async () => {
+	stubServer(server());
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	fireEvent.click(
+		await within(panel).findByRole("button", { name: "New conversation" }),
+	);
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(panel).getByRole("textbox", { name: "Message the assistant" }),
+		),
+	);
+});
+
+test("deleting a conversation moves focus to the next row, and the last to the Conversations heading", async () => {
+	stubServer(
+		server({
+			conversations: [
+				summary(CONVERSATION_ID, "Newer question", "2026-11-14T10:00:00.000Z"),
+				summary(OLDER_ID, "Older question", "2026-11-10T10:00:00.000Z"),
+			],
+		}),
+	);
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	fireEvent.click(
+		await within(panel).findByRole("button", { name: "Delete Newer question" }),
+	);
+	fireEvent.click(
+		within(await screen.findByTestId("assistant-delete-confirm")).getByRole("button", {
+			name: "Delete conversation",
+		}),
+	);
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(panel).getByRole("button", { name: /^Older question/ }),
+		),
+	);
+	fireEvent.click(within(panel).getByRole("button", { name: "Delete Older question" }));
+	fireEvent.click(
+		within(await screen.findByTestId("assistant-delete-confirm")).getByRole("button", {
+			name: "Delete conversation",
+		}),
+	);
+	await within(panel).findByTestId("assistant-empty");
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			within(panel).getByRole("heading", { name: "Conversations" }),
+		),
+	);
+});
+
+test("where the panel covers the page, the page under it is inert until the panel closes", async () => {
+	vi.stubGlobal("matchMedia", (query: string) => ({
+		matches: query === "(width < 56rem)",
+		media: query,
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	}));
+	stubServer(server());
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	const main = screen.getByTestId("page-admin");
+	await waitFor(() => expect(main.hasAttribute("inert")).toBe(true));
+	expect(
+		screen.getByRole("navigation", { hidden: true }).closest("[inert]"),
+	).not.toBeNull();
+	expect(panel.hasAttribute("inert")).toBe(false);
+	fireEvent.click(within(panel).getByRole("button", { name: "Close the assistant" }));
+	await waitFor(() => expect(screen.queryByTestId("assistant-panel")).toBeNull());
+	expect(main.hasAttribute("inert")).toBe(false);
+	expect(document.querySelector("[inert]")).toBeNull();
+});
+
+test("beside the page, nothing is made inert", async () => {
+	stubServer(server());
+	renderApp("/admin/users");
+	await openPanel();
+	expect(document.querySelector("[inert]")).toBeNull();
+});
+
+test("a start the server refuses as not enabled is announced in the panel's status region", async () => {
+	stubServer(server({ createStatus: 409 }));
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	const region = within(panel).getByTestId("assistant-status");
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.textContent).toBe("");
+	fireEvent.click(
+		await within(panel).findByRole("button", { name: "New conversation" }),
+	);
+	await waitFor(() => expect(region.textContent).toMatch(/switched off/));
+	// The same element, mounted all along, so the change is read out.
+	expect(within(panel).getByTestId("assistant-status")).toBe(region);
+});
+
+test("a lost connection is said in the panel's status region", async () => {
+	stubServer(
+		server({
+			conversations: [summary(CONVERSATION_ID, "Lost", "2026-11-14T10:00:00.000Z")],
+		}),
+	);
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	const region = within(panel).getByTestId("assistant-status");
+	fireEvent.click(await within(panel).findByRole("button", { name: /^Lost/ }));
+	await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+	const socket = lastSocket();
+	act(() => socket.onclose?.({ code: 4404 } as CloseEvent));
+	await waitFor(() => expect(region.textContent).toMatch(/no longer exists/));
+	expect(
+		within(panel).getByTestId("assistant-connection").getAttribute("role"),
+	).toBeNull();
+});
+
+test("opening an old conversation does not announce its history; a later reply is announced", async () => {
+	stubServer(
+		server({
+			conversations: [summary(CONVERSATION_ID, "Old", "2026-11-14T10:00:00.000Z")],
+		}),
+	);
+	renderApp("/admin/users");
+	const { panel } = await openPanel();
+	fireEvent.click(await within(panel).findByRole("button", { name: /^Old/ }));
+	await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+	const socket = lastSocket();
+	act(() => {
+		socket.open();
+		socket.push({
+			type: "snapshot",
+			seq: 0,
+			cards: [],
+			turnRunning: false,
+			truncated: false,
+		});
+		socket.push({ type: "turn.started", seq: 1, at: 1_000 });
+		socket.push({ type: "message", seq: 2, id: "m1", role: "user", markdown: "Hi" });
+		socket.push({
+			type: "message",
+			seq: 3,
+			id: "m2",
+			role: "assistant",
+			markdown: "Hello",
+		});
+		socket.push({ type: "turn.finished", seq: 4, status: "done", at: 2_000 });
+	});
+	await within(panel).findByText("Hello");
+	const announcer = screen.getByTestId("assistant-announcer");
+	await act(() => new Promise((done) => setTimeout(done, 400)));
+	expect(announcer.textContent).toBe("");
+	act(() => {
+		socket.push({ type: "turn.started", seq: 5, at: Date.now() });
+	});
+	expect(announcer.textContent).toBe("The assistant is working.");
+	act(() => {
+		socket.push({ type: "turn.finished", seq: 6, status: "done", at: Date.now() });
+	});
+	expect(announcer.textContent).toBe("The assistant replied.");
 });

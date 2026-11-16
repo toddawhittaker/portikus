@@ -257,6 +257,11 @@ test.describe("with the fake root job", () => {
 	test("a failed apply keeps the old certificate and says why", async ({ page }) => {
 		await putStatus({ settings: ACME_SETTINGS, issuer: LE_ISSUER });
 		await routePreflight(page);
+		// The assistant reads as on, so the failed job offers Diagnose (SPEC.md section 20.5).
+		await routeApi(page, "**/assistant/status", (route) =>
+			route.fulfill({ json: { enabled: true, reason: null } }),
+		);
+		await page.emulateMedia({ colorScheme: "dark" });
 		await open(page);
 		// The stored token is kept: the field starts blank and says so.
 		const token = page.getByLabel("API token");
@@ -292,6 +297,22 @@ test.describe("with the fake root job", () => {
 		await expect(job.getByTestId("cert-job-restored")).toContainText("still in use");
 		await expect(job.getByTestId("cert-job-state")).toContainText("Failed");
 		await expect(page.getByTestId("cert-issuer-site")).toHaveText(LE_ISSUER);
+		const diagnose = job.getByRole("button", {
+			name: "Diagnose the failed certificate job",
+			exact: true,
+		});
+		await expect(diagnose).toBeVisible();
+		// It keeps its own width rather than stretching across the job group.
+		const [button, group] = await Promise.all([
+			diagnose.boundingBox(),
+			job.boundingBox(),
+		]);
+		expect(button?.width ?? 0).toBeLessThan((group?.width ?? 0) / 2);
+		await job.screenshot({ path: "/tmp/epic69/fr2/shots/cert-job-diagnose-dark.png" });
+		await expectNoViolations(page, "main");
+		await page.emulateMedia({ colorScheme: "light" });
+		await expectNoViolations(page, "main");
+		await job.screenshot({ path: "/tmp/epic69/fr2/shots/cert-job-diagnose-light.png" });
 	});
 
 	test("a failed HTTP-01 pre-flight check blocks the test and names the wrong name", async ({

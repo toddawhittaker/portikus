@@ -8,7 +8,8 @@ import {
 } from "@portikus/contracts";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
+import { AssistantProvider, useAssistant } from "../../assistant/AssistantContext.js";
+import { json, renderWithQuery, stubFetch, USER } from "../../test-utils.js";
 import { CertificateTab } from "./CertificateTab.js";
 import { certificateKey } from "./queries.js";
 
@@ -127,6 +128,12 @@ function serve(
 		}
 		return json(200, page);
 	});
+}
+
+/** Shows what a Diagnose button asked the assistant to open. */
+function Opened() {
+	const { pending } = useAssistant();
+	return <p data-testid="opened">{JSON.stringify(pending?.context ?? null)}</p>;
 }
 
 function posted(fetch: ReturnType<typeof stubFetch>, url: string) {
@@ -824,4 +831,34 @@ test.each([
 			names.length === 1 ? "1 warning" : "2 warnings",
 		),
 	);
+});
+
+test("a failed job offers Diagnose on that job, and a running one does not", async () => {
+	const failed = data({ job: job({ state: "failed", message: "Refused" }) });
+	let page = failed;
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url === "/assistant/status") return json(200, { enabled: true, reason: null });
+		if (url.startsWith("/admin/certificate/jobs/"))
+			return json(200, { job: page.job, log: [] });
+		return json(200, page);
+	});
+	const ui = (
+		<AssistantProvider>
+			<CertificateTab />
+			<Opened />
+		</AssistantProvider>
+	);
+	renderWithQuery(ui);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Diagnose the failed certificate job" }),
+	);
+	expect(screen.getByTestId("opened").textContent).toBe(
+		JSON.stringify({ kind: "job", id: `certificate:${JOB_ID}` }),
+	);
+	cleanup();
+	page = data({ job: job() });
+	renderWithQuery(ui);
+	await screen.findByTestId("cert-job-state");
+	expect(screen.queryByTestId("diagnose-job")).toBeNull();
 });

@@ -33,18 +33,23 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 	const headingId = `proposal-${proposal.id}`;
 	const deciding = decide.isPending ? decide.variables?.decision : undefined;
 
-	function choose(decision: "accept" | "reject") {
+	function choose(decision: "accept" | "reject", from: HTMLElement) {
 		if (decide.isPending) return;
-		decide.mutate(
-			{ id: proposal.id, decision },
-			{
-				onSuccess: () =>
-					toast.show({
-						tone: "success",
-						title: `${proposal.model} ${decision === "accept" ? "accepted" : "rejected"}`,
-					}),
-			},
-		);
+		// The decided proposal leaves the list; the next one takes the keyboard, or the Prices group after the last.
+		const item = from.closest("li");
+		const next = item?.nextElementSibling ?? item?.previousElementSibling;
+		const target = next?.querySelector<HTMLElement>("h4") ?? null;
+		decide
+			.mutateAsync({ id: proposal.id, decision })
+			.then(() => {
+				(target ?? document.getElementById("pricing-table-title"))?.focus();
+				toast.show({
+					tone: "success",
+					title: `${proposal.model} ${decision === "accept" ? "accepted" : "rejected"}`,
+				});
+			})
+			// The error shows under the buttons.
+			.catch(() => undefined);
 	}
 
 	return (
@@ -53,7 +58,7 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 			aria-labelledby={headingId}
 			data-testid={`proposal-${proposal.model}`}
 		>
-			<h4 id={headingId} className="m-0 text-[14px] font-medium">
+			<h4 id={headingId} tabIndex={-1} className="m-0 text-[14px] font-medium">
 				<span className="pk-mono-body [overflow-wrap:anywhere]">{proposal.model}</span>{" "}
 				<span className="font-normal text-ink-muted">
 					{PROVIDER_LABEL[proposal.provider]}, {current ? "changes a row" : "a new row"}
@@ -104,7 +109,7 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 					variant="primary"
 					data-testid="proposal-accept"
 					loading={deciding === "accept"}
-					onClick={() => choose("accept")}
+					onClick={(e) => choose("accept", e.currentTarget)}
 				>
 					Accept {proposal.model}
 				</Button>
@@ -112,9 +117,9 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 					size="sm"
 					data-testid="proposal-reject"
 					loading={deciding === "reject"}
-					onClick={() => choose("reject")}
+					onClick={(e) => choose("reject", e.currentTarget)}
 				>
-					Reject
+					Reject {proposal.model}
 				</Button>
 			</div>
 			{decide.isError ? (

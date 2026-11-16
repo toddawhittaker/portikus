@@ -235,3 +235,52 @@ test("a refused switch shows the API's reason", async () => {
 	fireEvent.click(await screen.findByRole("switch"));
 	expect((await screen.findByRole("alert")).textContent).toBe("Set a key first.");
 });
+
+test("accepting the notice moves focus to the Provider heading, since its button goes away", async () => {
+	serve(BASE);
+	renderWithQuery(<AiTab />);
+	const notice = await screen.findByTestId("ai-notice");
+	const accept = within(notice).getByRole("button", { name: "I have read this" });
+	accept.focus();
+	fireEvent.click(accept);
+	await screen.findByTestId("ai-notice-accepted");
+	await waitFor(() =>
+		expect(document.activeElement).toBe(
+			screen.getByRole("heading", { name: "Provider" }),
+		),
+	);
+});
+
+test("Replace moves focus into the new key field", async () => {
+	serve(READY);
+	renderWithQuery(<AiTab />);
+	fireEvent.click(await screen.findByTestId("ai-key-replace"));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByLabelText("New key")),
+	);
+});
+
+test("Clear moves focus to the key's status, since its button goes away", async () => {
+	serve(READY);
+	renderWithQuery(<AiTab />);
+	const clear = await screen.findByTestId("ai-key-clear");
+	clear.focus();
+	fireEvent.click(clear);
+	await waitFor(() => expect(screen.queryByTestId("ai-key-clear")).toBeNull());
+	expect(document.activeElement).toBe(screen.getByTestId("ai-key-state"));
+});
+
+test("a listed model left unchosen shows its error on the Select", async () => {
+	serve({ ...READY, model: null }, (url) =>
+		url === "/admin/ai/models" ? json(200, { models: ["gpt-a", "gpt-b"] }) : null,
+	);
+	renderWithQuery(<AiTab />);
+	const trigger = await screen.findByRole("combobox", { name: /Model/ });
+	fireEvent.click(screen.getByTestId("ai-provider-save"));
+	await waitFor(() => expect(trigger.getAttribute("aria-invalid")).toBe("true"));
+	expect(document.getElementById("ai-model-err")?.textContent).toBe(
+		"Give the model's name.",
+	);
+	expect(trigger.getAttribute("aria-describedby")).toContain("ai-model-err");
+	expect(document.activeElement).toBe(trigger);
+});

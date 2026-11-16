@@ -42,6 +42,8 @@ export function PriceTableGroup({ prices }: { prices: AdminModelPrice[] }) {
 	function confirmDelete(row: AdminModelPrice) {
 		remove.mutate(row.id, {
 			onSuccess: () => {
+				// The row and its trash button are gone; focus goes to Add row instead.
+				opener.current = null;
 				setDeleting(null);
 				toast.show({ tone: "success", title: `${row.model} deleted` });
 			},
@@ -166,7 +168,9 @@ export function PriceTableGroup({ prices }: { prices: AdminModelPrice[] }) {
 						}
 						confirmLabel="Delete row"
 						pending={remove.isPending}
-						returnFocusTo={() => addButton.current}
+						returnFocusTo={() =>
+							opener.current?.isConnected ? opener.current : addButton.current
+						}
 						onCancel={() => setDeleting(null)}
 						onConfirm={() => confirmDelete(deleting)}
 					/>
