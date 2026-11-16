@@ -58,6 +58,12 @@ const KNOWN_VULN: Record<string, string> = {};
  */
 const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /me/links/start": 400,
+	// The built-in AI is off in the matrix world, and it holds no price rows.
+	"POST /admin/pricing/refresh": 409,
+	"POST /admin/pricing/proposals/:id/decision": 400,
+	"POST /admin/pricing/rows": 400,
+	"PUT /admin/pricing/rows/:id": 400,
+	"DELETE /admin/pricing/rows/:id": 404,
 	// The matrix sends no If-Match; a 412 still means the owner passed the gate.
 	"PUT /workspaces/:id/projects/:pid/layout": 412,
 	// No course launch has left a starter in the matrix world.

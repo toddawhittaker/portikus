@@ -11,6 +11,7 @@ import { imagesDirOf, startReleaseNotices } from "./image/release-notices.js";
 import { startLogLevelSync } from "./log-level.js";
 import { JournalReader } from "./logs/journal.js";
 import { loadLtiDeps } from "./lti/deps.js";
+import { startWeeklyPriceTimer } from "./pricing/weekly.js";
 import { buildServer } from "./server.js";
 import { closeOnSigterm } from "./shutdown.js";
 
@@ -76,6 +77,7 @@ const stopCertificateNotices = config.CERTIFICATE_JOBS_DIR
 			intervalSeconds: config.RELEASE_NOTICE_SECONDS,
 		})
 	: () => {};
+const stopWeeklyPrices = startWeeklyPriceTimer({ db, config }, logger);
 const stopLogAlerts = startLogAlerts({
 	db,
 	logger,
@@ -88,6 +90,7 @@ app.addHook("onClose", async () => {
 	stopAgentsAutoUpdate();
 	stopDefaultSeed();
 	stopCertificateNotices();
+	stopWeeklyPrices();
 	dex?.close();
 });
 closeOnSigterm(app);

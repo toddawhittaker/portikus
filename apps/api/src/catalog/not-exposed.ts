@@ -129,6 +129,18 @@ export const NOT_EXPOSED: Readonly<Record<string, NotExposed>> = {
 		"The built-in AI's provider key and the notice an administrator reads in person; the key is write-only and never goes to a caller",
 		true,
 	),
+	...group(
+		[
+			"GET /admin/pricing",
+			"POST /admin/pricing/refresh",
+			"POST /admin/pricing/proposals/:id/decision",
+			"POST /admin/pricing/rows",
+			"PUT /admin/pricing/rows/:id",
+			"DELETE /admin/pricing/rows/:id",
+			"GET /pricing",
+		],
+		"The model price table: a check starts a paid model call, and the rest edits site data an administrator reviews in person",
+	),
 
 	// Sign-in machinery, loopback and preview-edge routes.
 	...group(
