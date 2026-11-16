@@ -844,3 +844,25 @@ test("the mail capture file works in development and is refused in production", 
 		"MAIL_CAPTURE_FILE",
 	);
 });
+
+// --- built-in AI test address (SPEC.md section 20.4) ---
+
+test("the AI test address works in development and is refused in production", () => {
+	expect(
+		loadConfig(ApiConfigSchema, { ...DB, AI_TEST_BASE_URL: "http://127.0.0.1:9/v1" })
+			.AI_TEST_BASE_URL,
+	).toBe("http://127.0.0.1:9/v1");
+	expect(loadConfig(ApiConfigSchema, DB).AI_TEST_BASE_URL).toBeUndefined();
+	expect(
+		issuesFor({
+			...PROD,
+			PREVIEW_SUFFIX: "preview.school.edu",
+			AI_TEST_BASE_URL: "http://127.0.0.1:9/v1",
+		}).some((issue) =>
+			issue.includes("AI_TEST_BASE_URL must not be set in production"),
+		),
+	).toBe(true);
+	expect(issuesFor({ ...DB, AI_TEST_BASE_URL: "not a url" })[0]).toContain(
+		"AI_TEST_BASE_URL",
+	);
+});

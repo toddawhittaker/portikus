@@ -33,17 +33,23 @@ const ENROL_TTL_MS = 10 * 60_000;
  * restore that carries the key file can open them (SPEC.md section 24.13).
  */
 export function secondFactorKey(hexKey: string): Buffer {
+	return deriveSealKey(hexKey, "portikus second factor secrets v1");
+}
+
+/**
+ * The key that seals the built-in AI provider's key (SPEC.md section 24.8).
+ * It comes from the same install key as the second factor, under its own
+ * label, so a backup that carries the one file opens both and neither
+ * sealed value opens with the other's key.
+ */
+export function aiKeySealKey(hexKey: string): Buffer {
+	return deriveSealKey(hexKey, "portikus ai key v1");
+}
+
+function deriveSealKey(hexKey: string, label: string): Buffer {
 	if (!/^[0-9a-f]{64}$/i.test(hexKey))
 		throw new Error("the second-factor key must be 64 hexadecimal characters");
-	return Buffer.from(
-		hkdfSync(
-			"sha256",
-			Buffer.from(hexKey, "hex"),
-			"",
-			"portikus second factor secrets v1",
-			32,
-		),
-	);
+	return Buffer.from(hkdfSync("sha256", Buffer.from(hexKey, "hex"), "", label, 32));
 }
 
 /**

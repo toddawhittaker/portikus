@@ -371,6 +371,9 @@ export const ApiErrorCode = z.enum([
 	"SEED_MATCH_UNKNOWN",
 	"SEED_ALREADY_MATCHES",
 	"SEED_OVER_LIMIT",
+	// Turning the built-in AI on before it has a key or an accepted notice (SPEC.md section 20.4).
+	"AI_KEY_REQUIRED",
+	"AI_NOTICE_REQUIRED",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;
 

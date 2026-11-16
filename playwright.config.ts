@@ -228,6 +228,8 @@ export default defineConfig({
 			env: {
 				NODE_ENV: "test",
 				PORT: String(API_PORT),
+				// Model requests go to the fake model server instead of the saved address.
+				AI_TEST_BASE_URL: `http://127.0.0.1:${FAKE_MODEL_PORT}/v1`,
 				AGENT_PORT: String(FAKE_AGENT_PORT),
 				DATABASE_URL: databaseUrl,
 				PUBLIC_URL: WEB_URL,

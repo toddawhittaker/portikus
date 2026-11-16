@@ -66,6 +66,11 @@ const NEVER = [
 	"DELETE /admin/docker/hub-credential",
 	"POST /admin/backups/key",
 	"POST /admin/backups/key/download",
+	"GET /admin/ai",
+	"PUT /admin/ai",
+	"POST /admin/ai/notice",
+	"POST /admin/ai/test",
+	"GET /admin/ai/models",
 ];
 
 const ACCESS_AUDIENCES: Record<AccessClass, readonly Audience[]> = {

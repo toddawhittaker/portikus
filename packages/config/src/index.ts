@@ -280,6 +280,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "MAIL_CAPTURE_FILE must be an absolute path")
 		.optional(),
+	/** Development only: model requests go here instead of the saved base address, without the proxy, for the e2e run. */
+	AI_TEST_BASE_URL: z.string().url().optional(),
 })
 	.refine(
 		(config) =>
@@ -287,6 +289,14 @@ export const ApiConfigSchema = BaseConfig.extend({
 		{
 			message: "MAIL_CAPTURE_FILE must not be set in production",
 			path: ["MAIL_CAPTURE_FILE"],
+		},
+	)
+	.refine(
+		(config) =>
+			config.NODE_ENV !== "production" || config.AI_TEST_BASE_URL === undefined,
+		{
+			message: "AI_TEST_BASE_URL must not be set in production",
+			path: ["AI_TEST_BASE_URL"],
 		},
 	)
 	.refine(requireProductionHttps("PUBLIC_URL"), {

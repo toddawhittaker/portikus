@@ -147,14 +147,17 @@ export {
 } from "./roles.js";
 export {
 	accountNeedsSecondFactor,
+	aiKeySealKey,
 	checkSecondFactor,
 	enrolTotp,
 	isRecoveryCodeShape,
 	markSecondFactorPassed,
 	openPendingTotp,
+	openSecret,
 	replaceRecoveryCodes,
 	resetSecondFactor,
 	sealPendingTotp,
+	sealSecret,
 	secondFactorApplies,
 	secondFactorKey,
 	storeFactor,
