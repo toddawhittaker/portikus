@@ -19,6 +19,7 @@ const TAB_ICON: Record<AdminTab, IconName> = {
 	docker: "box",
 	signin: "sign-in",
 	address: "map-pin",
+	ai: "agent",
 	settings: "settings",
 	shell: "terminal",
 };

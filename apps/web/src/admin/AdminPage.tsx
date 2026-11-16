@@ -11,6 +11,7 @@ import "./admin-frame.css";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AddressTab } from "./address/AddressTab.js";
 import { AgentUsageTab } from "./agent-usage/AgentUsageTab.js";
+import { AiTab } from "./ai/AiTab.js";
 import { ApiKeysTab } from "./api-keys/ApiKeysTab.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
@@ -63,6 +64,8 @@ function tabContent(view: AdminTab | null, currentUserId: string) {
 			return <SignInTab />;
 		case "address":
 			return <AddressTab />;
+		case "ai":
+			return <AiTab />;
 		case "settings":
 			return <SettingsTab />;
 		default:
