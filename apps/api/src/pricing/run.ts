@@ -4,12 +4,19 @@ import { type Database, recordAudit } from "@portikus/db";
 import { createOutboundFetch } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { z } from "zod";
-import type { AiMessage, AiTool, ModelClient, StepRequest } from "../ai/model.js";
-import { loadAiSettings, openModelClient } from "../ai/settings.js";
+import { addUsage, collectStep } from "../ai/collect.js";
+import type { AiMessage, AiTool, ModelClient } from "../ai/model.js";
+import { loadAiSettings, openModelClient, unavailableMessage } from "../ai/settings.js";
 import { recordUsage, type StepUsage } from "../ai/usage.js";
 import { pageText } from "./extract.js";
 import { fetchSource } from "./fetch.js";
-import { figureColumns, latestRun, listPrices, sameFigures } from "./store.js";
+import {
+	figureColumns,
+	latestRun,
+	listPrices,
+	pendingProposals,
+	sameFigures,
+} from "./store.js";
 import { checkRows, providerOfSource, SUBMIT_ROWS_TOOL } from "./validate.js";
 
 /** Used when the settings list no sources: the providers' own API price pages. */
@@ -46,7 +53,11 @@ export type PriceRunDeps = {
 	db: Kysely<Database>;
 	config: Pick<
 		ApiConfig,
-		"SECOND_FACTOR_KEY" | "OUTBOUND_PROXY_URL" | "AI_TEST_BASE_URL"
+		| "SECOND_FACTOR_KEY"
+		| "OUTBOUND_PROXY_URL"
+		| "AI_TEST_BASE_URL"
+		| "PUBLIC_URL"
+		| "PREVIEW_SUFFIX"
 	>;
 };
 
@@ -65,21 +76,16 @@ async function step(
 	messages: AiMessage[],
 	add: (usage: StepUsage) => void,
 ): Promise<{ text: string; calls: { id: string; name: string; input: unknown }[] }> {
-	const req: StepRequest = {
+	const answer = await collectStep(client, {
 		system: SYSTEM,
 		messages,
 		tools: [SUBMIT_TOOL],
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
 		signal: AbortSignal.timeout(STEP_TIMEOUT_MS),
-	};
-	let text = "";
-	const calls: { id: string; name: string; input: unknown }[] = [];
-	for await (const part of client.step(req)) {
-		if (part.type === "text") text += part.text;
-		else if (part.type === "tool-call") calls.push(part);
-		else add(part.usage);
-	}
-	return { text, calls };
+	});
+	if (answer.usage) add(answer.usage);
+	if (answer.error) throw answer.error;
+	return answer;
 }
 
 /**
@@ -111,6 +117,13 @@ async function extractRows(
 			errors.push(...check.errors);
 		}
 		if (errors.length === 0 || attempt === 1) return rows;
+		// A turn with neither text nor calls would be an empty assistant message, which providers refuse.
+		if (calls.length === 0) {
+			if (answer.text)
+				messages.push({ role: "assistant", text: answer.text, toolCalls: [] });
+			messages.push({ role: "user", text: errors.join(" ") });
+			continue;
+		}
 		messages.push({ role: "assistant", text: answer.text, toolCalls: calls });
 		messages.push({
 			role: "tool",
@@ -121,9 +134,6 @@ async function extractRows(
 				text: `Refused. ${errors.join(" ")} Submit all rows again, corrected.`,
 			})),
 		});
-		if (calls.length === 0) {
-			messages.push({ role: "user", text: errors.join(" ") });
-		}
 	}
 	return [];
 }
@@ -141,12 +151,21 @@ async function finish(
 		.execute();
 }
 
+/**
+ * Stores what changed as proposals. Only the newest proposal per model stays
+ * pending, so accepting an older one cannot overwrite newer figures; a row
+ * the same as the one already pending adds nothing. Returns how many new
+ * proposals were made.
+ */
 async function storeRows(
 	db: Kysely<Database>,
 	runId: string,
 	rows: PriceRowInput[],
 ): Promise<number> {
 	const current = await listPrices(db);
+	const pending: { id: string; row: PriceRowInput }[] = (
+		await pendingProposals(db)
+	).map((p) => ({ id: p.id, row: p }));
 	let proposals = 0;
 	for (const row of rows) {
 		const existing = current.find(
@@ -160,10 +179,35 @@ async function storeRows(
 				.execute();
 			continue;
 		}
-		await db
-			.insertInto("price_proposals")
-			.values({ run_id: runId, ...figureColumns(row) })
-			.execute();
+		const waiting = pending.filter(
+			(p) => p.row.provider === row.provider && p.row.model === row.model,
+		);
+		if (waiting.some((p) => sameFigures(p.row, row))) continue;
+		const id = await db.transaction().execute(async (trx) => {
+			if (waiting.length > 0) {
+				await trx
+					.updateTable("price_proposals")
+					.set({
+						status: "rejected",
+						decided_by: null,
+						decided_at: new Date().toISOString(),
+					})
+					.where(
+						"id",
+						"in",
+						waiting.map((p) => p.id),
+					)
+					.execute();
+			}
+			const inserted = await trx
+				.insertInto("price_proposals")
+				.values({ run_id: runId, ...figureColumns(row) })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			return inserted.id;
+		});
+		for (const p of waiting) pending.splice(pending.indexOf(p), 1);
+		pending.push({ id, row });
 		proposals++;
 	}
 	return proposals;
@@ -182,14 +226,11 @@ async function runPipeline(
 	const outbound = createOutboundFetch(config.OUTBOUND_PROXY_URL);
 	const failures: string[] = [];
 	const rows: PriceRowInput[] = [];
-	const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	const total: StepUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 	let used = false;
 	const add = (u: StepUsage) => {
 		used = true;
-		total.input += u.input;
-		total.output += u.output;
-		total.cacheRead += u.cacheRead;
-		total.cacheWrite += u.cacheWrite;
+		addUsage(total, u);
 	};
 	for (const url of urls) {
 		const host = new URL(url).hostname;
@@ -201,6 +242,7 @@ async function runPipeline(
 		const page = await fetchSource(url, {
 			outbound,
 			testBaseUrl: config.AI_TEST_BASE_URL,
+			site: config,
 		});
 		if (!page.ok) {
 			failures.push(`${host}:${page.error}`);
@@ -230,13 +272,6 @@ async function runPipeline(
 	return { status, proposals };
 }
 
-const UNAVAILABLE: Record<string, string> = {
-	off: "The built-in AI is switched off.",
-	"no-key": "The built-in AI has no working key.",
-	notice: "The privacy notice has not been accepted.",
-	"monthly-cap": "This month's AI token cap is spent.",
-};
-
 /**
  * Start a price check in the background (SPEC.md section 20.4): one run at
  * a time, and only while the built-in AI is available. The run row exists
@@ -250,7 +285,7 @@ export async function startPriceRun(
 	const { db } = deps;
 	const opened = await openModelClient(db, deps.config);
 	if ("unavailable" in opened) {
-		return { refused: "unavailable", reason: UNAVAILABLE[opened.unavailable] ?? "" };
+		return { refused: "unavailable", reason: unavailableMessage(opened.unavailable) };
 	}
 	const runId = await db.transaction().execute(async (trx) => {
 		// One lock for the check and the insert, so two starts cannot both pass.

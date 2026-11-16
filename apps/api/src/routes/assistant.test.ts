@@ -279,13 +279,11 @@ async function turnsFinished(client: Client, n: number): Promise<void> {
 
 const FINISH = (input = 10, output = 5): ModelPart => ({
 	type: "finish",
-	reason: "stop",
 	usage: { input, output, cacheRead: 0, cacheWrite: 0 },
 });
 
 const TOOLS_FINISH = (input = 10, output = 5): ModelPart => ({
 	type: "finish",
-	reason: "tool-calls",
 	usage: { input, output, cacheRead: 0, cacheWrite: 0 },
 });
 

@@ -61,7 +61,10 @@ const MAX_OUTPUT_TOKENS = 4096;
 
 const NOT_ENABLED_TEXT: Record<AssistantUnavailableReason, string> = {
 	off: "The assistant is not enabled: it is turned off for this site.",
+	incomplete:
+		"The assistant is not enabled: its provider, address or model is not set.",
 	"no-key": "The assistant is not enabled: it has no AI key yet.",
+	"key-unreadable": "The assistant is not enabled: its saved AI key no longer opens.",
 	notice:
 		"The assistant is not enabled: an administrator has not accepted the privacy notice.",
 	"monthly-cap":

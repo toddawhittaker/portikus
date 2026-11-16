@@ -79,7 +79,10 @@ export function useAssistantStatus(enabled: boolean) {
 /** The plain line for each reason the assistant cannot be used. */
 const NOT_ENABLED_TEXT: Record<AssistantUnavailableReason, string> = {
 	off: "The assistant is turned off for this site.",
+	incomplete: "The assistant is not set up yet, so it cannot answer.",
 	"no-key": "The assistant has no AI key yet, so it cannot answer.",
+	"key-unreadable":
+		"The assistant's AI key needs to be entered again, so it cannot answer.",
 	notice:
 		"The assistant waits for an administrator to accept the notice about what it sends.",
 	"monthly-cap":

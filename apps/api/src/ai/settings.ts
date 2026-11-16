@@ -2,6 +2,7 @@ import { aiKeySealKey, openSecret, sealSecret } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import {
 	AI_NOTICE_VERSION,
+	type AssistantUnavailableReason,
 	type ProviderKind,
 	type UpdateAiSettingsRequest,
 } from "@portikus/contracts";
@@ -36,11 +37,26 @@ export type ReadyAiSettings = AiSettings & {
 	model: string;
 };
 
-type AiUnavailable = "off" | "no-key" | "notice" | "monthly-cap";
+type ReadyModel = { client: ModelClient; settings: ReadyAiSettings };
 
-export type OpenedModel =
-	| { client: ModelClient; settings: ReadyAiSettings }
-	| { unavailable: AiUnavailable };
+export type OpenedModel = ReadyModel | { unavailable: AssistantUnavailableReason };
+
+/** Why the saved settings cannot make a client, whatever the switch says. */
+type NotConfigured = { unavailable: "incomplete" | "no-key" | "key-unreadable" };
+
+const UNAVAILABLE_TEXT: Record<AssistantUnavailableReason, string> = {
+	off: "The built-in AI is switched off.",
+	incomplete: "The built-in AI has no provider, base address or model saved.",
+	"no-key": "The built-in AI has no key saved.",
+	"key-unreadable": "The saved AI key no longer opens. Enter the key again.",
+	notice: "The privacy notice has not been accepted.",
+	"monthly-cap": "This month's AI token cap is spent.",
+};
+
+/** The plain sentence for why the built-in AI cannot run now. */
+export function unavailableMessage(reason: AssistantUnavailableReason): string {
+	return UNAVAILABLE_TEXT[reason];
+}
 
 // The context ties a sealed key to its purpose, so it opens nowhere else (SPEC.md section 24.8).
 const KEY_CONTEXT = "ai-key:provider";
@@ -107,9 +123,9 @@ export async function loadAiSettings(db: Kysely<Database>): Promise<AiSettings> 
 const directFetch: OutboundFetch = (url, init) => fetch(url, init);
 
 /**
- * A client for the saved settings, or null when the key, provider, address
- * or model is missing, or the sealed key no longer opens (a restore without
- * the key file). Requests go through the server's proxy (ADR 0027); the key
+ * A client for the saved settings, or why there is none: the provider,
+ * address or model is missing, there is no key, or the sealed key no longer
+ * opens (a restore without the key file). Requests go through the server's proxy (ADR 0027); the key
  * and address are always passed explicitly. Ignores the on/off switch, so the
  * settings page can test before it is switched on.
  */
@@ -119,11 +135,12 @@ export function modelClientFor(
 		ApiConfig,
 		"SECOND_FACTOR_KEY" | "OUTBOUND_PROXY_URL" | "AI_TEST_BASE_URL"
 	>,
-): { client: ModelClient; settings: ReadyAiSettings } | null {
+): ReadyModel | NotConfigured {
 	const { providerKind, baseUrl, model, keySealed } = settings;
-	if (!providerKind || !baseUrl || !model || !keySealed) return null;
+	if (!providerKind || !baseUrl || !model) return { unavailable: "incomplete" };
+	if (!keySealed) return { unavailable: "no-key" };
 	const apiKey = openAiKey(config, keySealed);
-	if (apiKey === null) return null;
+	if (apiKey === null) return { unavailable: "key-unreadable" };
 	const test = config.AI_TEST_BASE_URL;
 	const client = createModelClient(
 		{ kind: providerKind, baseUrl: test ?? baseUrl, apiKey, model },
@@ -147,7 +164,7 @@ export async function openModelClient(
 	const settings = await loadAiSettings(db);
 	if (!settings.enabled) return { unavailable: "off" };
 	const opened = modelClientFor(settings, config);
-	if (!opened) return { unavailable: "no-key" };
+	if ("unavailable" in opened) return opened;
 	if (settings.noticeVersion !== AI_NOTICE_VERSION) return { unavailable: "notice" };
 	if ((await usedThisMonth(db)) >= settings.monthlyTokenCap) {
 		return { unavailable: "monthly-cap" };
@@ -192,7 +209,11 @@ export async function readProxyHosts(
 
 export type SettingsRefusal = {
 	status: 400 | 409;
-	code: "VALIDATION_FAILED" | "AI_KEY_REQUIRED" | "AI_NOTICE_REQUIRED";
+	code:
+		| "VALIDATION_FAILED"
+		| "AI_KEY_REQUIRED"
+		| "AI_SETTINGS_INCOMPLETE"
+		| "AI_NOTICE_REQUIRED";
 	message: string;
 };
 
@@ -209,6 +230,29 @@ function hasKeyAfter(body: UpdateAiSettingsRequest, current: AiSettings): boolea
 	return current.keySealed !== null;
 }
 
+function hostOf(address: string): string {
+	return new URL(address).hostname.toLowerCase();
+}
+
+/**
+ * Whether the save names a new provider kind or base address host while
+ * keeping the saved key: the key was entered for the old one, so it must not
+ * be sent to the new one (SPEC.md section 24.8).
+ */
+function movesKeptKey(body: UpdateAiSettingsRequest, current: AiSettings): boolean {
+	if (body.key !== undefined || current.keySealed === null || body.clearKey === true)
+		return false;
+	const newKind =
+		body.providerKind !== undefined &&
+		current.providerKind !== null &&
+		body.providerKind !== current.providerKind;
+	const newHost =
+		body.baseUrl !== undefined &&
+		current.baseUrl !== null &&
+		hostOf(body.baseUrl) !== hostOf(current.baseUrl);
+	return newKind || newHost;
+}
+
 function refusalFor(
 	body: UpdateAiSettingsRequest,
 	current: AiSettings,
@@ -223,12 +267,30 @@ function refusalFor(
 			};
 		}
 	}
+	if (movesKeptKey(body, current)) {
+		return {
+			status: 409,
+			code: "AI_KEY_REQUIRED",
+			message:
+				"Enter the key again when you change the provider or the base address's host.",
+		};
+	}
 	if (body.enabled !== true) return null;
 	if (!hasKeyAfter(body, current)) {
 		return {
 			status: 409,
 			code: "AI_KEY_REQUIRED",
 			message: "Save a key before turning this on.",
+		};
+	}
+	const providerKind = body.providerKind ?? current.providerKind;
+	const baseUrl = body.baseUrl ?? current.baseUrl;
+	const model = body.model ?? current.model;
+	if (!providerKind || !baseUrl || !model) {
+		return {
+			status: 409,
+			code: "AI_SETTINGS_INCOMPLETE",
+			message: "Save a provider, a base address and a model before turning this on.",
 		};
 	}
 	if (current.noticeVersion !== AI_NOTICE_VERSION) {

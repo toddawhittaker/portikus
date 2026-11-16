@@ -1,4 +1,7 @@
+import type { ApiConfig } from "@portikus/config";
+import { isAiBaseUrl } from "@portikus/contracts";
 import type { OutboundFetch } from "@portikus/observability";
+import { isSiteOwnHost } from "../ai/settings.js";
 
 const SOURCE_TIMEOUT_MS = 20_000;
 export const SOURCE_MAX_BYTES = 2 * 1024 * 1024;
@@ -20,6 +23,8 @@ export type SourceFetchOptions = {
 	outbound: OutboundFetch;
 	/** The e2e fake: read `<origin>/__page?url=` with a plain fetch instead. */
 	testBaseUrl?: string | undefined;
+	/** The site's own hosts, which no redirect may reach. */
+	site: Pick<ApiConfig, "PUBLIC_URL" | "PREVIEW_SUFFIX">;
 	timeoutMs?: number;
 };
 
@@ -45,6 +50,7 @@ async function getPage(
 	url: string,
 	fetchFn: OutboundFetch,
 	signal: AbortSignal,
+	redirectAllowed: (next: string) => boolean,
 ): Promise<SourcePage> {
 	let current = url;
 	for (let hop = 0; ; hop++) {
@@ -59,10 +65,9 @@ async function getPage(
 			const location = response.headers.get("location");
 			if (!location || hop >= MAX_REDIRECTS)
 				return { ok: false, error: "bad-redirect" };
-			const next = new URL(location, current);
-			// A redirect may not step down to plain http or to another scheme.
-			if (next.protocol !== "https:") return { ok: false, error: "bad-redirect" };
-			current = next.href;
+			const next = new URL(location, current).href;
+			if (!redirectAllowed(next)) return { ok: false, error: "bad-redirect" };
+			current = next;
 			continue;
 		}
 		if (!response.ok) {
@@ -76,7 +81,8 @@ async function getPage(
 
 /**
  * Read one pricing source: https only, a time limit, a size limit and at
- * most three redirects, each to https (SPEC.md section 24.1). A failure is a
+ * most three redirects, each to a public https host other than this site
+ * (SPEC.md section 24.1). A failure is a
  * code, never the page or the proxy's answer.
  */
 export async function fetchSource(
@@ -89,9 +95,14 @@ export async function fetchSource(
 		if (options.testBaseUrl) {
 			const origin = new URL(options.testBaseUrl).origin;
 			const page = `${origin}/__page?url=${encodeURIComponent(url)}`;
-			return await getPage(page, (u, init) => fetch(u, init), signal);
+			const httpsOnly = (next: string) => new URL(next).protocol === "https:";
+			return await getPage(page, (u, init) => fetch(u, init), signal, httpsOnly);
 		}
-		return await getPage(url, options.outbound, signal);
+		// Each hop meets the rules a saved address does: https, a public host,
+		// and never this site itself (SPEC.md section 24.1).
+		const safe = (next: string) =>
+			isAiBaseUrl(next) && !isSiteOwnHost(next, options.site);
+		return await getPage(url, options.outbound, signal, safe);
 	} catch {
 		return { ok: false, error: signal.aborted ? "timeout" : "unreachable" };
 	}

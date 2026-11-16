@@ -45,6 +45,8 @@ const config = {
 	SECOND_FACTOR_KEY: "x".repeat(64),
 	OUTBOUND_PROXY_URL: undefined,
 	AI_TEST_BASE_URL: undefined,
+	PUBLIC_URL: "https://portikus.school.edu",
+	PREVIEW_SUFFIX: "preview.school.edu",
 };
 const OPENAI = "https://openai.com/api/pricing";
 const ANTHROPIC = "https://www.anthropic.com/pricing";
@@ -67,7 +69,6 @@ const ROW = {
 
 const FINISH: ModelPart = {
 	type: "finish",
-	reason: "tool-calls",
 	usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0 },
 };
 const submit = (rows: unknown[], name = "submit_rows"): FakeStep => [
@@ -182,6 +183,63 @@ describe.skipIf(skip)("a price run", () => {
 			.execute();
 		const changed = await run([submit([ROW])]);
 		expect(changed.outcome.proposals).toBe(1);
+	});
+
+	test("a newer proposal for a model rejects the older pending one, with no one as the decider", async () => {
+		const first = await run([submit([ROW])]);
+		expect(first.outcome.proposals).toBe(1);
+		const changed = {
+			...ROW,
+			inputPricePerMillion: 3,
+			sourceQuote: "Model A input $3.00 per million",
+		};
+		state.pages = { [OPENAI]: { ok: true, html: `<p>${changed.sourceQuote}</p>` } };
+		const second = await run([submit([changed])]);
+		expect(second.outcome.proposals).toBe(1);
+		const rows = await testDb.db
+			.selectFrom("price_proposals")
+			.selectAll()
+			.orderBy("input_price_per_million")
+			.execute();
+		expect(rows.map((r) => [Number(r.input_price_per_million), r.status])).toEqual([
+			[2, "rejected"],
+			[3, "pending"],
+		]);
+		expect(rows[0]?.decided_by).toBeNull();
+		expect(rows[0]?.decided_at).not.toBeNull();
+	});
+
+	test("a row the same as the pending proposal adds nothing and counts as no proposal", async () => {
+		await run([submit([ROW])]);
+		const again = await run([submit([ROW])]);
+		expect(again.outcome.proposals).toBe(0);
+		const rows = await testDb.db.selectFrom("price_proposals").selectAll().execute();
+		expect(rows).toMatchObject([
+			{ status: "pending", run_id: again.proposals[0]?.run_id },
+		]);
+		expect(rows).toHaveLength(1);
+	});
+
+	test("the retry after a reply with no tool call never sends an empty assistant message", async () => {
+		const silent: FakeStep = [FINISH];
+		const out = await run([silent, submit([ROW])]);
+		expect(out.outcome.proposals).toBe(1);
+		const retry = out.client.requests[1]?.messages ?? [];
+		expect(retry.map((m) => m.role)).toEqual(["user", "user"]);
+		for (const m of retry) {
+			if (m.role === "assistant") expect(m.text || m.toolCalls.length).toBeTruthy();
+		}
+
+		const spoken: FakeStep = [
+			{ type: "text", text: "I could not find prices." },
+			FINISH,
+		];
+		const kept = await run([spoken, submit([ROW])]);
+		expect(kept.client.requests[1]?.messages.map((m) => m.role)).toEqual([
+			"user",
+			"assistant",
+			"user",
+		]);
 	});
 
 	test("bad rows are sent back once with the errors, then dropped", async () => {
@@ -347,6 +405,21 @@ describe.skipIf(skip)("the weekly tick", () => {
 		expect(await weeklyPriceTick(deps, new Date(Date.now() + WEEK_MS + 60_000))).toBe(
 			"ran",
 		);
+	});
+
+	test("sends no notice when the run only repeats a proposal already waiting", async () => {
+		await admins();
+		state.client = createFakeModelClient([submit([ROW])]);
+		const deps = { db: testDb.db, config };
+		expect(await weeklyPriceTick(deps)).toBe("ran");
+		await testDb.db.deleteFrom("notifications").execute();
+		state.client = createFakeModelClient([submit([ROW])]);
+		expect(await weeklyPriceTick(deps, new Date(Date.now() + WEEK_MS + 60_000))).toBe(
+			"ran",
+		);
+		expect(
+			await testDb.db.selectFrom("notifications").selectAll().execute(),
+		).toHaveLength(0);
 	});
 
 	test("does nothing while the AI is unavailable, and sends no notice without proposals", async () => {

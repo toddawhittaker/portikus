@@ -4,7 +4,7 @@
  * the host checks.
  */
 import { aiKeySealKey, openSecret, secondFactorKey } from "@portikus/auth";
-import { AI_NOTICE_VERSION } from "@portikus/contracts";
+import { AI_NOTICE_VERSION, AssistantUnavailableReason } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ModelSettings } from "./model.js";
@@ -29,8 +29,15 @@ vi.mock("@portikus/observability", async (importOriginal) => ({
 	},
 }));
 
-const { isSiteOwnHost, loadAiSettings, modelClientFor, openModelClient, sealAiKey } =
-	await import("./settings.js");
+const {
+	isSiteOwnHost,
+	loadAiSettings,
+	modelClientFor,
+	openModelClient,
+	planSettingsUpdate,
+	sealAiKey,
+	unavailableMessage,
+} = await import("./settings.js");
 const { recordUsage } = await import("./usage.js");
 
 const skip = !hasTestDb();
@@ -119,30 +126,29 @@ describe.skipIf(skip)("openModelClient", () => {
 		expect(made.calls).toEqual([]);
 	});
 
-	test("needs a key, a provider, an address and a model", async () => {
+	test("a missing provider, address or model is incomplete; a missing key is no-key", async () => {
 		for (const missing of [
-			{ key_sealed: null, key_hint: null },
 			{ provider_kind: null },
 			{ base_url: null },
 			{ model: null },
 		]) {
 			await ready(missing);
 			expect(await openModelClient(testDb.db, CONFIG), JSON.stringify(missing)).toEqual(
-				{
-					unavailable: "no-key",
-				},
+				{ unavailable: "incomplete" },
 			);
 		}
+		await ready({ key_sealed: null, key_hint: null });
+		expect(await openModelClient(testDb.db, CONFIG)).toEqual({ unavailable: "no-key" });
 	});
 
-	test("a sealed key that no longer opens (a restore without the key file) reads as no key", async () => {
+	test("a sealed key that no longer opens (a restore without the key file) is key-unreadable", async () => {
 		await ready();
 		expect(
 			await openModelClient(testDb.db, {
 				...CONFIG,
 				SECOND_FACTOR_KEY: "a0".repeat(32),
 			}),
-		).toEqual({ unavailable: "no-key" });
+		).toEqual({ unavailable: "key-unreadable" });
 	});
 
 	test("needs the notice accepted at the current version", async () => {
@@ -271,5 +277,94 @@ describe("isSiteOwnHost", () => {
 		]) {
 			expect(isSiteOwnHost(other, site), other).toBe(false);
 		}
+	});
+});
+
+describe("unavailableMessage", () => {
+	test("has a plain sentence for every reason", () => {
+		for (const reason of AssistantUnavailableReason.options) {
+			expect(unavailableMessage(reason), reason).toMatch(/^[A-Z].+\.$/);
+		}
+	});
+});
+
+describe("planSettingsUpdate", () => {
+	const PLAN_CONFIG = {
+		SECOND_FACTOR_KEY: CONFIG.SECOND_FACTOR_KEY,
+		PUBLIC_URL: "https://portikus.school.edu",
+		PREVIEW_SUFFIX: "preview.school.edu",
+	};
+	const saved = {
+		enabled: false,
+		providerKind: "openai-compatible" as const,
+		baseUrl: "https://api.openai.com/v1",
+		model: "gpt-x",
+		keySealed: sealAiKey(CONFIG, KEY),
+		keyHint: "WXYZ",
+		monthlyTokenCap: 5_000_000,
+		conversationTokenBudget: 200_000,
+		noticeVersion: AI_NOTICE_VERSION,
+		noticeAcceptedBy: null,
+		noticeAcceptedAt: null,
+		priceSources: [],
+	};
+
+	test("a new base address host or provider kind without a new key is refused", () => {
+		for (const body of [
+			{ baseUrl: "https://models.elsewhere.example.com/v1" },
+			{ providerKind: "anthropic" as const },
+			{ baseUrl: "https://models.elsewhere.example.com/v1", enabled: false },
+		]) {
+			expect(
+				planSettingsUpdate(body, saved, PLAN_CONFIG),
+				JSON.stringify(body),
+			).toEqual(expect.objectContaining({ status: 409, code: "AI_KEY_REQUIRED" }));
+		}
+	});
+
+	test("the same host on a new path, a new key, or no saved key is allowed", () => {
+		for (const body of [
+			{ baseUrl: "https://API.openai.com/v2" },
+			{
+				baseUrl: "https://models.elsewhere.example.com/v1",
+				key: "new-key-for-tests-1234",
+			},
+			{ providerKind: "anthropic" as const, key: "new-key-for-tests-1234" },
+			{ baseUrl: "https://models.elsewhere.example.com/v1", clearKey: true },
+		]) {
+			expect(
+				planSettingsUpdate(body, saved, PLAN_CONFIG),
+				JSON.stringify(body),
+			).not.toHaveProperty("status");
+		}
+		expect(
+			planSettingsUpdate(
+				{ baseUrl: "https://models.elsewhere.example.com/v1" },
+				{ ...saved, keySealed: null, keyHint: null },
+				PLAN_CONFIG,
+			),
+		).not.toHaveProperty("status");
+	});
+
+	test("turning on needs a provider, a base address and a model after the save", () => {
+		for (const missing of [
+			{ providerKind: null },
+			{ baseUrl: null },
+			{ model: null },
+		]) {
+			expect(
+				planSettingsUpdate({ enabled: true }, { ...saved, ...missing }, PLAN_CONFIG),
+				JSON.stringify(missing),
+			).toEqual(
+				expect.objectContaining({ status: 409, code: "AI_SETTINGS_INCOMPLETE" }),
+			);
+		}
+		expect(
+			planSettingsUpdate(
+				{ enabled: true, model: "gpt-y" },
+				{ ...saved, model: null },
+				PLAN_CONFIG,
+			),
+		).toMatchObject({ patch: { enabled: true, model: "gpt-y" } });
 	});
 });

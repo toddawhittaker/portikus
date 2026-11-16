@@ -287,7 +287,6 @@ describe("openai-compatible", () => {
 			{ type: "tool-call", id: "call_1", name: "users_list", input: { limit: 5 } },
 			{
 				type: "finish",
-				reason: "tool-calls",
 				usage: { input: 40, output: 7, cacheRead: 30, cacheWrite: 0 },
 			},
 		]);
@@ -364,31 +363,6 @@ describe("openai-compatible", () => {
 		]);
 	});
 
-	test("maps the stop and length finish reasons, and an unknown one to other", async () => {
-		const usageChunk = {
-			id: "c1",
-			object: "chat.completion.chunk",
-			created: 1,
-			model: "gpt-test",
-			choices: [],
-			usage: { prompt_tokens: 1, completion_tokens: 1 },
-		};
-		const reasons: Array<[string, string]> = [
-			["stop", "stop"],
-			["length", "length"],
-			["content_filter", "other"],
-		];
-		for (const [wire, ours] of reasons) {
-			const { fn } = fakeFetch(
-				openAiSse([chunk({ content: "x" }), chunk({}, wire), usageChunk]),
-			);
-			const parts = await collect(
-				createModelClient(OPENAI, fn).step(request({ tools: [] })),
-			);
-			expect(parts.at(-1)).toMatchObject({ type: "finish", reason: ours });
-		}
-	});
-
 	test("lists models from GET {base}/models", async () => {
 		const { fn, captured } = fakeFetch(
 			Response.json({
@@ -430,7 +404,6 @@ describe("anthropic", () => {
 			{ type: "tool-call", id: "toolu_1", name: "users_list", input: { limit: 5 } },
 			{
 				type: "finish",
-				reason: "tool-calls",
 				usage: { input: 160, output: 20, cacheRead: 50, cacheWrite: 100 },
 			},
 		]);
@@ -499,7 +472,6 @@ describe("errors", () => {
 				);
 				const error = await stepError(createModelClient(settings, fn).step(request()));
 				expect(error.code).toBe(code);
-				expect(error.status).toBe(status);
 				expect(error.message).not.toContain(KEY);
 				expect(error.message).not.toContain("xyzzy");
 				expect(error.cause).toBeUndefined();
@@ -610,7 +582,7 @@ describe("errors", () => {
 	});
 
 	test("toModelError keeps a ModelError and turns anything unknown into other", () => {
-		const original = new ModelError("rate-limited", 429);
+		const original = new ModelError("rate-limited");
 		expect(toModelError(new Error("wrapped", { cause: original }))).toBe(original);
 		expect(toModelError("a string").code).toBe("other");
 		expect(toModelError(new Error(`secret ${KEY}`)).message).not.toContain(KEY);
