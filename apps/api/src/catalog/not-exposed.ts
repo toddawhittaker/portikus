@@ -131,6 +131,18 @@ export const NOT_EXPOSED: Readonly<Record<string, NotExposed>> = {
 	),
 	...group(
 		[
+			"GET /admin/pricing",
+			"POST /admin/pricing/refresh",
+			"POST /admin/pricing/proposals/:id/decision",
+			"POST /admin/pricing/rows",
+			"PUT /admin/pricing/rows/:id",
+			"DELETE /admin/pricing/rows/:id",
+			"GET /pricing",
+		],
+		"The model price table: a check starts a paid model call, and the rest edits site data an administrator reviews in person",
+	),
+	...group(
+		[
 			"GET /assistant/status",
 			"POST /assistant/conversations",
 			"GET /assistant/conversations",
