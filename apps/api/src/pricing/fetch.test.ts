@@ -84,6 +84,25 @@ describe("fetchSource", () => {
 		).toEqual({ ok: false, error: "bad-redirect" });
 	});
 
+	test("a failure after a redirect is moved, naming the final address", async () => {
+		const { outbound } = fakeOutbound({
+			"https://old.openai.com/p": { status: 301, location: "https://new.openai.com/q" },
+		});
+		expect(
+			await fetchSource("https://old.openai.com/p", { outbound, site: SITE }),
+		).toEqual({ ok: false, error: "moved", to: "https://new.openai.com/q" });
+		const refusedAfter = fakeOutbound({
+			"https://old.openai.com/p": { status: 302, location: "https://new.openai.com/q" },
+			"https://new.openai.com/q": { status: 403 },
+		});
+		expect(
+			await fetchSource("https://old.openai.com/p", {
+				outbound: refusedAfter.outbound,
+				site: SITE,
+			}),
+		).toEqual({ ok: false, error: "moved", to: "https://new.openai.com/q" });
+	});
+
 	test("a redirect to http is refused", async () => {
 		const { outbound, seen } = fakeOutbound({
 			"https://openai.com/p": { status: 301, location: "http://openai.com/p" },

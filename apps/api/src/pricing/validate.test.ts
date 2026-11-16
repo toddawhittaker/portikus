@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { checkRows, providerOfSource } from "./validate.js";
 
 const SOURCE = {
-	url: "https://platform.openai.com/docs/pricing",
+	url: "https://developers.openai.com/api/docs/pricing",
 	provider: "openai" as const,
 	text: "GPT Test: input $2.00 per million tokens, cached $0.20",
 };

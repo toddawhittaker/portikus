@@ -8,7 +8,8 @@
  *   POST /__script    add a script: { match, steps }
  *   POST /__reset     drop added scripts and recorded requests
  *   GET  /__requests  the recorded request bodies, newest last
- *   GET  /__page?url= the pricing page the API reads in place of that address
+ *   GET  /__page?url= the pricing page the API reads in place of that address;
+ *                     "moved" in the address answers 302 to a host that cannot be reached
  *
  * Request bodies are kept in memory only, so a test can check what was sent.
  * Nothing is ever written to standard output.
@@ -329,6 +330,12 @@ export function createFakeModelServer() {
 			sendJson(res, 200, requests);
 		} else if (req.method === "GET" && path === "/__page") {
 			const url = new URL(req.url ?? "/", "http://fake").searchParams.get("url") ?? "";
+			if (url.includes("moved")) {
+				// ".invalid" never resolves, as a host the server proxy refuses never connects.
+				res.writeHead(302, { location: "https://pricing-moved.invalid/pricing" });
+				res.end();
+				return;
+			}
 			const page = fakePricingPage(url);
 			if (page === null) {
 				res.writeHead(403, { "content-type": "text/plain" });

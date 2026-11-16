@@ -85,6 +85,16 @@ const RUN_ERRORS: Record<string, string> = {
 	internal: "The check stopped on an internal error. Run it again.",
 };
 
+/** The address a "moved=<encoded url>" code names, or null when it is cut off or not https. */
+function movedTarget(code: string): URL | null {
+	try {
+		const url = new URL(decodeURIComponent(code.slice("moved=".length)));
+		return url.protocol === "https:" ? url : null;
+	} catch {
+		return null;
+	}
+}
+
 export interface SourceFailure {
 	host: string | null;
 	code: string;
@@ -102,6 +112,13 @@ export function runFailures(errorCode: string | null): SourceFailure[] {
 			return { host: null, code: part, text, proxy: false };
 		}
 		const code = part.slice(at + 1);
+		if (code.startsWith("moved=")) {
+			const to = movedTarget(code);
+			const text = to
+				? `The page moved to ${to.hostname}, which the server proxy does not allow. Change this source to ${to.href}, or allow ${to.hostname}.`
+				: "The page moved to an address the server proxy does not allow. Change this source to the new address, or allow its host.";
+			return { host: part.slice(0, at), code: "moved", text, proxy: true };
+		}
 		return {
 			host: part.slice(0, at),
 			code,

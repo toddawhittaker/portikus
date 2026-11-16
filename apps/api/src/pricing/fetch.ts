@@ -16,7 +16,9 @@ type SourceFetchError =
 
 export type SourcePage =
 	| { ok: true; html: string }
-	| { ok: false; error: SourceFetchError };
+	| { ok: false; error: SourceFetchError }
+	/** The page moved, and the address it moved to could not be read. */
+	| { ok: false; error: "moved"; to: string };
 
 export type SourceFetchOptions = {
 	/** Requests leave through the server proxy (ADR 0027). */
@@ -54,12 +56,19 @@ async function getPage(
 ): Promise<SourcePage> {
 	let current = url;
 	for (let hop = 0; ; hop++) {
-		const response = await fetchFn(current, {
-			method: "GET",
-			headers: { accept: "text/html,text/plain" },
-			redirect: "manual",
-			signal,
-		});
+		let response: Response;
+		try {
+			response = await fetchFn(current, {
+				method: "GET",
+				headers: { accept: "text/html,text/plain" },
+				redirect: "manual",
+				signal,
+			});
+		} catch (error) {
+			// After a redirect the new host is most likely not on the proxy's list.
+			if (hop > 0 && !signal.aborted) return { ok: false, error: "moved", to: current };
+			throw error;
+		}
 		if (response.status >= 300 && response.status < 400) {
 			await response.body?.cancel();
 			const location = response.headers.get("location");
@@ -72,7 +81,9 @@ async function getPage(
 		}
 		if (!response.ok) {
 			await response.body?.cancel();
-			return { ok: false, error: "refused" };
+			return hop > 0
+				? { ok: false, error: "moved", to: current }
+				: { ok: false, error: "refused" };
 		}
 		const html = await readCapped(response);
 		return html === null ? { ok: false, error: "too-large" } : { ok: true, html };

@@ -43,7 +43,7 @@ const ROW: AdminModelPrice = {
 	cacheTtlSeconds: 300,
 	surchargeAboveTokens: null,
 	surchargeFactor: null,
-	sourceUrl: "https://docs.claude.com/en/docs/about-claude/pricing",
+	sourceUrl: "https://platform.claude.com/docs/en/about-claude/pricing",
 	sourceQuote: "Opus 5.5: $5 / MTok",
 	checkedAt: "2026-11-10T00:00:00.000Z",
 	updatedAt: "2026-11-10T00:00:00.000Z",
@@ -55,7 +55,7 @@ const RUN: PriceRun = {
 	status: "done",
 	startedAt: "2026-11-15T03:00:00.000Z",
 	finishedAt: "2026-11-15T03:01:00.000Z",
-	errorCode: "platform.openai.com:refused",
+	errorCode: "developers.openai.com:refused",
 	proposalCount: 1,
 };
 
@@ -144,7 +144,7 @@ test("the table lists each row's figures, with the source quote behind a disclos
 	expect(row.textContent).toMatch(/\$5\.00/);
 	expect(row.textContent).toMatch(/2× for one hour/);
 	expect(row.textContent).toMatch(/5 min/);
-	expect(within(row).getByRole("link", { name: "docs.claude.com" })).toBeTruthy();
+	expect(within(row).getByRole("link", { name: "platform.claude.com" })).toBeTruthy();
 	expect(within(row).getByText("Quote")).toBeTruthy();
 	expect(row.textContent).toMatch(/Opus 5\.5: \$5 \/ MTok/);
 });
@@ -158,7 +158,7 @@ test("the last run shows its trigger, and a refused source its sentence and a po
 	const failure = within(screen.getByTestId("pricing-run-failures")).getByText(
 		/refused/,
 	);
-	expect(failure.closest("li")?.textContent).toMatch(/platform\.openai\.com/);
+	expect(failure.closest("li")?.textContent).toMatch(/developers\.openai\.com/);
 	expect(
 		within(screen.getByTestId("pricing-run-failures")).getByRole("link", {
 			name: "Go to Sources",
@@ -236,7 +236,7 @@ test("adding a row checks the fields against the contract before it sends", asyn
 	type(/^Input price/, "2");
 	type(/^Cache read ratio/, "0.1");
 	type(/^Cache write ratio/, "1.25");
-	type(/^Source page/, "https://platform.openai.com/docs/pricing");
+	type(/^Source page/, "https://developers.openai.com/api/docs/pricing");
 	type(/^Quote from the source/, "GPT-7: $2 / 1M input");
 	fireEvent.click(within(dialog).getByTestId("price-row-save"));
 	await screen.findByTestId("price-row-gpt-7");
@@ -263,14 +263,14 @@ test("deleting a row asks first", async () => {
 test("the default sources show when none are saved, and an unlisted host is offered, ticked", async () => {
 	const sent = serve({
 		proposals: [],
-		proxy: { operatorHosts: ["docs.claude.com"], hosts: [] },
+		proxy: { operatorHosts: ["platform.claude.com"], hosts: [] },
 	});
 	renderWithQuery(<PricingTab />);
 	const list = await screen.findByTestId("pricing-source-list");
-	expect(list.textContent).toMatch(/platform\.openai\.com\/docs\/pricing/);
-	expect(list.textContent).toMatch(/docs\.claude\.com/);
+	expect(list.textContent).toMatch(/developers\.openai\.com\/api\/docs\/pricing/);
+	expect(list.textContent).toMatch(/platform\.claude\.com/);
 	const offer = await screen.findByTestId("pricing-proxy-offer");
-	expect(offer.textContent).toMatch(/reach platform\.openai\.com on port 443/);
+	expect(offer.textContent).toMatch(/reach developers\.openai\.com on port 443/);
 	expect(within(offer).getByRole("checkbox")).toHaveProperty("checked", true);
 	fireEvent.change(screen.getByLabelText(/^Add a page/), {
 		target: { value: "http://x" },
@@ -286,8 +286,8 @@ test("the default sources show when none are saved, and an unlisted host is offe
 		expect(sent.find((r) => r.url === "/admin/ai" && r.method === "PUT")?.body).toEqual(
 			{
 				priceSources: [
-					"https://platform.openai.com/docs/pricing",
-					"https://docs.claude.com/en/docs/about-claude/pricing",
+					"https://developers.openai.com/api/docs/pricing",
+					"https://platform.claude.com/docs/en/about-claude/pricing",
 					"https://prices.example.com/llm",
 				],
 				addProxyHost: true,

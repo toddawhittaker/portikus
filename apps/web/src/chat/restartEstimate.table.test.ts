@@ -15,7 +15,7 @@ function row(overrides: Partial<ModelPrice>): ModelPrice {
 		cacheTtlSeconds: 300,
 		surchargeAboveTokens: null,
 		surchargeFactor: null,
-		sourceUrl: "https://docs.claude.com/en/docs/about-claude/pricing",
+		sourceUrl: "https://platform.claude.com/docs/en/about-claude/pricing",
 		sourceQuote: "Opus: $5 per million input tokens",
 		checkedAt: "2026-11-10T00:00:00.000Z",
 		updatedAt: "2026-11-10T00:00:00.000Z",
