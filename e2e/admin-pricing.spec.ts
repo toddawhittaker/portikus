@@ -32,9 +32,10 @@ const PRICE_TABLES = ["model_prices", "price_runs", "price_proposals"] as const;
 
 // The fake answers each provider's page with its one row; "refuse" in an address gets a 403.
 const SOURCES = [
-	"https://platform.openai.com/docs/pricing",
-	"https://docs.claude.com/en/docs/about-claude/pricing",
+	"https://developers.openai.com/api/docs/pricing",
+	"https://platform.claude.com/docs/en/about-claude/pricing",
 	"https://www.anthropic.com/refuse",
+	"https://platform.openai.com/moved",
 ];
 
 let savedAi: Record<string, unknown> | undefined;
@@ -129,6 +130,16 @@ test("a check proposes rows from the source pages; one is accepted and one rejec
 	await expect(failure).toContainText("refused the request");
 	await expect(failure.getByRole("link", { name: "Go to Sources" })).toBeVisible();
 
+	// A page that moved to a host the proxy does not allow names the new host and address.
+	const moved = page
+		.getByTestId("pricing-run-failures")
+		.locator('li[data-code="moved"]');
+	await expect(moved).toContainText("platform.openai.com");
+	await expect(moved).toContainText(
+		"The page moved to pricing-moved.invalid, which the server proxy does not allow. Change this source to https://pricing-moved.invalid/pricing, or allow pricing-moved.invalid.",
+	);
+	await expect(moved.getByRole("link", { name: "Go to Sources" })).toBeVisible();
+
 	const openai = page.getByTestId(`proposal-${FAKE_PRICE_ROWS.openai.model}`);
 	const anthropic = page.getByTestId(`proposal-${FAKE_PRICE_ROWS.anthropic.model}`);
 	await expect(openai).toContainText("a new row");
@@ -194,7 +205,7 @@ test("rows are added, edited and deleted by hand", async ({ page }) => {
 	await dialog.getByLabel(/^Cache write ratio/).fill("1.25");
 	await dialog
 		.getByLabel(/^Source page/)
-		.fill("https://docs.claude.com/en/docs/about-claude/pricing");
+		.fill("https://platform.claude.com/docs/en/about-claude/pricing");
 	await dialog
 		.getByLabel(/^Quote from the source/)
 		.fill("E2E Model 9: $4 per million input");

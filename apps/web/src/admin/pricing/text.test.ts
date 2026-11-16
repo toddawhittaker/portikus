@@ -10,6 +10,18 @@ import {
 	unlistedSourceHosts,
 } from "./text.js";
 
+test("a moved page names the new host and address, and offers the Sources link", () => {
+	const to = "https://platform.claude.com/docs/en/about-claude/pricing";
+	const [moved] = runFailures(`docs.claude.com:moved=${encodeURIComponent(to)}`);
+	expect(moved?.code).toBe("moved");
+	expect(moved?.proxy).toBe(true);
+	expect(moved?.text).toBe(
+		`The page moved to platform.claude.com, which the server proxy does not allow. Change this source to ${to}, or allow platform.claude.com.`,
+	);
+	const [cut] = runFailures("docs.claude.com:moved=https%3A%2F%2Fplatform.cla%");
+	expect(cut?.text).toMatch(/^The page moved to an address/);
+});
+
 test("each failed source gets its own plain sentence, and refused or unreachable point at the proxy offer", () => {
 	const failures = runFailures(
 		"a.example.com:refused,b.example.com:unreachable,c.example.com:too-large,d.example.com:bad-redirect,e.example.com:timeout,f.example.com:unknown-provider,g.example.com:no-rows,h.example.com:model-failed",
@@ -50,13 +62,13 @@ test("a whole-run failure and an unknown code still read as sentences", () => {
 test("the proxy offer names only hosts the server proxy lists on neither list, port 443 or none", () => {
 	const listed = listedHosts([
 		["Docs.Claude.com"],
-		["platform.openai.com:443", "other.example.com:8443"],
+		["developers.openai.com:443", "other.example.com:8443"],
 	]);
 	expect(
 		unlistedSourceHosts(
 			[
 				"https://docs.claude.com/pricing",
-				"https://platform.openai.com/docs/pricing",
+				"https://developers.openai.com/api/docs/pricing",
 				"https://other.example.com/p",
 				"https://other.example.com/q",
 			],
@@ -143,7 +155,7 @@ test("an edited row starts from its saved figures", () => {
 		cacheTtlSeconds: 600,
 		surchargeAboveTokens: 272_000,
 		surchargeFactor: 2,
-		sourceUrl: "https://platform.openai.com/docs/pricing",
+		sourceUrl: "https://developers.openai.com/api/docs/pricing",
 		sourceQuote: "q",
 		checkedAt: "2026-11-10T00:00:00.000Z",
 		updatedAt: "2026-11-10T00:00:00.000Z",

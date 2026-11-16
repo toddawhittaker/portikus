@@ -329,7 +329,7 @@ describe("recorded requests", () => {
 
 describe("the pricing page", () => {
 	test("serves a page whose marker and quote match the price script", async () => {
-		const source = "https://docs.claude.com/en/docs/about-claude/pricing";
+		const source = "https://platform.claude.com/docs/en/about-claude/pricing";
 		const response = await fetch(`${base}/__page?url=${encodeURIComponent(source)}`);
 		expect(response.status).toBe(200);
 		const html = await response.text();
@@ -341,6 +341,17 @@ describe("the pricing page", () => {
 		expect(JSON.parse(call?.arguments ?? "")).toEqual({
 			rows: [FAKE_PRICE_ROWS.anthropic],
 		});
+	});
+
+	test("answers an address containing moved with a redirect to an unreachable host", async () => {
+		const response = await fetch(
+			`${base}/__page?url=${encodeURIComponent("https://openai.com/moved")}`,
+			{ redirect: "manual" },
+		);
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe(
+			"https://pricing-moved.invalid/pricing",
+		);
 	});
 
 	test("refuses an address containing refuse with a 403", async () => {

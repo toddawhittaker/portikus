@@ -244,7 +244,12 @@ async function runPipeline(
 			site: config,
 		});
 		if (!page.ok) {
-			failures.push(`${host}:${page.error}`);
+			// A moved page names its new address, encoded so it holds no ":" or ",".
+			failures.push(
+				page.error === "moved"
+					? `${host}:moved=${encodeURIComponent(page.to)}`
+					: `${host}:${page.error}`,
+			);
 			continue;
 		}
 		try {
