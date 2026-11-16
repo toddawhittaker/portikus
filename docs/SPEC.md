@@ -3741,13 +3741,17 @@ The section is here because the assistant is an administration feature and
 runs the operation catalog (section 20.4). Its trust rules are repeated in
 sections 24.1, 24.8 and 24.11.
 
-**Off until three things are true.** The feature is off on a new site. It
-works only when an administrator has saved a key, has read the privacy
-notice and accepted it at its current version, and has turned it on. It also
-stops while the month's token cap is spent. Saving the settings without a
-key turns it off. When the notice text changes, its version number goes up
-and it must be accepted again. Each of these reasons has its own plain
-message in the panel (`off`, `no-key`, `notice`, `monthly-cap`).
+**Off until it is set up.** The feature is off on a new site. It works only
+when an administrator has saved a provider, a base address, a model and a
+key, has read the privacy notice and accepted it at its current version, and
+has turned it on. It also stops while the month's token cap is spent. Saving
+the settings without a key turns it off; turning it on without a key,
+without a provider, base address and model (409 `AI_SETTINGS_INCOMPLETE`), or
+before the notice is accepted is refused. When the notice text changes, its
+version number goes up and it must be accepted again. A saved key that no
+longer opens (a restore without the server's key file) counts as no key.
+Each of these reasons has its own plain message in the panel (`off`,
+`incomplete`, `no-key`, `key-unreadable`, `notice`, `monthly-cap`).
 
 **The privacy notice.** The notice says what leaves the server, what never
 does, what is stored, and who the provider is (section 24.1). Real names are
@@ -3810,8 +3814,10 @@ row (section 24.11).
 
 **Tools.** The assistant's tools are the MCP server's set for that person's
 role (section 20.4): the named tools their role may run, `find_operation` and
-`run_operation`. The conversation sends the same tool list every time, in
-the same order, so providers' prompt caches work. Before a call is shown or
+`run_operation`. Besides those it has three tools of its own: `run_batch` (bulk work, below)
+and `guide_search` and `guide_read` (the guides, below). A Diagnose
+conversation is offered no `run_batch`. The conversation sends the same tool
+list every time, in the same order, so providers' prompt caches work. Before a call is shown or
 run, its input is checked against the operation's own Zod schemas, and a bad
 input is answered to the model at once as a refusal. The route checks again
 when the call runs.
@@ -3830,7 +3836,9 @@ when the call runs.
 - A card has **Approve** and **Deny**. There is no "always allow".
 - A destructive card asks the person to type the operation's name. The
   server checks the text; a wrong or missing confirmation counts as a
-  denial.
+  denial. A batch of changes asks for the number of rows instead, and a
+  batch of destructive operations for the operation's name, so one row is
+  never approved by typing "1".
 - A denial reaches the model as a refused result and the model is told not to
   reach the same result another way.
 - A pending approval is a database row, claimed once with an atomic update
@@ -3860,9 +3868,9 @@ a fixed plain message, never the provider's text.
 reports, and both checked before every step: the site's monthly cap, shared
 by all people and by the price check, and each conversation's budget. A
 spent limit ends the turn with a plain message. The count keeps only token
-numbers for each day, person, purpose and model, never content. Where the
-price table knows the model, dollars may be shown; the cap itself is in
-tokens, because Portikus cannot know every model's price.
+numbers for each day, person, purpose and model, never content. The cap and
+every figure shown are in tokens; dollars wait until the table can price
+output tokens, because Portikus cannot know every model's price.
 
 **What is sent.** Each model call sends the person's messages and the system
 prompt, and the results of the tools the assistant used, to the provider the
@@ -3900,54 +3908,82 @@ opened with a context is read-only: its tools are the read operations a
 read-scope key would have, so a Diagnose conversation looks and reports and
 never changes anything.
 
-**Tested models.** Two models are tested before the epic's pull request: one
-current OpenAI model and one Claude model through the Anthropic adapter. Each
-runs the same scripted tasks on the pilot, and the administrator guide lists
-the models known to work. Other models are not tested.
+**Tested models.** CI never calls a real model. A paid check on the pilot
+runs the same scripted tasks with one current OpenAI model and one Claude
+model through the Anthropic adapter, after the owner's go-ahead, and the
+administrator guide then lists the models known to work. Until it has run,
+the guide lists none. Other models are not tested.
 
 **Left out.** A model on the institution's own network; dollar caps; an
 "always allow" button; embedding search over the guides; any assistant
 route for API keys, second factor, impersonation or the root shell; and a
 shared package for the chat store.
 
-**Model prices.** The restart estimate students see (section 10.2) can read
-a price table that an administrator keeps on the Pricing tab. A price check
-is a fixed pipeline, not an agent: it fetches each address in an
-administrator-edited list through the proxy, turns the page into text,
-makes one model call whose only tool is `submit_rows`, checks the rows with
-Zod, retries once, and stores them as proposals. The model has no Portikus
-tools in that call and never picks an address. An administrator accepts or
-rejects each proposal on its own; rows can also be edited by hand, and a
-page that refuses the fetch falls back to that. The check runs on a timer
-in the API every week, and its tokens count against the monthly cap. When
-the table has no row for a model, the built-in numbers are used. The
-price check and each decision are audited (section 24.11), and the public route
-`GET /pricing` answers the table, because the browser reads it for the
-estimate and it holds nothing private.
+**Model prices.** The restart estimate students see (section 10.2) reads a
+price table that an administrator keeps on the Pricing tab. A price check is
+a fixed pipeline, not an agent: it fetches each address in an
+administrator-edited list (the list on the Pricing tab; two provider pages
+by default) through the proxy, turns the page into text, makes one model
+call whose only tool is `submit_rows`, checks the rows with Zod, retries once
+with the errors, and stores what changed as proposals. The model has no
+Portikus tools in that call and never picks an address; any other tool call
+is refused. Saving an address whose host is not on the proxy list offers to
+add it, as for the base address. An administrator accepts or rejects each
+proposal on its own; only the newest proposal for a model stays pending. Rows
+can also be added, edited and deleted by hand, and a page that refuses the
+fetch falls back to that. One check runs at a time, and only while the
+assistant is available. A timer in the API looks hourly and starts a check
+when the last one began more than a week ago, and it tells administrators
+when it found changes. A check's tokens count against the monthly cap. When
+the table has no row for a model, the built-in numbers are used. The price
+check and each decision are audited (section 24.11). `GET /pricing` answers
+the table to any signed-in person, because the browser reads it for the
+estimate and it holds nothing private; administrators manage it under
+`/admin/pricing`.
 
 **Bulk work with a preview.** A request such as "invite these 30 addresses
-as students" becomes one batch tool call that stops at one card. The card
-lists every row, up to 100, and a destructive batch asks the person to
-type the number of rows. Each row then runs as its own operation, as the
-person, and each is audited like any other call.
+as students" becomes one `run_batch` call that stops at one card. It names a
+change or destructive operation and up to 100 rows, each the input
+`run_operation` takes; a read operation cannot be batched. Every row is
+checked before anything runs, and one bad row stops the whole call with the
+row numbers named. The card lists every row. A batch of changes asks the
+person to type the number of rows and a batch of destructive operations
+the operation's name. Each row then runs as its own call, in order, as the
+person, and each is audited like any other call; a refused or failed row
+does not stop the rest, but a row after the person's session has ended does
+not run. The model reads a table of each row's status and code.
+Invitations have no course field, so inviting students in a course's
+conversation adds them as students without course membership.
 
-**Diagnose and the guides.** Buttons on the health tab, a workspace's
-page, a failed job and an alert open a read-only conversation with that
-item in context. A fixed list of read operations runs first, as the person
-and shown as ordinary tool blocks, and then the model reports a likely
-cause with the evidence. The model can also search and read the
-administrator guide, the operations guide and the install guide, which the
-package carries, and cites the heading it used.
+**Diagnose and the guides.** Buttons on the health tab, a workspace's page,
+a failed certificate, image or site job and an alert open a read-only
+conversation with that item in context. The person's message is "Diagnose"
+and the subject, such as "Diagnose workspace 1a2b3c4d". A fixed list of read
+operations for that kind of item runs first, as the person, and each shows
+as an ordinary tool block. The model then answers once, giving the most
+likely cause from those reads and what to check next. The server refuses a
+context whose id does not fit its kind before a conversation exists. The
+model can also search and read the guides the package carries and cites
+"FILE § heading". Administrators may read ADMIN-GUIDE, OPERATIONS, INSTALL and
+INSTRUCTOR-GUIDE; instructors read only INSTRUCTOR-GUIDE.
 
 **The instructor panel.** The same panel appears on the course page for
 instructors, with tools limited to what an instructor may run.
-**Who is stuck?** is a read operation (`courses.stuck`) that summarises
-failing-check streaks, live help requests and agent use over 7 days for a
-course, and is useful as a table without the AI. A test runs every
-operation through the assistant and through plain HTTP for each role and
-expects the same answer, and a student gets 403 on every assistant route.
+**Who is stuck?** is a read operation (`courses.stuck`, route
+`GET /courses/:courseId/stuck`) that lists each student of the course with
+failing-check streaks, live help requests and agent use over 7 days, most
+likely stuck first, and is useful as a table without the AI. A share (ADR
+0057) opens a project to every course the student belongs to, so checks are
+counted on the projects the student shares, open and unexpired, not for the
+course; live help is counted for the course; agent use is the student's use
+overall. A test runs every operation through the assistant and through plain
+HTTP for each role and expects the same answer, and a student gets 403 on
+every assistant route.
 
-**Usage.** Token use by person and model shows in the Agents tab.
+**Usage.** The Agents tab shows the built-in AI's token use by person,
+purpose and model (the weekly price check shows as its own line) and this
+month's use against the cap. It shows tokens only; dollars wait for output
+token prices.
 
 ## 21. Infrastructure as cattle
 
@@ -8040,6 +8076,25 @@ Acceptance:
 - a student can never make or hold a key, and a key never reaches the never list;
 - each operation, run through the catalog, gets the same answer as its HTTP route for each role and scope;
 - every key request is audited with how it arrived, except one refused by the per-key rate limit.
+
+### Epic 69 — Built-in AI
+
+Built on `epic/69-builtin-ai`, issues #2068 and #2018. Migrations 0060 to 0064 (`via` allows `assistant`, `ai_settings`, assistant conversations, events and approvals, `ai_usage_days`, model prices, runs and proposals). See ADRs 0080 and 0081 and sections 20.5, 24.1, 24.8, 24.11 and 27.
+
+Includes:
+
+- the AI tab: provider, base address, model, a sealed write-only key, the privacy notice and its acceptance, token limits, a Test button, and an offer to allow the provider's host through the proxy;
+- the assistant panel for administrators, and for instructors on the course page: it acts as the signed-in person through the operation catalog, stops at approval cards for changes, asks for a typed confirmation for destructive work, and previews bulk work as one card;
+- Diagnose buttons that open a read-only conversation, and answers from the guides the package carries;
+- "Who is stuck?" (`courses.stuck`) for a course;
+- the Pricing tab with a weekly check that proposes rows for the restart estimate, and token use in the Agents tab.
+
+Acceptance:
+
+- a student, and a request with an API key, is refused at every assistant route and socket;
+- each operation, run through the assistant, gets the same answer as its HTTP route for each role;
+- the key is never in a log, an audit row, a view or an error, and no conversation is ever logged;
+- CI never calls a real model.
 
 ### Estimated total
 

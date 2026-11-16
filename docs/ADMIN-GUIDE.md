@@ -363,6 +363,11 @@ student could change the numbers: use them to see who is using the tools,
 not to enforce a limit. Instructors see the same counts for their own
 courses on the Course page ([INSTRUCTOR-GUIDE.md](INSTRUCTOR-GUIDE.md)).
 
+Below the coding-agent tables, **Built-in assistant** shows the built-in AI's
+tokens for each person, purpose and model (the weekly price check is its own
+line) and this month's use against the cap. It counts tokens only, not
+dollars, and never any conversation text.
+
 A line you may want in your acceptable-use statement:
 
 > Portikus counts how much you use coding agents (sessions, tokens and
@@ -1041,10 +1046,10 @@ Open **Admin**, then **AI**, under **Site**. Work down the page.
 
 ### Which models work
 
-Two models have been tried on the full set of scripted tasks on a real site
-before release: OpenAI *(model: pending the pilot check)* and Claude
-*(model: pending the pilot check)*, through Anthropic's own interface.
-Other hosted models may work. Small models often call tools badly, so run
+No model is listed as tested yet. Before this list can name one, Portikus
+runs a set of scripted tasks on a real site with one current OpenAI model and
+one Claude model, through Anthropic's own interface, and that check has not
+run. Hosted models may work. Small models often call tools badly, so run
 **Test** first and try a few real questions before you rely on one.
 
 A model that runs on your own network or on your own machine cannot be
@@ -1056,7 +1061,10 @@ address on the page. Hosted OpenAI-compatible services work.
 
 Choose **Assistant** in the admin header to open the panel. Your own
 conversations are listed newest first, and you can delete any of them. Type
-a request and send it. **Stop** ends a turn that is still working.
+a request and send it. **Stop** ends a turn that is still working. If the
+panel says the assistant cannot answer, it names the reason: turned off, not
+set up (no provider, address or model), no key, a key that must be entered
+again, the notice not accepted, or the month's allowance used up.
 
 - **Approval cards.** A card shows what the operation does, a table of
   exactly what it will use, and its risk. Read it, not the assistant's
@@ -1067,12 +1075,29 @@ a request and send it. **Stop** ends a turn that is still working.
 - **Typed confirmation.** For a destructive operation (one that cannot be
   undone, removes someone's access or loosens a security control) the card
   asks you to type the operation's name, such as `users.disable`. Anything
-  else counts as a denial. For a batch, you type the number of rows.
+  else counts as a denial.
+- **Many at once.** For a request such as "invite these 30 people as
+  students", the assistant shows one card with every row (up to 100) and
+  runs each row as its own operation after you approve. A batch of changes
+  asks you to type the number of rows; a batch of destructive operations asks
+  for the operation's name. One invalid row stops the whole batch before
+  anything runs. Invitations have no course, so people invited this way are
+  students without course membership.
+- **Diagnose.** The **Diagnose** buttons on the Health tab, a workspace, a
+  failed job and an alert open a conversation that only reads. Its first
+  message reads "Diagnose" and the item, the assistant looks at the
+  relevant health, logs and details, which you can open, and then gives the
+  most likely cause.
+- **Questions about Portikus.** The assistant answers from this guide,
+  the operations guide, the install guide and the instructor guide, and
+  names the section it used, such as "ADMIN-GUIDE.md § Model prices".
 - **Text it reads is data.** Names, file names and log lines are written by
   users. The assistant is told to treat them as data, and every change still
   needs your approval, so a student cannot talk it into acting.
 - **Instructors.** Instructors get the same panel on the course page, with
-  only what an instructor may do.
+  only what an instructor may do, and it answers from the instructor guide
+  alone. Asking "Who is stuck?" lists the course's students with their
+  failing checks, live help requests and coding-agent use.
 
 Each thing the assistant runs is in **Health, logs and audit** as your own
 change, and each call also writes a row named `assistant.used` with the
@@ -1096,13 +1121,17 @@ the model's words.
 ### Model prices
 
 The **Pricing** tab keeps a table of what each model costs, which the
-students' restart estimate reads. A weekly check, and a button to
-run one now, fetch the provider pricing pages you list, ask the model to read the
-rows from them, and show each row as a proposal beside the row it would
-replace. Nothing changes until you accept it. You can also edit rows by
-hand, which is the way to go when a page refuses the fetch. The check uses
-tokens from the same monthly cap, and its model has no access to your site's
-data. Without a row for a model, Portikus uses its built-in numbers.
+students' restart estimate reads. A check, which runs by itself about once a
+week and which you can start with a button, fetches the provider pricing
+pages in the list on the tab, asks the model to read the rows from them, and
+shows each row as a proposal beside the row it would replace. Nothing changes
+until you accept it, and you are notified when a weekly check finds
+changes. A check needs the assistant to be set up and on. You can also add,
+edit and delete rows by hand, which is the way to go when a page refuses the
+fetch. When you add a page whose host is not on the allowed list, the page
+offers to allow it, as for the provider. The check uses tokens from the same
+monthly cap, and its model has no access to your site's data. Without a row
+for a model, Portikus uses its built-in numbers.
 
 ### If it will not turn on
 
@@ -1115,8 +1144,11 @@ data. Without a row for a model, Portikus uses its built-in numbers.
   access to that model.
 - **The assistant says the allowance is used up.** Raise the monthly cap, or
   wait for next month.
+- **"Save a provider, a base address and a model before turning this on."**
+  Fill in all three, then save.
 - **The key stopped working after a restore.** A backup restored without
-  the server's key file cannot open the saved key. Save the key again.
+  the server's key file cannot open the saved key, and the assistant says
+  the key must be entered again. Save the key again.
 
 ## API keys and the MCP server
 

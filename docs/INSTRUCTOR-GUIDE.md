@@ -147,6 +147,46 @@ the Course page.
   session**, when the project is archived, or after an hour. Your view
   closes at once.
 
+## The built-in assistant
+
+If your administrator has turned it on, the Course page has an
+**Assistant** button. It opens a panel where you ask in plain words, such as
+"who is stuck?" or "how do I share a starter project?", and it looks things
+up for you. If the site has not turned it on, the panel says why.
+
+- **It acts as you.** It can only do what you can do in your own courses,
+  with the same checks, as if you had clicked it.
+- **Changes need your approval.** It looks things up on its own, but
+  anything that changes something stops at a card showing exactly what it
+  will do. Choose **Approve** or **Deny**. For a destructive change the card
+  asks you to type the operation's name before you can approve. Read the
+  card, not the assistant's description of it.
+- **It answers from this guide.** It names the section it used.
+
+### Who is stuck?
+
+The Course page lists students who may be stuck, most likely first, with the
+reason and their last activity. A student appears when they have:
+
+- three or more failed checks in a row, counted only on projects the
+  student has shared with you;
+- a live help request open now, or one in the last 7 days; or
+- no activity in the last 7 days.
+
+You can also ask the assistant "who is stuck?" It adds each student's
+coding-agent use (sessions and tokens) over the last 7 days, counted across
+all their work, not just this course. These are counts and times only.
+Like the agent counts, use them to start a conversation, never to grade.
+
+### What is kept and what is sent
+
+- Your conversations are kept for 30 days after you last used them, then
+  deleted. Only you can see them; you can delete one sooner.
+- To answer, Portikus sends your messages and what the assistant looked up
+  to the site's AI provider. That includes real names and course activity.
+  It never sends file contents, terminal output, students' chat prompts or
+  secrets.
+
 ## API keys and the MCP server
 
 An API key lets a program, such as Claude Code or Codex, act as you. You
