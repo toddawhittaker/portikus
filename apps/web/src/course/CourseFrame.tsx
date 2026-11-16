@@ -12,6 +12,8 @@ export function CourseFrame({
 	testId,
 	labelledBy,
 	fill = false,
+	actions,
+	aside,
 	children,
 }: {
 	/** The test id of the main. */
@@ -20,6 +22,10 @@ export function CourseFrame({
 	labelledBy: string;
 	/** The body is a column as tall as the window's space, so a pane in it can take what is left. */
 	fill?: boolean;
+	/** Header buttons, such as the assistant's. */
+	actions?: ReactNode;
+	/** A panel beside the main, such as the assistant's. */
+	aside?: ReactNode;
 	children: ReactNode;
 }) {
 	const me = useMe();
@@ -28,28 +34,37 @@ export function CourseFrame({
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	return (
 		<div className="pk-root">
-			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
-			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
+			<AppHeader
+				user={me.user}
+				workspace={null}
+				project={undefined}
+				context="Course"
+				actions={actions}
+			/>
+			<div className="relative flex min-h-0 flex-1">
+				{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
 			    at most 80rem wide, compact density. scroll-pt-16 keeps a focused
 			    control clear of a sticky table header. A phone-width window
 			    gives the content the padding's room back. */}
-			<main
-				className="pk-course-main flex-1 scroll-pt-16 overflow-auto p-4 sm:p-8"
-				data-testid={testId}
-				data-density="compact"
-				data-controls="console"
-				aria-labelledby={labelledBy}
-			>
-				<div
-					className={
-						fill
-							? "@container mx-auto flex h-full w-full max-w-[80rem] flex-col"
-							: "@container mx-auto w-full max-w-[80rem]"
-					}
+				<main
+					className="pk-course-main min-w-0 flex-1 scroll-pt-16 overflow-auto p-4 sm:p-8"
+					data-testid={testId}
+					data-density="compact"
+					data-controls="console"
+					aria-labelledby={labelledBy}
 				>
-					{children}
-				</div>
-			</main>
+					<div
+						className={
+							fill
+								? "@container mx-auto flex h-full w-full max-w-[80rem] flex-col"
+								: "@container mx-auto w-full max-w-[80rem]"
+						}
+					>
+						{children}
+					</div>
+				</main>
+				{aside}
+			</div>
 		</div>
 	);
 }

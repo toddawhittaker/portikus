@@ -53,10 +53,12 @@ export function AssistantButton() {
 			aria-expanded={assistant.isOpen}
 			aria-controls={assistant.isOpen ? PANEL_ID : undefined}
 			data-testid="assistant-button"
+			// A narrow bar shows only the icon; the name stays.
+			aria-label="Assistant"
 			onClick={() => (assistant.isOpen ? assistant.close() : assistant.open())}
 		>
 			<Icon name="agent" size="sm" />
-			Assistant
+			<span className="@max-[30rem]:hidden">Assistant</span>
 		</button>
 	);
 }

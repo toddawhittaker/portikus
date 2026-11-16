@@ -6,6 +6,7 @@ import {
 	CourseMembersResponse,
 	CourseProfileResponse,
 	CourseSharesResponse,
+	CourseStuckResponse,
 	CoursesResponse,
 	ListNotificationsQuery,
 	MeResponse,
@@ -139,6 +140,16 @@ export const operations: OperationRecords = {
 		tool: true,
 		input: { params: CourseParam, query: AgentUsageQuery },
 		output: AgentUsageResponse,
+	},
+	"GET /courses/:courseId/stuck": {
+		name: "courses.stuck",
+		description:
+			"Shows which students in one of your courses may be stuck, most likely first: failed checks in a row, live help requests and coding-agent use over the last 7 days, with short reasons. Use it to answer who is stuck or struggling.",
+		risk: "read",
+		audience: "instructor",
+		tool: true,
+		input: { params: CourseParam },
+		output: CourseStuckResponse,
 	},
 	"GET /auth/me": {
 		name: "account.whoami",

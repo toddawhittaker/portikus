@@ -219,7 +219,11 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 				return {
 					conversationId: id,
 					userId: now.id,
-					tools: { role: now.role, readOnly: conversation.read_only },
+					tools: {
+						role: now.role,
+						readOnly: conversation.read_only,
+						courseId: conversation.course_id,
+					},
 					run: {
 						kind: "assistant",
 						sessionToken: token,

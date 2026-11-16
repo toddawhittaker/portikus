@@ -9,13 +9,7 @@ import {
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
 import type { ApiKeyScope } from "@portikus/contracts";
-import {
-	createTestDb,
-	hasTestDb,
-	insertTestLtiMembership,
-	insertTestUser,
-	type TestDb,
-} from "@portikus/db/testing";
+import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import WebSocket from "ws";
@@ -30,10 +24,20 @@ import {
 } from "../testing/fake-backup-key.js";
 import { PAYLOADS, QUERIES } from "../testing/matrix-samples.js";
 import {
-	buildMatrixWorld,
+	type Answer,
+	answerOf,
+	buildParityWorld,
+	type CourseTarget,
+	codeOf,
+	fillPath,
+	INSTRUCTOR,
+	pathValues,
+	userIdOf,
+	type ParityWorld as World,
+} from "../testing/parity-world.js";
+import {
 	buildTestServer,
 	MATRIX_MOCK_USERS,
-	type MatrixWorld,
 	PUBLIC_URL,
 } from "../testing/test-support.js";
 
@@ -54,7 +58,6 @@ const AGENT_TOKEN = "parity-agent-token";
 const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const PUBLIC_ORIGIN = new URL(PUBLIC_URL).origin;
 const ADMIN = "carol";
-const INSTRUCTOR = "ivy";
 /** Routes every key may reach whatever its scope: the MCP and OpenAPI doors. */
 const DOORS = new Set([
 	"GET /mcp",
@@ -93,54 +96,6 @@ afterAll(async () => {
 	rmSync(keyDir, { recursive: true, force: true });
 });
 
-/** The ids a course route names: a member, a shared project and a live help session. */
-interface CourseTarget {
-	courseId: string;
-	userId: string;
-	projectId: string;
-	sid: string;
-}
-
-/**
- * The matrix world plus a second course. The matrix instructor teaches the
- * first, where A is a student with a shared project and live help open; a
- * different instructor teaches the second, where B has the same.
- */
-type World = MatrixWorld & { own: CourseTarget; other: CourseTarget };
-
-async function userIdOf(subject: string): Promise<string> {
-	const row = await testDb.db
-		.selectFrom("users")
-		.select("id")
-		.where("oidc_subject", "=", subject)
-		.executeTakeFirstOrThrow();
-	return row.id;
-}
-
-async function openShareAndHelp(
-	student: MatrixWorld["a"],
-	courseId: string,
-	helperId: string,
-): Promise<string> {
-	const endsAt = new Date(Date.now() + 3_600_000).toISOString();
-	await testDb.db
-		.insertInto("project_shares")
-		.values({ project_id: student.projectId, ends_at: endsAt })
-		.execute();
-	const help = await testDb.db
-		.insertInto("live_help_sessions")
-		.values({
-			workspace_id: student.workspaceId,
-			project_id: student.projectId,
-			helper_user_id: helperId,
-			course_id: courseId,
-			ends_at: endsAt,
-		})
-		.returning("id")
-		.executeTakeFirstOrThrow();
-	return help.id;
-}
-
 /** A fresh server and world, so a change made by one caller cannot alter the next one's answer. */
 async function withWorld(
 	run: (app: FastifyInstance, world: World) => Promise<void>,
@@ -155,36 +110,7 @@ async function withWorld(
 	if (options.listen) await app.listen({ port: 0, host: "127.0.0.1" });
 	else await app.ready();
 	try {
-		const matrix = await buildMatrixWorld(app, testDb.db, AGENT_TOKEN);
-		// Teaches the second course; the matrix instructor does not.
-		const otherInstructorId = await insertTestUser(testDb.db, { role: "instructor" });
-		const otherCourseId = await insertTestLtiMembership(testDb.db, otherInstructorId, {
-			contextId: "course-2",
-			title: "Another Course",
-			role: "instructor",
-		});
-		await insertTestLtiMembership(testDb.db, matrix.b.userId, {
-			contextId: "course-2",
-		});
-		const world: World = {
-			...matrix,
-			own: {
-				courseId: matrix.courseId,
-				userId: matrix.a.userId,
-				projectId: matrix.a.projectId,
-				sid: await openShareAndHelp(
-					matrix.a,
-					matrix.courseId,
-					await userIdOf(INSTRUCTOR),
-				),
-			},
-			other: {
-				courseId: otherCourseId,
-				userId: matrix.b.userId,
-				projectId: matrix.b.projectId,
-				sid: await openShareAndHelp(matrix.b, otherCourseId, otherInstructorId),
-			},
-		};
+		const world = await buildParityWorld(app, testDb.db, AGENT_TOKEN);
 		await run(app, world);
 	} finally {
 		await app.close();
@@ -193,78 +119,13 @@ async function withWorld(
 
 /** A fresh key for a matrix staff member. */
 async function keyOf(subject: string, scope: ApiKeyScope): Promise<string> {
-	const made = await createApiKey(testDb.db, await userIdOf(subject), {
+	const made = await createApiKey(testDb.db, await userIdOf(testDb.db, subject), {
 		name: "Parity key",
 		scope,
 		periodDays: 30,
 	});
 	if (!made.ok) throw new Error(`no key for ${subject}: ${made.reason}`);
 	return made.secret;
-}
-
-/** The value for each path parameter of a route, aimed at A or at the chosen course. */
-function pathValues(
-	key: string,
-	world: World,
-	course: CourseTarget,
-): Record<string, string> {
-	const { url } = splitKey(key);
-	const values: Record<string, string> = {};
-	for (const [, name] of url.matchAll(/:([A-Za-z0-9_]+)/g)) {
-		if (name === undefined) continue;
-		values[name] =
-			{
-				id:
-					url.startsWith("/admin/users/:id") || url.startsWith("/admin/dex-users/:id")
-						? world.a.userId
-						: world.a.workspaceId,
-				// A process id is a number inside the workspace.
-				pid: url.includes("/processes/:pid") ? "7" : world.a.projectId,
-				tid: world.a.terminalId,
-				checkId: "lint",
-				courseId: course.courseId,
-				userId: course.userId,
-				projectId: course.projectId,
-				courseUserId: world.a.userId,
-				sid: course.sid,
-				port: "5173",
-				server: "python",
-				// Forms the operation's params schema accepts, so the runner sends them.
-				stamp: "20260101T000000Z",
-				file: "portikus-pre-x.dump",
-				volume: url.includes("/kept-homes/")
-					? "ws-000000000000000000000000-home-replaced-1"
-					: "ws-000000000000000000000000-home",
-				snapshot: "pre-x",
-			}[name] ?? name;
-	}
-	return values;
-}
-
-function fillPath(key: string, values: Record<string, string>): string {
-	return splitKey(key)
-		.url.replace(/:([A-Za-z0-9_]+)/g, (_m, name: string) =>
-			encodeURIComponent(values[name] ?? name),
-		)
-		.replace("*", "index.html");
-}
-
-interface Answer {
-	status: number;
-	code?: string;
-}
-
-function codeOf(body: string): string | undefined {
-	try {
-		const parsed = JSON.parse(body) as { code?: unknown };
-		return typeof parsed.code === "string" ? parsed.code : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function answerOf(status: number, body: string): Answer {
-	return status < 400 ? { status } : { status, code: codeOf(body) };
 }
 
 /** One request three ways: the session's cookie, the key over HTTP, and the key through the runner. */
