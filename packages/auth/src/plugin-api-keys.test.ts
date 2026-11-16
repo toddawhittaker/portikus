@@ -1,4 +1,4 @@
-import { type Database, recordAudit } from "@portikus/db";
+import { ASSISTANT_MARK, type Database, recordAudit } from "@portikus/db";
 import {
 	createTestDb,
 	hasTestDb,
@@ -80,7 +80,7 @@ describe.skipIf(!hasTestDb())("API keys in the auth plugin", () => {
 				action: "test.write",
 				result: "ok",
 			});
-			return { ok: true };
+			return { ok: true, sawMark: ASSISTANT_MARK.header in request.headers };
 		});
 		app.post("/me/password", async () => ({ ok: true }));
 		await app.ready();
@@ -393,6 +393,64 @@ describe.skipIf(!hasTestDb())("API keys in the auth plugin", () => {
 			expect(await rows()).toEqual([
 				{ action: "test.write", via: "api_key", api_key_id: keyId },
 			]);
+		});
+
+		describe("the assistant's mark", () => {
+			const asSession = (token: string) => ({
+				cookie: `${SESSION_COOKIE}=${token}`,
+				origin: PUBLIC_URL,
+			});
+
+			test("a marked request is recorded via assistant, and no route sees the mark", async () => {
+				const token = await sessionToken();
+				const res = await app.inject({
+					method: "POST",
+					url: "/audited",
+					headers: {
+						...asSession(token),
+						[ASSISTANT_MARK.header]: ASSISTANT_MARK.value,
+					},
+				});
+				expect(res.json()).toEqual({ ok: true, sawMark: false });
+				expect(await rows()).toEqual([
+					{ action: "test.write", via: "assistant", api_key_id: null },
+				]);
+				const user = await t.db
+					.selectFrom("users")
+					.select("id")
+					.where("oidc_subject", "=", "session-user")
+					.executeTakeFirstOrThrow();
+				expect(res.headers[ASSISTANT_MARK.header]).toBe(user.id);
+			});
+
+			test.each([
+				["the right name with a guessed value", ASSISTANT_MARK.header, "0".repeat(64)],
+				[
+					"a guessed name",
+					"x-portikus-assistant-0000000000000000",
+					ASSISTANT_MARK.value,
+				],
+			])(
+				"%s is not marked, and the route never sees it",
+				async (_label, name, value) => {
+					const token = await sessionToken();
+					const res = await app.inject({
+						method: "POST",
+						url: "/audited",
+						headers: { ...asSession(token), [name]: value },
+					});
+					expect(res.json()).toMatchObject({ ok: true });
+					expect(res.headers).not.toHaveProperty(ASSISTANT_MARK.header);
+					expect(await rows()).toEqual([
+						{ action: "test.write", via: "session", api_key_id: null },
+					]);
+				},
+			);
+
+			test("the mark is drawn at random for each process", () => {
+				expect(ASSISTANT_MARK.header).toMatch(/^x-portikus-assistant-[0-9a-f]{16}$/);
+				expect(ASSISTANT_MARK.value).toMatch(/^[0-9a-f]{64}$/);
+			});
 		});
 	});
 });

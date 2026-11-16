@@ -43,6 +43,7 @@ export const PAYLOADS: Record<string, object> = {
 	"PUT /me/settings": { timezone: "America/New_York" },
 	"PUT /me/profile": { github: null },
 	"PUT /admin/settings": { logLevel: null },
+	"POST /admin/ai/notice": { noticeVersion: 1 },
 	"PUT /courses/:courseId/profile": { profile: "traditional" },
 	"PUT /admin/courses/:courseId/profile": { profile: "traditional" },
 	"PUT /admin/users/:id/settings": { shutdownGraceSeconds: null },
