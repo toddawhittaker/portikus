@@ -12,7 +12,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { errorText } from "../api/request.js";
 import { useOpenWorkspace } from "../api/workspace.js";
 import { useCourses } from "../course/queries.js";
@@ -127,6 +127,7 @@ export function AppHeader({
 	user,
 	project,
 	context = "Administration",
+	actions,
 }: {
 	/** Absent on the administration page, which belongs to no workspace. */
 	workspaceId?: string;
@@ -136,6 +137,8 @@ export function AppHeader({
 	project: Project | undefined;
 	/** What the bar names when there is no workspace, such as "Course". */
 	context?: string;
+	/** The page's own buttons, before the account menu. */
+	actions?: ReactNode;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -257,6 +260,8 @@ export function AppHeader({
 					{open.isPending ? "Opening your workspace" : ""}
 				</span>
 			) : null}
+
+			{actions}
 
 			<span className="pk-account-wrap">
 				<MenuRoot>
