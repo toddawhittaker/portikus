@@ -3,7 +3,6 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { OutboundFetch } from "@portikus/observability";
 import {
 	APICallError,
-	type FinishReason,
 	type JSONSchema7,
 	jsonSchema,
 	type LanguageModel,
@@ -59,11 +58,7 @@ type ModelUsage = {
 export type ModelPart =
 	| { type: "text"; text: string }
 	| ({ type: "tool-call" } & AiToolCall)
-	| {
-			type: "finish";
-			reason: "stop" | "tool-calls" | "length" | "other";
-			usage: ModelUsage;
-	  };
+	| { type: "finish"; usage: ModelUsage };
 
 export type StepRequest = {
 	system: string;
@@ -100,13 +95,11 @@ const ERROR_MESSAGES: Record<ModelErrorCode, string> = {
 /** A model failure. The message is fixed per code: never the key, never a reply body. */
 export class ModelError extends Error {
 	readonly code: ModelErrorCode;
-	readonly status: number | undefined;
 
-	constructor(code: ModelErrorCode, status?: number) {
+	constructor(code: ModelErrorCode) {
 		super(ERROR_MESSAGES[code]);
 		this.name = "ModelError";
 		this.code = code;
-		this.status = status;
 	}
 }
 
@@ -195,14 +188,6 @@ function modelMessages(messages: AiMessage[]): ModelMessage[] {
 	});
 }
 
-function finishReason(
-	reason: FinishReason,
-): "stop" | "tool-calls" | "length" | "other" {
-	return reason === "stop" || reason === "tool-calls" || reason === "length"
-		? reason
-		: "other";
-}
-
 function usage(u: LanguageModelUsage): ModelUsage {
 	return {
 		input: u.inputTokens ?? 0,
@@ -246,7 +231,7 @@ export function toModelError(
 		if (current instanceof ModelError) return current;
 		if (current.name === "AbortError") return new ModelError("aborted");
 		const status = httpStatus(current);
-		if (status !== undefined) return new ModelError(statusCode(status), status);
+		if (status !== undefined) return new ModelError(statusCode(status));
 		if (BAD_RESPONSE_ERRORS.has(current.name)) return new ModelError("bad-response");
 		current = current.cause;
 	}
@@ -289,11 +274,7 @@ async function* runStep(
 					};
 					break;
 				case "finish":
-					yield {
-						type: "finish",
-						reason: finishReason(part.finishReason),
-						usage: usage(part.totalUsage),
-					};
+					yield { type: "finish", usage: usage(part.totalUsage) };
 					break;
 				case "abort":
 					throw new ModelError("aborted");

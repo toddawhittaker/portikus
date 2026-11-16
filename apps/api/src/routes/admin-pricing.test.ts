@@ -95,7 +95,6 @@ beforeEach(async () => {
 			{ type: "tool-call", id: "c1", name: "submit_rows", input: { rows: [ROW] } },
 			{
 				type: "finish",
-				reason: "tool-calls",
 				usage: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0 },
 			},
 		],
@@ -144,11 +143,8 @@ async function switchOn(admin: Call) {
 
 async function waitForRun(): Promise<void> {
 	for (let i = 0; i < 100; i++) {
-		const r = await testDb.db
-			.selectFrom("price_runs")
-			.select("status")
-			.executeTakeFirst();
-		if (r && r.status !== "running") return;
+		const runs = await testDb.db.selectFrom("price_runs").select("status").execute();
+		if (runs.length > 0 && runs.every((r) => r.status !== "running")) return;
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
 	throw new Error("the run did not finish");
@@ -254,6 +250,47 @@ describe.skipIf(skip)("a price check from the page", () => {
 			]);
 			const pub = PricingTable.parse((await admin("GET", "/pricing")).json());
 			expect(pub.prices).toMatchObject([{ model: "model-a", inputPricePerMillion: 2 }]);
+		});
+	});
+
+	test("an older proposal superseded by a newer run can no longer be accepted", async () => {
+		await withApp(async (admin) => {
+			await switchOn(admin);
+			await admin("POST", "/admin/pricing/refresh");
+			await waitForRun();
+			const [older] = await testDb.db
+				.selectFrom("price_proposals")
+				.select("id")
+				.execute();
+			const quote = "Model A input $3.00 per million";
+			state.page = { ok: true, html: `<p>${quote}</p>` };
+			state.client = createFakeModelClient([
+				[
+					{
+						type: "tool-call",
+						id: "c1",
+						name: "submit_rows",
+						input: { rows: [{ ...ROW, inputPricePerMillion: 3, sourceQuote: quote }] },
+					},
+					{
+						type: "finish",
+						usage: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0 },
+					},
+				],
+			]);
+			await admin("POST", "/admin/pricing/refresh");
+			await waitForRun();
+			const res = await admin(
+				"POST",
+				`/admin/pricing/proposals/${older?.id}/decision`,
+				{
+					decision: "accept",
+				},
+			);
+			expect(res.statusCode).toBe(404);
+			expect(
+				await testDb.db.selectFrom("model_prices").selectAll().execute(),
+			).toHaveLength(0);
 		});
 	});
 
