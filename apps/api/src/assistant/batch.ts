@@ -13,7 +13,9 @@ export const BATCH_DESCRIPTION =
 	"Runs one change or destructive operation once for each of up to 100 rows, after one approval from the person, " +
 	"who sees the whole table first. Each row is the input run_operation takes for that operation " +
 	"(path values, query values and a JSON body). Every row is checked before anything runs, and one bad row stops the whole call. " +
-	"Read operations cannot be batched; call them one at a time.";
+	"Read operations cannot be batched; call them one at a time. " +
+	"When the person asks for the same kind of change to several items (for example inviting several people), " +
+	"use run_batch with one row each so they approve once, instead of separate calls.";
 
 type Check = (raw: unknown) => { input: OperationInputValues } | { problem: string };
 

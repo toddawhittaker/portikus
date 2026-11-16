@@ -452,8 +452,12 @@ export const CreateInvitationRequest = z
 		username: z.string().trim().toLowerCase().min(1).max(254).optional(),
 		name: z.string().trim().min(1, "Enter a name").max(100),
 		role: Role,
-		/** Email the invitation; needs account email on (SPEC.md section 5.3). */
-		sendEmail: z.boolean().optional(),
+		sendEmail: z
+			.boolean()
+			.optional()
+			.describe(
+				"Email the invitation link. Works only when the site's account email is on; leave it out otherwise.",
+			),
 	})
 	.strict();
 export type CreateInvitationRequest = z.infer<typeof CreateInvitationRequest>;
@@ -498,8 +502,12 @@ export const ACCOUNT_IMPORT_MAX_BYTES = 256 * 1024;
 export const AccountImportRequest = z
 	.object({
 		csv: z.string().max(ACCOUNT_IMPORT_MAX_BYTES),
-		/** Email each person a set-password link or their invitation; needs account email on. */
-		sendEmail: z.boolean().optional(),
+		sendEmail: z
+			.boolean()
+			.optional()
+			.describe(
+				"Email each person a set-password link or their invitation link. Works only when the site's account email is on; leave it out otherwise.",
+			),
 	})
 	.strict();
 export type AccountImportRequest = z.infer<typeof AccountImportRequest>;

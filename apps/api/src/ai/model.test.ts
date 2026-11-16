@@ -394,6 +394,29 @@ describe("openai-compatible", () => {
 	});
 });
 
+describe("openai itself", () => {
+	const REAL_OPENAI: ModelSettings = {
+		...OPENAI,
+		baseUrl: "https://api.openai.com/v1",
+	};
+
+	test("sends max_completion_tokens, not max_tokens, which current OpenAI models reject", async () => {
+		const { fn, captured } = fakeFetch(openAiSse(OPENAI_TOOL_CALL_STREAM));
+		const parts = await collect(createModelClient(REAL_OPENAI, fn).step(request()));
+		expect(parts).toContainEqual({
+			type: "tool-call",
+			id: "call_1",
+			name: "users_list",
+			input: { limit: 5 },
+		});
+		expectOnlyOurs(captured, REAL_OPENAI.baseUrl);
+		const body = captured[0]?.body as Record<string, unknown>;
+		expect(body).not.toHaveProperty("max_tokens");
+		expect(body.max_completion_tokens).toBe(1000);
+		expect(body.stream_options).toEqual({ include_usage: true });
+	});
+});
+
 describe("anthropic", () => {
 	test("streams text, drops reasoning, assembles the tool call and reports cache usage", async () => {
 		const { fn, captured } = fakeFetch(anthropicSse(ANTHROPIC_TOOL_CALL_STREAM));

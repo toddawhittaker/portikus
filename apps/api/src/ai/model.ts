@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { OutboundFetch } from "@portikus/observability";
 import {
@@ -123,6 +124,14 @@ function sdkFetch(outbound: OutboundFetch): typeof globalThis.fetch {
 	};
 }
 
+// OpenAI itself rejects max_tokens on current models and needs its own adapter,
+// which sends max_completion_tokens; other compatible servers keep max_tokens.
+function isOpenAi(s: ModelSettings): boolean {
+	return (
+		s.kind === "openai-compatible" && new URL(s.baseUrl).hostname === "api.openai.com"
+	);
+}
+
 function languageModel(
 	s: ModelSettings,
 	fetch: typeof globalThis.fetch,
@@ -132,6 +141,9 @@ function languageModel(
 	// otherwise read ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL.
 	if (s.kind === "anthropic") {
 		return createAnthropic({ baseURL: s.baseUrl, apiKey: s.apiKey, fetch })(s.model);
+	}
+	if (isOpenAi(s)) {
+		return createOpenAI({ baseURL: s.baseUrl, apiKey: s.apiKey, fetch }).chat(s.model);
 	}
 	return createOpenAICompatible({
 		name: "openai-compatible",
@@ -252,7 +264,9 @@ async function* runStep(
 			: req.system,
 		messages: modelMessages(req.messages),
 		tools: toolSet(req.tools, anthropic),
-		maxOutputTokens: req.maxOutputTokens,
+		...(isOpenAi(s)
+			? { providerOptions: { openai: { maxCompletionTokens: req.maxOutputTokens } } }
+			: { maxOutputTokens: req.maxOutputTokens }),
 		abortSignal: req.signal,
 		// One request per step; retrying is the caller's choice.
 		maxRetries: 0,

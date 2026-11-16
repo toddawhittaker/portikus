@@ -456,6 +456,26 @@ describe.skipIf(skip)("who may use the assistant", () => {
 });
 
 describe.skipIf(skip)("the loop", () => {
+	test("the system prompt tells the model the site's account email is on", () =>
+		withApp(async (app) => {
+			await testDb.db
+				.insertInto("settings")
+				.values({ id: 1, shutdown_grace_seconds: 600, account_email_enabled: true })
+				.onConflict((oc) =>
+					oc.column("id").doUpdateSet({ account_email_enabled: true }),
+				)
+				.execute();
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol);
+			const client = fake([reply("Hi.")]);
+			const socket = await connect(app, carol, conv.id);
+			socket.send({ type: "send", text: "invite five people", attachments: [] });
+			await socket.waitFor(turnDone());
+			expect(client.requests[0]?.system).toBe(
+				systemPrompt({ role: "administrator", readOnly: false }, true),
+			);
+		}));
+
 	test("a text reply is streamed, stored, counted, and replayed on reconnect", () =>
 		withApp(async (app) => {
 			const carol = await signIn(app, "carol");
@@ -490,7 +510,7 @@ describe.skipIf(skip)("the loop", () => {
 				{ role: "user", text: "hello\nsecond line" },
 			]);
 			expect(client.requests[0]?.system).toBe(
-				systemPrompt({ role: "administrator", readOnly: false }),
+				systemPrompt({ role: "administrator", readOnly: false }, false),
 			);
 
 			const [row] = await testDb.db
@@ -904,7 +924,7 @@ describe.skipIf(skip)("the loop", () => {
 			expect(names).not.toContain("users_disable");
 			expect(names).not.toContain("workspaces_restart");
 			expect(client.requests[0]?.system).toBe(
-				systemPrompt({ role: "administrator", readOnly: true }),
+				systemPrompt({ role: "administrator", readOnly: true }, false),
 			);
 			expect(JSON.parse(outputOf(socket, "call-o1"))).toMatchObject({
 				code: "NOT_FOUND",
@@ -1120,7 +1140,7 @@ describe.skipIf(skip)("the loop", () => {
 			expect(names).toContain("courses_list");
 			expect(names.some((n) => n.startsWith("users_"))).toBe(false);
 			expect(client.requests[0]?.system).toBe(
-				systemPrompt({ role: "instructor", readOnly: false, courseId: course }),
+				systemPrompt({ role: "instructor", readOnly: false, courseId: course }, false),
 			);
 			expect(JSON.parse(outputOf(socket, "call-i1"))).toEqual(
 				(await call(app, ivy, "GET", "/courses")).json(),
@@ -1450,7 +1470,7 @@ describe.skipIf(skip)("Diagnose", () => {
 				}).map((r) => r.name),
 			).toEqual(["health_get", "health_series", "logs_list"]);
 			expect(client.requests[0]?.system).toBe(
-				systemPrompt({ role: "administrator", readOnly: true }),
+				systemPrompt({ role: "administrator", readOnly: true }, false),
 			);
 			const names = client.requests[0]?.tools.map((t) => t.name) ?? [];
 			expect(names).not.toContain("run_batch");
