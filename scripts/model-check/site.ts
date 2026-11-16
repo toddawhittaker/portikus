@@ -4,7 +4,7 @@
  * only by the model check (SPEC.md section 20.5, "Tested models").
  */
 
-const SESSION_COOKIE = "portikus_session";
+import { SESSION_COOKIE } from "../../packages/auth/src/types.ts";
 
 export class Session {
 	readonly base: string;
@@ -26,7 +26,10 @@ export class Session {
 	}
 
 	hasSession(): boolean {
-		return this.cookies.has(SESSION_COOKIE);
+		// An https site names it with the __Host- prefix (packages/auth sessionCookieName).
+		return (
+			this.cookies.has(SESSION_COOKIE) || this.cookies.has(`__Host-${SESSION_COOKIE}`)
+		);
 	}
 
 	private keep(response: Response): void {
