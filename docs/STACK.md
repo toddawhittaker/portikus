@@ -343,6 +343,25 @@ The API serves a Model Context Protocol (MCP) endpoint at `/mcp` so that coding 
 - The handler is mounted on the existing Fastify app through a small bridge of our own, under 50 lines, from a Fastify request to `handler.fetch` and back. `@modelcontextprotocol/node` is not used because it needs the raw request body, which Fastify has already read, and `@modelcontextprotocol/fastify` is not used because it builds a separate app.
 - Sign-in is a fixed API key in the `Authorization` header, not OAuth, which the MCP specification makes optional.
 
+### AI model client
+
+The built-in assistant and the price check call an AI model with a key the institution supplies (SPEC.md section 20.5, ADRs 0080 and 0081). The API uses the server half of the Vercel AI SDK, pinned exactly in `apps/api/package.json`:
+
+| Package | Version | What it is for |
+|---|---|---|
+| `ai` | 7.0.173 | Streaming a model call and turning its parts into text, tool calls and token counts |
+| `@ai-sdk/openai-compatible` | 3.0.92 | Any server that speaks the Chat Completions API: a base address, a key and a model name |
+| `@ai-sdk/anthropic` | 4.0.105 | Anthropic's own API, with prompt caching and its usage figures |
+
+All three are Apache-2.0 and need Node 22 or later. `ai` accepts the repository's Zod 4.
+
+- **One module.** Only `apps/api/src/ai/model.ts` imports `ai` or `@ai-sdk/*`, and a Biome `noRestrictedImports` rule fails the build for any other file. The module's interface is one streamed step: a system prompt, messages and tools in; text, tool calls and a token total out; and `listModels()`. A fake client of the same interface replays scripted steps in unit tests.
+- **We use a small part.** Our own loop (ADR 0080) decides what runs and when to ask a person. We do not use the SDK's tool loop, its approval option, its message format or its React package (`@ai-sdk/react`): nothing waits in memory, conversations are stored as our own events, and the browser reuses the chat store.
+- **Never a string model.** Model objects are built with the key and base address passed in. A plain string model name would route through Vercel's hosted gateway, and the Anthropic adapter would otherwise read `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from the environment. The SDK's console warnings are off.
+- **Outbound fetch.** Every request goes through `createOutboundFetch`, the server's own egress proxy (ADR 0027), and an error is reduced to a fixed code so no request or reply text travels with it.
+- **Upgrades.** The SDK has a breaking major version about every six months (4.0 in November 2024, 5.0 in July 2025, 6.0 in December 2025, 7.0 in June 2026) and many small releases. Upgrade deliberately, at most every six months, by changing `model.ts` and its tests only; pin each package exactly and read the changelog first. If an upgrade ever proves too costly, the same interface can be rewritten on the `openai` package.
+- **Why the SDK.** It is mature, supports both provider kinds behind one stream shape, reports usage for each reply and takes plain JSON Schema for tools, which our catalog already produces. It is a library that makes outbound calls only, so it adds no process.
+
 ## 5. API contracts and validation
 
 ### Zod
@@ -928,6 +947,15 @@ section 16.5).
 
 Audit metadata follows the same rule as the logs: no tokens, command lines,
 prompts or file contents. Logs stay in journald.
+
+Assistant conversations (SPEC.md section 20.5, ADR 0081) are data, not logs:
+they are stored in PostgreSQL as the chat's own events, filtered by owner on
+every query and deleted 30 days after last use. Nothing from a prompt, a
+reply, a tool input or result, or the AI key reaches a log line: the loop and
+the model module log only conversation ids, counts and fixed error codes, and
+`globalThis.AI_SDK_LOG_WARNINGS` is off. The token count is kept as numbers
+for each day, person and model in `ai_usage_days`. Audit rows name the
+operation, never its inputs.
 
 The administrator page reads them back through `GET /admin/logs` and
 `GET /admin/logs/counts` (ADR 0036). The API runs `journalctl` itself, found at
@@ -1733,6 +1761,9 @@ Fastify
 Zod
 OpenAPI (built from the operation catalog with z.toJSONSchema)
 @modelcontextprotocol/server
+ai (the Vercel AI SDK, server half only)
+@ai-sdk/openai-compatible
+@ai-sdk/anthropic
 
 PostgreSQL
 Kysely
@@ -1815,6 +1846,10 @@ Not selected because routes here validate input by hand, so there are no route s
 ### OAuth for the MCP endpoint
 
 Not selected because the MCP specification makes OAuth optional and Claude Code and Codex both accept a fixed bearer header. An expiring, scoped, revocable API key does the job with fewer parts (ADR 0079).
+
+### The AI SDK's React package and its own loop
+
+Not selected: `@ai-sdk/react`, and the SDK's tool loop, `toolApproval` option and message format (ADR 0080). The assistant reuses the chat store and its components, runs its own loop one step at a time, and stores our own events, so the SDK's parts that change with each major version stay inside one module.
 
 ### Prisma
 

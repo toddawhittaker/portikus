@@ -8,6 +8,7 @@
  *   POST /__script    add a script: { match, steps }
  *   POST /__reset     drop added scripts and recorded requests
  *   GET  /__requests  the recorded request bodies, newest last
+ *   GET  /__page?url= the pricing page the API reads in place of that address
  *
  * Request bodies are kept in memory only, so a test can check what was sent.
  * Nothing is ever written to standard output.
@@ -18,6 +19,48 @@ import { fileURLToPath } from "node:url";
 export const FAKE_MODEL_ID = "fake-model-1";
 const MODELS = [FAKE_MODEL_ID, "fake-model-2"];
 const FALLBACK_TEXT = "I am the fake model. Nothing in my script matched that.";
+
+/** The one row each fake pricing page lists; its quote is text on that page. */
+export const FAKE_PRICE_ROWS = {
+	openai: priceRow(
+		"openai",
+		"fake-model-1",
+		"Fake Model One: input $2.00 per million tokens",
+	),
+	anthropic: priceRow(
+		"anthropic",
+		"fake-claude-1",
+		"Fake Claude One: input $3.00 per million tokens",
+	),
+};
+
+function priceRow(provider, model, quote) {
+	return {
+		provider,
+		model,
+		inputPricePerMillion: provider === "openai" ? 2 : 3,
+		cacheReadRatio: 0.1,
+		cacheWriteRatio: 1.25,
+		cacheWriteOneHourRatio: null,
+		cacheTtlSeconds: 300,
+		surchargeAboveTokens: null,
+		surchargeFactor: null,
+		sourceUrl: "https://example.com/pricing",
+		sourceQuote: quote,
+	};
+}
+
+/**
+ * The pricing page for a source address: a small page with one row and the
+ * marker that picks the matching script, or null (a 403) for an address
+ * containing "refuse".
+ */
+export function fakePricingPage(url) {
+	if (url.includes("refuse")) return null;
+	const provider = /anthropic|claude/i.test(url) ? "anthropic" : "openai";
+	const row = FAKE_PRICE_ROWS[provider];
+	return `<!doctype html><html><head><title>Pricing</title><style>p{}</style></head><body><h1>API pricing</h1><p>fake:prices:${provider}</p><table><tr><td>${row.sourceQuote}</td></tr></table></body></html>`;
+}
 
 /**
  * A step is one model turn: `text`, or `toolCalls` (each `{ name, arguments }`),
@@ -45,27 +88,10 @@ export const DEFAULT_SCRIPTS = [
 			{ text: "The change was handled." },
 		],
 	},
-	{
-		match: "fake:prices",
-		steps: [
-			{
-				toolCalls: [
-					{
-						name: "submit_rows",
-						arguments: {
-							rows: [
-								{
-									model: "fake-model-1",
-									inputPerMillion: 1,
-									outputPerMillion: 5,
-								},
-							],
-						},
-					},
-				],
-			},
-		],
-	},
+	...Object.entries(FAKE_PRICE_ROWS).map(([provider, row]) => ({
+		match: `fake:prices:${provider}`,
+		steps: [{ toolCalls: [{ name: "submit_rows", arguments: { rows: [row] } }] }],
+	})),
 	{
 		match: "fake:test",
 		steps: [
@@ -301,6 +327,16 @@ export function createFakeModelServer() {
 			sendJson(res, 200, { ok: true });
 		} else if (req.method === "GET" && path === "/__requests") {
 			sendJson(res, 200, requests);
+		} else if (req.method === "GET" && path === "/__page") {
+			const url = new URL(req.url ?? "/", "http://fake").searchParams.get("url") ?? "";
+			const page = fakePricingPage(url);
+			if (page === null) {
+				res.writeHead(403, { "content-type": "text/plain" });
+				res.end("forbidden");
+				return;
+			}
+			res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+			res.end(page);
 		} else {
 			sendJson(res, 404, { error: { message: "not found" } });
 		}

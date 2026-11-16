@@ -44,6 +44,10 @@ export const ModelPrice = PriceFigures.extend({
 });
 export type ModelPrice = z.infer<typeof ModelPrice>;
 
+/** A price row as the administrator's page sees it, with the id its edits name. */
+export const AdminModelPrice = ModelPrice.extend({ id: z.string().uuid() });
+export type AdminModelPrice = z.infer<typeof AdminModelPrice>;
+
 export const PriceProposalStatus = z.enum(["pending", "accepted", "rejected"]);
 export type PriceProposalStatus = z.infer<typeof PriceProposalStatus>;
 

@@ -41,6 +41,7 @@ import { registerAdminInvitationRoutes } from "./routes/admin-invitations.js";
 import { registerAdminLmsRoutes } from "./routes/admin-lms.js";
 import { registerAdminLogRoutes } from "./routes/admin-logs.js";
 import { registerAdminPackageRoutes } from "./routes/admin-packages.js";
+import { registerAdminPricingRoutes } from "./routes/admin-pricing.js";
 import { registerAdminProcessRoutes } from "./routes/admin-processes.js";
 import { registerAdminProxyHostRoutes } from "./routes/admin-proxy-hosts.js";
 import { registerAdminRootShellRoutes } from "./routes/admin-root-shell.js";
@@ -359,6 +360,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminAccountLinkRoutes(instance, deps);
 		registerAdminProxyHostRoutes(instance, deps);
 		registerAdminAiRoutes(instance, deps);
+		registerAdminPricingRoutes(instance, deps);
 		registerAssistantRoutes(instance, deps);
 		registerAdminLmsRoutes(instance, deps);
 		registerAdminCourseRoutes(instance, deps);
