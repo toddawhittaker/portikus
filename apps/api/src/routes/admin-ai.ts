@@ -275,8 +275,9 @@ export function registerAdminAiRoutes(
 					: null,
 			};
 		};
-		const send = (result: TestAiResult) =>
-			reply.header("cache-control", "no-store").send(result);
+		const send = (result: TestAiResult) => {
+			return reply.header("cache-control", "no-store").send(result);
+		};
 		if (!opened) return send(await done(null, "not-configured"));
 
 		const { client } = opened;
