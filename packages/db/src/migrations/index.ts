@@ -59,6 +59,11 @@ import { down as down0055, up as up0055 } from "./0055_check_runs.js";
 import { down as down0057, up as up0057 } from "./0057_coding_agents_auto_update.js";
 import { down as down0058, up as up0058 } from "./0058_api_keys.js";
 import { down as down0059, up as up0059 } from "./0059_audit_arrival.js";
+import { down as down0060, up as up0060 } from "./0060_audit_via_assistant.js";
+import { down as down0061, up as up0061 } from "./0061_ai_settings.js";
+import { down as down0062, up as up0062 } from "./0062_assistant_conversations.js";
+import { down as down0063, up as up0063 } from "./0063_ai_usage_days.js";
+import { down as down0064, up as up0064 } from "./0064_model_prices.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -122,4 +127,9 @@ export const migrations: Record<string, Migration> = {
 	"0057_coding_agents_auto_update": { up: up0057, down: down0057 },
 	"0058_api_keys": { up: up0058, down: down0058 },
 	"0059_audit_arrival": { up: up0059, down: down0059 },
+	"0060_audit_via_assistant": { up: up0060, down: down0060 },
+	"0061_ai_settings": { up: up0061, down: down0061 },
+	"0062_assistant_conversations": { up: up0062, down: down0062 },
+	"0063_ai_usage_days": { up: up0063, down: down0063 },
+	"0064_model_prices": { up: up0064, down: down0064 },
 };
