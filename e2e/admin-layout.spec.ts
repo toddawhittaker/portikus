@@ -33,6 +33,7 @@ const ADMIN_TAB_NAMES = [
 	"Sign-in",
 	"Site address",
 	"AI",
+	"Model prices",
 	"Settings",
 	"Root shell",
 ];

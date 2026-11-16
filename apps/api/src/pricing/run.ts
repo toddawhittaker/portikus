@@ -1,5 +1,10 @@
 import type { ApiConfig } from "@portikus/config";
-import { type PriceProvider, PriceRowInput, type PriceRun } from "@portikus/contracts";
+import {
+	DEFAULT_PRICE_SOURCES,
+	type PriceProvider,
+	PriceRowInput,
+	type PriceRun,
+} from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import { createOutboundFetch } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
@@ -18,12 +23,6 @@ import {
 	sameFigures,
 } from "./store.js";
 import { checkRows, providerOfSource, SUBMIT_ROWS_TOOL } from "./validate.js";
-
-/** Used when the settings list no sources: the providers' own API price pages. */
-export const DEFAULT_PRICE_SOURCES = [
-	"https://platform.openai.com/docs/pricing",
-	"https://docs.claude.com/en/docs/about-claude/pricing",
-];
 
 // A run still marked running after this long was cut off by a restart.
 const STALE_RUN_MS = 60 * 60_000;

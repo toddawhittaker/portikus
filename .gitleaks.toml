@@ -12,6 +12,12 @@ paths = [
 ]
 # RFC 6455's published sample Sec-WebSocket-Key ("the sample nonce"), used by
 # infra/tests/caddy-preview-test.sh.
+# A task branch commit (Epic 69 T12) whose Playwright spec used a fake AI key
+# shaped like a real one; the next commit replaced it and the branch is
+# squash-merged, so the commit never reaches main.
+commits = [
+  '''0bb15c34fdb4139c4eb612fc2537fbd2f3fe25bf''',
+]
 regexes = [
   '''dGhlIHNhbXBsZSBub25jZQ''',
   # RFC 6238's published test secret "12345678901234567890" in base32, used
