@@ -421,5 +421,7 @@ test("an instructor's assistant refuses an administrator's operation and draws n
 		await query("delete from sessions where user_id = $1", [instructor.id]);
 	}
 	// The administrator's own panel is untouched by all of this.
-	await expect(page.getByRole("button", { name: "Assistant" })).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Assistant", exact: true }),
+	).toBeVisible();
 });

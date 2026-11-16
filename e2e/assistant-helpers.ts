@@ -76,11 +76,11 @@ export async function setAssistant(page: Page, enabled: boolean): Promise<void> 
 }
 
 function panelOf(page: Page): Locator {
-	return page.getByRole("complementary", { name: "Assistant" });
+	return page.getByRole("complementary", { name: "Assistant", exact: true });
 }
 
 export async function openPanel(page: Page): Promise<Locator> {
-	await page.getByRole("button", { name: "Assistant" }).click();
+	await page.getByRole("button", { name: "Assistant", exact: true }).click();
 	const panel = panelOf(page);
 	await expect(panel).toBeVisible();
 	return panel;
