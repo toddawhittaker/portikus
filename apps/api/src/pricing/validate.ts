@@ -1,4 +1,8 @@
-import { type PriceProvider, PriceRowInput } from "@portikus/contracts";
+import {
+	normalizePriceRow,
+	type PriceProvider,
+	PriceRowInput,
+} from "@portikus/contracts";
 
 /** The name of the only tool the price check model is given. */
 export const SUBMIT_ROWS_TOOL = "submit_rows";
@@ -60,7 +64,7 @@ export function checkRows(
 			errors.push(`Row ${index + 1}: sourceQuote is not text from the page.`);
 			return;
 		}
-		out.push({ ...row, sourceQuote: collapse(row.sourceQuote) });
+		out.push(normalizePriceRow({ ...row, sourceQuote: collapse(row.sourceQuote) }));
 	});
 	return { rows: out, errors };
 }

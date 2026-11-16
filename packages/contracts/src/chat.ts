@@ -709,6 +709,8 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		usedTokens: z.number().int().nonnegative(),
 		windowTokens: z.number().int().positive().nullable(),
 		cache: ChatCacheFigures.nullable(),
+		/** The model id the agent reported (claude-opus-5-5); older hosts and a fresh chat leave it out. */
+		model: z.string().max(200).optional(),
 		/** The host's clock, epoch milliseconds, when it sent this; older hosts leave it out. */
 		now: z.number().int().nonnegative().optional(),
 		/**

@@ -242,6 +242,7 @@ export const AutoHandoffRecord = z.object({
 			usedTokens: z.number().int().nonnegative(),
 			windowTokens: z.number().int().positive().nullable(),
 			cache: ChatCacheFigures.nullable(),
+			model: z.string().optional(),
 		})
 		.nullable(),
 	/** How the conversation has grown since it began; a file from before this was kept has none. */

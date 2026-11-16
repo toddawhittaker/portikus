@@ -1,5 +1,6 @@
 import { requireRole, requireUser } from "@portikus/auth";
 import {
+	normalizePriceRow,
 	PriceProposalDecision,
 	PriceRowInput,
 	type PricingTable,
@@ -163,8 +164,9 @@ export function registerAdminPricingRoutes(
 
 	app.post("/admin/pricing/rows", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const row = parseOr400(PriceRowInput, request.body ?? {}, reply);
-		if (!row) return reply;
+		const parsed = parseOr400(PriceRowInput, request.body ?? {}, reply);
+		if (!parsed) return reply;
+		const row = normalizePriceRow(parsed);
 		const inserted = await db
 			.insertInto("model_prices")
 			.values({ ...figureColumns(row), updated_by: admin.id })
@@ -187,8 +189,9 @@ export function registerAdminPricingRoutes(
 		const admin = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return reply;
-		const row = parseOr400(PriceRowInput, request.body ?? {}, reply);
-		if (!row) return reply;
+		const parsed = parseOr400(PriceRowInput, request.body ?? {}, reply);
+		if (!parsed) return reply;
+		const row = normalizePriceRow(parsed);
 		const now = new Date().toISOString();
 		let updated: { id: string } | undefined;
 		try {

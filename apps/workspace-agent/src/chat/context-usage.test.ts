@@ -164,3 +164,27 @@ test("after a new session the figures start empty again in the same window", () 
 		cache: null,
 	});
 });
+
+test("the figures carry the model the agent reported, and a transcript's last one", () => {
+	const named = (model: string) => ({
+		type: "assistant",
+		parent_tool_use_id: null,
+		message: { id: model, model, usage: { input_tokens: 10, output_tokens: 5 } },
+	});
+	const tracker = new ContextTracker();
+	expect(tracker.request(named("claude-opus-5-5") as never, 1000)).toMatchObject({
+		model: "claude-opus-5-5",
+	});
+	// A figure from a reply that names no model is sent without one, not with a guess.
+	expect(
+		afterRequest(
+			null,
+			{ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 },
+			1,
+			null,
+		),
+	).not.toHaveProperty("model");
+	expect(fromTranscript([named("claude-sonnet-5-5")], null)).toMatchObject({
+		model: "claude-sonnet-5-5",
+	});
+});

@@ -493,6 +493,7 @@ describe("a turn", () => {
 			windowTokens: 475000,
 			// The recorded model is GPT-5.6 or later, so its 30-minute cache is assumed.
 			cache: { at: expect.any(Number), ttlSeconds: 1800 },
+			model: expect.any(String),
 		});
 	});
 

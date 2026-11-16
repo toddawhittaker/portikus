@@ -44,6 +44,21 @@ const surchargeRule = { message: "Give both surcharge figures or neither" };
 export const PriceRowInput = PriceFigures.strict().refine(surchargeBoth, surchargeRule);
 export type PriceRowInput = z.infer<typeof PriceRowInput>;
 
+/**
+ * The model name as the table stores it (SPEC.md section 20.5). Anthropic
+ * rows use the API id, so "Claude Opus 5.5" becomes "claude-opus-5-5";
+ * OpenAI names are only lowercased and trimmed.
+ */
+export function normalizePriceModel(provider: PriceProvider, model: string): string {
+	const name = model.trim().toLowerCase();
+	return provider === "anthropic" ? name.replace(/[ .]+/g, "-") : name;
+}
+
+/** The row with its model name normalised; every path that stores a row goes through it. */
+export function normalizePriceRow(row: PriceRowInput): PriceRowInput {
+	return { ...row, model: normalizePriceModel(row.provider, row.model) };
+}
+
 export const ModelPrice = PriceFigures.extend({
 	checkedAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),

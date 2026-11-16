@@ -315,6 +315,26 @@ describe.skipIf(skip)("a price check from the page", () => {
 });
 
 describe.skipIf(skip)("manual edits", () => {
+	test("a hand-added or edited Anthropic row is stored under its API id", async () => {
+		await withApp(async (admin) => {
+			const anthropic = { ...ROW, provider: "anthropic" };
+			const added = await admin("POST", "/admin/pricing/rows", {
+				...anthropic,
+				model: "Claude Opus 5.5",
+			});
+			expect(added.statusCode).toBe(201);
+			const [price] = AdminModelPrice.array().parse(
+				(added.json() as { prices: unknown }).prices,
+			);
+			expect(price?.model).toBe("claude-opus-5-5");
+			const edited = await admin("PUT", `/admin/pricing/rows/${price?.id}`, {
+				...anthropic,
+				model: "Claude Haiku 4.5",
+			});
+			expect(edited.json()).toMatchObject({ prices: [{ model: "claude-haiku-4-5" }] });
+		});
+	});
+
 	test("add, edit and delete are validated and audited", async () => {
 		await withApp(async (admin) => {
 			const invalid = await admin("POST", "/admin/pricing/rows", {
