@@ -973,6 +973,151 @@ tab is there only when the server's operator has left root shells on.
 - Keys typed before the prompt appears are lost. A very large paste
   while the shell is busy may be dropped; the shell says so.
 
+## The built-in AI assistant
+
+Portikus can talk to an AI model for you. You ask a question in plain
+words, such as "which workspaces are stopped?" or "invite these people as
+students", and the assistant looks things up and proposes changes. It is
+for administrators and instructors. Students never see it. It is off until
+you set it up on the **AI** tab, under **Site**, and it costs real money at
+your AI provider, so read this section first.
+
+### What it can and cannot do
+
+- **It acts as you.** Each thing it does runs with your own role and
+  checks, as if you had clicked it. It can never do what your account may
+  not. If you are signed out, disabled or lose the role, it stops at once.
+- **It reads freely and asks before it changes.** Looking things up runs
+  at once and shows as a block you can open. Anything that changes
+  something stops at an **approval card**.
+- **It never touches the most sensitive things.** The root shell, API keys,
+  passwords and second factors, linking accounts, and any setting that
+  holds a secret are not available to it.
+- **It never sees student files or terminals.** It reads what the
+  administration pages show: people, courses, workspaces, health, logs,
+  backups and settings.
+
+### Set it up
+
+Open **Admin**, then **AI**, under **Site**. Work down the page.
+
+1. **Privacy notice.** Read it. It says what leaves the server (the
+   results of what the assistant looks up, which can include real names,
+   course names, workspace and process details and log lines), what never
+   leaves (file contents, terminal output, students' chat prompts and
+   secrets), what is stored (conversations, for 30 days, visible only to
+   the person who had them), and who the provider is. Choose **Accept**.
+   Portikus records who accepted it and when. If the notice changes in a
+   later version, you are asked again.
+2. **Provider.** Choose **OpenAI-compatible** or **Anthropic**. The page
+   fills in the usual base address; change it only for another hosted
+   service that speaks the same interface. Give the **Model** (the page
+   offers the provider's list when it has one) and the **Key**. The key is
+   write-only: once saved, the page shows only that it is set and its last
+   four characters. Use a key made just for Portikus, and set a spending
+   limit at the provider too. It is separate from any key you give students
+   for their coding agents.
+3. **Allow the host.** If the provider's host is not yet on the server's
+   list of allowed hosts, the page offers "Portikus will also allow the
+   server to reach <host> on port 443". It is ticked by default. Saving
+   adds the host the same way **Allowed API hosts** does, as a separate
+   change that is logged on its own. Untick it if you prefer to add the
+   host yourself.
+4. **Limits.** The **Monthly token cap** is for the whole site, 5,000,000
+   by default. The **Budget for each conversation** is 200,000 by default.
+   A token is roughly three quarters of a word, and every step of a
+   conversation re-sends what came before, so long conversations cost more
+   than their length suggests. The page shows this month's use. When the
+   cap is used up the assistant stops until next month or until you raise
+   it. A conversation that reaches its budget says so and asks the person
+   to start a new one.
+5. **Test.** **Test** asks the saved model to call one tool and use its
+   answer. It sends no site data and uses a few hundred tokens. The page
+   shows how far it got: connecting, getting a reply, calling the tool,
+   using the result. A model that cannot call tools cannot work as the
+   assistant, whatever it does in a chat window.
+6. **Turn it on.** The **Assistant** switch works only once a key is saved
+   and the notice is accepted. Clearing the key turns it off.
+
+### Which models work
+
+Two models have been tried on the full set of scripted tasks on a real site
+before release: OpenAI *(model: pending the pilot check)* and Claude
+*(model: pending the pilot check)*, through Anthropic's own interface.
+Other hosted models may work. Small models often call tools badly, so run
+**Test** first and try a few real questions before you rely on one.
+
+A model that runs on your own network or on your own machine cannot be
+reached yet: the server may reach only listed hosts on port 443, and the
+proxy refuses private addresses and plain HTTP. Portikus refuses such an
+address on the page. Hosted OpenAI-compatible services work.
+
+### Using the assistant
+
+Choose **Assistant** in the admin header to open the panel. Your own
+conversations are listed newest first, and you can delete any of them. Type
+a request and send it. **Stop** ends a turn that is still working.
+
+- **Approval cards.** A card shows what the operation does, a table of
+  exactly what it will use, and its risk. Read it, not the assistant's
+  description, because the card is drawn by Portikus from the real operation
+  and not written by the model. Choose **Approve** or **Deny**. A denial
+  tells the assistant not to try to get the same result another way. A card
+  nobody answers expires after a day.
+- **Typed confirmation.** For a destructive operation (one that cannot be
+  undone, removes someone's access or loosens a security control) the card
+  asks you to type the operation's name, such as `users.disable`. Anything
+  else counts as a denial. For a batch, you type the number of rows.
+- **Text it reads is data.** Names, file names and log lines are written by
+  users. The assistant is told to treat them as data, and every change still
+  needs your approval, so a student cannot talk it into acting.
+- **Instructors.** Instructors get the same panel on the course page, with
+  only what an instructor may do.
+
+Each thing the assistant runs is in **Health, logs and audit** as your own
+change, and each call also writes a row named `assistant.used` with the
+operation and its result. The audit never holds a conversation, an input or
+the model's words.
+
+### What is kept
+
+- Conversations are stored in your database for 30 days after they were last
+  used, then deleted. Only the person who had one can see it. Nobody else,
+  including an administrator, can read it from Portikus. A person can delete
+  their own sooner.
+- **Backups hold conversations.** A database dump includes them, so a
+  conversation stays in a backup until that backup expires, even after it
+  is deleted from the site. Keep this in mind when you decide how long to
+  keep backups, and say so in your privacy statement if you need to.
+- Portikus never writes a conversation, a prompt or the key to its logs.
+- The provider has its own terms and may keep what it receives. Choose one
+  whose terms suit your institution.
+
+### Model prices
+
+The **Pricing** tab keeps a table of what each model costs, which the
+students' restart estimate reads. A weekly check, and a button to
+run one now, fetch the provider pricing pages you list, ask the model to read the
+rows from them, and show each row as a proposal beside the row it would
+replace. Nothing changes until you accept it. You can also edit rows by
+hand, which is the way to go when a page refuses the fetch. The check uses
+tokens from the same monthly cap, and its model has no access to your site's
+data. Without a row for a model, Portikus uses its built-in numbers.
+
+### If it will not turn on
+
+- **"Read and accept the privacy notice first"** or **"Set the provider's
+  key first."** Do what it says.
+- **Test fails at "Connect to the provider".** The server could not reach
+  the host. Check the base address and that its host is on the allowed
+  list (**Allowed API hosts**).
+- **Test fails with "refused the key".** The key is wrong, expired or has no
+  access to that model.
+- **The assistant says the allowance is used up.** Raise the monthly cap, or
+  wait for next month.
+- **The key stopped working after a restore.** A backup restored without
+  the server's key file cannot open the saved key. Save the key again.
+
 ## API keys and the MCP server
 
 An API key lets a program, such as Claude Code or Codex, act as you for a
