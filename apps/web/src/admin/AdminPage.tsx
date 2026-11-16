@@ -1,5 +1,7 @@
 import { Navigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { AssistantProvider } from "../assistant/AssistantContext.js";
+import { AssistantButton, AssistantPanel } from "../assistant/AssistantPanel.js";
 import { AdminHelp } from "../help/AdminHelp.js";
 import { ADMIN_HELP_TITLE } from "../help/titles.js";
 import { usePageTitle } from "../pageTitle.js";
@@ -107,51 +109,59 @@ export function AdminPage() {
 	if (rootShell.isPending) return <div className="pk-root" aria-busy="true" />;
 
 	return (
-		<div className="pk-root">
-			<AppHeader user={me.user} workspace={null} project={undefined} />
-			{/* The frame stays still under the header: the tab strip on top, and only
+		<AssistantProvider>
+			<div className="pk-root">
+				<AppHeader
+					user={me.user}
+					workspace={null}
+					project={undefined}
+					actions={<AssistantButton />}
+				/>
+				{/* The frame stays still under the header: the tab strip on top, and only
 			    the content under it scrolls, as a workspace pane does (SPEC.md section 20.1). */}
-			<div className="pk-adminframe-row">
-				<div className="pk-adminframe" data-testid="admin-frame">
-					<AdminNav tab={view} rootShell={rootShellOn} />
-					<main
-						className="pk-adminframe-scroll scroll-pt-16"
-						data-testid="page-admin"
-						data-density="compact"
-						data-controls="console"
-						aria-labelledby="admin-title"
-					>
-						{/* scroll-pt-16 keeps a focused row clear of the sticky table header.
-						    The root shells fill the frame instead of scrolling in it. */}
-						<div
-							className={
-								shellTab ? "flex h-full flex-col" : "pk-admin-content px-4 py-6"
-							}
-							data-testid="admin-content"
+				<div className="pk-adminframe-row">
+					<div className="pk-adminframe" data-testid="admin-frame">
+						<AdminNav tab={view} rootShell={rootShellOn} />
+						<main
+							className="pk-adminframe-scroll scroll-pt-16"
+							data-testid="page-admin"
+							data-density="compact"
+							data-controls="console"
+							aria-labelledby="admin-title"
 						>
-							<p
-								aria-live="polite"
-								className="sr-only"
-								data-testid="admin-tab-announce"
+							{/* scroll-pt-16 keeps a focused row clear of the sticky table header.
+						    The root shells fill the frame instead of scrolling in it. */}
+							<div
+								className={
+									shellTab ? "flex h-full flex-col" : "pk-admin-content px-4 py-6"
+								}
+								data-testid="admin-content"
 							>
-								{tabAnnouncement}
-							</p>
-							{/* Here, above the tabs, so an operation's end is announced on any tab (SPEC.md section 20.1). */}
-							<OperationEndToasts />
-							{help ? <AdminHelp titleId="admin-title" /> : null}
-							{/* The header shows "Administration"; the h1 keeps the outline. */}
-							{view ? (
-								<h1 className="sr-only" id="admin-title">
-									Administration
-								</h1>
-							) : null}
-							{tabContent(view, me.user.id)}
-							<RootShellTab shown={shellTab} status={rootShell} />
-						</div>
-					</main>
+								<p
+									aria-live="polite"
+									className="sr-only"
+									data-testid="admin-tab-announce"
+								>
+									{tabAnnouncement}
+								</p>
+								{/* Here, above the tabs, so an operation's end is announced on any tab (SPEC.md section 20.1). */}
+								<OperationEndToasts />
+								{help ? <AdminHelp titleId="admin-title" /> : null}
+								{/* The header shows "Administration"; the h1 keeps the outline. */}
+								{view ? (
+									<h1 className="sr-only" id="admin-title">
+										Administration
+									</h1>
+								) : null}
+								{tabContent(view, me.user.id)}
+								<RootShellTab shown={shellTab} status={rootShell} />
+							</div>
+						</main>
+						<AssistantPanel />
+					</div>
 				</div>
+				<AdminStatusBar />
 			</div>
-			<AdminStatusBar />
-		</div>
+		</AssistantProvider>
 	);
 }
