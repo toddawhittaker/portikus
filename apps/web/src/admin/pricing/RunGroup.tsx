@@ -79,8 +79,10 @@ export function RunGroup({
 						<dt className="text-ink-muted">Started by</dt>
 						<dd className="m-0">{TRIGGER_LABEL[run.trigger]}</dd>
 						<dt className="text-ink-muted">Status</dt>
-						<dd className="m-0" role="status" data-testid="pricing-run-status">
-							<Badge tone={BADGE_TONE[run.status]}>{STATUS_LABEL[run.status]}</Badge>
+						<dd className="m-0">
+							<span role="status" data-testid="pricing-run-status">
+								<Badge tone={BADGE_TONE[run.status]}>{STATUS_LABEL[run.status]}</Badge>
+							</span>
 						</dd>
 						{run.status !== "running" ? (
 							<>

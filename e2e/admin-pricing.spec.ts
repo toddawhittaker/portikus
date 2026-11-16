@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { AI_NOTICE_VERSION } from "@portikus/contracts";
+
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { FAKE_PRICE_ROWS } from "./fake-model-server.mjs";
 import {
@@ -22,6 +22,8 @@ import {
 /** The same lock as the AI settings specs: these tests change the one AI settings row. */
 const AI_SETTINGS_LOCK = "e2e-ai-settings";
 const SHOTS = "/tmp/epic69/t12/shots";
+// The privacy notice version the API expects, as packages/contracts sets it.
+const AI_NOTICE_VERSION = 1;
 
 const AI_COLUMNS =
 	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at, price_sources";
@@ -47,7 +49,8 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
 	release = await lockSharedState(AI_SETTINGS_LOCK);
 	[savedAi] = await query(`select ${AI_COLUMNS} from ai_settings where id = 1`);
-	for (const table of PRICE_TABLES) savedTables[table] = await query(`select * from ${table}`);
+	for (const table of PRICE_TABLES)
+		savedTables[table] = await query(`select * from ${table}`);
 	mkdirSync(SHOTS, { recursive: true });
 });
 test.afterAll(async () => {
