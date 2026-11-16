@@ -272,6 +272,26 @@
 	font-weight: 500;
 }
 
+/* A batch's rows: about ten show before the region scrolls; its header stays in view. */
+.pk-assistant-batch {
+	max-block-size: 20rem;
+	overflow: auto;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+}
+.pk-assistant-batch .pk-assistant-inputs thead th {
+	position: sticky;
+	inset-block-start: 0;
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-weight: 500;
+	border-block-start: 0;
+	border-block-end: 1px solid var(--line-strong);
+}
+.pk-assistant-batch .pk-assistant-inputs tbody th[scope="row"] {
+	font-variant-numeric: tabular-nums;
+}
+
 .pk-assistant-value {
 	margin: 0;
 	font-family: var(--font-mono);

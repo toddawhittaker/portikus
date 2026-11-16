@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
-	expectNoViolations,
-	lockSharedState,
-	openAdmin,
-	query,
-	WEB_ORIGIN,
-} from "./helpers";
-import { FAKE_MODEL_PORT } from "./ports";
+	ask,
+	holdAiSettings,
+	openPanel,
+	script,
+	setAssistant,
+} from "./assistant-helpers";
+import { expectNoViolations, openAdmin } from "./helpers";
 
 /**
  * The administrator's assistant panel against the real API and the fake
@@ -18,90 +18,16 @@ import { FAKE_MODEL_PORT } from "./ports";
  * so parallel workers never pick up each other's steps.
  */
 
-const MODEL = `http://127.0.0.1:${FAKE_MODEL_PORT}`;
-
-/** Held alone: these tests turn the site's one AI settings row on and off. */
-const AI_SETTINGS_LOCK = "e2e-ai-settings";
-
-async function script(match: string, steps: unknown[]): Promise<void> {
-	const response = await fetch(`${MODEL}/__script`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ match, steps }),
-	});
-	if (!response.ok)
-		throw new Error(`the fake model refused the script: ${response.status}`);
-}
-
-/** Bumped with the privacy notice text (packages/contracts ai.ts; e2e cannot import the contracts). */
-const AI_NOTICE_VERSION = 1;
-
-/**
- * Save a provider and key and accept the notice, then turn the assistant
- * on or off. The API's AI_TEST_BASE_URL sends the model calls to the fake
- * server whatever base address is saved.
- */
-async function setAssistant(page: Page, enabled: boolean): Promise<void> {
-	const headers = { origin: WEB_ORIGIN };
-	const put = await page.request.put("/admin/ai", {
-		headers,
-		data: {
-			providerKind: "openai-compatible",
-			baseUrl: "https://api.openai.com/v1",
-			model: "fake-model-1",
-			key: "sk-e2e-assistant-WXYZ",
-		},
-	});
-	expect(put.ok(), await put.text()).toBe(true);
-	const notice = await page.request.post("/admin/ai/notice", {
-		headers,
-		data: { noticeVersion: AI_NOTICE_VERSION },
-	});
-	expect(notice.ok(), await notice.text()).toBe(true);
-	const toggle = await page.request.put("/admin/ai", { headers, data: { enabled } });
-	expect(toggle.ok(), await toggle.text()).toBe(true);
-}
-
-function panelOf(page: Page): Locator {
-	return page.getByRole("complementary", { name: "Assistant" });
-}
-
-async function openPanel(page: Page): Promise<Locator> {
-	await page.getByRole("button", { name: "Assistant" }).click();
-	const panel = panelOf(page);
-	await expect(panel).toBeVisible();
-	return panel;
-}
-
-async function ask(panel: Locator, text: string): Promise<void> {
-	const box = panel.getByRole("textbox", { name: "Message the assistant" });
-	await expect(
-		panel.getByTestId("assistant-conv-empty").or(panel.locator(".pk-chat-log")),
-	).toBeVisible();
-	await box.fill(text);
-	await box.press("Enter");
-}
-
-const ROW_COLUMNS =
-	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at";
-let saved: Record<string, unknown> | undefined;
-let release: (() => Promise<void>) | undefined;
+let restore: (() => Promise<void>) | undefined;
 
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
-	release = await lockSharedState(AI_SETTINGS_LOCK);
-	[saved] = await query(`select ${ROW_COLUMNS} from ai_settings where id = 1`);
+	// The wait for another spec holding the settings row counts against this hook.
+	test.setTimeout(600_000);
+	restore = await holdAiSettings();
 });
 test.afterAll(async () => {
-	// Put the row back as the other holder of the lock left it.
-	if (saved) {
-		const columns = ROW_COLUMNS.split(", ");
-		await query(
-			`update ai_settings set ${columns.map((c, i) => `${c} = $${i + 1}`).join(", ")} where id = 1`,
-			columns.map((c) => saved?.[c]),
-		);
-	}
-	await release?.();
+	await restore?.();
 });
 
 test.beforeEach(async ({ page }) => {

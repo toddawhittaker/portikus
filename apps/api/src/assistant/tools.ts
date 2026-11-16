@@ -1,4 +1,4 @@
-import type { ApiKeyScope } from "@portikus/contracts";
+import { type ApiKeyScope, AssistantBatchInput } from "@portikus/contracts";
 import type { z } from "zod";
 import type { AiTool } from "../ai/model.js";
 import { OPERATIONS, type Operation, operationByName } from "../catalog/index.js";
@@ -18,12 +18,14 @@ import {
 	toolName,
 } from "../mcp/server.js";
 import { splitKey } from "../route-policy.js";
+import { BATCH_DESCRIPTION, BATCH_TOOL, checkRows } from "./batch.js";
 
 /**
  * The assistant's tools: the MCP server's own set for this person (SPEC.md
  * sections 20.4 and 27), the named tools their role may run plus
- * `find_operation` and `run_operation`. A read-only conversation is offered
- * read operations only, as a read-scope key would be.
+ * `find_operation` and `run_operation`, and the assistant-only `run_batch`.
+ * A read-only conversation is offered read operations only, as a read-scope
+ * key would be, and no `run_batch`.
  */
 
 export type AssistantRole = "administrator" | "instructor";
@@ -74,6 +76,13 @@ export function assistantTools(caller: ToolCaller): Offered {
 			inputSchema: toSchema(RunArgs) as AiTool["inputSchema"],
 		},
 	);
+	if (!caller.readOnly) {
+		tools.push({
+			name: BATCH_TOOL,
+			description: BATCH_DESCRIPTION,
+			inputSchema: toSchema(AssistantBatchInput) as AiTool["inputSchema"],
+		});
+	}
 	const built = { tools, named };
 	offered.set(cacheKey, built);
 	return built;
@@ -99,7 +108,9 @@ export function systemPrompt(caller: ToolCaller): string {
 export type ResolvedCall =
 	/** An answer the model gets at once, with no request made. */
 	| { kind: "answer"; text: string; isError: boolean }
-	| { kind: "operation"; operation: Operation; input: OperationInputValues };
+	| { kind: "operation"; operation: Operation; input: OperationInputValues }
+	/** One change or destructive operation for several rows, each row's input checked. */
+	| { kind: "batch"; operation: Operation; batch: AssistantBatchInput };
 
 function refusal(code: string, message: string): ResolvedCall {
 	return { kind: "answer", text: JSON.stringify({ code, message }), isError: true };
@@ -166,6 +177,35 @@ function urlOf(operation: Operation): string {
 	return found ? splitKey(found.key).url : "";
 }
 
+/** A `run_batch` call: every row checked before anything is asked or run. */
+function resolveBatch(input: unknown, caller: ToolCaller): ResolvedCall {
+	const args = AssistantBatchInput.safeParse(input);
+	if (!args.success) return refusal("VALIDATION_FAILED", issuesText(args.error));
+	const found = operationByName(args.data.operation);
+	if (
+		!found ||
+		!mayRun(found.operation, { role: caller.role, scope: scopeOf(caller) })
+	) {
+		return refusal(
+			"NOT_FOUND",
+			`There is no operation named ${args.data.operation} that you may run here.`,
+		);
+	}
+	const { operation } = found;
+	if (operation.risk === "read") {
+		return refusal(
+			"VALIDATION_FAILED",
+			`${operation.name} only reads, so it cannot be batched. Call it directly instead.`,
+		);
+	}
+	const url = urlOf(operation);
+	const checked = checkRows(args.data.rows, (raw) => checkInput(operation, url, raw));
+	if ("problem" in checked) return refusal("VALIDATION_FAILED", checked.problem);
+	// Plain JSON for the card and the stored approval, as a single call's input is.
+	const rows = JSON.parse(JSON.stringify(checked.inputs));
+	return { kind: "batch", operation, batch: { operation: operation.name, rows } };
+}
+
 /**
  * What one tool call asks for: an operation with checked input, or an
  * answer at once (a search, or a refusal for a bad name or input).
@@ -183,6 +223,8 @@ export function resolveCall(
 		);
 		return { kind: "answer", text: textOf(found), isError: false };
 	}
+	if (call.name === BATCH_TOOL && !caller.readOnly)
+		return resolveBatch(call.input, caller);
 	let operation: Operation;
 	let url: string;
 	let raw: unknown;

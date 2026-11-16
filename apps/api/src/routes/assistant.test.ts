@@ -1071,3 +1071,196 @@ describe.skipIf(skip)("the loop", () => {
 			socket.socket.close();
 		}));
 });
+
+describe.skipIf(skip)("bulk work through run_batch", () => {
+	const invite = (email: string) => ({
+		body: { email, name: "Student", role: "student" },
+	});
+
+	test("one approval typed with the row count runs every row as its own call, and the model reads a per-row table", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol);
+			const emails = ["n1@example.edu", "n2@example.edu", "alice@example.edu"];
+			const client = fake([
+				toolCall("call-b1", "run_batch", {
+					operation: "invitations.create",
+					rows: emails.map(invite),
+				}),
+				reply("Invited."),
+			]);
+			const socket = await connect(app, carol, conv.id);
+			socket.send({ type: "send", text: "invite these", attachments: [] });
+			const card = await socket.waitFor((f) => f.type === "permission.requested");
+			await socket.waitFor(turnDone());
+			expect(card).toMatchObject({
+				id: "call-b1",
+				toolName: "run_batch",
+				title: expect.stringMatching(/^Invites someone/),
+				input: { operation: "invitations.create", rows: emails.map(invite) },
+				risk: "change",
+				confirmText: "3",
+			});
+			expect(await auditOf("assistant.used")).toEqual([]);
+
+			// A wrong count denies and runs nothing.
+			socket.send({
+				type: "permission.answer",
+				id: "call-b1",
+				optionId: "approve",
+				confirmation: "2",
+			});
+			await turnsFinished(socket, 2);
+			expect(outputOf(socket, "call-b1")).toBe(REFUSED_TEXT);
+			expect(
+				await testDb.db
+					.selectFrom("account_invitations")
+					.select("id")
+					.where("email", "like", "n%@example.edu")
+					.execute(),
+			).toEqual([]);
+			expect(client.requests).toHaveLength(2);
+			socket.socket.close();
+		}));
+
+	test("an approved batch runs row by row; a refused row does not stop the rest", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol);
+			// The second row repeats the first address, so the route refuses it.
+			const emails = ["n1@example.edu", "n1@example.edu", "n3@example.edu"];
+			const client = fake([
+				toolCall("call-b2", "run_batch", {
+					operation: "invitations.create",
+					rows: emails.map(invite),
+				}),
+				reply("Done."),
+			]);
+			const socket = await connect(app, carol, conv.id);
+			socket.send({ type: "send", text: "invite", attachments: [] });
+			await socket.waitFor(turnDone());
+			socket.send({
+				type: "permission.answer",
+				id: "call-b2",
+				optionId: "approve",
+				confirmation: "3",
+			});
+			await turnsFinished(socket, 2);
+
+			const table = JSON.parse(outputOf(socket, "call-b2"));
+			expect(table).toMatchObject({ operation: "invitations.create", rows: 3 });
+			expect(table.results.map((r: { row: number }) => r.row)).toEqual([1, 2, 3]);
+			expect(table.results[0]).toEqual({ row: 1, status: "ok", code: null });
+			expect(table.results[1]).toMatchObject({ row: 2, status: "refused" });
+			expect(table.results[1].code).toEqual(expect.any(String));
+			expect(table.results[2]).toEqual({ row: 3, status: "ok", code: null });
+			expect(table.ok).toBe(2);
+			expect(
+				(
+					await testDb.db
+						.selectFrom("account_invitations")
+						.select("email")
+						.where("email", "like", "n%@example.edu")
+						.orderBy("email")
+						.execute()
+				).map((r) => r.email),
+			).toEqual(["n1@example.edu", "n3@example.edu"]);
+			// Each row wrote its own assistant.used row, without its inputs.
+			const used = await auditOf("assistant.used");
+			expect(used.map((r) => (r.metadata as { operation: string }).operation)).toEqual([
+				"invitations.create",
+				"invitations.create",
+				"invitations.create",
+			]);
+			expect(JSON.stringify(used)).not.toContain("n1@example.edu");
+			expect(lastToolResults(client.requests[1] as StepRequest)[0]).toMatchObject({
+				isError: true,
+				text: expect.stringContaining('"results"'),
+			});
+			const [row] = await testDb.db
+				.selectFrom("assistant_approvals")
+				.selectAll()
+				.execute();
+			expect(row).toMatchObject({
+				operation: "run_batch",
+				risk: "change",
+				confirm_text: "3",
+				status: "approved",
+			});
+			socket.socket.close();
+		}));
+
+	test("a bad row stops the whole call before any card is drawn; a read operation cannot be batched", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol);
+			fake([
+				toolCall("call-b3", "run_batch", {
+					operation: "invitations.create",
+					rows: [invite("ok@example.edu"), invite("not-an-email")],
+				}),
+				toolCall("call-b4", "run_batch", {
+					operation: "users.list",
+					rows: [{ query: {} }],
+				}),
+				reply("Fixed."),
+			]);
+			const socket = await connect(app, carol, conv.id);
+			socket.send({ type: "send", text: "invite", attachments: [] });
+			await socket.waitFor(turnDone());
+			expect(JSON.parse(outputOf(socket, "call-b3"))).toMatchObject({
+				code: "VALIDATION_FAILED",
+				message: expect.stringMatching(/Nothing ran\. One row is not valid: row 2:/),
+			});
+			expect(JSON.parse(outputOf(socket, "call-b4"))).toMatchObject({
+				code: "VALIDATION_FAILED",
+				message: expect.stringMatching(/only reads/),
+			});
+			expect(socket.frames.some((f) => f.type === "permission.requested")).toBe(false);
+			expect(
+				await testDb.db.selectFrom("assistant_approvals").selectAll().execute(),
+			).toEqual([]);
+			expect(await auditOf("assistant.used")).toEqual([]);
+			socket.socket.close();
+		}));
+
+	test("a destructive batch also asks for the row count, and an instructor cannot batch an administrator operation", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol);
+			fake([
+				toolCall("call-b5", "run_batch", {
+					operation: "egress.add_entry",
+					rows: [
+						{ body: { version: 0, kind: "host", value: "example.org", label: "" } },
+					],
+				}),
+				reply("x"),
+			]);
+			const socket = await connect(app, carol, conv.id);
+			socket.send({ type: "send", text: "allow it", attachments: [] });
+			const card = await socket.waitFor((f) => f.type === "permission.requested");
+			expect(card).toMatchObject({ risk: "destructive", confirmText: "1" });
+			socket.socket.close();
+
+			const ivy = await signIn(app, "ivy");
+			const other = await newConversation(app, ivy);
+			fake([
+				toolCall("call-b6", "run_batch", {
+					operation: "egress.add_entry",
+					rows: [
+						{ body: { version: 0, kind: "host", value: "example.org", label: "" } },
+					],
+				}),
+				reply("x"),
+			]);
+			const second = await connect(app, ivy, other.id);
+			second.send({ type: "send", text: "allow it", attachments: [] });
+			await second.waitFor(turnDone());
+			expect(JSON.parse(outputOf(second, "call-b6"))).toMatchObject({
+				code: "NOT_FOUND",
+			});
+			expect(second.frames.some((f) => f.type === "permission.requested")).toBe(false);
+			second.socket.close();
+		}));
+});

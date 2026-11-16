@@ -1,7 +1,12 @@
-import type { ChatCardDecision } from "@portikus/contracts";
+import {
+	type AssistantBatchInput,
+	batchConfirmText,
+	type ChatCardDecision,
+} from "@portikus/contracts";
 import type { Operation } from "../catalog/index.js";
 import type { OperationInputValues } from "../catalog/run.js";
 import { toolName } from "../mcp/server.js";
+import { BATCH_TOOL } from "./batch.js";
 import type { StoredEvent } from "./store.js";
 
 /**
@@ -38,6 +43,24 @@ export function approvalCard(
 		],
 		risk: operation.risk,
 		...(confirmText === null ? {} : { confirmText }),
+	};
+}
+
+/**
+ * The card for a batch: the operation's description as the title, the rows
+ * as its input, and the row count as the confirmation for change and
+ * destructive batches alike.
+ */
+export function batchCard(
+	toolCallId: string,
+	operation: Operation & { risk: ApprovalRisk },
+	batch: AssistantBatchInput,
+): Extract<StoredEvent, { type: "permission.requested" }> {
+	return {
+		...approvalCard(toolCallId, operation, {}),
+		toolName: BATCH_TOOL,
+		input: JSON.parse(JSON.stringify(batch)),
+		confirmText: batchConfirmText(batch),
 	};
 }
 
