@@ -374,6 +374,8 @@ export const ApiErrorCode = z.enum([
 	// Turning the built-in AI on before it has a key or an accepted notice (SPEC.md section 20.4).
 	"AI_KEY_REQUIRED",
 	"AI_NOTICE_REQUIRED",
+	// The assistant is off, has no key or accepted notice, or the month's tokens are spent.
+	"AI_NOT_ENABLED",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;
 

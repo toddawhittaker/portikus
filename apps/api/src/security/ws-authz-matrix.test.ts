@@ -118,7 +118,7 @@ const socketKeys = Object.keys(ROUTE_POLICY).filter(
 
 const workspaceSocketKeys = socketKeys.filter((key) => {
 	const access = ROUTE_POLICY[key]?.access;
-	return access !== "admin" && access !== "course-instructor";
+	return access !== "admin" && access !== "course-instructor" && access !== "staff";
 });
 const courseSocketKeys = socketKeys.filter(
 	(key) => ROUTE_POLICY[key]?.access === "course-instructor",
@@ -126,9 +126,13 @@ const courseSocketKeys = socketKeys.filter(
 const adminSocketKeys = socketKeys.filter(
 	(key) => ROUTE_POLICY[key]?.access === "admin",
 );
+const staffSocketKeys = socketKeys.filter(
+	(key) => ROUTE_POLICY[key]?.access === "staff",
+);
 
-test("the eight browser sockets are all in the matrix", () => {
-	expect(socketKeys).toHaveLength(8);
+test("the nine browser sockets are all in the matrix", () => {
+	expect(socketKeys).toHaveLength(9);
+	expect(staffSocketKeys).toEqual(["GET /assistant/conversations/:id/socket"]);
 	expect(courseSocketKeys).toEqual([
 		"GET /courses/:courseId/live-help/:sid/terminals/:tid/ws",
 	]);
@@ -283,6 +287,69 @@ describe.skipIf(skip)("an administrator socket refuses everyone else", () => {
 				await helper.close();
 			}
 		});
+	}
+});
+
+describe.skipIf(skip)("a staff socket opens only for its owner", () => {
+	for (const key of staffSocketKeys) {
+		test(key, () =>
+			withWorld(async (app, world) => {
+				// The administrator's own conversation: nobody else may open it.
+				const owner = await testDb.db
+					.selectFrom("users")
+					.select("id")
+					.where("oidc_subject", "=", "carol")
+					.executeTakeFirstOrThrow();
+				const conversation = await testDb.db
+					.insertInto("assistant_conversations")
+					.values({ user_id: owner.id })
+					.returning("id")
+					.executeTakeFirstOrThrow();
+				const path = splitKey(key).url.replace(":id", conversation.id);
+				const admin = world.admin.cookieHeader();
+				const refusals: Array<[string, Record<string, string>, number]> = [
+					["anonymous", { origin: PUBLIC_ORIGIN }, 401],
+					[
+						"the disabled user",
+						{ origin: PUBLIC_ORIGIN, cookie: world.disabled.cookieHeader() },
+						401,
+					],
+					[
+						"an agent token with no cookie",
+						{ origin: PUBLIC_ORIGIN, authorization: `Bearer ${world.a.agentToken}` },
+						401,
+					],
+					[
+						"a student",
+						{ origin: PUBLIC_ORIGIN, cookie: world.a.jar.cookieHeader() },
+						403,
+					],
+					[
+						"another staff member",
+						{ origin: PUBLIC_ORIGIN, cookie: world.instructor.cookieHeader() },
+						404,
+					],
+					["the owner with no Origin", { cookie: admin }, 403],
+					[
+						"the owner from a preview Origin",
+						{
+							cookie: admin,
+							origin: `https://${world.a.label}-5173.preview.localhost`,
+						},
+						403,
+					],
+				];
+				for (const [who, headers, status] of refusals) {
+					const result = await upgrade(app, path, headers);
+					expect(result.status, `${key} for ${who}`).toBe(status);
+				}
+				const allowed = await upgrade(app, path, {
+					origin: PUBLIC_ORIGIN,
+					cookie: admin,
+				});
+				expect(allowed.status).toBe(101);
+			}),
+		);
 	}
 });
 

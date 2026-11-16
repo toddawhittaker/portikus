@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
 	ChatEventSchemas,
+	Envelope,
 	MAX_CHAT_TEXT_CHARS,
 	PermissionAnswerMessage,
 } from "./chat.js";
@@ -21,6 +22,8 @@ export const AssistantServerEvent = z.discriminatedUnion("type", [
 	ChatEventSchemas.PermissionRequestedEvent,
 	ChatEventSchemas.CardResolvedEvent,
 	ChatEventSchemas.TurnFinishedEvent,
+	/** A plain refusal or failure, such as a message sent while a turn runs; the chat's own `error`. */
+	z.object({ type: z.literal("error"), ...Envelope, message: z.string() }),
 ]);
 export type AssistantServerEvent = z.infer<typeof AssistantServerEvent>;
 
@@ -97,3 +100,19 @@ export type AssistantBatchInput = z.infer<typeof AssistantBatchInput>;
 export function batchConfirmText(batch: AssistantBatchInput): string {
 	return String(batch.rows.length);
 }
+
+/** Why the assistant cannot be used now, or null when it can (SPEC.md section 20.4). */
+export const AssistantUnavailableReason = z.enum([
+	"off",
+	"no-key",
+	"notice",
+	"monthly-cap",
+]);
+export type AssistantUnavailableReason = z.infer<typeof AssistantUnavailableReason>;
+
+/** Whether the assistant can be used. Any staff member may ask. */
+export const AssistantStatus = z.object({
+	enabled: z.boolean(),
+	reason: AssistantUnavailableReason.nullable(),
+});
+export type AssistantStatus = z.infer<typeof AssistantStatus>;
