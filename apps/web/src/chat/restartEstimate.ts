@@ -3,9 +3,8 @@
  * less of their plan (SPEC.md §10.8). Every request re-reads the whole
  * conversation, so a long chat costs more per message; this compares that
  * with a fresh chat that starts from a handoff note. The first message is
- * a warm-up: it is left out of the per-message rates, and the fresh chat is
- * assumed to repeat it. It assumes plan usage
- * tracks API prices, so it is an estimate.
+ * a warm-up: it is left out of the steady per-message rates, and the fresh chat is
+ * assumed to repeat it. It assumes plan usage tracks API prices, so it is an estimate.
  */
 
 import { HANDOFF_TOKENS, type ModelPrice, PricingTable } from "@portikus/contracts";
@@ -53,10 +52,15 @@ const PRICE_TABLE = {
 } as const;
 
 export { HANDOFF_TOKENS };
-/** Context growth per message until two messages have finished. */
-export const FALLBACK_GROWTH = 18_000;
-/** Requests to the model per message until two messages have finished. */
-export const FALLBACK_REQUESTS = 14;
+
+/**
+ * The estimate waits for two finished messages (the first is a warm-up, never
+ * the steady rate) and then for a context this large or MIN_MESSAGES finished
+ * messages, whichever comes first (SPEC.md §10.8).
+ */
+const MIN_FINISHED = 2;
+export const MIN_USED_TOKENS = 60_000;
+export const MIN_MESSAGES = 5;
 const MIN_GROWTH = 1000;
 const MIN_REQUESTS = 1;
 const WINDOW_SHARE = 0.9;
@@ -81,6 +85,24 @@ export function loadPriceTable(): Promise<void> {
 export function resetPriceTable(): void {
 	siteTable = null;
 	loading = null;
+}
+
+/**
+ * The names the settings picker uses for Claude's model families, mapped to
+ * the API ids the price rows and built-in table are keyed by. The host's own
+ * reported id is used instead whenever it has one.
+ */
+const CLAUDE_ALIASES: Record<string, string> = {
+	opus: "claude-opus-5-5",
+	sonnet: "claude-sonnet-5-5",
+	haiku: "claude-haiku-5-5",
+	fable: "claude-fable-5-2",
+};
+
+/** The model id to price with: the id the agent reported, else the setting with an alias spelled out and a `[1m]` suffix dropped. */
+export function pricingModel(reported: string | undefined, setting: string): string {
+	const name = (reported || setting).replace(/\[1m\]$/, "");
+	return CLAUDE_ALIASES[name] ?? name;
 }
 
 /** A dated release of a model, such as claude-opus-5-5-20261101. */
@@ -193,15 +215,14 @@ export interface Rates {
  * kept out of the steady rates and repeated by a fresh chat. The steady rates
  * come from finished messages only, so a running one cannot swing them (SPEC.md §10.8).
  */
-function chatRates(inputs: RestartInputs): { steady: Rates; warmup: Rates } {
-	const fallback = { growth: FALLBACK_GROWTH, requests: FALLBACK_REQUESTS };
-	const after = inputs.usedAfterFirstMessage;
-	if (after === null) return { steady: fallback, warmup: fallback };
+function chatRates(
+	inputs: RestartInputs,
+	after: number,
+): { steady: Rates; warmup: Rates } {
 	const warmup = {
 		growth: Math.max(MIN_GROWTH, after - inputs.firstUsedTokens),
 		requests: Math.max(MIN_REQUESTS, inputs.firstMessageEvents),
 	};
-	if (inputs.messagesDone < 2) return { steady: fallback, warmup };
 	const later = inputs.messagesDone - 1;
 	return {
 		steady: {
@@ -264,8 +285,20 @@ export function bestRestart(
 	return { bestRun, restartAt: sizeAfter(bestRun) };
 }
 
-export function estimateRestart(inputs: RestartInputs): RestartEstimate {
-	const { steady, warmup } = chatRates(inputs);
+/** The estimate is shown only once a message has finished and the chat is big or long enough to judge. */
+export function hasEnoughToEstimate(usedTokens: number, messagesDone: number): boolean {
+	return (
+		messagesDone >= MIN_FINISHED &&
+		(usedTokens >= MIN_USED_TOKENS || messagesDone >= MIN_MESSAGES)
+	);
+}
+
+/** The estimate, or null before there is enough of the chat to judge by. */
+export function estimateRestart(inputs: RestartInputs): RestartEstimate | null {
+	const after = inputs.usedAfterFirstMessage;
+	if (after === null || !hasEnoughToEstimate(inputs.usedTokens, inputs.messagesDone))
+		return null;
+	const { steady, warmup } = chatRates(inputs, after);
 	const { growth, requests } = steady;
 	const start = inputs.firstUsedTokens + HANDOFF_TOKENS;
 	const { bestRun, restartAt } = bestRestart(

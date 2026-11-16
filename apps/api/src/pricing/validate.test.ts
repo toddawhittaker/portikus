@@ -32,6 +32,24 @@ describe("providerOfSource", () => {
 });
 
 describe("checkRows", () => {
+	test("an Anthropic model name is stored as its API id", () => {
+		const out = checkRows(
+			{
+				rows: [
+					{
+						...ROW,
+						provider: "anthropic",
+						model: "Claude Opus 5.5",
+						sourceQuote: "GPT Test: input $2.00 per million tokens",
+					},
+				],
+			},
+			{ ...SOURCE, provider: "anthropic" },
+		);
+		expect(out.errors).toEqual([]);
+		expect(out.rows[0]?.model).toBe("claude-opus-5-5");
+	});
+
 	test("keeps a good row, with the page fetched as its address", () => {
 		const out = checkRows({ rows: [ROW] }, SOURCE);
 		expect(out.errors).toEqual([]);

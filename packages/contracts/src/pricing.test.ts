@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { PriceRowInput, PricingTable } from "./pricing.js";
+import {
+	normalizePriceModel,
+	normalizePriceRow,
+	PriceRowInput,
+	PricingTable,
+} from "./pricing.js";
 
 const row = {
 	provider: "anthropic",
@@ -52,4 +57,30 @@ test("the public table is a list of dated rows", () => {
 	expect(
 		PricingTable.parse({ prices: [{ ...row, checkedAt: at, updatedAt: at }] }).prices,
 	).toHaveLength(1);
+});
+
+describe("normalizePriceModel", () => {
+	test("an Anthropic name becomes its API id", () => {
+		expect(normalizePriceModel("anthropic", "Claude Opus 5.5")).toBe("claude-opus-5-5");
+		expect(normalizePriceModel("anthropic", "Claude Haiku 4.5")).toBe(
+			"claude-haiku-4-5",
+		);
+		expect(normalizePriceModel("anthropic", "  claude  opus..5.5 ")).toBe(
+			"claude-opus-5-5",
+		);
+		expect(normalizePriceModel("anthropic", "claude-opus-5-5")).toBe("claude-opus-5-5");
+	});
+
+	test("an OpenAI name is only lowercased and trimmed", () => {
+		expect(normalizePriceModel("openai", " GPT-6.1 Sol ")).toBe("gpt-6.1 sol");
+	});
+
+	test("a row keeps its other figures", () => {
+		expect(
+			normalizePriceRow(PriceRowInput.parse({ ...row, model: "Claude Opus 5.5" })),
+		).toEqual({
+			...row,
+			model: "claude-opus-5-5",
+		});
+	});
 });

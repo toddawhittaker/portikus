@@ -2,13 +2,21 @@ import { describe, expect, test } from "vitest";
 import {
 	bestRestart,
 	estimateRestart,
-	FALLBACK_GROWTH,
-	FALLBACK_REQUESTS,
 	HANDOFF_TOKENS,
+	hasEnoughToEstimate,
+	MIN_MESSAGES,
+	MIN_USED_TOKENS,
 	messageCost,
 	type PriceRatios,
 	priceRatios,
+	pricingModel,
 } from "./restartEstimate.js";
+
+/** The estimate where the test expects one; null fails it. */
+function shown(estimate: ReturnType<typeof estimateRestart>) {
+	if (!estimate) throw new Error("no estimate was shown");
+	return estimate;
+}
 
 const ONE_HOUR: PriceRatios = { read: 0.05, write: 2, surcharge: null };
 const FIVE_MINUTES: PriceRatios = { read: 0.05, write: 1.25, surcharge: null };
@@ -81,56 +89,119 @@ test("a cold first request is priced as a cache write", () => {
 	expect(cold - warm).toBeCloseTo((2 - 0.05) * 50_000);
 });
 
-test("the fallbacks stand until two messages are seen, then the observed rates", () => {
+test("the steady rates come from messages after the first", () => {
 	const base = {
-		usedTokens: 100_000,
+		usedTokens: 94_000,
 		windowTokens: 1_000_000,
 		firstUsedTokens: 58_000,
-		contextEvents: 1,
-		usedAfterFirstMessage: null,
-		firstMessageEvents: 0,
-		messagesDone: 0,
-		usedAtLastDone: 0,
-		eventsAtLastDone: 0,
-		prices: ONE_HOUR,
-	};
-	// Fallbacks reproduce the first reference: S = 66,000, C* = 156,000.
-	const early = estimateRestart({ ...base, messagesSent: 1 });
-	expect(early.restartAt).toBe(156_000);
-	expect(early.messagesLeft).toBe(Math.floor((156_000 - 100_000) / FALLBACK_GROWTH));
-	expect(FALLBACK_REQUESTS).toBe(14);
-	expect(HANDOFF_TOKENS).toBe(8000);
-
-	// Observed: a warm-up of 76,000 - 58,000 = 18,000 in 14 requests, then
-	// g = 94,000 - 76,000 = 18,000 and q = 28 - 14 = 14 for the second message.
-	const observed = estimateRestart({
-		...base,
-		usedTokens: 94_000,
-		messagesSent: 2,
 		contextEvents: 28,
 		usedAfterFirstMessage: 76_000,
 		firstMessageEvents: 14,
+		messagesSent: 2,
 		messagesDone: 2,
 		usedAtLastDone: 94_000,
 		eventsAtLastDone: 28,
+		prices: ONE_HOUR,
+	};
+	expect(HANDOFF_TOKENS).toBe(8000);
+	// Warm-up 18,000 in 14 requests; then g = 94,000 - 76,000 = 18,000 and q = 28 - 14 = 14.
+	expect(shown(estimateRestart(base))).toEqual({
+		messagesLeft: 3,
+		restartAt: 156_000,
+		bestRun: 5,
 	});
-	expect(observed).toEqual({ messagesLeft: 3, restartAt: 156_000, bestRun: 5 });
+});
+
+describe("the gate", () => {
+	const at = (usedTokens: number, messagesDone: number) =>
+		estimateRestart({
+			usedTokens,
+			windowTokens: 1_000_000,
+			firstUsedTokens: 26_313,
+			messagesSent: messagesDone,
+			contextEvents: 3 * messagesDone,
+			usedAfterFirstMessage: 28_328,
+			firstMessageEvents: 3,
+			messagesDone,
+			usedAtLastDone: usedTokens,
+			eventsAtLastDone: 3 * messagesDone,
+			prices: priceRatios("claude", pricingModel(undefined, "opus"), 3600),
+		});
+
+	test("the thresholds are 60,000 tokens and 5 messages", () => {
+		expect([MIN_USED_TOKENS, MIN_MESSAGES]).toEqual([60_000, 5]);
+	});
+
+	test("the pilot chat (one message, 28,328 tokens) shows nothing", () => {
+		expect(at(28_328, 1)).toBeNull();
+	});
+
+	test("the first message is never the steady rate: one finished message at 61,000 is hidden", () => {
+		expect(at(61_000, 1)).toBeNull();
+		expect(hasEnoughToEstimate(61_000, 1)).toBe(false);
+	});
+
+	test("nothing is shown before a message has finished, however large", () => {
+		expect(at(200_000, 0)).toBeNull();
+		expect(hasEnoughToEstimate(200_000, 0)).toBe(false);
+	});
+
+	test("two finished messages at 61,000 tokens are shown", () => {
+		expect(at(61_000, 2)).not.toBeNull();
+	});
+
+	test("4 finished messages at 40,000 tokens are hidden; 5 are shown", () => {
+		expect(at(40_000, 4)).toBeNull();
+		expect(at(40_000, 5)).not.toBeNull();
+	});
+
+	test("past the gate a small-growth chat gets a sensible count", () => {
+		// 61,000 after two messages: growth is (61,000 - 28,328) in one later message, so use five.
+		expect(shown(at(61_000, 5)).messagesLeft).toBeGreaterThanOrEqual(0);
+	});
+});
+
+describe("the model that is priced", () => {
+	test("an alias maps to the API id, which has the 0.05 cache read", () => {
+		expect(pricingModel(undefined, "opus")).toBe("claude-opus-5-5");
+		expect(pricingModel(undefined, "sonnet")).toBe("claude-sonnet-5-5");
+		expect(pricingModel(undefined, "haiku")).toBe("claude-haiku-5-5");
+		expect(pricingModel(undefined, "fable")).toBe("claude-fable-5-2");
+		expect(priceRatios("claude", pricingModel(undefined, "opus"), 3600).read).toBe(
+			0.05,
+		);
+	});
+
+	test("the id the agent reported wins over the setting", () => {
+		expect(pricingModel("claude-opus-5-5", "sonnet")).toBe("claude-opus-5-5");
+	});
+
+	test("a [1m] suffix is dropped before the lookup", () => {
+		expect(pricingModel(undefined, "opus[1m]")).toBe("claude-opus-5-5");
+		expect(pricingModel(undefined, "claude-sonnet-5-5[1m]")).toBe("claude-sonnet-5-5");
+	});
+
+	test("an unknown name passes through", () => {
+		expect(pricingModel(undefined, "gpt-6.1-sol")).toBe("gpt-6.1-sol");
+	});
 });
 
 test("growth is floored at 1000 and requests at 1", () => {
-	const flat = estimateRestart({
-		usedTokens: 50_000,
-		windowTokens: 1_000_000,
-		firstUsedTokens: 50_000,
-		messagesSent: 4,
-		contextEvents: 0,
-		usedAfterFirstMessage: 50_000,
-		firstMessageEvents: 0,
-		messagesDone: 4,
-		usedAtLastDone: 50_000,
-		eventsAtLastDone: 0,
-		prices: ONE_HOUR,
-	});
+	const flat = shown(
+		estimateRestart({
+			usedTokens: 50_000,
+			windowTokens: 1_000_000,
+			firstUsedTokens: 50_000,
+			messagesSent: 5,
+			contextEvents: 0,
+			usedAfterFirstMessage: 50_000,
+			firstMessageEvents: 0,
+			messagesDone: 5,
+			usedAtLastDone: 50_000,
+			eventsAtLastDone: 0,
+			prices: ONE_HOUR,
+		}),
+	);
 	// With g = 1000, the restart size and messages left step in thousands.
 	expect((flat.restartAt - 58_000) % 1000).toBe(0);
 	expect(flat.restartAt).toBe(58_000 + flat.bestRun * 1000);
@@ -149,19 +220,21 @@ test("the run is capped at 90% of the window, and at least one message", () => {
 });
 
 test("messages left is never negative", () => {
-	const late = estimateRestart({
-		usedTokens: 900_000,
-		windowTokens: 1_000_000,
-		firstUsedTokens: 58_000,
-		messagesSent: 1,
-		contextEvents: 14,
-		usedAfterFirstMessage: null,
-		firstMessageEvents: 0,
-		messagesDone: 0,
-		usedAtLastDone: 0,
-		eventsAtLastDone: 0,
-		prices: ONE_HOUR,
-	});
+	const late = shown(
+		estimateRestart({
+			usedTokens: 900_000,
+			windowTokens: 1_000_000,
+			firstUsedTokens: 58_000,
+			messagesSent: 2,
+			contextEvents: 28,
+			usedAfterFirstMessage: 76_000,
+			firstMessageEvents: 14,
+			messagesDone: 2,
+			usedAtLastDone: 94_000,
+			eventsAtLastDone: 28,
+			prices: ONE_HOUR,
+		}),
+	);
 	expect(late.messagesLeft).toBe(0);
 });
 
@@ -171,26 +244,31 @@ describe("a cold cache", () => {
 		usedTokens: 300_000,
 		windowTokens: 1_000_000,
 		firstUsedTokens: 48_000,
-		messagesSent: 1,
-		contextEvents: 14,
-		usedAfterFirstMessage: null,
-		firstMessageEvents: 0,
-		messagesDone: 0,
-		usedAtLastDone: 0,
-		eventsAtLastDone: 0,
+		messagesSent: 2,
+		contextEvents: 28,
+		usedAfterFirstMessage: 66_000,
+		firstMessageEvents: 14,
+		messagesDone: 2,
+		usedAtLastDone: 84_000,
+		eventsAtLastDone: 28,
 		prices: ONE_HOUR,
 	};
 
 	test("prices the next message here as a re-write, so a fresh chat saves usage now", () => {
 		// Extra here: 1.95 x 300k = 585k; extra in a fresh chat: 1.95 x 56k = 109.2k.
-		expect(estimateRestart({ ...inputs, cold: true }).messagesLeft).toBe(0);
+		expect(shown(estimateRestart({ ...inputs, cold: true })).messagesLeft).toBe(0);
 	});
 
 	test("a warm or unknown cache keeps the renewal estimate", () => {
-		const small = { ...inputs, usedTokens: 56_000 };
-		const warm = estimateRestart(small);
+		const small = {
+			...inputs,
+			firstUsedTokens: 52_000,
+			usedTokens: 60_000,
+			usedAtLastDone: 60_000,
+		};
+		const warm = shown(estimateRestart(small));
 		expect(warm.messagesLeft).toBeGreaterThan(0);
-		// At the fresh chat's own size, a cold write costs the same either way.
+		// At the fresh chat's own size (52k + 8k), a cold write costs the same either way.
 		expect(estimateRestart({ ...small, cold: true })).toEqual(warm);
 		expect(estimateRestart({ ...small, cold: false })).toEqual(warm);
 	});
@@ -203,11 +281,12 @@ describe("the first message is a warm-up", () => {
 		warmup: number,
 		warmupRequests: number,
 		later: readonly (readonly [number, number])[],
-	): number[] {
+	): (number | null)[] {
 		const firstUsedTokens = 30_000;
 		const after = firstUsedTokens + warmup;
 		let used = after;
 		let events = warmupRequests;
+		// Null while the gate keeps the estimate hidden.
 		const estimate = (messagesSent: number) =>
 			estimateRestart({
 				usedTokens: used,
@@ -221,14 +300,14 @@ describe("the first message is a warm-up", () => {
 				usedAtLastDone: used,
 				eventsAtLastDone: events,
 				prices: opus,
-			}).messagesLeft;
-		const shown = [estimate(1)];
+			})?.messagesLeft ?? null;
+		const steps = [estimate(1)];
 		later.forEach(([tokens, requests], index) => {
 			used += tokens;
 			events += requests;
-			shown.push(estimate(index + 2));
+			steps.push(estimate(index + 2));
 		});
-		return shown;
+		return steps;
 	}
 	const MIXED = [
 		[6000, 4],
@@ -244,22 +323,25 @@ describe("the first message is a warm-up", () => {
 	);
 
 	test("a heavy warm-up does not make a fresh chat look cheaper right away", () => {
-		for (const left of counts(45_000, 30, MIXED)) expect(left).toBeGreaterThan(0);
+		const left = counts(45_000, 30, MIXED);
+		expect(left.some((n) => n !== null)).toBe(true);
+		for (const n of left) if (n !== null) expect(n).toBeGreaterThan(0);
 	});
 
 	test("messages of similar size move the count by at most one", () => {
 		// From the third message on, once the steady rate rests on observed messages.
-		const shown = counts(45_000, 30, SIMILAR).slice(2);
-		for (let i = 1; i < shown.length; i++) {
-			expect(Math.abs((shown[i] ?? 0) - (shown[i - 1] ?? 0))).toBeLessThanOrEqual(1);
+		const steps = counts(45_000, 30, SIMILAR).slice(2);
+		for (let i = 1; i < steps.length; i++) {
+			expect(Math.abs((steps[i] ?? 0) - (steps[i - 1] ?? 0))).toBeLessThanOrEqual(1);
 		}
 	});
 
 	test("a heavier warm-up makes restarting later, not sooner", () => {
 		const light = counts(10_000, 5, SIMILAR);
 		const heavy = counts(45_000, 30, SIMILAR);
+		// Compared from the fifth message, when both chats are past the gate.
 		light.forEach((left, i) => {
-			expect(heavy[i] ?? 0).toBeGreaterThanOrEqual(left);
+			if (i >= 4) expect(heavy[i] ?? 0).toBeGreaterThanOrEqual(left ?? 0);
 		});
 		expect(heavy.at(-1) ?? 0).toBeGreaterThan(light.at(-1) ?? 0);
 	});
@@ -289,33 +371,22 @@ test("a message still running does not move the steady rates", () => {
 		messagesSent: number,
 		done: { messages: number; used: number; events: number },
 	) =>
-		estimateRestart({
-			usedTokens,
-			windowTokens: 1_000_000,
-			firstUsedTokens: 30_000,
-			messagesSent,
-			contextEvents,
-			usedAfterFirstMessage: 75_000,
-			firstMessageEvents: 30,
-			messagesDone: done.messages,
-			usedAtLastDone: done.used,
-			eventsAtLastDone: done.events,
-			prices,
-		}).messagesLeft;
-	const afterFirst = { messages: 1, used: 75_000, events: 30 };
-	const settled = at(75_000, 30, 1, afterFirst);
-	// Message 2 is sent and reports a few small requests before its turn ends.
-	for (const [used, events] of [
-		[75_000, 30],
-		[75_500, 31],
-		[76_000, 32],
-		[77_000, 33],
-	] as const) {
-		const shown = at(used, events, 2, afterFirst);
-		expect(shown).toBeLessThanOrEqual(settled);
-		expect(settled - shown).toBeLessThanOrEqual(1);
-	}
-	// Once it finishes, its growth sets the steady rate.
+		shown(
+			estimateRestart({
+				usedTokens,
+				windowTokens: 1_000_000,
+				firstUsedTokens: 30_000,
+				messagesSent,
+				contextEvents,
+				usedAfterFirstMessage: 75_000,
+				firstMessageEvents: 30,
+				messagesDone: done.messages,
+				usedAtLastDone: done.used,
+				eventsAtLastDone: done.events,
+				prices,
+			}),
+		).messagesLeft;
+	// Message 2 has finished; its growth sets the steady rate.
 	const afterSecond = { messages: 2, used: 81_000, events: 34 };
 	const second = at(81_000, 34, 2, afterSecond);
 	// Message 3 in flight: the count only falls with the live size.

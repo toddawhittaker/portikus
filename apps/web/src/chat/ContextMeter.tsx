@@ -22,7 +22,12 @@ import { useStore } from "zustand";
 import { stopTime } from "../shell/useCountdown.js";
 import { useCacheCold } from "./cacheCold.js";
 import type { ChatState, ChatStore } from "./chatStore.js";
-import { estimateRestart, loadPriceTable, priceRatios } from "./restartEstimate.js";
+import {
+	estimateRestart,
+	loadPriceTable,
+	priceRatios,
+	pricingModel,
+} from "./restartEstimate.js";
 
 type Cache = NonNullable<NonNullable<ChatState["context"]>["cache"]>;
 
@@ -242,7 +247,7 @@ function selectMessagesLeft(state: ChatState, cold: boolean): number | null {
 	const { context, growth, settings } = state;
 	if (!context || context.windowTokens === null || !settings) return null;
 	if (growth.firstUsedTokens === null) return null;
-	return estimateRestart({
+	const estimate = estimateRestart({
 		usedTokens: context.usedTokens,
 		windowTokens: context.windowTokens,
 		firstUsedTokens: growth.firstUsedTokens,
@@ -256,10 +261,11 @@ function selectMessagesLeft(state: ChatState, cold: boolean): number | null {
 		cold,
 		prices: priceRatios(
 			settings.agent,
-			settings.model,
+			pricingModel(context.model, settings.model),
 			context.cache?.ttlSeconds ?? null,
 		),
-	}).messagesLeft;
+	});
+	return estimate ? estimate.messagesLeft : null;
 }
 
 /** Mounted afresh for each conversation, so it announces at most once in one. */

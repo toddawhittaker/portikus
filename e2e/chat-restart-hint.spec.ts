@@ -63,6 +63,10 @@ for (const colorScheme of ["dark", "light"] as const) {
 		await expect(view.getByText("first", { exact: true })).toBeVisible();
 		await sendMessage(view, "second");
 		await expect(view.getByText("second", { exact: true })).toBeVisible();
+		// Two messages in, but only 30k used: below the gate, so no hint and no button.
+		await expect(view.getByTestId("composer-context")).toContainText("30.0k");
+		await expect(hint).toHaveCount(0);
+		await expect(view.getByTestId("composer-handoff")).toHaveCount(0);
 		// The host's counts: a heavy warm-up of 30k to 60k, then 10k for the second message.
 		await setUsed(id, 70_000, {
 			startTokens: 30_000,
@@ -106,6 +110,67 @@ for (const colorScheme of ["dark", "light"] as const) {
 	});
 }
 
+test("below the gate there is no hint: one message at 61k, then four messages at 40k", async ({
+	page,
+	context,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	const { id, view } = await openHint(page, context);
+	const hint = view.getByTestId("composer-restart");
+	// The pilot's chat: one finished message and a small context.
+	await setUsed(id, 28_328, {
+		startTokens: 26_313,
+		messages: 1,
+		requests: 3,
+		firstMessageTokens: 28_328,
+		firstMessageRequests: 3,
+		doneMessages: 1,
+		doneTokens: 28_328,
+		doneRequests: 3,
+	});
+	await expect(view.getByTestId("composer-context")).toContainText("28.3k");
+	await expect(hint).toHaveCount(0);
+	await expect(view.getByText(/fresh chat/i)).toHaveCount(0);
+	// The first message is a warm-up: a large context after it alone is still not enough.
+	await setUsed(id, 61_000, {
+		startTokens: 26_313,
+		messages: 1,
+		requests: 3,
+		firstMessageTokens: 61_000,
+		firstMessageRequests: 3,
+		doneMessages: 1,
+		doneTokens: 61_000,
+		doneRequests: 3,
+	});
+	await expect(view.getByTestId("composer-context")).toContainText("61.0k");
+	await expect(hint).toHaveCount(0);
+	// Four messages at 40k are still too few.
+	await setUsed(id, 40_000, {
+		startTokens: 26_313,
+		messages: 4,
+		requests: 12,
+		firstMessageTokens: 28_328,
+		firstMessageRequests: 3,
+		doneMessages: 4,
+		doneTokens: 40_000,
+		doneRequests: 12,
+	});
+	await expect(view.getByTestId("composer-context")).toContainText("40.0k");
+	await expect(hint).toHaveCount(0);
+	// Five are enough.
+	await setUsed(id, 40_000, {
+		startTokens: 26_313,
+		messages: 5,
+		requests: 15,
+		firstMessageTokens: 28_328,
+		firstMessageRequests: 3,
+		doneMessages: 5,
+		doneTokens: 40_000,
+		doneRequests: 15,
+	});
+	await expect(hint).toBeVisible();
+});
+
 test("at phone width the hint wraps inside the composer and Send stays put", async ({
 	page,
 	context,
@@ -122,7 +187,16 @@ test("at phone width the hint wraps inside the composer and Send stays put", asy
 			),
 		);
 	const before = await sendTop();
-	await setUsed(id, 30_000);
+	await setUsed(id, 70_000, {
+		startTokens: 30_000,
+		messages: 2,
+		requests: 4,
+		firstMessageTokens: 60_000,
+		firstMessageRequests: 2,
+		doneMessages: 2,
+		doneTokens: 70_000,
+		doneRequests: 4,
+	});
 	await expect(view.getByTestId("composer-restart")).toBeVisible();
 	expect(await sendTop()).toBe(before);
 	const inside = await composer.evaluate((form) => {

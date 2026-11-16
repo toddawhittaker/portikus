@@ -439,6 +439,7 @@ export class CodexAgent implements ChatAgent {
 					usedTokens: Math.max(0, Math.round(usage.last.totalTokens)),
 					windowTokens,
 					cache: codexCache(this.settings.model, Date.now()),
+					...(this.settings.model ? { model: this.settings.model } : {}),
 				};
 				this.sink.context(this.context, true);
 				return;
