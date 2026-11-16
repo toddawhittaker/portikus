@@ -107,6 +107,19 @@ export function createAssistantHub(db: Kysely<Database>) {
 			});
 		},
 
+		/**
+		 * Send an event to one socket only, unstored: a refusal of that tab's
+		 * own frame, which other tabs and a later replay never see. It takes a
+		 * seq of its own, as a streamed piece does, so it is not dropped as old.
+		 */
+		tell(id: string, socket: WebSocket, event: StoredEvent): Promise<void> {
+			return enqueue(id, async (state) => {
+				state.seq ??= await maxSeq(db, id);
+				state.seq += 1;
+				send(socket, framed(id, state.seq, event));
+			});
+		},
+
 		/** Send the snapshot and the stored history, then every later event. */
 		attach(id: string, socket: WebSocket): Promise<void> {
 			return enqueue(id, async (state) => {

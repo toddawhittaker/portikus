@@ -281,7 +281,7 @@ export type ChatCardDecision = z.infer<typeof ChatCardDecision>;
 /** Longest plan text a permission card carries. */
 export const MAX_CHAT_PLAN_CHARS = 100_000;
 
-export const PermissionCardFields = {
+const PermissionCardFields = {
 	id: z.string().min(1),
 	toolName: z.string().min(1),
 	title: z.string(),
