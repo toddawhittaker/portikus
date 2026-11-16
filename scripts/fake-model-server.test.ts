@@ -2,7 +2,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 // @ts-expect-error The fake server is a plain .mjs script with no type declarations.
-import { createFakeModelServer } from "../e2e/fake-model-server.mjs";
+import { createFakeModelServer, FAKE_PRICE_ROWS } from "../e2e/fake-model-server.mjs";
 
 type Message = { role: string; content?: string | null; [key: string]: unknown };
 type Chunk = {
@@ -158,7 +158,9 @@ describe("streaming text", () => {
 
 describe("streaming tool calls", () => {
 	test("splits arguments over several chunks that rebuild the JSON", async () => {
-		const { chunks } = await streamed([{ role: "user", content: "fake:prices" }]);
+		const { chunks } = await streamed([
+			{ role: "user", content: "fake:prices:openai" },
+		]);
 		const [call] = toolCalls(chunks);
 		expect(call?.name).toBe("submit_rows");
 		expect(call?.id).toBeTruthy();
@@ -322,5 +324,29 @@ describe("recorded requests", () => {
 		const response = await fetch(`${base}/v1/nope`, { headers: AUTH });
 		expect(response.status).toBe(404);
 		expect((await fetch(`${base}/__nope`)).status).toBe(404);
+	});
+});
+
+describe("the pricing page", () => {
+	test("serves a page whose marker and quote match the price script", async () => {
+		const source = "https://docs.claude.com/en/docs/about-claude/pricing";
+		const response = await fetch(`${base}/__page?url=${encodeURIComponent(source)}`);
+		expect(response.status).toBe(200);
+		const html = await response.text();
+		expect(html).toContain("fake:prices:anthropic");
+		expect(html).toContain(FAKE_PRICE_ROWS.anthropic.sourceQuote);
+
+		const { chunks } = await streamed([{ role: "user", content: html }]);
+		const [call] = toolCalls(chunks);
+		expect(JSON.parse(call?.arguments ?? "")).toEqual({
+			rows: [FAKE_PRICE_ROWS.anthropic],
+		});
+	});
+
+	test("refuses an address containing refuse with a 403", async () => {
+		const response = await fetch(
+			`${base}/__page?url=${encodeURIComponent("https://openai.com/refuse")}`,
+		);
+		expect(response.status).toBe(403);
 	});
 });

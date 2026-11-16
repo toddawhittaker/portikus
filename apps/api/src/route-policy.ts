@@ -387,6 +387,16 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/ai/test": { access: "admin" },
 	"GET /admin/ai/models": { access: "admin" },
 	"HEAD /admin/ai/models": { access: "admin" },
+	// The model price table and its checks (SPEC.md sections 10.8 and 20.4).
+	"GET /admin/pricing": { access: "admin" },
+	"HEAD /admin/pricing": { access: "admin" },
+	"POST /admin/pricing/refresh": { access: "admin" },
+	"POST /admin/pricing/proposals/:id/decision": { access: "admin" },
+	"POST /admin/pricing/rows": { access: "admin" },
+	"PUT /admin/pricing/rows/:id": { access: "admin" },
+	"DELETE /admin/pricing/rows/:id": { access: "admin" },
+	"GET /pricing": { access: "self" },
+	"HEAD /pricing": { access: "self" },
 	// The built-in assistant: staff in a signed-in browser, each on their own conversations (SPEC.md section 20.4).
 	"GET /assistant/status": { access: "staff" },
 	"HEAD /assistant/status": { access: "staff" },

@@ -10,6 +10,12 @@ import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 
 export const ChatAgentContext = createContext<CodingAgent>("claude");
 
+/**
+ * A speaker that is not a coding agent, such as the administrators' built-in
+ * assistant; when set, the conversation names it instead of the agent.
+ */
+export const ChatSpeakerContext = createContext<string | null>(null);
+
 export interface ChatAgentNames {
 	agent: CodingAgent;
 	/** The agent as a speaker: "Claude", "Codex". */
@@ -20,5 +26,10 @@ export interface ChatAgentNames {
 
 export function useChatAgent(): ChatAgentNames {
 	const agent = useContext(ChatAgentContext);
-	return { agent, name: CODING_AGENT_LABEL[agent], program: CODING_AGENT_NAME[agent] };
+	const speaker = useContext(ChatSpeakerContext);
+	return {
+		agent,
+		name: speaker ?? CODING_AGENT_LABEL[agent],
+		program: speaker ?? CODING_AGENT_NAME[agent],
+	};
 }
