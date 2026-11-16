@@ -45,7 +45,8 @@ test.beforeEach(async ({ page }) => {
 	await setAssistant(page, true);
 });
 
-const panelOf = (page: Page) => page.getByRole("complementary", { name: "Assistant" });
+const panelOf = (page: Page) =>
+	page.getByRole("complementary", { name: "Assistant", exact: true });
 
 /** The reads a Diagnose conversation ran, each a tool block, kept in the folded "Worked for" lines. */
 const toolBlocks = (page: Page) => panelOf(page).locator("details.pk-chat-tool");
@@ -217,7 +218,9 @@ test("with the assistant off no Diagnose button shows", async ({ page }) => {
 	await setAssistant(page, false);
 	await page.goto("/admin/health");
 	await expect(page.getByTestId("health")).toBeVisible({ timeout: 15_000 });
-	await expect(page.getByRole("button", { name: "Assistant" })).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Assistant", exact: true }),
+	).toBeVisible();
 	await expect(page.getByTestId("diagnose-health")).toHaveCount(0);
 	await setAssistant(page, true);
 });
