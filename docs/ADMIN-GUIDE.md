@@ -973,6 +973,131 @@ tab is there only when the server's operator has left root shells on.
 - Keys typed before the prompt appears are lost. A very large paste
   while the shell is busy may be dropped; the shell says so.
 
+## API keys and the MCP server
+
+An API key lets a program, such as Claude Code or Codex, act as you for a
+limited set of tasks. It runs the same checks you do: a key can never do
+what your own account may not. Only administrators and instructors can make
+keys. Students cannot make or hold one. Keys are made, renewed and revoked
+in a signed-in browser, never by a key.
+
+### Scopes
+
+A key has one scope, and each scope includes the ones before it.
+
+| Scope | What the key may do |
+|---|---|
+| **Read** | Look at things and change nothing: list people, workspaces and courses, read health, logs and the audit trail. The default. |
+| **Write** | Also make everyday changes that can be undone: start, stop and restart workspaces, invite students, send reset links, set a course's interface, run a backup. |
+| **Destructive** | Also do what cannot be undone, loosens a security control, or removes another person's access: disable or enable a person, grant or take away the administrator or instructor role, change the egress rules, the proxy hosts, the learning system settings or the site settings, archive a workspace or change its quota, limits or guard, rebuild a workspace or reset its Docker, delete backups, and invite an instructor or an administrator. |
+
+Some things no key can ever do, whatever its scope: open the root shell,
+manage keys, change a password or second factor, link accounts, or read or
+set a secret. A person's files and terminals are not available to keys
+either. Each key may make 300 requests a minute.
+
+### Make, renew, rotate and revoke a key
+
+1. Open **Settings**, then **API keys**, and choose **Create an API key**.
+   Give it a **Name** that says what uses it, pick its **Access** (the
+   scope) and pick **Expires after**, then choose **Create key**.
+2. If you sign in with a Portikus password, enter a code from your
+   authenticator app in **Two-step sign-in code**, or use a passkey.
+   Single sign-on (SSO) and course accounts need no extra step.
+3. Choose **Copy secret** now. It starts with `portikus_` and is shown
+   only once. Portikus keeps only a fingerprint of it. **I have saved it,
+   continue** closes the screen.
+
+How long a key lasts depends on how you sign in. SSO and course accounts
+get 30-day keys. Accounts with a Portikus password choose 7, 30 or 90
+days, or never, with 30 as the default.
+
+A key is **active**, **expired** or **revoked**:
+
+- **Renew** on an active or expired key starts its period again from now
+  and keeps the same secret, so nothing in your client changes. You must be
+  signed in as an administrator or instructor. Portikus uses the role you
+  had when you signed in; if your sign-in provider gives you the role, your
+  session lasts at most 12 hours, so that role is at most 12 hours old.
+  Renewing does not ask the provider again. An expired key can be renewed
+  at any time. Each key row shows its prefix (**Starts with**) and **Last
+  used**.
+- **Renew with a new secret…** does the same and also gives the key a new
+  secret. The old secret stops working at once. Use it when a key may have
+  leaked, then update your client. If you sign in with a Portikus
+  password, it asks for a code or a passkey first, as making a key does.
+- **Revoke…** ends a key for good. A revoked key can never be renewed;
+  make a new one.
+
+Portikus sends you a notice seven days before a key expires, or one day
+before for a 7-day key.
+
+### Connect Claude Code and Codex
+
+The address is your site's name followed by `/mcp`.
+
+Claude Code, in a terminal:
+
+```
+claude mcp add --transport http portikus https://<site>/mcp --header "Authorization: Bearer <key>"
+```
+
+Codex, in `~/.codex/config.toml`:
+
+```
+[mcp_servers.portikus]
+url = "https://<site>/mcp"
+bearer_token_env_var = "PORTIKUS_MCP_KEY"
+```
+
+Then put the key in the `PORTIKUS_MCP_KEY` environment variable before you
+start Codex. The tools you see are only those your role and the key's scope
+allow. A program that wants a plain web interface instead can read
+`https://<site>/openapi.json` and send the same key as `Authorization:
+Bearer <key>`.
+
+### Keys across the site
+
+The **API keys** tab, under **People** next to **Users** (at
+`/admin/keys`), lists every key on the site: its **Owner**, **Key**,
+**Access**, **State**, **Expires** and **Last used**. Use **Person** to
+show one person's keys. You can act on one key, on all of one person's
+keys, or on every key.
+
+- **Expire…** on a row, **Expire all of …'s keys…** for the person shown,
+  and **Expire every key…** stop keys now but let their owners renew them.
+  Use it to make someone sign in again, or when you are not sure a key is
+  a problem. The owner gets a notice.
+- **Revoke…**, **Revoke all of …'s keys…** and **Revoke every key…** end
+  keys for good. Use it for a key that leaked, for a person who should no
+  longer have access, or for a key nobody can account for.
+
+Portikus revokes all of a person's keys when you disable them (this
+includes removing a Portikus password account), when their password or
+second factor is reset (a forgot-password reset too), when you change the
+email of a Portikus password account, and when you demote them to
+student. It also revokes them when the person next signs in and the sign-in
+provider or learning system now says they are a student.
+
+**When someone leaves, disable them in Portikus.** Removing them at your
+sign-in provider or learning system is not enough on its own: until
+Portikus sees it, at the person's next sign-in, their keys keep working
+until they expire. For SSO and course accounts that is at most 30 days,
+because renewing needs a signed-in session. Keys made with **Never** stay
+until someone revokes them or the person is disabled or demoted, so look
+over the list from time to time for keys with no expiry or no recent use.
+
+A key may invite students if it has **Write** scope. Inviting an instructor
+or an administrator needs **Destructive** scope, because the new account
+outlives the key.
+
+**Audit** shows every request a key makes as `api_key.used`, with the
+operation and its result. Its **Via** column reads **Session** for a change
+made in the browser and **API key** with the key's first characters for a
+change made by a key. One exception: when a key goes over its 300 requests
+a minute, only the first refused request in that minute is logged, and none
+is audited.
+
 ## Roles
 
 Administrators and instructors come from your sign-in provider's groups, or

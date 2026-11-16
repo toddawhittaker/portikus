@@ -119,6 +119,8 @@ async function recentAudit(
 			"audit_events.target",
 			"audit_events.result",
 			"audit_events.metadata",
+			"audit_events.via",
+			"audit_events.api_key_id",
 		])
 		.where((eb) =>
 			eb.or([
@@ -138,6 +140,8 @@ async function recentAudit(
 		target: row.target,
 		result: row.result,
 		metadata: row.metadata,
+		via: row.via,
+		apiKeyId: row.api_key_id,
 	}));
 }
 

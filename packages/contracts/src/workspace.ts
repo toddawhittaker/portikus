@@ -312,6 +312,11 @@ export const ApiErrorCode = z.enum([
 	"WRONG_PASSKEY",
 	"PASSKEY_EXPIRED",
 	"NO_PASSKEY",
+	// API keys (SPEC.md section 24.13): a route no key may run, a key whose
+	// scope is too low, and a revoked key, which can never be renewed.
+	"NOT_AVAILABLE_TO_API_KEYS",
+	"SCOPE_REQUIRED",
+	"API_KEY_REVOKED",
 	// journalctl missing, failing or refused (docs/adr/0036).
 	"LOGS_UNAVAILABLE",
 	// Backups from the admin page (SPEC.md section 24.9, ADR 0024).

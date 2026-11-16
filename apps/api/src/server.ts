@@ -4,6 +4,7 @@ import { type ApiError, HealthResponse } from "@portikus/contracts";
 import { isDatabaseUnavailable } from "@portikus/db";
 import { quietLogController, registerRequestLogging } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import { registerApiKeyGate } from "./api-keys/gate.js";
 import { toAuthOptions } from "./auth-options.js";
 import {
 	registerCertificateEdge,
@@ -46,6 +47,7 @@ import { registerAdminSigninRoutes } from "./routes/admin-signin.js";
 import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAgentMeterRoutes } from "./routes/agent-meter.js";
 import { registerAgentUsageRoutes } from "./routes/agent-usage.js";
+import { registerApiKeyRoutes } from "./routes/api-keys.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChatSocket } from "./routes/chat.js";
 import { registerCheckHistoryRoutes } from "./routes/check-history.js";
@@ -64,10 +66,12 @@ import { registerLiveHelpRoutes } from "./routes/live-help.js";
 import { registerLtiRoutes } from "./routes/lti.js";
 import { registerLtiDeepLinkRoutes } from "./routes/lti-deep-link.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
+import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerMeRoutes } from "./routes/me.js";
 import { registerMePasswordRoutes } from "./routes/me-password.js";
 import { registerMeSecondFactorRoutes } from "./routes/me-second-factor.js";
 import { registerNotificationRoutes } from "./routes/notifications.js";
+import { registerOpenApiRoute } from "./routes/openapi.js";
 import { registerPasswordResetRoutes } from "./routes/password-reset.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProcessRoutes } from "./routes/processes.js";
@@ -167,10 +171,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	const rootShells = new Set<RootShellPipe>();
 	registerCertificateEdge(app, { db: deps.db, config: deps.config, nonces, registry });
 
+	// A key's address counts like a cookie's: an unknown key is anonymous
+	// guessing, refused once the address is over the limit (SPEC.md section 24.13).
 	app.register(authPlugin, {
 		db: deps.db,
 		auth: toAuthOptions(deps.config),
 		...sessionGuard,
+		apiKeys: {
+			authorize: registerApiKeyGate(app, { db: deps.db }),
+			beforeLookup: sessionGuard.beforeLookup,
+			unknownKey: sessionGuard.unknownSession,
+		},
 	});
 
 	// Registered before @fastify/websocket so it runs before that plugin's own
@@ -321,6 +332,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAcceptableUseRoutes(instance, deps);
 		registerNotificationRoutes(instance, deps);
 		registerLinkRoutes(instance, deps, secondFactorThrottle);
+		registerApiKeyRoutes(instance, deps, secondFactorThrottle);
+		registerMcpRoutes(instance, deps);
+		registerOpenApiRoute(instance, deps);
 		registerAdminRoutes(instance, deps);
 		registerAdminDexUserRoutes(instance, deps);
 		registerAdminInvitationRoutes(instance, deps);

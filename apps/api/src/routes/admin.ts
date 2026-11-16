@@ -30,6 +30,7 @@ import {
 	USER_COLUMNS,
 } from "../admin/users.js";
 import { queryAdminUsers } from "../admin/users-query.js";
+import { revokeKeys } from "../api-keys/actions.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
@@ -382,6 +383,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			actorId: actor.id,
 			targetId: params.id,
 			metadata: requestMetadata(request),
+			// A disabled person's keys never work again (SPEC.md section 24.13).
+			alsoInTransaction: async (trx) => {
+				await revokeKeys(trx, { userId: params.id }, actor.id, {
+					reason: "user_disabled",
+					...requestMetadata(request),
+				});
+			},
 		});
 		if (!result.ok) return sendDisableRefusal(reply, result.reason);
 		return loadUser(params.id);
@@ -428,6 +436,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 							source: "admin",
 							...requestMetadata(request),
 						},
+					});
+				}
+				// A key is staff-only; once the person is a student it must not come back on a later promotion.
+				if (changed.ok && changed.to === "student" && changed.from !== "student") {
+					await revokeKeys(trx, { userId: id }, actor.id, {
+						reason: "role_removed",
+						...requestMetadata(request),
 					});
 				}
 				return changed;

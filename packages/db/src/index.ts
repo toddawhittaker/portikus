@@ -4,9 +4,11 @@ import {
 	type NotificationTone,
 } from "@portikus/contracts";
 import type { Kysely, Selectable } from "kysely";
+import { auditArrival } from "./audit-context.js";
 import { POOL_TIMEOUT_MESSAGE } from "./connection.js";
 import type { Database, NotificationsTable } from "./schema.js";
 
+export { type AuditArrival, auditArrival } from "./audit-context.js";
 export {
 	createDb,
 	createPool,
@@ -72,12 +74,15 @@ export interface AuditEvent {
 
 function auditInsert(db: Kysely<Database>, event: AuditEvent) {
 	const { actor, target, action, result, metadata } = event;
+	const arrival = auditArrival.getStore();
 	return db.insertInto("audit_events").values({
 		actor,
 		target,
 		action,
 		result,
 		metadata: metadata == null ? null : JSON.stringify(metadata),
+		via: arrival?.via ?? null,
+		api_key_id: arrival?.apiKeyId ?? null,
 	});
 }
 

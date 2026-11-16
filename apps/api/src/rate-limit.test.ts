@@ -13,7 +13,9 @@ import type { Kysely } from "kysely";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import {
 	ANONYMOUS_ROUTES,
+	API_KEY_REQUESTS_PER_MINUTE,
 	addressKey,
+	apiKeyLimit,
 	check,
 	createCounter,
 	createRecentMisses,
@@ -23,7 +25,7 @@ import {
 	RECENT_MISSES_PER_ADDRESS,
 	registerAnonymousLimit,
 } from "./rate-limit.js";
-import { ROUTE_POLICY } from "./security/route-policy.js";
+import { ROUTE_POLICY } from "./route-policy.js";
 import { registerSigninThrottle } from "./signin-throttle.js";
 import { buildTestServer, testConfig } from "./testing/test-support.js";
 
@@ -362,3 +364,29 @@ describe.skipIf(!hasTestDb())(
 		});
 	},
 );
+
+describe("the per-key limit (SPEC.md section 24.13)", () => {
+	test("warns once per window, naming the key and calling it per-key, and answers 429", async () => {
+		const warn = vi.fn();
+		const send = vi.fn();
+		const reply = {
+			status: vi.fn().mockReturnThis(),
+			header: vi.fn().mockReturnThis(),
+			send,
+		};
+		const request = { apiKey: { id: "key-1" }, log: { warn } };
+		const limit = apiKeyLimit(() => 1_000_000);
+		// biome-ignore lint/suspicious/noExplicitAny: a bare request and reply are all the limit reads.
+		const run = () => limit(request as any, reply as any);
+		for (let i = 0; i < API_KEY_REQUESTS_PER_MINUTE; i++)
+			expect(await run()).toBe(true);
+		expect(await run()).toBe(false);
+		expect(await run()).toBe(false);
+		expect(reply.status).toHaveBeenCalledWith(429);
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledWith(
+			{ apiKeyId: "key-1", scope: "api-key" },
+			"per-key rate limit reached",
+		);
+	});
+});

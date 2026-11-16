@@ -57,6 +57,8 @@ import { down as down0053, up as up0053 } from "./0053_chat_settings.js";
 import { down as down0054, up as up0054 } from "./0054_alert_state.js";
 import { down as down0055, up as up0055 } from "./0055_check_runs.js";
 import { down as down0057, up as up0057 } from "./0057_coding_agents_auto_update.js";
+import { down as down0058, up as up0058 } from "./0058_api_keys.js";
+import { down as down0059, up as up0059 } from "./0059_audit_arrival.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -118,4 +120,6 @@ export const migrations: Record<string, Migration> = {
 	"0054_alert_state": { up: up0054, down: down0054 },
 	"0055_check_runs": { up: up0055, down: down0055 },
 	"0057_coding_agents_auto_update": { up: up0057, down: down0057 },
+	"0058_api_keys": { up: up0058, down: down0058 },
+	"0059_audit_arrival": { up: up0059, down: down0059 },
 };

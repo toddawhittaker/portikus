@@ -89,6 +89,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 65, fix batch with editor colour schemes.** Students pick an editor colour scheme in Settings: Portikus (the default), VS Code, IntelliJ, GitHub, Solarized, Catppuccin or High contrast, each in light and dark; the Health page says "Worker not reporting" when the worker has never reported; a terminal question is announced to screen readers when focus is in another pane; the Files pane gains database, binary, slides and log icons; the design README says what the console stylesheet is built from; and three flaky tests are fixed.
 - **Epic 66, Codex in the chat.** A Codex (GUI) chat tab at parity with Claude Code, through one shared chat core with a driver for each agent (ADR 0076); skills and MCP servers for both agents, Codex subagent rows in the left pane and the chat, switching a chat between Claude Code and Codex mid-conversation, Up and Down through the chat's sent messages, and a warning when the student is not signed in to either agent.
 - **Epic 67, fix batch for usage savings.** Claude Code in a terminal starts at Opus with medium effort and its Explore subagent runs on Haiku; Codex waits on subagents for at least 20 minutes; the chat shows Claude at most 30,000 characters of a `!` command's output and asks before a model change in a chat with history, offering a fresh chat with a handoff; pane zoom is kept in the student's settings on the server; the shared coding agents can update themselves each night behind an admin switch; finished check runs are kept and listed as check history; HTML, CSS and JSON get code help in the browser; and the Claude Agent SDK is upgraded.
+- **Epic 68, operation catalog, API keys and the MCP server.** A catalog of every API operation with a risk level, an OpenAPI document at `/openapi.json` built from it, API keys for administrators and instructors with read, write and destructive scopes and a renewable expiry, and an MCP server at `/mcp` so tools such as Claude Code can run the operations a key allows (ADRs 0077 to 0079, SPEC.md section 20.4).
 
 ## Open items
 
@@ -203,11 +204,11 @@ list was made and may already be fixed.
 - Setup fetches a provider's discovery document directly as root rather than through Squid (accepted, ADR 0059).
 - The shared coding-agent tools arrive only when setup runs, about two minutes after an upgrade restart.
 - Certificates: only Cloudflare DNS-01 is tested end to end, re-applying the same settings leaves Caddy serving its old certificate until renewal, split-horizon DNS can make a public name read as private, and the internal authority's 12-hour certificates show the red expiry notice.
-- An OpenAPI document from the contracts (#1221) is deferred to its own epic.
 - Monaco bundles DOMPurify 3.4.15 (#1829). Wanted: the libvirt provider 0.9 (#767).
 
 ### Tests and docs
 
 - Under heavy machine load some unit tests and chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
+- Two browser tests, `e2e/editor-schemes.spec.ts` (line 193) and `e2e/guard-settings.spec.ts` (line 125), failed even on retry in one run and passed when CI was rerun.
 - Nothing checks that the guides and the in-app Help agree, and the documentation images show scripted data.
 - The build script for `design/mockups/portikus-console.css` is not committed, so the file cannot be rebuilt from the repository (`design/README.md`).

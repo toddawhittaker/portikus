@@ -79,6 +79,7 @@ test("the Network tab sits after Health and before Settings", async ({ page }) =
 	// The Health tab may carry the count of items needing attention after its name.
 	await expect(nav.getByRole("link")).toHaveText([
 		"Users",
+		"API keys",
 		/^Health(\d+, \d+ items? needs? attention)?$/,
 		"Logs",
 		"Audit",

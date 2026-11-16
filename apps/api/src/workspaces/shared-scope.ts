@@ -3,15 +3,9 @@ import type { ApiConfig } from "@portikus/config";
 import { type Database, recordAudit, recordNotification } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
-import { z } from "zod";
 import { type AgentClient, agentClientFor } from "../agent-client.js";
 import { sharesCourseWith } from "../courses/membership.js";
-import { sendError } from "../http.js";
-
-const SharedParam = z.object({
-	courseId: z.string().uuid(),
-	projectId: z.string().uuid(),
-});
+import { CourseSharedParam, sendError } from "../http.js";
 
 /** The shared project one read works against. */
 export interface SharedScope {
@@ -42,7 +36,7 @@ export async function sharedProject(
 	reply: FastifyReply,
 ): Promise<SharedScope | null> {
 	const viewer = requireUser(request);
-	const params = SharedParam.safeParse(request.params);
+	const params = CourseSharedParam.safeParse(request.params);
 	if (!params.success) {
 		sendError(reply, 404, "NOT_FOUND", "Not found.");
 		return null;

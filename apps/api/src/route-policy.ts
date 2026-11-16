@@ -1,9 +1,9 @@
 /**
  * The access class of every route the API registers (SPEC.md sections
- * 5, 20.2, and 24). It lives on the test side, so a route
- * cannot opt out of a check it cannot see. `authz-matrix.test.ts` fails when
- * a registered route is missing here, or when an entry here names a route
- * that no longer exists.
+ * 5, 20.2, and 24). The catalog and the MCP server read it at run time, so it
+ * must not live under `security/`, which the package leaves out.
+ * `security/authz-matrix.test.ts` fails when a registered route is missing
+ * here, or when an entry here names a route that no longer exists.
  *
  * Keys are `"<METHOD> <url pattern>"`, exactly as Fastify registers them,
  * including the automatic HEAD twin of every GET.
@@ -20,10 +20,14 @@ export type AccessClass =
 	| "owner-or-admin"
 	/** Administrators only; students and instructors get 403. */
 	| "admin"
+	/** Administrators and instructors, acting on their own account; students get 403. */
+	| "staff"
 	/** A course's instructors; everyone else sees no course, or a 404. */
 	| "course-instructor"
 	/** Preview host paths: only a preview session counts, never a main cookie. */
-	| "preview-edge";
+	| "preview-edge"
+	/** An administrator's or instructor's API key only; a browser session gets 401. */
+	| "api-key";
 
 export interface RoutePolicy {
 	access: AccessClass;
@@ -120,6 +124,29 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/second-factor/recovery-codes": { access: "self" },
 	"PATCH /me/second-factor/:id": { access: "self" },
 	"DELETE /me/second-factor/:id": { access: "self" },
+
+	// API keys (SPEC.md section 24.13): the owner's own, in a signed-in browser.
+	"GET /me/api-keys": { access: "staff" },
+	"HEAD /me/api-keys": { access: "staff" },
+	"POST /me/api-keys": { access: "staff" },
+	"POST /me/api-keys/passkey/start": { access: "staff" },
+	"POST /me/api-keys/:id/renew": { access: "staff" },
+	"POST /me/api-keys/:id/rotate": { access: "staff" },
+	"POST /me/api-keys/:id/revoke": { access: "staff" },
+	// The MCP server signs in by key alone (SPEC.md section 24.8).
+	"GET /mcp": { access: "api-key" },
+	"POST /mcp": { access: "api-key" },
+	// A key, or a signed-in administrator or instructor (SPEC.md section 27).
+	"GET /openapi.json": { access: "staff" },
+	"HEAD /openapi.json": { access: "staff" },
+	"GET /admin/api-keys": { access: "admin" },
+	"HEAD /admin/api-keys": { access: "admin" },
+	"POST /admin/api-keys/:id/expire": { access: "admin" },
+	"POST /admin/api-keys/:id/revoke": { access: "admin" },
+	"POST /admin/users/:id/api-keys/expire": { access: "admin" },
+	"POST /admin/users/:id/api-keys/revoke": { access: "admin" },
+	"POST /admin/api-keys/expire-all": { access: "admin" },
+	"POST /admin/api-keys/revoke-all": { access: "admin" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
 	"HEAD /workspaces/:id": { access: "owner-or-admin" },

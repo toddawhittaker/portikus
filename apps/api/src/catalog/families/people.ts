@@ -1,0 +1,311 @@
+import {
+	AdminAccountLinks,
+	AdminCoursesResponse,
+	AdminNotifications,
+	AdminPackagesResponse,
+	AdminUser,
+	AdminUserList,
+	AdminUsersQuery,
+	AgentUsageQuery,
+	AgentUsageResponse,
+	AuditPage,
+	AuditQuery,
+	CourseProfileResponse,
+	CreateInvitationRequest,
+	CreateInvitationResponse,
+	HealthReport,
+	HealthSeries,
+	HealthSeriesQuery,
+	Invitation,
+	InvitationList,
+	LogCounts,
+	LogCountsQuery,
+	LogPage,
+	LogQuery,
+	PlatformSettings,
+	SetCourseProfileRequest,
+	TestAlertRequest,
+	TestAlertResponse,
+	UpdateAdminUserSettingsRequest,
+	UpdatePlatformSettingsRequest,
+} from "@portikus/contracts";
+import { CourseParam, UuidParam } from "../../http.js";
+import type { OperationRecords } from "../types.js";
+
+/** This family's operations, keyed by `"METHOD url"`. */
+export const operations: OperationRecords = {
+	"GET /admin/users": {
+		name: "users.list",
+		description:
+			"Lists the people with accounts on this site, with their roles and whether each can sign in.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: { query: AdminUsersQuery },
+		output: AdminUserList,
+	},
+	"PUT /admin/users/:id/settings": {
+		name: "users.update_settings",
+		description:
+			"Sets or clears how long one person's workspace keeps running after they disconnect, and returns the updated account.",
+		risk: "change",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam, body: UpdateAdminUserSettingsRequest },
+		output: AdminUser,
+	},
+	"POST /admin/users/:id/disable": {
+		name: "users.disable",
+		description:
+			"Stops one person from signing in and ends their current sessions, and returns the updated account.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: true,
+		input: { params: UuidParam },
+		output: AdminUser,
+	},
+	"POST /admin/users/:id/enable": {
+		name: "users.enable",
+		description:
+			"Lets a disabled person sign in again, and returns the updated account.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: true,
+		input: { params: UuidParam },
+		output: AdminUser,
+	},
+	"POST /admin/users/:id/promote": {
+		name: "users.grant_admin",
+		description:
+			"Makes one person an administrator, with full control of the site, and returns the updated account.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+		output: AdminUser,
+	},
+	"POST /admin/users/:id/make-instructor": {
+		name: "users.grant_instructor",
+		description:
+			"Makes one person an instructor, who can run courses and see their students' work, and returns the updated account.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+		output: AdminUser,
+	},
+	"POST /admin/users/:id/demote": {
+		name: "users.revoke_admin",
+		description:
+			"Removes the administrator role from one person, and returns the updated account.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+		output: AdminUser,
+	},
+	"POST /admin/users/:id/remove-instructor": {
+		name: "users.revoke_instructor",
+		description:
+			"Removes the instructor role from one person, and returns the updated account.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+		output: AdminUser,
+	},
+	"GET /admin/settings": {
+		name: "settings.get",
+		description:
+			"Returns the site-wide settings, such as how long a disconnected workspace keeps running and the default resource limits.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: {},
+		output: PlatformSettings,
+	},
+	"PUT /admin/settings": {
+		name: "settings.update",
+		description:
+			"Changes site-wide settings, such as the workspace shutdown delay or log level, and returns the settings now in force.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: false,
+		input: { body: UpdatePlatformSettingsRequest },
+		output: PlatformSettings,
+	},
+	"GET /admin/users/:id/links": {
+		name: "users.list_links",
+		description: "Lists the course-system accounts linked to one person's sign-in.",
+		risk: "read",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+		output: AdminAccountLinks,
+	},
+	"POST /admin/dex-users/:id/remove": {
+		name: "users.remove_password",
+		description:
+			"Deletes one person's password sign-in, so they can no longer sign in with a password.",
+		risk: "destructive",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+	},
+	"POST /admin/dex-users/:id/send-reset-link": {
+		name: "users.send_reset_link",
+		description:
+			"Emails one person a link to choose a new password; the link itself is never returned.",
+		risk: "change",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+	},
+	"GET /admin/invitations": {
+		name: "invitations.list",
+		description:
+			"Lists the invitations that have been sent and not yet accepted or revoked.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: {},
+		output: InvitationList,
+	},
+	"POST /admin/invitations": {
+		name: "invitations.create",
+		description:
+			"Invites someone by email to join the site with a role, and says whether the invitation email was sent.",
+		risk: "change",
+		audience: "administrator",
+		tool: true,
+		input: { body: CreateInvitationRequest },
+		output: CreateInvitationResponse,
+	},
+	"POST /admin/invitations/:id/revoke": {
+		name: "invitations.revoke",
+		description:
+			"Cancels a waiting invitation so it can no longer be used, and returns it.",
+		risk: "change",
+		audience: "administrator",
+		tool: true,
+		input: { params: UuidParam },
+		output: Invitation,
+	},
+	"POST /admin/invitations/:id/send": {
+		name: "invitations.resend",
+		description: "Emails a waiting invitation to its person again.",
+		risk: "change",
+		audience: "administrator",
+		tool: false,
+		input: { params: UuidParam },
+	},
+	"GET /admin/audit": {
+		name: "audit.list",
+		description:
+			"Returns a page of the audit trail: who did what, to what, and when, newest first.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: { query: AuditQuery },
+		output: AuditPage,
+	},
+	"GET /admin/logs": {
+		name: "logs.list",
+		description:
+			"Returns a page of the site's service log lines, which can be filtered by time, level and text.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: { query: LogQuery },
+		output: LogPage,
+	},
+	"GET /admin/logs/counts": {
+		name: "logs.counts",
+		description:
+			"Returns how many log lines of each level were written over a recent time range.",
+		risk: "read",
+		audience: "administrator",
+		tool: false,
+		input: { query: LogCountsQuery },
+		output: LogCounts,
+	},
+	"GET /admin/health": {
+		name: "health.get",
+		description:
+			"Returns the site's current health: how busy the machine is and whether each service is up.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: {},
+		output: HealthReport,
+	},
+	"GET /admin/health/series": {
+		name: "health.series",
+		description:
+			"Returns how the machine's load and the site's activity changed over the last hour, six hours, day or week.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: { query: HealthSeriesQuery },
+		output: HealthSeries,
+	},
+	"POST /admin/alerts/test": {
+		name: "alerts.send_test",
+		description:
+			"Sends a test alert to one alert channel, or to every configured channel, and returns whether each delivery worked.",
+		risk: "change",
+		audience: "administrator",
+		tool: false,
+		input: { body: TestAlertRequest },
+		output: TestAlertResponse,
+	},
+	"GET /admin/notifications": {
+		name: "alerts.get_settings",
+		description:
+			"Returns how the site sends alerts, which channels are set up, and the state of the last settings change; secrets are not included.",
+		risk: "read",
+		audience: "administrator",
+		tool: false,
+		input: {},
+		output: AdminNotifications,
+	},
+	"GET /admin/packages": {
+		name: "packages.survey",
+		description:
+			"Returns which software packages people have installed in their workspaces, from the latest daily survey.",
+		risk: "read",
+		audience: "administrator",
+		tool: false,
+		input: {},
+		output: AdminPackagesResponse,
+	},
+	"GET /admin/agent-usage": {
+		name: "agent_usage.site",
+		description:
+			"Returns how much AI coding assistants were used across the whole site over the last 7, 30 or 90 days, in total and per person.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: { query: AgentUsageQuery },
+		output: AgentUsageResponse,
+	},
+	"GET /admin/courses": {
+		name: "courses.list_all",
+		description: "Lists every course on the site with its profile, whoever teaches it.",
+		risk: "read",
+		audience: "administrator",
+		tool: false,
+		input: {},
+		output: AdminCoursesResponse,
+	},
+	"PUT /admin/courses/:courseId/profile": {
+		name: "courses.set_profile_any",
+		description:
+			"Sets whether any course shows its students the full coding-agent tools (agentic) or the plainer traditional view, and returns the saved profile.",
+		risk: "change",
+		audience: "administrator",
+		tool: false,
+		input: { params: CourseParam, body: SetCourseProfileRequest },
+		output: CourseProfileResponse,
+	},
+};

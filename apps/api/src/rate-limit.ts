@@ -112,22 +112,21 @@ export function check(counter: Counter, key: string): LimitDecision {
 const MINUTE_MS = 60_000;
 
 /**
- * Answer 429 when this user is over `counter`'s limit and return false;
- * return true to let the request through. One warning per user per window.
+ * Answer 429 when `id` is over `counter`'s limit and return false; return
+ * true to let the request through. One warning per id per window.
  */
-async function allowUser(
+async function allowId(
 	counter: Counter,
 	scope: string,
+	id: { userId: string } | { apiKeyId: string },
 	request: FastifyRequest,
 	reply: FastifyReply,
 ): Promise<boolean> {
-	// Unauthenticated requests are refused by the route itself.
-	const userId = request.user?.id;
-	if (!userId) return true;
-	const decision = check(counter, userId);
+	const decision = check(counter, "userId" in id ? id.userId : id.apiKeyId);
 	if (decision.allowed) return true;
 	if (decision.firstRefusal) {
-		request.log.warn({ userId, scope }, "per-user rate limit reached");
+		const who = "userId" in id ? "per-user" : "per-key";
+		request.log.warn({ ...id, scope }, `${who} rate limit reached`);
 	}
 	const body: ApiError = {
 		code: "RATE_LIMITED",
@@ -146,7 +145,25 @@ export type UserLimit = (
 ) => Promise<boolean>;
 
 function createUserLimit(scope: string, counter: Counter): UserLimit {
-	return (request, reply) => allowUser(counter, scope, request, reply);
+	return async (request, reply) => {
+		// Unauthenticated requests are refused by the route itself.
+		const userId = request.user?.id;
+		if (!userId) return true;
+		return allowId(counter, scope, { userId }, request, reply);
+	};
+}
+
+/** Requests one API key may make in a minute (SPEC.md section 24.13). */
+export const API_KEY_REQUESTS_PER_MINUTE = 300;
+
+/** The per-key limit, counted by key so one person's keys do not share it. */
+export function apiKeyLimit(now: () => number = Date.now): UserLimit {
+	const counter = createCounter(API_KEY_REQUESTS_PER_MINUTE, MINUTE_MS, now);
+	return async (request, reply) => {
+		const apiKeyId = request.apiKey?.id;
+		if (!apiKeyId) return true;
+		return allowId(counter, "api-key", { apiKeyId }, request, reply);
+	};
 }
 
 /**

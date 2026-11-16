@@ -1,9 +1,10 @@
 import type { IncomingHttpHeaders } from "node:http";
 import cookie, { type CookieSerializeOptions } from "@fastify/cookie";
-import type { Database } from "@portikus/db";
+import { type AuditArrival, auditArrival, type Database } from "@portikus/db";
 import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 import fp from "fastify-plugin";
 import type { Kysely } from "kysely";
+import { type ApiKeyIdentity, bearerApiKey, resolveApiKey } from "./api-keys.js";
 import { loadSession } from "./sessions.js";
 import type { AuthOptions, AuthUser, Role } from "./types.js";
 import { CONNECTOR_COOKIE, LOGIN_COOKIE, SESSION_COOKIE } from "./types.js";
@@ -12,6 +13,8 @@ declare module "fastify" {
 	interface FastifyRequest {
 		user: AuthUser | null;
 		sessionToken: string | null;
+		/** The key that signed this request in; null for a session (SPEC.md section 24.13). */
+		apiKey: ApiKeyIdentity | null;
 	}
 }
 
@@ -233,6 +236,27 @@ export function sessionGate(
 	return gate ? { code: gate.code, message: gate.message } : null;
 }
 
+/** What the API supplies to let API-key requests through (SPEC.md section 24.13). */
+export interface ApiKeyHooks {
+	/**
+	 * Called with each resolved key request; answering and returning false
+	 * ends it. The scope gate and the per-key limit live here.
+	 */
+	authorize: (request: FastifyRequest, reply: FastifyReply) => Promise<boolean>;
+	/** Like `beforeLookup` for a session cookie, for a key before it is looked up. */
+	beforeLookup?: (
+		request: FastifyRequest,
+		reply: FastifyReply,
+		secret: string,
+	) => Promise<boolean>;
+	/** Like `unknownSession`: called when a key is no good, before the 401. */
+	unknownKey?: (
+		request: FastifyRequest,
+		reply: FastifyReply,
+		secret: string,
+	) => Promise<boolean>;
+}
+
 export interface AuthPluginOptions {
 	db: Kysely<Database>;
 	auth: AuthOptions;
@@ -254,6 +278,11 @@ export interface AuthPluginOptions {
 		reply: FastifyReply,
 		token: string,
 	) => Promise<boolean>;
+	/**
+	 * Lets requests with `Authorization: Bearer portikus_...` in. Without it
+	 * every such request is refused, so a missing gate fails closed.
+	 */
+	apiKeys?: ApiKeyHooks;
 }
 
 /**
@@ -270,6 +299,18 @@ export const authPlugin = fp<AuthPluginOptions>(
 
 		app.decorateRequest("user", null);
 		app.decorateRequest("sessionToken", null);
+		app.decorateRequest("apiKey", null);
+
+		// Every audit row written while serving the request records how it arrived.
+		// Callback style, so the store covers the later hooks and the handler.
+		app.addHook("onRequest", (request, _reply, done) => {
+			const arrival: AuditArrival = {
+				via:
+					bearerApiKey(request.headers.authorization) === null ? "session" : "api_key",
+				apiKeyId: null,
+			};
+			auditArrival.run(arrival, done);
+		});
 
 		/** Set the request's user from its cookie; false when the request was answered. */
 		async function resolveSession(
@@ -293,16 +334,68 @@ export const authPlugin = fp<AuthPluginOptions>(
 			return true;
 		}
 
-		app.addHook("onRequest", async (request, reply) => {
-			if (!originAllowed(request, publicOrigin)) {
-				await reply
-					.code(403)
-					.send({ code: "FORBIDDEN", message: "origin not allowed" });
-				return;
+		/** Set the request's user from its API key; false when the request was answered. */
+		async function resolveKey(
+			request: FastifyRequest,
+			reply: FastifyReply,
+			secret: string,
+		): Promise<boolean> {
+			const hooks = opts.apiKeys;
+			if (!hooks) {
+				await reply.code(403).send({
+					code: "NOT_AVAILABLE_TO_API_KEYS",
+					message: "API keys are not accepted here",
+				});
+				return false;
 			}
+			// A key never opens a WebSocket: that path starts from a browser's origin.
+			if (headerValue(request.headers, "upgrade")?.toLowerCase() === "websocket") {
+				await reply.code(403).send({
+					code: "NOT_AVAILABLE_TO_API_KEYS",
+					message: "API keys cannot open WebSocket connections",
+				});
+				return false;
+			}
+			if (hooks.beforeLookup && !(await hooks.beforeLookup(request, reply, secret))) {
+				return false;
+			}
+			const resolved = await resolveApiKey(db, secret);
+			if (!resolved) {
+				if (hooks.unknownKey && !(await hooks.unknownKey(request, reply, secret))) {
+					return false;
+				}
+				// One answer for unknown, revoked and expired, so a caller learns nothing about a key.
+				await reply
+					.code(401)
+					.header("www-authenticate", "Bearer")
+					.send({ code: "UNAUTHORIZED", message: "invalid API key" });
+				return false;
+			}
+			request.user = resolved.user;
+			request.apiKey = resolved.key;
+			request.sessionToken = null;
+			const arrival = auditArrival.getStore();
+			if (arrival) arrival.apiKeyId = resolved.key.id;
+			return hooks.authorize(request, reply);
+		}
 
-			const token = request.cookies[sessionCookie];
-			if (token && !(await resolveSession(request, reply, token))) return;
+		app.addHook("onRequest", async (request, reply) => {
+			const keySecret = bearerApiKey(request.headers.authorization);
+			if (keySecret !== null) {
+				// The cookie is ignored. No origin check: a browser cannot send this
+				// header cross-site without a preflight the API never answers.
+				if (!(await resolveKey(request, reply, keySecret))) return;
+			} else {
+				if (!originAllowed(request, publicOrigin)) {
+					await reply
+						.code(403)
+						.send({ code: "FORBIDDEN", message: "origin not allowed" });
+					return;
+				}
+
+				const token = request.cookies[sessionCookie];
+				if (token && !(await resolveSession(request, reply, token))) return;
+			}
 
 			if (!request.user && !isExempt(request)) {
 				await reply

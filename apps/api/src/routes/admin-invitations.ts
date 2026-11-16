@@ -49,6 +49,20 @@ export function registerAdminInvitationRoutes(
 		const body = parseOr400(CreateInvitationRequest, request.body ?? {}, reply);
 		if (!body) return;
 		const { sendEmail, ...fields } = body;
+		// A key below destructive scope may invite students only: a new staff
+		// account is a way in that outlives the key (SPEC.md section 24.13).
+		if (
+			request.apiKey &&
+			request.apiKey.scope !== "destructive" &&
+			fields.role !== "student"
+		) {
+			return sendError(
+				reply,
+				403,
+				"SCOPE_REQUIRED",
+				"Inviting an instructor or administrator needs a key with destructive scope.",
+			);
+		}
 		if (sendEmail && !(await accountEmailEnabled(db))) {
 			return sendAdminSendFailure(reply, "disabled");
 		}
