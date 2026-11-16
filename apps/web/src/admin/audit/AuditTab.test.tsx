@@ -592,6 +592,9 @@ test("a row says whether it came from a session or an API key, with the key's st
 	);
 	// A key no longer listed still reads as a key.
 	expect(arrival({ via: "api_key", apiKeyId: null }, prefixes)?.text).toBe("API key");
+	expect(arrival({ via: "assistant", apiKeyId: null }, prefixes)?.text).toBe(
+		"Assistant",
+	);
 	// Older rows and the worker's record no arrival.
 	expect(arrival({ via: null, apiKeyId: null }, prefixes)).toBeNull();
 });
@@ -604,6 +607,7 @@ test("the Via column shows the key's start for a row made with an API key", asyn
 				events: [
 					event(8, { via: "api_key", apiKeyId: KEY_ID }),
 					event(9, { via: "session", apiKeyId: null }),
+					event(10, { via: "assistant", apiKeyId: null }),
 				],
 				nextBefore: null,
 			}),
@@ -630,5 +634,8 @@ test("the Via column shows the key's start for a row made with an API key", asyn
 	expect(
 		within(screen.getByTestId("audit-row-9")).getByTestId("audit-via").textContent,
 	).toBe("Session");
+	expect(
+		within(screen.getByTestId("audit-row-10")).getByTestId("audit-via").textContent,
+	).toBe("Assistant");
 	expect(screen.getByRole("columnheader", { name: /^Via/ })).toBeDefined();
 });

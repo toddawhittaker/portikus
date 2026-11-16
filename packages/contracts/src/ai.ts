@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentUsageQuery, AgentUsageWindow, UsageDay } from "./agent-usage.js";
 import { isLocalOrPrivateHost } from "./browser.js";
 import { isHttpsUrl } from "./settings.js";
 
@@ -113,3 +114,54 @@ export type TestAiResult = z.infer<typeof TestAiResult>;
 /** Null when the server has no model list; the page falls back to free text. */
 export const ModelListResponse = z.object({ models: z.array(z.string()).nullable() });
 export type ModelListResponse = z.infer<typeof ModelListResponse>;
+
+/** Query for `GET /admin/ai-usage`: the same 7, 30 or 90 day window as agent usage. */
+export const AiUsageQuery = AgentUsageQuery;
+export type AiUsageQuery = z.infer<typeof AiUsageQuery>;
+
+export const AiPurpose = z.enum(["assistant", "pricing"]);
+export type AiPurpose = z.infer<typeof AiPurpose>;
+
+const TokenCount = z.number().int().nonnegative();
+
+/** The four token counts the built-in AI keeps; never any text. */
+export const AiUsageCounts = z.object({
+	inputTokens: TokenCount,
+	outputTokens: TokenCount,
+	cacheReadTokens: TokenCount,
+	cacheWriteTokens: TokenCount,
+});
+export type AiUsageCounts = z.infer<typeof AiUsageCounts>;
+
+/** One person's use of one model for one purpose over the window. */
+export const AiUsagePerson = AiUsageCounts.extend({
+	/** Null for the weekly price check and for a person since deleted. */
+	userId: z.string().uuid().nullable(),
+	displayName: z.string().min(1),
+	purpose: AiPurpose,
+	model: z.string().min(1),
+});
+export type AiUsagePerson = z.infer<typeof AiUsagePerson>;
+
+/** Everyone's use on one UTC day for one purpose. */
+export const AiUsageDay = AiUsageCounts.extend({
+	day: UsageDay,
+	purpose: AiPurpose,
+});
+export type AiUsageDay = z.infer<typeof AiUsageDay>;
+
+export const AiUsageResponse = z.object({
+	days: AgentUsageWindow,
+	/** First and last UTC day of the window, inclusive. */
+	from: UsageDay,
+	to: UsageDay,
+	users: z.array(AiUsagePerson),
+	daily: z.array(AiUsageDay),
+	totals: AiUsageCounts,
+	/** Input plus output tokens used this calendar month (UTC) against the site's cap. */
+	month: z.object({
+		usedTokens: TokenCount,
+		capTokens: z.number().int().positive(),
+	}),
+});
+export type AiUsageResponse = z.infer<typeof AiUsageResponse>;

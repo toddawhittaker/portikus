@@ -39,6 +39,12 @@ async function seedUsage(browser: Browser) {
 	await insert("codex", "gpt", null, "1");
 	// Outside 7 days but inside 30.
 	await insert("claude", "opus-old", 1.25, "20");
+	await query(
+		`insert into ai_usage_days
+		   (day, user_id, purpose, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+		 values (current_date, $1, 'assistant', 'e2e-model', 4321, 1234, 600, 400)`,
+		[student.userId],
+	);
 	return name;
 }
 
@@ -76,6 +82,42 @@ test("the Agent usage tab lists each person and agent, with a period choice", as
 	await expect(openToggletip(page)).toContainText("not what a subscription pays");
 });
 
+test("the Built-in assistant section shows the month against the cap and each person's use", async ({
+	page,
+	browser,
+}) => {
+	const context = await browser.newContext();
+	const student = await createStudent(context);
+	await context.close();
+	const name = `Assistant ${randomUUID().slice(0, 8)}`;
+	await query("update users set display_name = $2 where id = $1", [
+		student.userId,
+		name,
+	]);
+	const model = `e2e-model-${randomUUID().slice(0, 8)}`;
+	await query(
+		`insert into ai_usage_days
+		   (day, user_id, purpose, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+		 values (current_date, $1, 'assistant', $2, 4321, 1234, 600, 400)`,
+		[student.userId, model],
+	);
+
+	await loginAs(page, "carol");
+	await page.goto("/admin/agents");
+	const section = page.getByTestId("ai-usage");
+	await expect(
+		section.getByRole("heading", { name: "Built-in assistant" }),
+	).toBeVisible();
+	await expect(section.getByRole("meter", { name: "Used this month" })).toBeVisible();
+	const row = section.getByRole("row", { name: new RegExp(`${name} Assistant`) });
+	await expect(row).toContainText(model);
+	await expect(row).toContainText("4,321");
+	await expect(row).toContainText("1,234");
+	await expect(row).toContainText("1,000");
+	// No price row matches a made-up model, so the estimate is a dash.
+	await expect(row.getByRole("cell").last()).toHaveText("—");
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Agent usage tab has no automatic accessibility violations (${colorScheme})`, async ({
 		page,
@@ -86,6 +128,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await loginAs(page, "carol");
 		await page.goto("/admin/agents");
 		await expect(page.getByTestId("agent-usage-users")).toBeVisible();
+		await expect(page.getByTestId("ai-usage-users")).toBeVisible();
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});

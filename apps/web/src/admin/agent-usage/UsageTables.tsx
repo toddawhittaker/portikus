@@ -154,7 +154,7 @@ function UsageColumns() {
 }
 
 /** The first column wraps, so a long name stays inside its own column. */
-const LEAD_CELL_CLASS = "font-normal whitespace-normal wrap-anywhere py-1";
+export const LEAD_CELL_CLASS = "font-normal whitespace-normal wrap-anywhere py-1";
 
 /** The per-person and daily usage tables, shared by the admin tab and the Course page. */
 export function UsageTables({ data }: { data: AgentUsageResponse }) {
