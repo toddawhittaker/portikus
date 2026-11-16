@@ -11,7 +11,7 @@ import {
 import { FAKE_MODEL_PORT } from "./ports";
 
 /**
- * The AI settings tab (issue #2068 F2, SPEC.md section 20.4) against the real
+ * The AI settings tab (SPEC.md section 20.4) against the real
  * API and the fake model server, which the API's AI_TEST_BASE_URL points
  * model calls at. The privacy notice gates the switch, the key is write-only,
  * the test round trip shows its stages, the proxy host offer is sent, and the

@@ -18,7 +18,7 @@ const INTRO = {
 	text: "Read the privacy notice, set the provider and its key, test it, then turn the assistant on. Only administrators can use it.",
 };
 
-/** The built-in AI settings tab (SPEC.md section 20.4, issue #2068 F2). */
+/** The built-in AI settings tab (SPEC.md section 20.4). */
 export function AiTab() {
 	const settings = useAiSettings();
 	if (settings.isError) {

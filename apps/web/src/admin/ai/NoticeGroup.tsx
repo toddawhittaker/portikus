@@ -7,7 +7,7 @@ import { noticeAccepted } from "./text.js";
 
 const WHEN = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
 
-/** The privacy notice text (issue #2068 ruling 7, decisions D1 and D2). */
+/** The privacy notice text (SPEC.md sections 20.4 and 24). */
 function NoticeText() {
 	return (
 		<div className="grid max-w-[72ch] gap-3 text-[14px]" data-testid="ai-notice-text">
