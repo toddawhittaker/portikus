@@ -2,7 +2,6 @@ import {
 	AgentUsageResponse,
 	type AgentUsageWindow,
 	AiUsageResponse,
-	PricingTable,
 } from "@portikus/contracts";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { request } from "../../api/request.js";
@@ -22,14 +21,5 @@ export function useAiUsage(days: AgentUsageWindow) {
 		queryKey: ["admin", "ai-usage", days],
 		queryFn: () => request(AiUsageResponse, `/admin/ai-usage?days=${days}`),
 		placeholderData: keepPreviousData,
-	});
-}
-
-/** The model price table, for the dollar estimate beside each row. */
-export function usePricingTable() {
-	return useQuery({
-		queryKey: ["pricing"],
-		queryFn: () => request(PricingTable, "/pricing"),
-		staleTime: 5 * 60_000,
 	});
 }

@@ -114,8 +114,7 @@ test("the Built-in assistant section shows the month against the cap and each pe
 	await expect(row).toContainText("4,321");
 	await expect(row).toContainText("1,234");
 	await expect(row).toContainText("1,000");
-	// No price row matches a made-up model, so the estimate is a dash.
-	await expect(row.getByRole("cell").last()).toHaveText("—");
+	await expect(section).not.toContainText("Estimated input cost");
 });
 
 for (const colorScheme of ["light", "dark"] as const) {

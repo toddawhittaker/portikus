@@ -2,9 +2,8 @@ import type { AgentUsageWindow, AiPurpose } from "@portikus/contracts";
 import { Meter, Toggletip } from "@portikus/ui";
 import { ApiError } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
-import { estimateInputCost } from "./aiCost.js";
-import { cost, count } from "./format.js";
-import { useAiUsage, usePricingTable } from "./queries.js";
+import { count } from "./format.js";
+import { useAiUsage } from "./queries.js";
 import { LEAD_CELL_CLASS } from "./UsageTables.js";
 import "./usage.css";
 
@@ -13,13 +12,10 @@ const PURPOSE_NAME: Record<AiPurpose, string> = {
 	pricing: "Price check",
 };
 
-const COST_HELP =
-	"New input, cache reads and cache writes at the price table's rates. Output tokens are not priced, because the table holds no output price. A dash means the table has no row for the model.";
-
 const CACHE_HELP =
 	"Tokens read from and written to the prompt cache, added together. Cached tokens cost far less than new input.";
 
-const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[64rem]";
+const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[52rem]";
 
 /**
  * The built-in assistant's tokens this month against the site's cap, and
@@ -28,7 +24,6 @@ const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[64rem]";
  */
 export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 	const usage = useAiUsage(days);
-	const prices = usePricingTable().data?.prices ?? [];
 	const data = usage.data;
 	return (
 		<AdminGroup
@@ -79,7 +74,6 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 										<col className="w-28" />
 										<col className="w-32" />
 										<col className="w-36" />
-										<col className="w-48" />
 									</colgroup>
 									<thead>
 										<tr>
@@ -96,14 +90,6 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 												<span className="inline-flex items-center gap-1">
 													Cache tokens
 													<Toggletip label="Cache tokens">{CACHE_HELP}</Toggletip>
-												</span>
-											</th>
-											<th scope="col" className="pk-num">
-												<span className="inline-flex items-center gap-1">
-													Estimated input cost
-													<Toggletip label="Estimated input cost">
-														{COST_HELP}
-													</Toggletip>
 												</span>
 											</th>
 										</tr>
@@ -126,12 +112,6 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 												</td>
 												<td className="pk-num" data-label="Cache">
 													{count(row.cacheReadTokens + row.cacheWriteTokens)}
-												</td>
-												<td
-													className="pk-num pk-usage-cost"
-													data-label="Estimated input cost"
-												>
-													{cost(estimateInputCost(row, prices))}
 												</td>
 											</tr>
 										))}

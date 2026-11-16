@@ -76,34 +76,13 @@ const AI_USAGE = {
 	month: { usedTokens: 1_500_000, capTokens: 5_000_000 },
 };
 
-const PRICES = {
-	prices: [
-		{
-			provider: "anthropic",
-			model: "opus-5-5",
-			inputPricePerMillion: 5,
-			cacheReadRatio: 0.1,
-			cacheWriteRatio: 1.25,
-			cacheWriteOneHourRatio: null,
-			cacheTtlSeconds: 300,
-			surchargeAboveTokens: null,
-			surchargeFactor: null,
-			sourceUrl: "https://example.com/pricing",
-			sourceQuote: "quote",
-			checkedAt: "2026-11-10T00:00:00.000Z",
-			updatedAt: "2026-11-10T00:00:00.000Z",
-		},
-	],
-};
-
-/** Answers each of the tab's three requests; the agent usage can be swapped per test. */
+/** Answers each of the tab's two requests; the agent usage can be swapped per test. */
 function serve(
 	agent: object | ((url: string) => object) = USAGE,
 	ai: object = AI_USAGE,
 ) {
 	return stubFetch((url) => {
 		if (url.startsWith("/admin/ai-usage")) return json(200, ai);
-		if (url === "/pricing") return json(200, PRICES);
 		return json(200, typeof agent === "function" ? agent(url) : agent);
 	});
 }
@@ -193,13 +172,12 @@ test("the Built-in assistant section shows the month against the cap and a row p
 	expect(alice.getByText("1,000,000")).toBeDefined();
 	// Cache reads and writes are added: 2,000,000 + 800,000.
 	expect(alice.getByText("2,800,000")).toBeDefined();
-	// (1M + 2M * 0.1 + 0.8M * 1.25) * $5 per million.
-	expect(alice.getByText("$11.00")).toBeDefined();
 	const check = within(rows[1] as HTMLElement);
 	expect(check.getByText("Weekly price check")).toBeDefined();
 	expect(check.getByText("Price check")).toBeDefined();
-	// No price row matches the model, so a dash and no guess.
-	expect(check.getByText("—")).toBeDefined();
+	// Tokens only: a cost without output tokens would undercount.
+	expect(screen.queryByText(/Estimated input cost/)).toBeNull();
+	expect(within(table).queryByText(/\$/)).toBeNull();
 });
 
 test("the assistant section asks for the chosen period and says when nothing was used", async () => {
