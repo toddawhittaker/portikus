@@ -212,7 +212,7 @@ export function ApprovalCard({
 	const [error, setError] = useState("");
 	const destructive = card.risk === "destructive";
 	const batch = batchOf(card);
-	// A batch carries its row count as confirmText whatever its risk; a destructive card always asks.
+	// A change batch carries its row count and a destructive batch the operation name as confirmText; a destructive card always asks.
 	const mustType = destructive || card.confirmText !== undefined;
 	const confirmText = mustType ? card.confirmText : undefined;
 	const { approve, deny } = approvalOptions(card);
