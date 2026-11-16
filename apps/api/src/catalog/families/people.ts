@@ -8,6 +8,8 @@ import {
 	AdminUsersQuery,
 	AgentUsageQuery,
 	AgentUsageResponse,
+	AiUsageQuery,
+	AiUsageResponse,
 	AuditPage,
 	AuditQuery,
 	CourseProfileResponse,
@@ -288,6 +290,16 @@ export const operations: OperationRecords = {
 		tool: true,
 		input: { query: AgentUsageQuery },
 		output: AgentUsageResponse,
+	},
+	"GET /admin/ai-usage": {
+		name: "ai_usage.site",
+		description:
+			"Returns how much the built-in assistant was used over the last 7, 30 or 90 days, per person and per day, and this month's use against the monthly cap. Token counts only.",
+		risk: "read",
+		audience: "administrator",
+		tool: true,
+		input: { query: AiUsageQuery },
+		output: AiUsageResponse,
 	},
 	"GET /admin/courses": {
 		name: "courses.list_all",

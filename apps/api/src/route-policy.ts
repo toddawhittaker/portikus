@@ -387,6 +387,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/ai/test": { access: "admin" },
 	"GET /admin/ai/models": { access: "admin" },
 	"HEAD /admin/ai/models": { access: "admin" },
+	"GET /admin/ai-usage": { access: "admin" },
+	"HEAD /admin/ai-usage": { access: "admin" },
 	// The model price table and its checks (SPEC.md sections 10.8 and 20.4).
 	"GET /admin/pricing": { access: "admin" },
 	"HEAD /admin/pricing": { access: "admin" },

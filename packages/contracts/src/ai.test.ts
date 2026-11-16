@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { AI_NOTICE_VERSION, AiBaseUrl, UpdateAiSettingsRequest } from "./ai.js";
+import {
+	AI_NOTICE_VERSION,
+	AiBaseUrl,
+	AiUsageResponse,
+	UpdateAiSettingsRequest,
+} from "./ai.js";
 
 describe("AI base address", () => {
 	test.each([
@@ -83,4 +88,35 @@ describe("UpdateAiSettingsRequest", () => {
 
 test("the notice version starts at 1", () => {
 	expect(AI_NOTICE_VERSION).toBe(1);
+});
+
+test("an AI usage response round-trips and refuses a negative count", () => {
+	const counts = {
+		inputTokens: 1,
+		outputTokens: 2,
+		cacheReadTokens: 3,
+		cacheWriteTokens: 4,
+	};
+	const body = {
+		days: 30,
+		from: "2026-10-12",
+		to: "2026-11-10",
+		users: [
+			{
+				userId: null,
+				displayName: "Weekly price check",
+				purpose: "pricing",
+				model: "m",
+				...counts,
+			},
+		],
+		daily: [{ day: "2026-11-10", purpose: "pricing", ...counts }],
+		totals: counts,
+		month: { usedTokens: 3, capTokens: 100 },
+	};
+	expect(AiUsageResponse.parse(body)).toEqual(body);
+	expect(
+		AiUsageResponse.safeParse({ ...body, totals: { ...counts, inputTokens: -1 } })
+			.success,
+	).toBe(false);
 });
