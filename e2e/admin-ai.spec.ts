@@ -149,9 +149,11 @@ test("the notice must be accepted before the switch works", async ({ page }) => 
 	await toggle.click();
 	await expect(toggle).toBeChecked();
 	await page.reload();
-	await expect(page.getByRole("switch", { name: /Turn on the assistant/ })).toBeChecked({
-		timeout: 15_000,
-	});
+	await expect(page.getByRole("switch", { name: /Turn on the assistant/ })).toBeChecked(
+		{
+			timeout: 15_000,
+		},
+	);
 });
 
 test("a set key shows only its last four characters, and the proxy offer is sent", async ({
