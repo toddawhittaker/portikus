@@ -81,6 +81,9 @@ async function share(projectId: string, ended = false) {
 		.insertInto("project_shares")
 		.values({
 			project_id: projectId,
+			// Set from the test's fixed clock, not the database's, or the
+			// "ends after start" check fails once real time passes NOW.
+			started_at: ago(24 * 7),
 			ends_at: ended ? ago(1) : ago(-24),
 		})
 		.execute();
