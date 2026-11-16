@@ -129,6 +129,16 @@ export const NOT_EXPOSED: Readonly<Record<string, NotExposed>> = {
 		"The built-in AI's provider key and the notice an administrator reads in person; the key is write-only and never goes to a caller",
 		true,
 	),
+	...group(
+		[
+			"GET /assistant/status",
+			"POST /assistant/conversations",
+			"GET /assistant/conversations",
+			"DELETE /assistant/conversations/:id",
+			"GET /assistant/conversations/:id/socket",
+		],
+		"The built-in assistant is used in a signed-in browser; it runs operations as that person's session, and a key already has MCP",
+	),
 
 	// Sign-in machinery, loopback and preview-edge routes.
 	...group(
