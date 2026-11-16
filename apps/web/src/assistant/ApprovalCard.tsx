@@ -190,7 +190,7 @@ export interface ApprovalCardProps {
 	onAnswer: (optionId: string, confirmation?: string) => boolean;
 	/** Set once the card is answered; it then shows the outcome instead of buttons. */
 	decision?: ChatCardDecision;
-	/** Put focus on the card's first control as it appears. */
+	/** Put focus on the card's heading as it appears, so it is read before its buttons. */
 	autoFocus?: boolean;
 	/** Cards waiting behind this one. */
 	waiting?: number;
@@ -205,7 +205,8 @@ export function ApprovalCard({
 }: ApprovalCardProps) {
 	const titleId = useId();
 	const typedId = useId();
-	const body = useRef<HTMLElement | null>(null);
+	const askId = useId();
+	const heading = useRef<HTMLHeadingElement | null>(null);
 	const [typed, setTyped] = useState("");
 	const [chosen, setChosen] = useState<string | null>(null);
 	const [error, setError] = useState("");
@@ -221,7 +222,7 @@ export function ApprovalCard({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the card first appears
 	useEffect(() => {
 		if (!autoFocus || resolved) return;
-		body.current?.querySelector<HTMLElement>("input, button:not([disabled])")?.focus();
+		heading.current?.focus();
 	}, []);
 
 	function send(option: Option | undefined, confirmation?: string) {
@@ -238,7 +239,6 @@ export function ApprovalCard({
 
 	return (
 		<section
-			ref={body}
 			className="pk-assistant-card"
 			aria-labelledby={titleId}
 			data-testid="approval-card"
@@ -246,7 +246,12 @@ export function ApprovalCard({
 			data-decision={decision}
 		>
 			<header className="pk-assistant-card-head">
-				<h3 id={titleId} className="pk-assistant-card-title">
+				<h3
+					id={titleId}
+					ref={heading}
+					tabIndex={-1}
+					className="pk-assistant-card-title"
+				>
 					{approvalTitle(card)}
 				</h3>
 				<Badge tone={destructive ? "danger" : "warning"} data-testid="approval-risk">
@@ -277,9 +282,9 @@ export function ApprovalCard({
 						<TextField
 							id={typedId}
 							label={
-								<>
+								<span id={askId}>
 									Type <span className="font-mono">{confirmText}</span> to approve
-								</>
+								</span>
 							}
 							mono
 							value={typed}
@@ -297,7 +302,10 @@ export function ApprovalCard({
 						<Button
 							type="submit"
 							variant={destructive ? "danger" : "primary"}
-							disabled={locked || !approve}
+							// Locked stays focusable and says what unlocks it; the submit handler refuses meanwhile.
+							disabled={!approve}
+							aria-disabled={locked || undefined}
+							aria-describedby={locked ? askId : undefined}
 							loading={chosen !== null && chosen === approve?.id}
 							data-testid="approval-approve"
 						>

@@ -9,6 +9,7 @@ import { Button, Icon } from "@portikus/ui";
 import { useMe } from "../useMe.js";
 import { useAssistant, useOptionalAssistant } from "./AssistantContext.js";
 import { useAssistantStatus } from "./useAssistant.js";
+import "./assistant.css";
 
 export function DiagnoseButton({
 	context,
@@ -44,6 +45,7 @@ function Available({
 		<Button
 			variant="secondary"
 			size="sm"
+			className="pk-diagnose"
 			aria-label={name}
 			data-testid={`diagnose-${context.kind}`}
 			onClick={() => {

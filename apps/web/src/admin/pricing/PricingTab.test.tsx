@@ -117,7 +117,7 @@ function serve(
 				trigger: "manual",
 			});
 		if (url.endsWith("/decision")) {
-			proposals = [];
+			proposals = proposals.filter((p) => !url.includes(p.id));
 			return json(200, { prices, proposals });
 		}
 		if (url === "/admin/pricing/rows" && method === "POST") {
@@ -315,5 +315,70 @@ test("with no proxy host list on this server nothing is offered, and an unticked
 	fireEvent.click(screen.getByTestId("pricing-sources-save"));
 	await waitFor(() =>
 		expect(sent.find((r) => r.method === "PUT")?.body).toEqual({ priceSources: [] }),
+	);
+});
+
+const SECOND: PriceProposal = {
+	...PROPOSAL,
+	id: "00000000-0000-4000-8000-0000000000b2",
+	model: "sonnet-5-5",
+	current: null,
+};
+
+test("deciding a proposal moves focus to the next one, and the last to the Prices heading", async () => {
+	serve({ proposals: [PROPOSAL, SECOND] });
+	renderWithQuery(<PricingTab />);
+	const first = await screen.findByTestId("proposal-opus-5-5");
+	expect(within(first).getByRole("button", { name: "Reject opus-5-5" })).toBeTruthy();
+	fireEvent.click(within(first).getByTestId("proposal-accept"));
+	await waitFor(() => expect(screen.queryByTestId("proposal-opus-5-5")).toBeNull());
+	expect(document.activeElement?.id).toBe(`proposal-${SECOND.id}`);
+	const second = screen.getByTestId("proposal-sonnet-5-5");
+	fireEvent.click(within(second).getByRole("button", { name: "Reject sonnet-5-5" }));
+	await waitFor(() => expect(screen.queryByTestId("pricing-proposals")).toBeNull());
+	expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Prices" }));
+});
+
+test("cancelling a row's delete returns focus to its trash button", async () => {
+	serve({ proposals: [] });
+	renderWithQuery(<PricingTab />);
+	const trash = await screen.findByTestId("price-row-delete");
+	trash.focus();
+	fireEvent.click(trash);
+	const confirm = await screen.findByTestId("price-row-delete-dialog");
+	fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+	await waitFor(() =>
+		expect(screen.queryByTestId("price-row-delete-dialog")).toBeNull(),
+	);
+	await waitFor(() => expect(document.activeElement).toBe(trash));
+});
+
+test("removing a source moves focus to the next Remove, and the last to the add field", async () => {
+	serve({ proposals: [] });
+	renderWithQuery(<PricingTab />);
+	const list = await screen.findByTestId("pricing-source-list");
+	const removes = within(list).getAllByRole("button");
+	expect(removes).toHaveLength(2);
+	fireEvent.click(removes[0] as HTMLElement);
+	expect(document.activeElement).toBe(removes[1]);
+	fireEvent.click(removes[1] as HTMLElement);
+	expect(document.activeElement).toBe(screen.getByLabelText(/^Add a page/));
+});
+
+test("a full list's Add stays focusable, points at the limit and adds nothing", async () => {
+	const full = Array.from({ length: 20 }, (_, i) => `https://p${i}.example.com/`);
+	serve({ proposals: [], ai: { ...AI, priceSources: full } });
+	renderWithQuery(<PricingTab />);
+	const add = await screen.findByRole("button", { name: "Add" });
+	expect((add as HTMLButtonElement).disabled).toBe(false);
+	expect(add.getAttribute("aria-disabled")).toBe("true");
+	const hint = document.getElementById(add.getAttribute("aria-describedby") ?? "");
+	expect(hint?.textContent).toMatch(/at most 20 pages/);
+	fireEvent.change(screen.getByLabelText(/^Add a page/), {
+		target: { value: "https://more.example.com/" },
+	});
+	fireEvent.click(add);
+	expect(screen.getByTestId("pricing-source-list").textContent).not.toMatch(
+		/more\.example/,
 	);
 });

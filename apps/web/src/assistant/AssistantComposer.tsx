@@ -4,7 +4,7 @@
  */
 import { MAX_CHAT_TEXT_CHARS } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 export interface AssistantComposerProps {
 	/** False when the message could not be sent; the text then stays. */
@@ -28,6 +28,15 @@ export function AssistantComposer({
 	const [text, setText] = useState("");
 	const [error, setError] = useState("");
 	const ready = text.trim() !== "" && !disabled;
+	const box = useRef<HTMLTextAreaElement>(null);
+	const action = useRef<HTMLButtonElement>(null);
+
+	// When a turn ends, Stop turns back into Send, which is off with an empty box; focus held
+	// there would be dropped, so it goes to the box where the next message is typed. Checked
+	// before paint, while the button still holds focus.
+	useLayoutEffect(() => {
+		if (!running && document.activeElement === action.current) box.current?.focus();
+	}, [running]);
 
 	function send() {
 		if (!ready) return;
@@ -53,6 +62,7 @@ export function AssistantComposer({
 				Message the assistant
 			</label>
 			<textarea
+				ref={box}
 				id={boxId}
 				className="pk-assistant-box pk-focus-ring"
 				data-testid="assistant-input"
@@ -76,6 +86,7 @@ export function AssistantComposer({
 				</p>
 				{running ? (
 					<Button
+						ref={action}
 						type="button"
 						variant="secondary"
 						data-testid="assistant-stop"
@@ -85,6 +96,7 @@ export function AssistantComposer({
 					</Button>
 				) : (
 					<Button
+						ref={action}
 						type="submit"
 						variant="primary"
 						disabled={!ready}

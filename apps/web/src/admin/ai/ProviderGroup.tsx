@@ -6,7 +6,7 @@ import {
 	type UpdateAiSettingsRequest,
 } from "@portikus/contracts";
 import { Button, Checkbox, Select, TextField, useToast } from "@portikus/ui";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { AdminGroup as Group } from "../AdminSection.js";
 import { useAiModels, useUpdateAi } from "./queries.js";
@@ -33,6 +33,16 @@ export function ProviderGroup({ view }: { view: AiSettingsView }) {
 	const [key, setKey] = useState("");
 	const [addHost, setAddHost] = useState(true);
 	const [errors, setErrors] = useState<Errors>({});
+	const keyState = useRef<HTMLSpanElement>(null);
+	const keyField = useRef<HTMLInputElement>(null);
+	const replaceAsked = useRef(false);
+
+	// Replace removes itself; the keyboard goes on to the field it opened.
+	useEffect(() => {
+		if (!replacing || !replaceAsked.current) return;
+		replaceAsked.current = false;
+		keyField.current?.focus();
+	}, [replacing]);
 
 	const configured = view.keySet && view.baseUrl !== null;
 	const models = useAiModels(configured, `${view.providerKind} ${view.baseUrl}`);
@@ -90,6 +100,8 @@ export function ProviderGroup({ view }: { view: AiSettingsView }) {
 			{
 				onSuccess: () => {
 					setReplacing(true);
+					// Clear and Replace go with the key; say where the key stands instead.
+					keyState.current?.focus();
 					toast.show({ tone: "success", title: "Key cleared" });
 				},
 				onError: (error) =>
@@ -160,6 +172,7 @@ export function ProviderGroup({ view }: { view: AiSettingsView }) {
 						value={model || undefined}
 						placeholder="Choose a model"
 						hint="The models the provider lists for this key."
+						error={errors.model}
 						onValueChange={setModel}
 					/>
 				) : (
@@ -182,7 +195,12 @@ export function ProviderGroup({ view }: { view: AiSettingsView }) {
 				<fieldset className="m-0 grid min-w-0 gap-2 border-0 p-0">
 					<legend className="pk-label mb-1.5 p-0 text-[14px] font-medium">Key</legend>
 					<div className="flex flex-wrap items-center gap-3">
-						<span className="text-[14px]" data-testid="ai-key-state">
+						<span
+							ref={keyState}
+							tabIndex={-1}
+							className="text-[14px] outline-none"
+							data-testid="ai-key-state"
+						>
 							{keyText(view)}
 						</span>
 						{view.keySet ? (
@@ -191,7 +209,10 @@ export function ProviderGroup({ view }: { view: AiSettingsView }) {
 									<Button
 										size="sm"
 										data-testid="ai-key-replace"
-										onClick={() => setReplacing(true)}
+										onClick={() => {
+											replaceAsked.current = true;
+											setReplacing(true);
+										}}
 									>
 										Replace
 									</Button>
@@ -211,6 +232,7 @@ export function ProviderGroup({ view }: { view: AiSettingsView }) {
 					{replacing ? (
 						<TextField
 							id="ai-key"
+							ref={keyField}
 							label={view.keySet ? "New key" : "Key"}
 							type="password"
 							mono

@@ -52,7 +52,10 @@ test("Approve answers with the option that allows, with no confirmation", () => 
 	const onAnswer = vi.fn(() => true);
 	render(<ApprovalCard card={CHANGE} onAnswer={onAnswer} autoFocus />);
 	const approve = screen.getByRole("button", { name: "Approve" });
-	expect(document.activeElement).toBe(approve);
+	// A new card is read from its title first, not from a button.
+	expect(document.activeElement).toBe(
+		screen.getByRole("heading", { name: "Disable a user's account" }),
+	);
 	fireEvent.click(approve);
 	expect(onAnswer).toHaveBeenCalledWith("approve", undefined);
 	// One answer per card.
@@ -72,20 +75,29 @@ test("a destructive card stays locked until its confirmation text is typed exact
 	render(<ApprovalCard card={DESTRUCTIVE} onAnswer={onAnswer} autoFocus />);
 	expect(screen.getByTestId("approval-risk").textContent).toBe("Destructive");
 	const box = screen.getByLabelText("Type users_delete to approve");
-	// The typed box is the first thing to reach.
-	expect(document.activeElement).toBe(box);
+	expect(document.activeElement).toBe(
+		screen.getByRole("heading", { name: "Delete a user" }),
+	);
 	const approve = screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement;
-	expect(approve.disabled).toBe(true);
+	// Locked but focusable, and it says what unlocks it.
+	expect(approve.disabled).toBe(false);
+	expect(approve.getAttribute("aria-disabled")).toBe("true");
+	expect(
+		document.getElementById(approve.getAttribute("aria-describedby") ?? "")
+			?.textContent,
+	).toBe("Type users_delete to approve");
 	for (const wrong of ["users_delet", "Users_delete", "users_delete "]) {
 		fireEvent.change(box, { target: { value: wrong } });
-		expect(approve.disabled).toBe(true);
+		expect(approve.getAttribute("aria-disabled")).toBe("true");
+		fireEvent.click(approve);
 	}
 	// Enter in the box cannot get past the lock either.
 	fireEvent.submit(box.closest("form") as HTMLFormElement);
 	expect(onAnswer).not.toHaveBeenCalled();
 
 	fireEvent.change(box, { target: { value: "users_delete" } });
-	expect(approve.disabled).toBe(false);
+	expect(approve.hasAttribute("aria-disabled")).toBe(false);
+	expect(approve.hasAttribute("aria-describedby")).toBe(false);
 	fireEvent.click(approve);
 	expect(onAnswer).toHaveBeenCalledWith("approve", "users_delete");
 });
@@ -99,10 +111,12 @@ test("a destructive card can be denied without typing", () => {
 
 test("a destructive card without confirmation text can never be approved", () => {
 	const { confirmText: _, ...card } = DESTRUCTIVE;
-	render(<ApprovalCard card={card} onAnswer={() => true} />);
-	expect(
-		(screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled,
-	).toBe(true);
+	const onAnswer = vi.fn(() => true);
+	render(<ApprovalCard card={card} onAnswer={onAnswer} />);
+	const approve = screen.getByRole("button", { name: "Approve" });
+	expect(approve.getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(approve);
+	expect(onAnswer).not.toHaveBeenCalled();
 });
 
 test("an answer that could not be sent says so and leaves the buttons live", () => {
@@ -184,15 +198,15 @@ test("a change batch stays locked until its row count is typed", () => {
 	render(<ApprovalCard card={BATCH} onAnswer={onAnswer} autoFocus />);
 	expect(screen.getByTestId("approval-risk").textContent).toBe("Change");
 	const box = screen.getByLabelText("Type 3 to approve");
-	expect(document.activeElement).toBe(box);
 	const approve = screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement;
-	expect(approve.disabled).toBe(true);
+	expect(approve.getAttribute("aria-disabled")).toBe("true");
 	for (const wrong of ["2", "30", "three", " 3"]) {
 		fireEvent.change(box, { target: { value: wrong } });
-		expect(approve.disabled).toBe(true);
+		fireEvent.click(approve);
 	}
+	expect(onAnswer).not.toHaveBeenCalled();
 	fireEvent.change(box, { target: { value: "3" } });
-	expect(approve.disabled).toBe(false);
+	expect(approve.hasAttribute("aria-disabled")).toBe(false);
 	fireEvent.click(approve);
 	expect(onAnswer).toHaveBeenCalledWith("approve", "3");
 });
