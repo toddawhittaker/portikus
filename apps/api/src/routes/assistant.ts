@@ -11,14 +11,10 @@ import {
 	MAX_CHAT_CLIENT_FRAME_BYTES,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { openModelClient } from "../ai/settings.js";
+import { openModelClient, unavailableMessage } from "../ai/settings.js";
 import { planDiagnose, startDiagnose } from "../assistant/diagnose.js";
 import { createAssistantHub } from "../assistant/hub.js";
-import {
-	createAssistantLoop,
-	notEnabledMessage,
-	type TurnCaller,
-} from "../assistant/loop.js";
+import { createAssistantLoop, type TurnCaller } from "../assistant/loop.js";
 import { startAssistantRetention } from "../assistant/retention.js";
 import {
 	createConversation,
@@ -141,7 +137,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 		if ("unavailable" in opened) {
 			return reply.status(409).send({
 				code: "AI_NOT_ENABLED",
-				message: notEnabledMessage(opened.unavailable),
+				message: unavailableMessage(opened.unavailable),
 				reason: opened.unavailable,
 			});
 		}
@@ -230,6 +226,8 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 						ip: request.ip,
 						...(userAgent === undefined ? {} : { userAgent }),
 					},
+					socket,
+					allowed: async () => (await callerNow()) !== null,
 				};
 			}
 

@@ -93,12 +93,9 @@ export function notEnabledText(status: AssistantStatus): string {
 	return status.reason ? NOT_ENABLED_TEXT[status.reason] : NOT_ENABLED_TEXT.off;
 }
 
-/** The server refuses an assistant route this way while the feature is off. */
+/** The server refuses to start a conversation this way when the assistant was turned off since the status check. */
 export function isNotEnabled(error: unknown): boolean {
-	// Turned off between the status check and this call.
-	if (!(error instanceof ApiError)) return false;
-	if (error.status !== 403 && error.status !== 409) return false;
-	return /not enabled/i.test(error.message);
+	return error instanceof ApiError && error.code === "AI_NOT_ENABLED";
 }
 
 export interface AssistantConversation {

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
+import type { WebSocket } from "@fastify/websocket";
 import {
 	type AssistantBatchInput,
-	type AssistantUnavailableReason,
 	batchConfirmText,
+	CloseCode,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
@@ -14,7 +15,11 @@ import {
 	ModelError,
 	type StepRequest,
 } from "../ai/model.js";
-import type { OpenedModel, ReadyAiSettings } from "../ai/settings.js";
+import {
+	type OpenedModel,
+	type ReadyAiSettings,
+	unavailableMessage,
+} from "../ai/settings.js";
 import type { StepUsage } from "../ai/usage.js";
 import { operationByName } from "../catalog/index.js";
 import {
@@ -47,6 +52,7 @@ import {
 } from "./store.js";
 import {
 	assistantTools,
+	type ResolvedCall,
 	RUN_TOOL,
 	resolveCall,
 	systemPrompt,
@@ -65,22 +71,6 @@ import {
 /** Room for a long answer; a step that reaches it ends with what it has. */
 const MAX_OUTPUT_TOKENS = 4096;
 
-const NOT_ENABLED_TEXT: Record<AssistantUnavailableReason, string> = {
-	off: "The assistant is not enabled: it is turned off for this site.",
-	incomplete:
-		"The assistant is not enabled: its provider, address or model is not set.",
-	"no-key": "The assistant is not enabled: it has no AI key yet.",
-	"key-unreadable": "The assistant is not enabled: its saved AI key no longer opens.",
-	notice:
-		"The assistant is not enabled: an administrator has not accepted the privacy notice.",
-	"monthly-cap":
-		"The assistant is not enabled: this month's token allowance is used up. It works again next month.",
-};
-
-export function notEnabledMessage(reason: AssistantUnavailableReason): string {
-	return NOT_ENABLED_TEXT[reason];
-}
-
 const BUSY_TEXT =
 	"The assistant is still working on the last message. Wait for it, or stop it, before sending another.";
 const ANSWER_FIRST_TEXT = "Answer the approval card first, then send your message.";
@@ -96,6 +86,10 @@ export type TurnCaller = {
 	userId: string;
 	tools: ToolCaller;
 	run: Extract<RunCaller, { kind: "assistant" }>;
+	/** The socket the frame came from, which alone hears a refusal of it. */
+	socket: WebSocket;
+	/** Whether the socket's session may still use the assistant, checked before each step. */
+	allowed: () => Promise<boolean>;
 };
 
 export type LoopDeps = {
@@ -202,6 +196,12 @@ function asJson(value: unknown): JsonInput {
 
 type ToolCall = { id: string; name: string; input: unknown };
 
+/** A change or destructive call, or a batch: it waits at a card. */
+function waitsForPerson(resolved: ResolvedCall): boolean {
+	if (resolved.kind === "answer") return false;
+	return resolved.kind === "batch" || resolved.operation.risk !== "read";
+}
+
 type OpenModel = Extract<OpenedModel, { client: unknown }>;
 
 type StepOutcome = {
@@ -216,6 +216,9 @@ export function createAssistantLoop(deps: LoopDeps) {
 	const { app, db, hub, log } = deps;
 
 	const emit = (id: string, event: StoredEvent) => hub.emit(id, event);
+	/** Refuse a frame to the socket that sent it alone, and keep no record. */
+	const refuse = (caller: TurnCaller, message: string) =>
+		hub.tell(caller.conversationId, caller.socket, { type: "error", message });
 	const say = (id: string, markdown: string) =>
 		emit(id, { type: "message", id: randomUUID(), role: "assistant", markdown });
 	const finish = (id: string, status: "done" | "interrupted" | "error") =>
@@ -261,13 +264,16 @@ export function createAssistantLoop(deps: LoopDeps) {
 		);
 	}
 
-	/** Answer one call, run it, or draw its card; true when it waits for a person. */
-	async function handleCall(caller: TurnCaller, call: ToolCall): Promise<boolean> {
+	/** Answer one call, run it, or draw its card. */
+	async function handleCall(
+		caller: TurnCaller,
+		call: ToolCall,
+		resolved: ResolvedCall,
+	): Promise<void> {
 		const id = caller.conversationId;
-		const resolved = resolveCall(call, caller.tools);
 		if (resolved.kind === "answer") {
 			await output(id, call.id, resolved.text, resolved.isError);
-			return false;
+			return;
 		}
 		if (resolved.kind === "batch") {
 			const risky = resolved.operation as typeof resolved.operation & {
@@ -282,12 +288,12 @@ export function createAssistantLoop(deps: LoopDeps) {
 				confirmText: batchConfirmText(resolved.batch),
 			});
 			await emit(id, batchCard(call.id, risky, resolved.batch));
-			return true;
+			return;
 		}
 		const { operation, input } = resolved;
 		if (operation.risk === "read") {
 			await runAs(caller, call.id, operation.name, input);
-			return false;
+			return;
 		}
 		const risky = operation as typeof operation & { risk: ApprovalRisk };
 		await insertApproval(db, {
@@ -299,7 +305,6 @@ export function createAssistantLoop(deps: LoopDeps) {
 			confirmText: confirmTextFor(operation),
 		});
 		await emit(id, approvalCard(call.id, risky, input));
-		return true;
 	}
 
 	/** Why the turn must stop before another step, as the text to say; null to go on. */
@@ -405,13 +410,20 @@ export function createAssistantLoop(deps: LoopDeps) {
 				input: asJson(call.input),
 			});
 		}
-		let waiting = false;
-		for (const call of calls) {
+		// Every read runs before any card is drawn, so an answer to a card
+		// cannot arrive while the turn is still busy with a read.
+		const resolved = calls.map((call) => ({
+			call,
+			resolved: resolveCall(call, caller.tools),
+		}));
+		const reads = resolved.filter((one) => !waitsForPerson(one.resolved));
+		const cards = resolved.filter((one) => waitsForPerson(one.resolved));
+		for (const one of [...reads, ...cards]) {
 			if (signal.aborted) break;
-			if (await handleCall(caller, call)) waiting = true;
+			await handleCall(caller, one.call, one.resolved);
 		}
 		if (signal.aborted) return "interrupted";
-		return waiting || calls.length === 0 ? "done" : "continue";
+		return cards.length > 0 || calls.length === 0 ? "done" : "continue";
 	}
 
 	/** Model steps until a reply with no calls, a card, a limit, a stop or a failure. */
@@ -425,6 +437,12 @@ export function createAssistantLoop(deps: LoopDeps) {
 		const { tools } = assistantTools(caller.tools);
 		const system = systemPrompt(caller.tools);
 		for (;;) {
+			if (!(await caller.allowed())) {
+				log.info({ conversationId: id }, "assistant session ended mid-turn");
+				await finish(id, "interrupted");
+				hub.closeAll(id, CloseCode.SESSION_ENDED, "session ended");
+				return;
+			}
 			const messages = rebuildMessages((await loadEvents(db, id)).map((e) => e.event));
 			const stop = await stopBeforeStep(id, messages, settings);
 			if (stop !== null) {
@@ -456,7 +474,7 @@ export function createAssistantLoop(deps: LoopDeps) {
 		const id = caller.conversationId;
 		const turn = hub.beginTurn(id);
 		if (!turn) {
-			await emit(id, { type: "error", message: BUSY_TEXT });
+			await refuse(caller, BUSY_TEXT);
 			return;
 		}
 		try {
@@ -473,11 +491,11 @@ export function createAssistantLoop(deps: LoopDeps) {
 		}
 	}
 
-	/** Open the model, or say why the assistant cannot answer; null then. */
-	async function openOrRefuse(id: string): Promise<OpenModel | null> {
+	/** Open the model, or tell the sender why the assistant cannot answer; null then. */
+	async function openOrRefuse(caller: TurnCaller): Promise<OpenModel | null> {
 		const opened = await deps.openModel();
 		if ("unavailable" in opened) {
-			await emit(id, { type: "error", message: notEnabledMessage(opened.unavailable) });
+			await refuse(caller, unavailableMessage(opened.unavailable));
 			return null;
 		}
 		return opened;
@@ -489,10 +507,10 @@ export function createAssistantLoop(deps: LoopDeps) {
 			return asTurn(caller, async (signal) => {
 				const id = caller.conversationId;
 				if ((await countPending(db, id)) > 0) {
-					await emit(id, { type: "error", message: ANSWER_FIRST_TEXT });
+					await refuse(caller, ANSWER_FIRST_TEXT);
 					return;
 				}
-				const opened = await openOrRefuse(id);
+				const opened = await openOrRefuse(caller);
 				if (!opened) return;
 				await emit(id, { type: "turn.started", at: Date.now() });
 				await emit(id, {
@@ -547,7 +565,7 @@ export function createAssistantLoop(deps: LoopDeps) {
 					await finish(id, "done");
 					return;
 				}
-				const opened = await openOrRefuse(id);
+				const opened = await openOrRefuse(caller);
 				if (!opened) {
 					await finish(id, "error");
 					return;

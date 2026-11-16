@@ -36,7 +36,7 @@ import {
 	type ModelPart,
 	type StepRequest,
 } from "../ai/model.js";
-import { sealAiKey } from "../ai/settings.js";
+import { sealAiKey, unavailableMessage } from "../ai/settings.js";
 import { LIMIT_TEXT } from "../assistant/budget.js";
 import { REFUSED_TEXT } from "../assistant/cards.js";
 import { systemPrompt } from "../assistant/tools.js";
@@ -423,7 +423,7 @@ describe.skipIf(skip)("who may use the assistant", () => {
 			const refused = await call(app, carol, "POST", "/assistant/conversations", {});
 			expect(refused.statusCode).toBe(409);
 			expect(refused.json()).toMatchObject({ code: "AI_NOT_ENABLED", reason: "off" });
-			expect(refused.json().message).toMatch(/not enabled/i);
+			expect(refused.json().message).toBe(unavailableMessage("off"));
 		}));
 
 	test("an instructor may open a conversation only for a course they teach", () =>
@@ -790,6 +790,100 @@ describe.skipIf(skip)("the loop", () => {
 			expect(await auditOf("assistant.used")).toEqual([]);
 		}));
 
+	test("a message while a card waits is refused to that tab only, and not kept", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const alice = await signIn(app, "alice");
+			const conv = await newConversation(app, carol);
+			const client = fake([
+				toolCall("call-f1", "users_disable", { path: { id: alice.id } }),
+				reply("Left alone."),
+			]);
+			const socket = await connect(app, carol, conv.id);
+			const other = await connect(app, carol, conv.id);
+			socket.send({ type: "send", text: "go", attachments: [] });
+			await socket.waitFor(turnDone());
+			socket.send({ type: "send", text: "and more", attachments: [] });
+			const refused = await socket.waitFor((f) => f.type === "error");
+			expect(refused).toMatchObject({
+				message: expect.stringMatching(/approval card/),
+			});
+			// The turn the answer starts reaches the other tab, so it had its chance at the refusal.
+			socket.send({ type: "permission.answer", id: "call-f1", optionId: "deny" });
+			await turnsFinished(other, 2);
+			expect(other.frames.some((f) => f.type === "error")).toBe(false);
+			expect(await storedTypes(conv.id)).not.toContain("error");
+			const again = await connect(app, carol, conv.id);
+			expect(again.frames.some((f) => f.type === "error")).toBe(false);
+			expect(client.requests).toHaveLength(2);
+			for (const one of [socket, other, again]) one.socket.close();
+		}));
+
+	test("a step's reads run before its cards are drawn", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const alice = await signIn(app, "alice");
+			const conv = await newConversation(app, carol);
+			fake([
+				[
+					{
+						type: "tool-call",
+						id: "call-w1",
+						name: "users_disable",
+						input: { path: { id: alice.id } },
+					},
+					{ type: "tool-call", id: "call-r1", name: "users_list", input: {} },
+					TOOLS_FINISH(),
+				],
+			]);
+			const socket = await connect(app, carol, conv.id);
+			socket.send({ type: "send", text: "go", attachments: [] });
+			await socket.waitFor(turnDone());
+			const order = socket.frames
+				.filter((f) => f.type === "tool.finished" || f.type === "permission.requested")
+				.map((f) => `${f.type}:${(f as { id: string }).id}`);
+			expect(order).toEqual(["tool.finished:call-r1", "permission.requested:call-w1"]);
+			socket.socket.close();
+		}));
+
+	for (const how of ["signed out", "disabled"] as const) {
+		test(`a person ${how} mid-turn gets no further model step, and every tab is closed`, () =>
+			withApp(async (app) => {
+				const carol = await signIn(app, "carol");
+				const conv = await newConversation(app, carol);
+				const requests: StepRequest[] = [];
+				model.client = {
+					async *step(req) {
+						requests.push(req);
+						yield {
+							type: "tool-call",
+							id: `call-e${requests.length}`,
+							name: "users_list",
+							input: {},
+						};
+						if (how === "signed out") {
+							await call(app, carol, "POST", "/auth/logout");
+						} else {
+							await testDb.db
+								.updateTable("users")
+								.set({ disabled_at: new Date().toISOString() })
+								.where("id", "=", carol.id)
+								.execute();
+						}
+						yield TOOLS_FINISH();
+					},
+					listModels: async () => null,
+				} satisfies ModelClient;
+				const socket = await connect(app, carol, conv.id);
+				const other = await connect(app, carol, conv.id);
+				socket.send({ type: "send", text: "go", attachments: [] });
+				expect(await socket.closed).toBe(CloseCode.SESSION_ENDED);
+				expect(await other.closed).toBe(CloseCode.SESSION_ENDED);
+				expect(requests).toHaveLength(1);
+				expect((await storedTypes(conv.id)).at(-1)).toBe("turn.finished");
+			}));
+	}
+
 	test("a read-only conversation is offered no change tools and cannot reach one", () =>
 		withApp(async (app) => {
 			const carol = await signIn(app, "carol");
@@ -854,7 +948,8 @@ describe.skipIf(skip)("the loop", () => {
 			// The next message is refused before any model call.
 			socket.send({ type: "send", text: "again", attachments: [] });
 			const refused = await socket.waitFor((f) => f.type === "error");
-			expect(refused).toMatchObject({ message: expect.stringMatching(/not enabled/) });
+			expect(refused).toMatchObject({ message: unavailableMessage("monthly-cap") });
+			expect(await storedTypes(conv.id)).not.toContain("error");
 			socket.socket.close();
 		}));
 
@@ -904,15 +999,19 @@ describe.skipIf(skip)("the loop", () => {
 
 			socket.send({ type: "interrupt" });
 			await socket.waitFor(turnDone("interrupted"));
+			// The refusal went to the tab that sent the message, and was not kept.
+			expect(late.frames.some((f) => f.type === "error")).toBe(false);
 			expect(await storedTypes(conv.id)).toEqual([
 				"turn.started",
 				"message",
-				"error",
 				"message",
 				"turn.finished",
 			]);
+			const again = await connect(app, carol, conv.id);
+			expect(again.frames.some((f) => f.type === "error")).toBe(false);
 			socket.socket.close();
 			late.socket.close();
+			again.socket.close();
 		}));
 
 	test("each model error ends the turn with its own plain message", () =>
