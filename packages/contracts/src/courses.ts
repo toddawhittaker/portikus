@@ -145,14 +145,14 @@ export type AdminCoursesResponse = z.infer<typeof AdminCoursesResponse>;
 export const CourseStuckStudent = z.object({
 	userId: z.string().uuid(),
 	displayName: z.string(),
-	/** Failed or errored check runs since the student's last passing one. */
+	/** Failed or errored check runs since the last passing one, on projects shared with the course. */
 	failingStreak: Count,
 	lastCheckAt: z.string().datetime({ offset: true }).nullable(),
 	/** Live help sessions in this course still open. */
 	liveHelpOpen: Count,
 	/** Live help sessions in this course started in the last 7 days. */
 	liveHelpRecent: Count,
-	/** Coding-agent sessions and input plus output tokens over the last 7 days. */
+	/** Overall coding-agent sessions and input plus output tokens over the last 7 days, in any course. */
 	agentSessions: Count,
 	agentTokens: Count,
 	/** The latest of a launch, a check, a live help request or a day of agent use. */

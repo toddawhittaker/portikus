@@ -21,7 +21,7 @@ const DENY = "deny";
 export type ApprovalRisk = "change" | "destructive";
 
 /** What a person must type to approve: the operation's name, for a destructive call only. */
-export function confirmTextFor(operation: Operation): string | null {
+function confirmTextFor(operation: Operation): string | null {
 	return operation.risk === "destructive" ? operation.name : null;
 }
 
@@ -48,8 +48,9 @@ export function approvalCard(
 
 /**
  * The card for a batch: the operation's description as the title, the rows
- * as its input, and the row count as the confirmation for change and
- * destructive batches alike.
+ * as its input. A change batch asks for the row count; a destructive batch
+ * asks for the operation's name, as a single destructive call does, so one
+ * row is never approved by typing "1".
  */
 export function batchCard(
 	toolCallId: string,
@@ -60,7 +61,7 @@ export function batchCard(
 		...approvalCard(toolCallId, operation, {}),
 		toolName: BATCH_TOOL,
 		input: JSON.parse(JSON.stringify(batch)),
-		confirmText: batchConfirmText(batch),
+		confirmText: batchConfirmText(batch, operation.risk),
 	};
 }
 

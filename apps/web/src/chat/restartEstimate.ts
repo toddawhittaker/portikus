@@ -66,7 +66,7 @@ const WINDOW_SHARE = 0.9;
 let siteTable: readonly ModelPrice[] | null = null;
 let loading: Promise<void> | null = null;
 
-/** Start reading `GET /pricing`, once per page load. Failures stay silent. */
+/** Start reading `GET /pricing`, once per page load; the chat calls it on mount. Failures stay silent. */
 export function loadPriceTable(): Promise<void> {
 	loading ??= request(PricingTable, "/pricing").then(
 		(table) => {
@@ -83,15 +83,24 @@ export function resetPriceTable(): void {
 	loading = null;
 }
 
-/** The longest site row whose model is part of `model`, for the agent's provider. */
+/** A dated release of a model, such as claude-opus-5-5-20261101. */
+const DATE_SUFFIX = /^-\d{8}$/;
+
+/**
+ * The site row for exactly this model, or for the model this dated release
+ * belongs to, for the agent's provider. Never a substring: gpt-5 is not gpt-5-mini.
+ */
 function siteRow(agent: "claude" | "codex", model: string): ModelPrice | null {
 	const provider = agent === "codex" ? "openai" : "anthropic";
-	let best: ModelPrice | null = null;
-	for (const row of siteTable ?? []) {
-		if (row.provider !== provider || !model.includes(row.model)) continue;
-		if (!best || row.model.length > best.model.length) best = row;
-	}
-	return best;
+	const rows = (siteTable ?? []).filter((row) => row.provider === provider);
+	return (
+		rows.find((row) => row.model === model) ??
+		rows.find(
+			(row) =>
+				model.startsWith(row.model) && DATE_SUFFIX.test(model.slice(row.model.length)),
+		) ??
+		null
+	);
 }
 
 export function priceRatios(
@@ -99,7 +108,6 @@ export function priceRatios(
 	model: string,
 	cacheTtlSeconds: number | null,
 ): PriceRatios {
-	void loadPriceTable();
 	const row = siteRow(agent, model);
 	if (row) {
 		const oneHour = cacheTtlSeconds !== null && cacheTtlSeconds >= 3600;

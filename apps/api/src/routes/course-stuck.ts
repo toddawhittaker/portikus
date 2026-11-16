@@ -5,8 +5,9 @@ import { type Kysely, sql } from "kysely";
 import { taughtCourseId } from "../courses/membership.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
+import { windowDays } from "../usage-window.js";
 
-const DAYS = 7;
+const DAYS = 7 as const;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Fewer failures in a row than this is ordinary trial and error. */
 const STREAK_REASON = 3;
@@ -54,7 +55,9 @@ function stuckFirst(a: CourseStuckStudent, b: CourseStuckStudent): number {
 /**
  * Each student of the course with their check failures, live help requests
  * and coding-agent use (SPEC.md section 20.5). Counts and times only: no
- * file contents, check output, or chat text.
+ * file contents, check output, or chat text. Checks count only on projects
+ * the student shares with the course, the same gate as reading a shared
+ * project's checks; agent use is the student's overall use (ADR 0057).
  */
 export async function courseStuck(
 	db: Kysely<Database>,
@@ -62,9 +65,7 @@ export async function courseStuck(
 	now: Date,
 ): Promise<CourseStuckResponse> {
 	const since = new Date(now.getTime() - DAYS * DAY_MS);
-	const fromDay = new Date(now.getTime() - (DAYS - 1) * DAY_MS)
-		.toISOString()
-		.slice(0, 10);
+	const fromDay = windowDays(DAYS, now).from;
 	const { rows } = await sql<Row>`
 		with students as (
 			select m.user_id, m.last_launch_at, u.display_name
@@ -77,7 +78,11 @@ export async function courseStuck(
 			join projects p on p.id = r.project_id
 			join workspaces w on w.id = p.workspace_id
 			join students s on s.user_id = w.owner_user_id
-			where r.state <> 'stopped'
+			where r.state <> 'stopped' and p.state = 'active'
+				and exists (
+					select 1 from project_shares ps
+					where ps.project_id = p.id and ps.ended_at is null and ps.ends_at > ${now}
+				)
 		),
 		passes as (
 			select user_id, max(ended_at) as at from runs where state = 'passed' group by user_id

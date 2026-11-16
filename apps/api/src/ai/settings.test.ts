@@ -322,6 +322,18 @@ describe("planSettingsUpdate", () => {
 		}
 	});
 
+	test("a kept key with no saved address or provider needs a new key for a new one", () => {
+		for (const [body, missing] of [
+			[{ baseUrl: "https://models.elsewhere.example.com/v1" }, { baseUrl: null }],
+			[{ providerKind: "anthropic" as const }, { providerKind: null }],
+		] as const) {
+			expect(
+				planSettingsUpdate(body, { ...saved, ...missing }, PLAN_CONFIG),
+				JSON.stringify(body),
+			).toEqual(expect.objectContaining({ status: 409, code: "AI_KEY_REQUIRED" }));
+		}
+	});
+
 	test("the same host on a new path, a new key, or no saved key is allowed", () => {
 		for (const body of [
 			{ baseUrl: "https://API.openai.com/v2" },

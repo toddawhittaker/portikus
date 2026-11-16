@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { operationByName } from "../catalog/index.js";
 import { mayRun } from "../mcp/caller.js";
 import { planDiagnose } from "./diagnose.js";
+import { systemPrompt } from "./tools.js";
 
 /** Diagnose's fixed reads (SPEC.md section 20.5): every one only reads, and each kind names its own evidence. */
 
@@ -106,12 +107,24 @@ describe("Diagnose only reads", () => {
 		}
 	});
 
-	test("the prompt names its subject and keeps the model to the reads", () => {
-		expect(planDiagnose({ kind: "workspace", id: ID })?.prompt).toMatch(
-			/^What is the most likely cause for this workspace\?/,
+	test("the visible message is a short request naming the item", () => {
+		expect(planDiagnose({ kind: "workspace", id: ID })?.request).toBe(
+			`Diagnose workspace ${ID.slice(0, 8)}`,
 		);
-		expect(planDiagnose({ kind: "health" })?.prompt).toMatch(
-			/cause for the site's health\? Use only the reads above/,
+		expect(planDiagnose({ kind: "health" })?.request).toBe(
+			"Diagnose the site's health",
+		);
+		expect(planDiagnose({ kind: "job", id: `image:${ID}` })?.request).toBe(
+			"Diagnose a failed image job",
+		);
+	});
+
+	test("the read-only system prompt asks for the likely cause from the reads, the same text every time", () => {
+		const prompt = systemPrompt({ role: "administrator", readOnly: true });
+		expect(prompt).toContain("Give the most likely cause, using only those reads");
+		expect(prompt).toBe(systemPrompt({ role: "administrator", readOnly: true }));
+		expect(systemPrompt({ role: "administrator", readOnly: false })).not.toContain(
+			"most likely cause",
 		);
 	});
 });

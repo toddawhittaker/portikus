@@ -243,13 +243,10 @@ function movesKeptKey(body: UpdateAiSettingsRequest, current: AiSettings): boole
 	if (body.key !== undefined || current.keySealed === null || body.clearKey === true)
 		return false;
 	const newKind =
-		body.providerKind !== undefined &&
-		current.providerKind !== null &&
-		body.providerKind !== current.providerKind;
+		body.providerKind !== undefined && body.providerKind !== current.providerKind;
 	const newHost =
 		body.baseUrl !== undefined &&
-		current.baseUrl !== null &&
-		hostOf(body.baseUrl) !== hostOf(current.baseUrl);
+		(current.baseUrl === null || hostOf(body.baseUrl) !== hostOf(current.baseUrl));
 	return newKind || newHost;
 }
 

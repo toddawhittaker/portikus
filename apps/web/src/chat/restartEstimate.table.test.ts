@@ -36,16 +36,16 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-test("a site row whose model is part of the model id sets the ratios", async () => {
+test("the site row for exactly the model id sets the ratios", async () => {
 	serve({
 		prices: [
 			row({}),
 			row({ model: "claude-opus-5-5", cacheReadRatio: 0.3 }),
-			row({ provider: "openai", model: "opus-5-5", cacheReadRatio: 0.9 }),
+			row({ provider: "openai", model: "claude-opus-5-5", cacheReadRatio: 0.9 }),
 		],
 	});
 	await loadPriceTable();
-	// The longest match wins, and only the agent's own provider counts.
+	// Only the agent's own provider counts.
 	expect(priceRatios("claude", "claude-opus-5-5", 300)).toEqual({
 		read: 0.3,
 		write: 1.5,
@@ -67,7 +67,7 @@ test("a one-hour cache without a one-hour ratio uses the plain write ratio", asy
 		],
 	});
 	await loadPriceTable();
-	expect(priceRatios("codex", "gpt-7-codex", 3600)).toEqual({
+	expect(priceRatios("codex", "gpt-7", 3600)).toEqual({
 		read: 0.2,
 		write: 1.5,
 		surcharge: { above: 400_000, factor: 2 },
@@ -86,4 +86,22 @@ test("a failed read falls back silently, and the table is asked for once", async
 	expect(priceRatios("claude", "claude-opus-5-5", 300).read).toBe(0.05);
 	await loadPriceTable();
 	expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test("a dated release matches its model's row; a longer or shorter model id never does", async () => {
+	serve({
+		prices: [
+			row({ model: "claude-opus-5", cacheReadRatio: 0.4 }),
+			row({ model: "claude-opus-5-5", cacheReadRatio: 0.3 }),
+			row({ provider: "openai", model: "gpt-5", cacheReadRatio: 0.6 }),
+		],
+	});
+	await loadPriceTable();
+	expect(priceRatios("claude", "claude-opus-5-5-20261101", 300).read).toBe(0.3);
+	expect(priceRatios("claude", "claude-opus-5-5", 300).read).toBe(0.3);
+	expect(priceRatios("claude", "claude-opus-5", 300).read).toBe(0.4);
+	expect(priceRatios("codex", "gpt-5", 300).read).toBe(0.6);
+	// gpt-5-mini is a different model from gpt-5, so the built-in table answers.
+	expect(priceRatios("codex", "gpt-5-mini", 300).read).not.toBe(0.6);
+	expect(priceRatios("codex", "gpt-5-2026", 300).read).not.toBe(0.6);
 });

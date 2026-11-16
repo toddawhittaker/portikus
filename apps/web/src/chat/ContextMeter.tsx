@@ -22,7 +22,7 @@ import { useStore } from "zustand";
 import { stopTime } from "../shell/useCountdown.js";
 import { useCacheCold } from "./cacheCold.js";
 import type { ChatState, ChatStore } from "./chatStore.js";
-import { estimateRestart, priceRatios } from "./restartEstimate.js";
+import { estimateRestart, loadPriceTable, priceRatios } from "./restartEstimate.js";
 
 type Cache = NonNullable<NonNullable<ChatState["context"]>["cache"]>;
 
@@ -324,6 +324,11 @@ interface Props {
 }
 
 export function ContextMeter({ store, onAnnounce }: Props) {
+	// Read the site's prices before the first estimate, and estimate again once they arrive.
+	const [, setPricesRead] = useState(false);
+	useEffect(() => {
+		void loadPriceTable().then(() => setPricesRead(true));
+	}, []);
 	const context = useStore(store, (state) => state.context);
 	const cold = useCacheCold(store);
 	const messagesLeft = useStore(store, (state) => selectMessagesLeft(state, cold));

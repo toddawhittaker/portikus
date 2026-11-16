@@ -289,19 +289,8 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 			const context = AssistantContext.safeParse(conversation.context);
 			const first = context.success ? await callerNow() : null;
 			if (context.success && first) {
-				void startDiagnose(
-					{ app, db, hub, send: loop.send },
-					first,
-					context.data,
-				).catch((error: unknown) => {
-					request.log.error(
-						{
-							conversationId: id,
-							error: error instanceof Error ? error.name : "unknown",
-						},
-						"assistant diagnose failed",
-					);
-				});
+				// startDiagnose and the loop catch and log their own failures.
+				void startDiagnose({ app, db, hub, reply: loop.reply }, first, context.data);
 			}
 		},
 	);

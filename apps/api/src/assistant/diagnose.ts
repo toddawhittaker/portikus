@@ -16,18 +16,17 @@ import { RUN_TOOL, textOf } from "./tools.js";
 /**
  * Diagnose (SPEC.md section 20.5): a conversation opened on one item runs a
  * fixed list of read operations first, as the person, and stores each as an
- * ordinary tool call they can expand. Then the model is asked, once, for the
- * likely cause. Every operation here only reads, and the conversation is
- * read-only besides, so no card can come of it.
+ * ordinary tool call they can expand. Then the model answers, once, on the
+ * read-only system prompt that asks for the likely cause. Every operation
+ * here only reads, and the conversation is read-only besides, so no card can
+ * come of it.
  */
 
 type Read = { operation: string; input: OperationInputValues };
 
 export type DiagnosePlan = {
-	/** The first message, which also names the conversation. */
+	/** The person's visible message, which also names the conversation. */
 	request: string;
-	/** What the model is asked once the reads are in. */
-	prompt: string;
 	reads: Read[];
 };
 
@@ -42,14 +41,6 @@ const ERROR_LOGS: Read = {
 	operation: "logs.list",
 	input: { query: { level: "error" } },
 };
-
-function instructions(subject: string): string {
-	return (
-		`What is the most likely cause for ${subject}? Use only the reads above, cite each by ` +
-		"its tool name and the part of its result, and say what to check next. If they show " +
-		"no problem, say so."
-	);
-}
 
 /** The operations that show the state a failed site job was changing. */
 const SITE_JOB_READS: Record<SiteJobKind, string[]> = {
@@ -72,7 +63,6 @@ function jobPlan(id: string): DiagnosePlan | null {
 		if (!UuidText.safeParse(value).success) return null;
 		return {
 			request: `Diagnose a failed ${kind} job`,
-			prompt: instructions(`this ${kind} job`),
 			reads: [
 				{ operation: `${kind}.get_job`, input: { path: { id: value } } },
 				ERROR_LOGS,
@@ -83,7 +73,6 @@ function jobPlan(id: string): DiagnosePlan | null {
 	if (!site?.success) return null;
 	return {
 		request: `Diagnose a failed ${site.data} change`,
-		prompt: instructions("this site change"),
 		reads: [
 			...SITE_JOB_READS[site.data].map((operation) => ({ operation, input: {} })),
 			ERROR_LOGS,
@@ -100,7 +89,6 @@ export function planDiagnose(context: AssistantContext): DiagnosePlan | null {
 	if (kind === "health") {
 		return {
 			request: "Diagnose the site's health",
-			prompt: instructions("the site's health"),
 			reads: [
 				{ operation: "health.get", input: {} },
 				{ operation: "health.series", input: { query: { range: "1h" } } },
@@ -113,7 +101,6 @@ export function planDiagnose(context: AssistantContext): DiagnosePlan | null {
 		if (!UuidText.safeParse(id).success) return null;
 		return {
 			request: `Diagnose workspace ${id.slice(0, 8)}`,
-			prompt: instructions("this workspace"),
 			reads: [
 				{ operation: "workspaces.get_detail", input: { path: { id } } },
 				{ operation: "workspaces.agent_log", input: { path: { id } } },
@@ -128,7 +115,6 @@ export function planDiagnose(context: AssistantContext): DiagnosePlan | null {
 	if (!UuidText.safeParse(id).success) return null;
 	return {
 		request: `Diagnose alert ${id.slice(0, 8)}`,
-		prompt: instructions(`the alert with id ${id}`),
 		reads: [
 			{ operation: "notifications.list", input: { query: { limit: 50 } } },
 			{ operation: "health.get", input: {} },
@@ -146,8 +132,8 @@ export type DiagnoseDeps = {
 	app: FastifyInstance;
 	db: Kysely<Database>;
 	hub: AssistantHub;
-	/** The loop's own send: stores the prompt and runs the model on it. */
-	send: (caller: TurnCaller, text: string) => Promise<void>;
+	/** The loop's model turn on the conversation as it stands, adding no message. */
+	reply: (caller: TurnCaller) => Promise<void>;
 };
 
 type Prepared = {
@@ -189,7 +175,7 @@ export async function startDiagnose(
 	if (!plan) return;
 	const turn = hub.beginTurn(id);
 	if (!turn) return;
-	let prompt = false;
+	let answer = false;
 	try {
 		if ((await loadEvents(db, id)).length > 0) return;
 		await hub.emit(id, { type: "turn.started", at: Date.now() });
@@ -239,7 +225,7 @@ export async function startDiagnose(
 		}
 		const status = turn.signal.aborted ? "interrupted" : "done";
 		await hub.emit(id, { type: "turn.finished", status, at: Date.now() });
-		prompt = status === "done";
+		answer = status === "done";
 	} catch (error) {
 		app.log.error(
 			{ conversationId: id, error: error instanceof Error ? error.name : "unknown" },
@@ -252,5 +238,5 @@ export async function startDiagnose(
 	} finally {
 		hub.endTurn(id);
 	}
-	if (prompt) await deps.send(caller, plan.prompt);
+	if (answer) await deps.reply(caller);
 }

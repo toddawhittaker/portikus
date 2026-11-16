@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "@fastify/websocket";
-import {
-	type AssistantBatchInput,
-	batchConfirmText,
-	CloseCode,
-} from "@portikus/contracts";
+import { type AssistantBatchInput, CloseCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
@@ -35,7 +31,6 @@ import {
 	approvalCard,
 	batchCard,
 	cardDecision,
-	confirmTextFor,
 	decide,
 	REFUSED_TEXT,
 } from "./cards.js";
@@ -279,15 +274,13 @@ export function createAssistantLoop(deps: LoopDeps) {
 			const risky = resolved.operation as typeof resolved.operation & {
 				risk: ApprovalRisk;
 			};
-			await insertApproval(db, {
-				conversationId: id,
-				toolCallId: call.id,
-				operation: BATCH_TOOL,
-				input: resolved.batch,
-				risk: risky.risk,
-				confirmText: batchConfirmText(resolved.batch),
-			});
-			await emit(id, batchCard(call.id, risky, resolved.batch));
+			await askApproval(
+				id,
+				BATCH_TOOL,
+				resolved.batch,
+				risky.risk,
+				batchCard(call.id, risky, resolved.batch),
+			);
 			return;
 		}
 		const { operation, input } = resolved;
@@ -296,15 +289,32 @@ export function createAssistantLoop(deps: LoopDeps) {
 			return;
 		}
 		const risky = operation as typeof operation & { risk: ApprovalRisk };
-		await insertApproval(db, {
-			conversationId: id,
-			toolCallId: call.id,
-			operation: operation.name,
+		await askApproval(
+			id,
+			operation.name,
 			input,
-			risk: risky.risk,
-			confirmText: confirmTextFor(operation),
+			risky.risk,
+			approvalCard(call.id, risky, input),
+		);
+	}
+
+	/** Store the pending approval as the card states it, then show the card. */
+	async function askApproval(
+		conversationId: string,
+		operation: string,
+		input: unknown,
+		risk: ApprovalRisk,
+		card: ReturnType<typeof approvalCard>,
+	): Promise<void> {
+		await insertApproval(db, {
+			conversationId,
+			toolCallId: card.id,
+			operation,
+			input,
+			risk,
+			confirmText: card.confirmText ?? null,
 		});
-		await emit(id, approvalCard(call.id, risky, input));
+		await emit(conversationId, card);
 	}
 
 	/** Why the turn must stop before another step, as the text to say; null to go on. */
@@ -521,6 +531,16 @@ export function createAssistantLoop(deps: LoopDeps) {
 				});
 				await nameConversation(db, id, text);
 				await touchConversation(db, id);
+				await runSteps(caller, opened, signal);
+			});
+		},
+
+		/** A model turn on the conversation as it stands, as after Diagnose's reads. */
+		reply(caller: TurnCaller): Promise<void> {
+			return asTurn(caller, async (signal) => {
+				const opened = await openOrRefuse(caller);
+				if (!opened) return;
+				await emit(caller.conversationId, { type: "turn.started", at: Date.now() });
 				await runSteps(caller, opened, signal);
 			});
 		},

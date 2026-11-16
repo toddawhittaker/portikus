@@ -1324,7 +1324,7 @@ describe.skipIf(skip)("bulk work through run_batch", () => {
 			socket.socket.close();
 		}));
 
-	test("a destructive batch also asks for the row count, and an instructor cannot batch an administrator operation", () =>
+	test("a one-row destructive batch asks for the operation's name, and the approval stores it; an instructor cannot batch an administrator operation", () =>
 		withApp(async (app) => {
 			const carol = await signIn(app, "carol");
 			const conv = await newConversation(app, carol);
@@ -1340,7 +1340,16 @@ describe.skipIf(skip)("bulk work through run_batch", () => {
 			const socket = await connect(app, carol, conv.id);
 			socket.send({ type: "send", text: "allow it", attachments: [] });
 			const card = await socket.waitFor((f) => f.type === "permission.requested");
-			expect(card).toMatchObject({ risk: "destructive", confirmText: "1" });
+			expect(card).toMatchObject({
+				risk: "destructive",
+				confirmText: "egress.add_entry",
+			});
+			const stored = await testDb.db
+				.selectFrom("assistant_approvals")
+				.select("confirm_text")
+				.where("tool_call_id", "=", "call-b5")
+				.executeTakeFirstOrThrow();
+			expect(stored.confirm_text).toBe("egress.add_entry");
 			socket.socket.close();
 
 			const ivy = await signIn(app, "ivy");
@@ -1422,21 +1431,18 @@ describe.skipIf(skip)("Diagnose", () => {
 			expect(finished.map((f) => f.id)).toEqual(calls.map((c) => c.id));
 			expect(finished.slice(0, 2).map((f) => f.isError)).toEqual([false, false]);
 
-			// One model call: the request, the reads as one step, then the fixed question.
+			// One model call: the short request and the reads as one step; the
+			// question itself is in the read-only system prompt, not a message.
 			expect(client.requests).toHaveLength(1);
 			const messages = client.requests[0]?.messages ?? [];
-			expect(messages.map((m) => m.role)).toEqual([
-				"user",
-				"assistant",
-				"tool",
-				"user",
-			]);
+			expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
 			expect(messages[0]).toMatchObject({ text: "Diagnose the site's health" });
-			expect(messages[3]).toMatchObject({
-				text: expect.stringMatching(
-					/^What is the most likely cause for the site's health\?/,
-				),
-			});
+			const shown = socket.frames.filter(
+				(f) => f.type === "message" && f.role === "user",
+			);
+			expect(shown.map((f) => (f as { markdown: string }).markdown)).toEqual([
+				"Diagnose the site's health",
+			]);
 			expect(
 				lastToolResults({
 					...(client.requests[0] as StepRequest),

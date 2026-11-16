@@ -87,7 +87,8 @@ export const MAX_ASSISTANT_BATCH_ROWS = 100;
 
 /**
  * The `input` of a batch approval card: one operation, one row of inputs
- * per call. Its `confirmText` is the row count.
+ * per call. Its `confirmText` is the row count for a change batch, and the
+ * operation's name for a destructive one, as for a single destructive call.
  */
 export const AssistantBatchInput = z
 	.object({
@@ -97,8 +98,11 @@ export const AssistantBatchInput = z
 	.strict();
 export type AssistantBatchInput = z.infer<typeof AssistantBatchInput>;
 
-export function batchConfirmText(batch: AssistantBatchInput): string {
-	return String(batch.rows.length);
+export function batchConfirmText(
+	batch: AssistantBatchInput,
+	risk: "change" | "destructive",
+): string {
+	return risk === "destructive" ? batch.operation : String(batch.rows.length);
 }
 
 /** Why the assistant cannot be used now, or null when it can (SPEC.md section 20.4). */

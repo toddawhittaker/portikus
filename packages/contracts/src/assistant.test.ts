@@ -107,12 +107,20 @@ describe("AssistantBatchInput", () => {
 	const rows = (n: number) =>
 		Array.from({ length: n }, (_, i) => ({ email: `s${i}@x.edu` }));
 
-	test("takes up to 100 rows, and the confirm text is the row count", () => {
+	test("takes up to 100 rows, and a change batch's confirm text is the row count", () => {
 		const batch = AssistantBatchInput.parse({
 			operation: "invitations.create",
 			rows: rows(MAX_ASSISTANT_BATCH_ROWS),
 		});
-		expect(batchConfirmText(batch)).toBe("100");
+		expect(batchConfirmText(batch, "change")).toBe("100");
+	});
+
+	test("a destructive batch, even of one row, asks for the operation's name", () => {
+		const batch = AssistantBatchInput.parse({
+			operation: "users.disable",
+			rows: rows(1),
+		});
+		expect(batchConfirmText(batch, "destructive")).toBe("users.disable");
 	});
 
 	test("refuses 101 rows and none", () => {

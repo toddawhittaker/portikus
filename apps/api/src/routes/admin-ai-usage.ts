@@ -96,18 +96,15 @@ export function registerAdminAiUsageRoutes(
 				model: r.model,
 				...counts(r),
 			}));
-			const totals = {
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-			};
-			for (const row of users) {
-				totals.inputTokens += row.inputTokens;
-				totals.outputTokens += row.outputTokens;
-				totals.cacheReadTokens += row.cacheReadTokens;
-				totals.cacheWriteTokens += row.cacheWriteTokens;
-			}
+			const totals = users.reduce(
+				(sum, row) => ({
+					inputTokens: sum.inputTokens + row.inputTokens,
+					outputTokens: sum.outputTokens + row.outputTokens,
+					cacheReadTokens: sum.cacheReadTokens + row.cacheReadTokens,
+					cacheWriteTokens: sum.cacheWriteTokens + row.cacheWriteTokens,
+				}),
+				{ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+			);
 			const body: AiUsageResponse = {
 				days: query.data.days,
 				from,
