@@ -118,6 +118,17 @@ export const NOT_EXPOSED: Readonly<Record<string, NotExposed>> = {
 		SECRET_FIELDS,
 		true,
 	),
+	...group(
+		[
+			"GET /admin/ai",
+			"PUT /admin/ai",
+			"POST /admin/ai/notice",
+			"POST /admin/ai/test",
+			"GET /admin/ai/models",
+		],
+		"The built-in AI's provider key and the notice an administrator reads in person; the key is write-only and never goes to a caller",
+		true,
+	),
 
 	// Sign-in machinery, loopback and preview-edge routes.
 	...group(

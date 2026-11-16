@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import { dexLocalSubject } from "./dex-subject.js";
 import {
 	accountNeedsSecondFactor,
+	aiKeySealKey,
 	checkSecondFactor,
 	enrolTotp,
 	generateRecoveryCodes,
@@ -54,6 +55,20 @@ describe("sealing secrets (SPEC.md section 24.13)", () => {
 		);
 		expect(() => secondFactorKey("5f".repeat(31))).toThrow(/64 hexadecimal/);
 		expect(() => secondFactorKey("a test platform secret")).toThrow(/64 hexadecimal/);
+	});
+
+	test("the AI key's seal key is its own: it never opens a second-factor secret", () => {
+		const sealed = sealSecret(
+			aiKeySealKey("5f".repeat(32)),
+			Buffer.from("sk-x"),
+			"ai-key",
+		);
+		expect(openSecret(aiKeySealKey("5F".repeat(32)), sealed, "ai-key")).toEqual(
+			Buffer.from("sk-x"),
+		);
+		expect(openSecret(key, sealed, "ai-key")).toBeNull();
+		expect(aiKeySealKey("5f".repeat(32))).not.toEqual(key);
+		expect(() => aiKeySealKey("5f".repeat(31))).toThrow(/64 hexadecimal/);
 	});
 
 	test("a started enrolment opens for its account until it expires", () => {
