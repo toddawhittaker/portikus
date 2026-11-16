@@ -58,8 +58,11 @@ describe("batch cards", () => {
 		rows: [{ body: { email: "a@example.edu" } }, { body: { email: "b@example.edu" } }],
 	};
 
-	test("a change batch and a destructive batch both ask for the row count, and show the rows", () => {
-		for (const name of ["invitations.create", "egress.add_entry"]) {
+	test("a change batch asks for the row count, a destructive one for its name; both show the rows", () => {
+		for (const [name, confirmText] of [
+			["invitations.create", "2"],
+			["users.disable", "users.disable"],
+		] as const) {
 			const card = batchCard("call-b", op(name), { ...batch, operation: name });
 			expect(card).toMatchObject({
 				type: "permission.requested",
@@ -68,10 +71,21 @@ describe("batch cards", () => {
 				title: op(name).description,
 				input: { operation: name, rows: batch.rows },
 				risk: op(name).risk,
-				confirmText: "2",
+				confirmText,
 			});
 			expect(card.options.map((o) => o.decision)).toEqual(["allowed", "denied"]);
 		}
+	});
+
+	test("a one-row destructive batch is not approved by typing 1", () => {
+		const card = batchCard("call-c", op("users.disable"), {
+			operation: "users.disable",
+			rows: [{ params: { id: "u1" } }],
+		});
+		expect(card.confirmText).toBe("users.disable");
+		expect(
+			decide({ optionId: "approve", confirmation: "1" }, card.confirmText ?? null),
+		).toBe("denied");
 	});
 
 	test("only the exact row count approves", () => {

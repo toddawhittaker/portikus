@@ -51,6 +51,15 @@ const panelOf = (page: Page) =>
 /** The reads a Diagnose conversation ran, each a tool block, kept in the folded "Worked for" lines. */
 const toolBlocks = (page: Page) => panelOf(page).locator("details.pk-chat-tool");
 
+/**
+ * A Diagnose's reads are stored as the model's first step after the
+ * person's message, so the fake model counts them as a step it took: its
+ * first scripted step is never asked for.
+ */
+function afterReads(steps: Parameters<typeof script>[1]): Parameters<typeof script>[1] {
+	return [{ text: "The reads, already run." }, ...steps];
+}
+
 /** Open the folds around the reads: "Worked for" and the group of tool calls inside it. */
 async function openReads(page: Page): Promise<void> {
 	const panel = panelOf(page);
@@ -61,11 +70,14 @@ async function openReads(page: Page): Promise<void> {
 test("Diagnose on the Health tab shows its reads, then a scripted answer, with no change card", async ({
 	page,
 }) => {
-	await script("likely cause for the site's health?", [
-		{
-			text: "Likely cause: nothing is failing. The health report and the series agree.",
-		},
-	]);
+	await script(
+		"Diagnose the site's health",
+		afterReads([
+			{
+				text: "Likely cause: nothing is failing. The health report and the series agree.",
+			},
+		]),
+	);
 	await page.goto("/admin/health");
 	await expect(page.getByTestId("health")).toBeVisible({ timeout: 15_000 });
 	await page.getByRole("button", { name: "Diagnose site health" }).click();
@@ -73,6 +85,11 @@ test("Diagnose on the Health tab shows its reads, then a scripted answer, with n
 	const panel = panelOf(page);
 	await expect(panel).toBeVisible();
 	await expect(panel.getByText("This conversation can only read.")).toBeVisible();
+	// The person's message is what they asked for; the model's instructions stay out of sight.
+	await expect(
+		panel.getByText("Diagnose the site's health", { exact: true }),
+	).toBeVisible();
+	await expect(panel.getByText("most likely cause", { exact: false })).toHaveCount(0);
 	await expect(toolBlocks(page)).toHaveCount(3, { timeout: 15_000 });
 	await expect(
 		panel.getByText("Likely cause: nothing is failing.", { exact: false }),
@@ -98,17 +115,20 @@ test("Diagnose on a workspace reads it, and a change the model tries is refused 
 	page,
 	browser,
 }) => {
-	// The model first tries a restart; a read-only conversation is offered no such tool.
-	await script("likely cause for this workspace?", [
-		{
-			toolCalls: [
-				{ name: "workspaces_restart", arguments: { path: { id: randomUUID() } } },
-			],
-		},
-		{ text: "I can only read. The workspace is running; nothing is wrong." },
-	]);
 	const context = await browser.newContext();
 	const student = await createStudent(context);
+	// The model first tries a restart; a read-only conversation is offered no such tool.
+	await script(
+		`Diagnose workspace ${student.workspaceId.slice(0, 8)}`,
+		afterReads([
+			{
+				toolCalls: [
+					{ name: "workspaces_restart", arguments: { path: { id: randomUUID() } } },
+				],
+			},
+			{ text: "I can only read. The workspace is running; nothing is wrong." },
+		]),
+	);
 	await context.close();
 	const name = `Diag ${randomUUID().slice(0, 8)} Student`;
 	await query("update users set display_name = $2 where id = $1", [
@@ -145,9 +165,10 @@ test("Diagnose on an alert in the notifications list reads the notifications and
 		[me.id, `Backup failed ${randomUUID().slice(0, 8)}`],
 	);
 	const id = row?.id ?? "";
-	await script(`likely cause for the alert with id ${id}?`, [
-		{ text: "Likely cause: the backup target was full." },
-	]);
+	await script(
+		`Diagnose alert ${id.slice(0, 8)}`,
+		afterReads([{ text: "Likely cause: the backup target was full." }]),
+	);
 	await page.reload();
 	await page.getByTestId("notifications-badge").click();
 	const dialog = page.getByTestId("dialog-notifications");
@@ -177,9 +198,10 @@ test("Diagnose on an alert in the notifications list reads the notifications and
 test("Diagnose beside a failed site change reads the settings it was changing", async ({
 	page,
 }) => {
-	await script("likely cause for this site change?", [
-		{ text: "Likely cause: the proxy refused the host list." },
-	]);
+	await script(
+		"Diagnose a failed proxy-hosts change",
+		afterReads([{ text: "Likely cause: the proxy refused the host list." }]),
+	);
 	await routeApi(page, "**/admin/proxy-hosts", async (route, request) => {
 		const response = await route.fetch();
 		if (request.method() !== "GET") return route.fulfill({ response });

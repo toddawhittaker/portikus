@@ -77,6 +77,11 @@ async function course(tag: string, student: string) {
 		 values ($1, 'app', 'app', '/home/student/projects/app', 'new') returning id`,
 		[ws?.id],
 	);
+	// Checks count only on a project the student shares with the course.
+	await query(
+		"insert into project_shares (project_id, ends_at) values ($1, now() + interval '1 day')",
+		[project?.id],
+	);
 	for (const minutes of [30, 20, 10]) {
 		await query(
 			`insert into check_runs (project_id, check_id, agent_run_id, state, started_at, ended_at, exit_code)

@@ -144,7 +144,7 @@ export const operations: OperationRecords = {
 	"GET /courses/:courseId/stuck": {
 		name: "courses.stuck",
 		description:
-			"Shows which students in one of your courses may be stuck, most likely first: failed checks in a row, live help requests and coding-agent use over the last 7 days, with short reasons. Use it to answer who is stuck or struggling.",
+			"Shows which students in one of your courses may be stuck, most likely first: failed checks in a row on projects they share with the course, live help requests in the course, and their overall coding-agent use across all courses over the last 7 days, with short reasons. Use it to answer who is stuck or struggling.",
 		risk: "read",
 		audience: "instructor",
 		tool: true,

@@ -75,6 +75,17 @@ async function projectOf(
 	return { workspace: ws.id, project: project.id };
 }
 
+/** Share the project with the student's courses, open for another day unless `ended`. */
+async function share(projectId: string, ended = false) {
+	await testDb.db
+		.insertInto("project_shares")
+		.values({
+			project_id: projectId,
+			ends_at: ended ? ago(1) : ago(-24),
+		})
+		.execute();
+}
+
 async function runs(
 	projectId: string,
 	list: [state: "passed" | "failed" | "error" | "stopped", hoursAgo: number][],
@@ -172,6 +183,7 @@ test.skipIf(skip)(
 	async () => {
 		const { ivy, ned, sam, pat, quinn, cs101, cs240 } = await seed();
 		const samWs = await projectOf(sam as string);
+		await share(samWs.project);
 		// A pass, then failures and an error since; a stopped run neither breaks nor adds.
 		await runs(samWs.project, [
 			["passed", 5],
@@ -186,6 +198,7 @@ test.skipIf(skip)(
 		await help(samWs, cs240 as string, ned as string, 3, false);
 		await help(samWs, cs101 as string, ivy as string, 24 * 9, false);
 		const patWs = await projectOf(pat as string);
+		await share(patWs.project);
 		await runs(patWs.project, [
 			["failed", 6],
 			["passed", 3],
@@ -227,6 +240,37 @@ test.skipIf(skip)(
 			agentTokens: 300,
 			reasons: [],
 		});
+	},
+);
+
+test.skipIf(skip)(
+	"checks count only on projects shared with the course; agent use is overall",
+	async () => {
+		const { sam, pat, cs101 } = await seed();
+		// A personal project, and a share that has ended, stay private.
+		const personal = await projectOf(sam as string);
+		await runs(personal.project, [
+			["failed", 3],
+			["failed", 2],
+			["failed", 1],
+		]);
+		const ended = await projectOf(pat as string);
+		await share(ended.project, true);
+		await runs(ended.project, [
+			["failed", 3],
+			["failed", 2],
+			["failed", 1],
+		]);
+		await usage(sam as string, 0);
+
+		const { students } = await courseStuck(testDb.db, cs101 as string, NOW);
+		for (const userId of [sam, pat]) {
+			expect(students.find((s) => s.userId === userId)).toMatchObject({
+				failingStreak: 0,
+				lastCheckAt: null,
+			});
+		}
+		expect(students.find((s) => s.userId === sam)).toMatchObject({ agentSessions: 2 });
 	},
 );
 
