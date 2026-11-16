@@ -90,7 +90,7 @@ async function turnOn(page: Page): Promise<void> {
 			providerKind: "openai-compatible",
 			baseUrl: "https://api.openai.com/v1",
 			model: "fake-model-1",
-			key: "sk-e2e-pricing-WXYZ",
+			key: "sk-e2e-not-a-secret",
 		},
 	});
 	expect(put.ok(), await put.text()).toBe(true);
