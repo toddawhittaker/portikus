@@ -6,7 +6,7 @@ import type { HelpPart } from "./part.js";
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
  * admin-logs, admin-audit, admin-agents, admin-network, admin-backups, admin-image,
  * admin-certificate, admin-docker, admin-settings, admin-notifications,
- * admin-shell, admin-signin, admin-address, admin-api-keys.
+ * admin-shell, admin-signin, admin-address, admin-ai, admin-pricing, admin-api-keys.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -219,6 +219,64 @@ export const ADMIN_HELP: HelpPart = {
 						<code>sudo dpkg-reconfigure portikus</code> on the server. If the port
 						changed, also edit <code>portikus_public_port</code> in{" "}
 						<code>/etc/portikus/portikus.yaml</code>.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-ai",
+			title: "The built-in AI assistant",
+			body: (
+				<>
+					<p>
+						<strong>AI</strong> connects the assistant to a hosted model. Read the
+						privacy notice and choose <strong>I have read this</strong>. Then choose the
+						provider kind, check the base address, give the model's name and the key,
+						and choose <strong>Save provider</strong>. The key is never shown again; the
+						page shows only its last four characters. <strong>Test</strong> asks the
+						model to call one tool and shows which steps worked.
+					</p>
+					<p>
+						The server reaches the provider only through its proxy. When the provider's
+						host is not on the server proxy host list, saving offers to add it; that
+						runs as a site change, so the page shows the host as not allowed until it
+						finishes.
+					</p>
+					<p>
+						The assistant sends tool results, which can include people's names, course
+						names and log lines, to the provider. It never sends file contents, terminal
+						output, students' chat prompts or secrets. Conversations are kept 30 days,
+						only their owner can see them, and backups keep them until each backup
+						expires. The monthly token cap stops the assistant for the rest of the month
+						once it is reached.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-pricing",
+			title: "Model prices",
+			body: (
+				<>
+					<p>
+						<strong>Model prices</strong> holds each model's API prices. The student
+						chat uses them to say when a fresh chat would use less of a plan; a model
+						with no row uses figures built into Portikus. Ratios are multiples of the
+						input price, as the provider's pricing page gives them.
+					</p>
+					<p>
+						<strong>Check prices now</strong> has the assistant read each page under{" "}
+						<strong>Sources</strong> and propose rows. A check also runs once a week.
+						Nothing changes until you choose <strong>Accept</strong> on a proposal;
+						compare the changed figures and the quote with the source page first. You
+						can also add, edit and delete rows by hand. A check needs the assistant
+						turned on under <strong>AI</strong>, and counts against its monthly cap.
+					</p>
+					<p>
+						The server fetches the source pages itself, through its proxy. When a page's
+						host is not on the server proxy host list, saving the sources offers to add
+						it; the host is allowed once that site change finishes. A page that refuses
+						the request can still be priced by hand.
 					</p>
 				</>
 			),

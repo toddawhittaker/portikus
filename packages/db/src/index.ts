@@ -8,7 +8,7 @@ import { auditArrival } from "./audit-context.js";
 import { POOL_TIMEOUT_MESSAGE } from "./connection.js";
 import type { Database, NotificationsTable } from "./schema.js";
 
-export { type AuditArrival, auditArrival } from "./audit-context.js";
+export { ASSISTANT_MARK, type AuditArrival, auditArrival } from "./audit-context.js";
 export {
 	createDb,
 	createPool,

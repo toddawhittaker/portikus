@@ -18,6 +18,8 @@ export const ADMIN_TABS = [
 	"docker",
 	"signin",
 	"address",
+	"ai",
+	"pricing",
 	"settings",
 	// One lowercase word, as Caddy's and Vite's page rules expect, and apart
 	// from the API's /admin/root-shell.
@@ -35,7 +37,7 @@ export const ADMIN_TAB_GROUPS: readonly { label: string; tabs: readonly AdminTab
 		{ label: "People", tabs: ["users", "keys"] },
 		{ label: "Activity", tabs: ["health", "logs", "audit", "agents"] },
 		{ label: "Server", tabs: ["network", "backups", "image", "certificate", "docker"] },
-		{ label: "Site", tabs: ["signin", "address", "settings"] },
+		{ label: "Site", tabs: ["signin", "address", "ai", "pricing", "settings"] },
 		{ label: "Shell", tabs: ["shell"] },
 	];
 
@@ -54,6 +56,8 @@ export const ADMIN_TAB_LABEL: Record<AdminTab, string> = {
 	docker: "Docker",
 	signin: "Sign-in",
 	address: "Site address",
+	ai: "AI",
+	pricing: "Model prices",
 	settings: "Settings",
 	shell: "Root shell",
 };

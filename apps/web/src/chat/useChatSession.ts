@@ -7,7 +7,7 @@ import {
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { request, sendJson } from "../api/request.js";
-import { chatSocketPath, openChatSocket } from "./chatSocket.js";
+import { chatSocketPath } from "./chatSocket.js";
 import {
 	type ChatSettings,
 	type ChatStore,
@@ -15,6 +15,7 @@ import {
 	createChatStore,
 	isNewChat,
 } from "./chatStore.js";
+import { connectChatStore } from "./connectChatStore.js";
 import { modeOf, offeredModel, offersEffort, sameModel } from "./models.js";
 
 export function chatSettingsUrl(workspaceId: string, projectId: string): string {
@@ -100,16 +101,7 @@ export function useChatSession(
 
 	useEffect(() => {
 		const { link, store } = session;
-		const actions = store.getState();
-		actions.setConnection("connecting");
-		const socket = openChatSocket(chatSocketPath(workspaceId, terminalId), {
-			onOpen: () => actions.setConnection("open"),
-			onFrame: (data) => actions.receive(data),
-			onReconnecting: () => actions.setConnection("reconnecting"),
-			onLost: () => actions.setConnection("lost"),
-			onTooMany: () => actions.setConnection("tooMany"),
-			onNotFound: () => actions.setConnection("notFound"),
-		});
+		const socket = connectChatStore(chatSocketPath(workspaceId, terminalId), store);
 		link.send = socket.send;
 		return () => {
 			link.send = () => false;

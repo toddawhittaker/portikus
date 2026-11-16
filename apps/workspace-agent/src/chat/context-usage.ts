@@ -8,6 +8,8 @@ export interface ContextFigures {
 	usedTokens: number;
 	windowTokens: number | null;
 	cache: { at: number; ttlSeconds: 300 | 3600 } | null;
+	/** The model id the agent reported on its last request; absent until one has. */
+	model?: string;
 }
 
 /** The parts of an Anthropic Messages API `usage` object read here. */
@@ -62,11 +64,13 @@ export function afterRequest(
 	usage: RequestUsage,
 	at: number | null,
 	windowTokens: number | null,
+	model?: string,
 ): ContextFigures {
 	return {
 		usedTokens: usage.input + usage.cacheRead + usage.cacheWrite + usage.output,
 		windowTokens,
 		cache: nextCache(previous?.cache ?? null, usage, at),
+		...(model ? { model } : {}),
 	};
 }
 
@@ -97,7 +101,16 @@ export function fromTranscript(
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
 		const usage = message ? mainThreadUsage(message) : null;
-		if (usage) return afterRequest(null, usage, null, windowTokens);
+		if (usage) {
+			const model = (message?.message as { model?: unknown } | undefined)?.model;
+			return afterRequest(
+				null,
+				usage,
+				null,
+				windowTokens,
+				typeof model === "string" ? model : undefined,
+			);
+		}
 	}
 	return null;
 }
@@ -143,7 +156,15 @@ export class ContextTracker {
 		if (id && id === this.counted) return null;
 		this.counted = id;
 		this.lastModel = message.message?.model || this.lastModel;
-		return this.set(afterRequest(this.figures, usage, at, this.windowTokens));
+		return this.set(
+			afterRequest(
+				this.figures,
+				usage,
+				at,
+				this.windowTokens,
+				this.lastModel ?? undefined,
+			),
+		);
 	}
 
 	/**

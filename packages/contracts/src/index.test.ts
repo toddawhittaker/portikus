@@ -279,6 +279,12 @@ test("ApiErrorCode covers the Docker cache and seed match codes", () => {
 	}
 });
 
+test("ApiErrorCode covers the built-in AI codes", () => {
+	for (const code of ["AI_KEY_REQUIRED", "AI_NOTICE_REQUIRED"]) {
+		expect(ApiError.safeParse({ code, message: "" }).success).toBe(true);
+	}
+});
+
 test("ApiErrorCode covers the terminal and agent codes", () => {
 	expect(ApiError.safeParse({ code: "TERMINAL_LIMIT", message: "" }).success).toBe(
 		true,

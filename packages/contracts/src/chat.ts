@@ -298,6 +298,9 @@ const PermissionCardFields = {
 		.min(1),
 	/** The plan the student is asked to approve, when the card asks for that. */
 	plan: z.string().max(MAX_CHAT_PLAN_CHARS).optional(),
+	/** Set only by the admin assistant; the student chat never sends them. */
+	risk: z.enum(["change", "destructive"]).optional(),
+	confirmText: z.string().min(1).max(200).optional(),
 };
 
 const QuestionCardFields = {
@@ -411,7 +414,7 @@ export const ChatShellItem = z.object({
 export type ChatShellItem = z.infer<typeof ChatShellItem>;
 
 /** The session is the terminal id, which is also the SDK session id. */
-const Envelope = {
+export const Envelope = {
 	sessionId: TerminalId,
 	seq: z.number().int().nonnegative(),
 };
@@ -481,6 +484,38 @@ const TurnFinishedEvent = z.object({
 	at: z.number().int().nonnegative(),
 });
 
+const PermissionRequestedEvent = z.object({
+	type: z.literal("permission.requested"),
+	...Envelope,
+	...PermissionCardFields,
+});
+/**
+ * A card was answered or cleared. `decision` is present only when a
+ * permission card was answered; a cancelled card, or one cleared when the
+ * session ended, carries none. Older hosts omit it and older browsers
+ * ignore it.
+ */
+const CardResolvedEvent = z.object({
+	type: z.literal("card.resolved"),
+	...Envelope,
+	id: z.string().min(1),
+	decision: ChatCardDecision.optional(),
+});
+
+/** The chat events and answer the admin assistant reuses as they are. */
+export const ChatEventSchemas = {
+	SnapshotEvent,
+	TurnStartedEvent,
+	TextDeltaEvent,
+	MessageEvent,
+	ToolStartedEvent,
+	ToolOutputEvent,
+	ToolFinishedEvent,
+	PermissionRequestedEvent,
+	CardResolvedEvent,
+	TurnFinishedEvent,
+};
+
 /** Longest reason a rename failed. */
 export const MAX_CHAT_RENAME_MESSAGE_CHARS = 200;
 
@@ -537,28 +572,13 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 	ToolStartedEvent,
 	ToolOutputEvent,
 	ToolFinishedEvent,
-	z.object({
-		type: z.literal("permission.requested"),
-		...Envelope,
-		...PermissionCardFields,
-	}),
+	PermissionRequestedEvent,
 	z.object({
 		type: z.literal("question.requested"),
 		...Envelope,
 		...QuestionCardFields,
 	}),
-	/**
-	 * A card was answered or cleared. `decision` is present only when a
-	 * permission card was answered; a cancelled card, or one cleared when the
-	 * session ended, carries none. Older hosts omit it and older browsers
-	 * ignore it.
-	 */
-	z.object({
-		type: z.literal("card.resolved"),
-		...Envelope,
-		id: z.string().min(1),
-		decision: ChatCardDecision.optional(),
-	}),
+	CardResolvedEvent,
 	TurnFinishedEvent,
 	/**
 	 * A subagent's conversation, sent only to an attachment watching that
@@ -689,6 +709,8 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		usedTokens: z.number().int().nonnegative(),
 		windowTokens: z.number().int().positive().nullable(),
 		cache: ChatCacheFigures.nullable(),
+		/** The model id the agent reported (claude-opus-5-5); older hosts and a fresh chat leave it out. */
+		model: z.string().max(200).optional(),
 		/** The host's clock, epoch milliseconds, when it sent this; older hosts leave it out. */
 		now: z.number().int().nonnegative().optional(),
 		/**
@@ -720,6 +742,20 @@ export type ChatServerEvent = z.infer<typeof ChatServerEvent>;
 /** Answers and notes are keyed by the question text, as Claude expects. */
 const AnswerMap = z.record(z.string(), z.string());
 
+export const PermissionAnswerMessage = z
+	.object({
+		type: z.literal("permission.answer"),
+		id: z.string().min(1),
+		optionId: z.string().min(1),
+		/** Why the student denied, or what to plan instead; sent only when typed. */
+		message: z.string().min(1).max(MAX_CHAT_ANSWER_MESSAGE_CHARS).optional(),
+		/** Ignored: the host derives a plan's mode from optionId. Kept so older browsers still parse. */
+		mode: z.enum(["acceptEdits", "default"]).optional(),
+		/** The typed confirmation a destructive assistant card asks for. */
+		confirmation: z.string().max(200).optional(),
+	})
+	.strict();
+
 export const ChatClientMessage = z.discriminatedUnion("type", [
 	z
 		.object({
@@ -728,17 +764,7 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 			attachments: Attachments,
 		})
 		.strict(),
-	z
-		.object({
-			type: z.literal("permission.answer"),
-			id: z.string().min(1),
-			optionId: z.string().min(1),
-			/** Why the student denied, or what to plan instead; sent only when typed. */
-			message: z.string().min(1).max(MAX_CHAT_ANSWER_MESSAGE_CHARS).optional(),
-			/** Ignored: the host derives a plan's mode from optionId. Kept so older browsers still parse. */
-			mode: z.enum(["acceptEdits", "default"]).optional(),
-		})
-		.strict(),
+	PermissionAnswerMessage,
 	z
 		.object({
 			type: z.literal("question.answer"),

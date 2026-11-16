@@ -59,6 +59,24 @@ describe("Select", () => {
 		expect(document.activeElement).toBe(trigger);
 	});
 
+	it("marks an error invalid, shows it and reads it after the hint (SPEC.md section 25.8)", () => {
+		render(
+			<Select
+				id="model"
+				label="Model"
+				options={OPTIONS}
+				hint="Listed models."
+				error="Give the model's name."
+			/>,
+		);
+		const trigger = screen.getByRole("combobox", { name: /Model/ });
+		expect(trigger.getAttribute("aria-invalid")).toBe("true");
+		expect(trigger.getAttribute("aria-describedby")).toBe("model-hint model-err");
+		expect(document.getElementById("model-err")?.textContent).toBe(
+			"Give the model's name.",
+		);
+	});
+
 	it("has no description without a hint", () => {
 		render(<Select id="bare" label="Bare" options={OPTIONS} />);
 		expect(screen.getByRole("combobox").hasAttribute("aria-describedby")).toBe(false);

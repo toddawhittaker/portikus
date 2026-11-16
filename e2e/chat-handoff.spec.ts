@@ -23,7 +23,16 @@ async function pastThePoint(id: string) {
 			usedTokens: 400_000,
 			windowTokens: 1_000_000,
 			cache: null,
-			growth: { startTokens: 30_000, messages: 2, requests: 2 },
+			growth: {
+				startTokens: 30_000,
+				messages: 2,
+				requests: 2,
+				firstMessageTokens: 50_000,
+				firstMessageRequests: 1,
+				doneMessages: 2,
+				doneTokens: 400_000,
+				doneRequests: 2,
+			},
 		}),
 	});
 	expect(sent.ok).toBe(true);
@@ -106,10 +115,8 @@ for (const colorScheme of ["dark", "light"] as const) {
 		});
 		expect(fresh.ok).toBe(true);
 		await expect(view.getByTestId("composer-context")).toContainText("12.0k");
-		await expect(view.getByTestId("composer-restart")).toHaveAttribute(
-			"data-state",
-			"later",
-		);
+		// A new conversation has no finished messages, so the estimate is hidden until it has.
+		await expect(view.getByTestId("composer-restart")).toHaveCount(0);
 		await expect(view.getByTestId("composer-handoff")).toHaveCount(0);
 		await expectNoViolations(page, '[data-testid="chat-fresh-start"]');
 		await page.screenshot({ path: `screenshots/handoff-fresh-${colorScheme}.png` });

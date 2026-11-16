@@ -670,6 +670,11 @@ describe("database migrations and schema", () => {
 					"0057_coding_agents_auto_update",
 					"0058_api_keys",
 					"0059_audit_arrival",
+					"0060_audit_via_assistant",
+					"0061_ai_settings",
+					"0062_assistant_conversations",
+					"0063_ai_usage_days",
+					"0064_model_prices",
 				]);
 				throw rollback;
 			}),
@@ -2088,10 +2093,20 @@ describe("resource guard migration", () => {
 						"0057_coding_agents_auto_update",
 						"0058_api_keys",
 						"0059_audit_arrival",
+						"0060_audit_via_assistant",
+						"0061_ai_settings",
+						"0062_assistant_conversations",
+						"0063_ai_usage_days",
+						"0064_model_prices",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0059 down to 0020, and 0018 (applied 0018, 0020 to 0059, 0019).
+					// Undo 0019, 0064 down to 0020, and 0018 (applied 0018, 0020 to 0064, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2176,6 +2191,11 @@ describe("resource guard migration", () => {
 						"0057_coding_agents_auto_update",
 						"0058_api_keys",
 						"0059_audit_arrival",
+						"0060_audit_via_assistant",
+						"0061_ai_settings",
+						"0062_assistant_conversations",
+						"0063_ai_usage_days",
+						"0064_model_prices",
 					]);
 					throw rollback;
 				}),

@@ -9,6 +9,9 @@ import type {
 } from "../packages/contracts/src/backups";
 import { query } from "./helpers";
 
+/** Held by any spec that reads or writes the backup channel: it has one status row and one queue. */
+export const BACKUP_CHANNEL_LOCK = "e2e-backup-channel";
+
 /**
  * Plays the host's side of the backup channel (SPEC.md §24.9; ADR 0039): the
  * real `backup-channel-main.js` pull and report, fed fixture documents. The

@@ -1533,7 +1533,7 @@ Added by Epic 63 (ADR 0075): in a terminal tab, Claude Code's `AskUserQuestion` 
 
 Added by Epic 59 (ADR 0068): plan usage is the seven-day window only; Claude no longer has a five-hour limit in the bar. The workspace agent reports a list keyed by provider id (the agent id), so a later provider adds only a source: Claude's figure from the chat host (the SDK's usage request, run one at a time with a ten-second limit, and `rate_limit_event`) or the status line, and Codex's from `account/rateLimits/read`. The status bar shows each provider's percent and reset day and time ("Claude 91% resets Thu 7:21 PM"), hides a figure past its reset time, and warns once at 85 percent. Today's tokens and cost show only when a provider reports no plan figure. The workspace agent and the API are upgraded together, because the report and meter shapes changed.
 
-Added by the restart-countdown task: a third item on the composer's readout line estimates how many more messages the student can send before starting a fresh chat would use less of their plan ("About 4 more messages before a fresh chat saves usage"). Long chats cost more per message because every request re-reads the whole conversation, so the web compares this chat's cost per message with a fresh chat that starts at this chat's first context size plus 8,000 tokens for a handoff note, priced as multiples of the model's input price (cache reads and writes, and the long-context surcharge some models charge). It learns how much the context grows per message and how many requests each message makes from the `context` events and the messages the student sent since the conversation began or was last reset (`/clear`, an agent swap), with fixed guesses until two messages have finished. The first message is treated as a warm-up, because the agent usually explores the project then and adds far more context and requests than later messages do. The chat records the context size and the request count when that first message finishes, keeps them out of the per-message rates (which come from the later messages only), and assumes a fresh chat repeats the same warm-up as its own first message, written to an empty cache. Until the first message has finished, the fresh chat's first message uses the fixed guesses too. The per-message rates count only messages whose turn has finished, measured to the context size at the end of the last finished turn, so a message still running cannot swing them; until two messages have finished, they are the fixed guesses. The count of messages left still compares the live context size with the restart size. The host keeps the warm-up and finished-turn figures with the other counts, so a reload or a restarted host keeps them, and a reset or a compaction clears them. A compaction (Claude Code's auto-compact or `/compact`, which the SDK marks with a compact boundary, or Codex's compaction, a completed context-compaction item) shrinks the context while the conversation goes on, so the chat core restarts the counts from the first figures after it: the start becomes that context size, and messages and requests start from zero, with nothing else cleared. A drop of more than half in the context size with no reset counts as a compaction too, for a driver that reports none. It is an estimate that assumes plan usage tracks API prices, and its tooltip and hidden sentence say so. It is hidden until the chat has used tokens. At zero it reads "A fresh chat would now save usage" in the warning look with the alert icon, and the polite status announces that once per conversation; the changing count is not read by assistive technology (section 25.8).
+Added by the restart-countdown task: a third item on the composer's readout line estimates how many more messages the student can send before starting a fresh chat would use less of their plan ("About 4 more messages before a fresh chat saves usage"). Long chats cost more per message because every request re-reads the whole conversation, so the web compares this chat's cost per message with a fresh chat that starts at this chat's first context size plus 8,000 tokens for a handoff note, priced as multiples of the model's input price (cache reads and writes, and the long-context surcharge some models charge). It learns how much the context grows per message and how many requests each message makes from the `context` events and the messages the student sent since the conversation began or was last reset (`/clear`, an agent swap). The first message is treated as a warm-up, because the agent usually explores the project then and adds far more context and requests than later messages do. The chat records the context size and the request count when that first message finishes, keeps them out of the per-message rates (which come from the later messages only), and assumes a fresh chat repeats the same warm-up as its own first message, written to an empty cache. The per-message rates count only messages whose turn has finished, measured to the context size at the end of the last finished turn, so a message still running cannot swing them. The count of messages left still compares the live context size with the restart size. The host keeps the warm-up and finished-turn figures with the other counts, so a reload or a restarted host keeps them, and a reset or a compaction clears them. A compaction (Claude Code's auto-compact or `/compact`, which the SDK marks with a compact boundary, or Codex's compaction, a completed context-compaction item) shrinks the context while the conversation goes on, so the chat core restarts the counts from the first figures after it: the start becomes that context size, and messages and requests start from zero, with nothing else cleared. A drop of more than half in the context size with no reset counts as a compaction too, for a driver that reports none. It is an estimate that assumes plan usage tracks API prices, and its tooltip and hidden sentence say so. It is hidden until at least two messages have finished (the first is a warm-up and is never used as the steady rate) and either the context has reached 60,000 tokens or five messages have finished, whichever comes first; the handoff button follows the same rule. It prices the model id the agent reported in the `context` event's optional `model` field, or else the setting with an alias such as `opus` spelled out as its API id. At zero it reads "A fresh chat would now save usage" in the warning look with the alert icon, and the polite status announces that once per conversation; the changing count is not read by assistive technology (section 25.8).
 
 Added by the handoff task: starting fresh with a handoff note. When the fresh-chat estimate reads "A fresh chat would now save usage", a **Start fresh with a handoff** button sits beside it on the same line, so it never moves the microphone or Send; typing `/handoff` does the same at any time, in a Claude or a Codex chat, and the chat lists it among its slash commands. It is refused, as a swap is, while a reply, a card or a `!` command is running. The chat core runs it the same way for both agents. First it sends the agent a fixed request for a note in its reply, about 1,500 words at most, under the headings Goal, Current state, Decisions and why, Files involved, Tried and failed, Open questions, Next steps, and How to check the work; that turn stays in the transcript like any other. The agent never writes the file: the workspace agent saves the reply to `.portikus/handoffs/<UTC time>.md` in the project, never through a symlink, after adding the `.portikus/` ignore lines to `.git/info/exclude` where needed (section 7.2), so the note is never committed (section 12.5). If the turn fails or the reply is empty, nothing is saved or cleared and the student is told why. The note then appears in a review card docked where permission cards go, rendered as Markdown, with its path and three buttons: Continue, Edit and Cancel. The keyboard moves into the card and Escape is Cancel (section 25.8). Edit turns the note into a text field, and saving rewrites the file. Cancel keeps the conversation and the saved note. Continue resets the conversation as `/clear` does, with the same agent, model and settings, so the fresh-chat estimate starts again; it leaves a divider, "Fresh start from handoff", with a link that opens the note in the editor, and sends the note as the new conversation's first message: the note, its path, then "Continue from Next steps. Before acting, say in three lines what you understand the task to be." That message is marked "Sent by Portikus from the handoff", and it and the divider survive a reload. If that first message fails, the note stays saved and the divider offers "Send the handoff again", which sends the note as it is saved then if it still matches what was sent; if the file changed, the review card shows its current text first, and Continue there sends what it shows into the same fresh conversation. The divider keeps the note's path and a SHA-256 hash of the text sent; a recorded path is accepted only as a note under `.portikus/handoffs/`, and a note is never read outside that directory or through a symlink (section 24). A note waiting for review is shown again to a browser that reattaches. Agents may read `.portikus/handoffs/`, and the agent instructions say so. Nothing of the note is logged (STACK.md section 15).
 
@@ -3732,6 +3732,262 @@ Claude Code, Codex and similar clients can use a key.
   from the audit. A call that reaches a route is audited by the gate.
 - It offers no resources, prompts or OAuth.
 
+### 20.5 The built-in AI assistant
+
+Added by Epic 69 (ADRs 0080 and 0081). Portikus itself can call an AI
+model, with a key the institution supplies, to answer administrators and
+instructors and to do their routine work for them. Students never get it.
+The section is here because the assistant is an administration feature and
+runs the operation catalog (section 20.4). Its trust rules are repeated in
+sections 24.1, 24.8 and 24.11.
+
+**Off until it is set up.** The feature is off on a new site. It works only
+when an administrator has saved a provider, a base address, a model and a
+key, has read the privacy notice and accepted it at its current version, and
+has turned it on. It also stops while the month's token cap is spent. Saving
+the settings without a key turns it off; turning it on without a key,
+without a provider, base address and model (409 `AI_SETTINGS_INCOMPLETE`), or
+before the notice is accepted is refused. When the notice text changes, its
+version number goes up and it must be accepted again. A saved key that no
+longer opens (a restore without the server's key file) counts as no key.
+Each of these reasons has its own plain message in the panel (`off`,
+`incomplete`, `no-key`, `key-unreadable`, `notice`, `monthly-cap`).
+
+**The privacy notice.** The notice says what leaves the server, what never
+does, what is stored, and who the provider is (section 24.1). Real names are
+sent: tool results carry them. Accepting the notice is audited with the
+version, and the page shows who accepted it and when.
+
+**The provider.** Two kinds are offered, chosen by the administrator.
+`openai-compatible` takes a base address, a key and a model name and speaks
+the Chat Completions API. `anthropic` uses Anthropic's own API through its
+adapter (Anthropic's OpenAI-compatible address is not production-ready and
+has no prompt caching). Settings are those three fields, a monthly token cap
+and a per-conversation token budget (defaults 5,000,000 and 200,000). The
+page offers the server's model list when it has one and free text when it
+does not. Portikus sends no provider-specific parameters, such as reasoning
+fields, because unknown fields make some servers fail.
+
+**The base address.** Only a hosted provider is reachable (ADR 0080). The
+address must be `https`, give a host name (no IP address, no `localhost` or
+private-network name), and carry no credentials, query or fragment. An
+address that points at this site itself (its public host, or a preview host)
+is refused, so an administrator cannot aim the server's own requests at the
+site. All requests go through the server's egress proxy (ADR 0027), which
+allows only listed hosts on port 443. Saving an address whose host is not
+yet listed shows "Portikus will also allow the server to reach <host> on
+port 443" with a box ticked by default. Saving with the box ticked writes
+both changes, and each is audited on its own: the settings change as
+`ai_settings.updated` and the proxy change as the same site job row the Allowed
+API hosts page writes (`site.job_requested`). A model on the institution's own network cannot be
+reached: the proxy refuses private ranges and plain HTTP.
+
+**Test.** The **Test** button asks the saved model to call one tool
+(`portikus_ping`) and use its answer, so a small model that cannot call
+tools is found before anyone relies on it. It sends no Portikus data and
+costs a few hundred tokens, which count against the cap. The page shows the
+last stage that worked (connect, reply, tool call, tool result) and a plain
+reason for a failure.
+
+**Who may use it.** Administrators and instructors, in a signed-in browser
+only. A student, and a request with an API key, gets 403 on every assistant
+route and socket. The routes are on the catalog's not-exposed list. An
+administrator's assistant offers what an administrator may run; an
+instructor's offers only what an instructor may run. The settings routes are
+administrator only, and a key cannot reach them either, because they carry
+the provider's key.
+
+**Acting as the caller.** Every tool call runs as the signed-in person, never
+as a system identity and never with a key made for it. The in-process runner
+(section 20.4) sends the call to the route's own handler with the session of
+the socket that sent the message or the approval, as a browser on the same
+site would. The route's role, course, second-factor and acceptable-use
+checks and its audit run unchanged, and the session is looked up fresh on
+every call. A person who signs out, is disabled or loses the role is refused
+from then on, even in the middle of a conversation. Audit rows written by
+such a call carry `via` `assistant`. The mark that tells the auth plugin a
+request came from the runner is a header whose name and value are drawn at
+random when the process starts, checked and removed before any route sees
+it, because Fastify's inject does not carry an `AsyncLocalStorage` store
+into the request (ADR 0080). Each call also writes one `assistant.used` audit
+row (section 24.11).
+
+**Tools.** The assistant's tools are the MCP server's set for that person's
+role (section 20.4): the named tools their role may run, `find_operation` and
+`run_operation`. Besides those it has three tools of its own: `run_batch` (bulk work, below)
+and `guide_search` and `guide_read` (the guides, below). A Diagnose
+conversation is offered no `run_batch`. The conversation sends the same tool
+list every time, in the same order, so providers' prompt caches work. Before a call is shown or
+run, its input is checked against the operation's own Zod schemas, and a bad
+input is answered to the model at once as a refusal. The route checks again
+when the call runs.
+
+**Cards.** An operation's risk decides what happens (section 20.4):
+
+| Risk | What the assistant does |
+|---|---|
+| `read` | Runs at once and shows as an ordinary tool block |
+| `change` | Stops at an approval card |
+| `destructive` | Stops at an approval card that asks for a typed confirmation |
+
+- A card is drawn by code from the catalog entry and the checked inputs:
+  the operation's description as the title, a table of the inputs and the
+  risk. It never uses the model's own description of what it will do.
+- A card has **Approve** and **Deny**. There is no "always allow".
+- A destructive card asks the person to type the operation's name. The
+  server checks the text; a wrong or missing confirmation counts as a
+  denial. A batch of changes asks for the number of rows instead, and a
+  batch of destructive operations for the operation's name, so one row is
+  never approved by typing "1".
+- A denial reaches the model as a refused result and the model is told not to
+  reach the same result another way.
+- A pending approval is a database row, claimed once with an atomic update
+  from `pending`, so a second tab, a replay or an API restart cannot run it
+  twice, and a restart loses nothing. An approved call runs as the session of
+  the socket that answered. A card nobody answers expires after 24 hours and
+  the model reads that as a refusal.
+- A conversation with a card waiting refuses a new message until the card
+  is answered.
+
+**Text from tools is data.** Names, titles, file names, command lines and log
+lines are written by students and can contain text aimed at the model. The
+system prompt and each tool's description say so, and the barriers are the
+approval cards and the rule that a conversation which can read Portikus data
+never has web search or web fetch. The model never chooses an address to
+fetch.
+
+**The loop.** The loop is our own, one model step at a time (ADR 0080). A
+person's message is stored, the model's messages are rebuilt from the
+stored events before each step, and the model's text is streamed to the
+socket as it arrives. A step with no tool calls ends the turn. At most 12
+steps follow one message, and one turn runs at a time in a conversation;
+**Stop** ends a turn at the next safe point. A failed step ends the turn with
+a fixed plain message, never the provider's text.
+
+**Limits.** Two limits, both counted in tokens from the `usage` each reply
+reports, and both checked before every step: the site's monthly cap, shared
+by all people and by the price check, and each conversation's budget. A
+spent limit ends the turn with a plain message. The count keeps only token
+numbers for each day, person, purpose and model, never content. The cap and
+every figure shown are in tokens; dollars wait until the table can price
+output tokens, because Portikus cannot know every model's price.
+
+**What is sent.** Each model call sends the person's messages and the system
+prompt, and the results of the tools the assistant used, to the provider the
+administrator configured. Results can hold people's real names, course names,
+workspace and process details and log lines. Never sent: file contents,
+terminal bytes, students' chat prompts and secrets. Those routes are not in
+the catalog, so no tool can reach them (section 20.4).
+
+**What is stored.** Conversations are stored in PostgreSQL as data (ADR 0081)
+and never in a log (STACK.md section 15, ADR 0012).
+
+- A conversation holds the chat's own wire events in order: the person's
+  messages, the assistant's replies, each tool call with its input and
+  result, and each card with its answer. They are never kept in the model
+  library's message format, which changes with each major version.
+- Every query filters on the owner. No administrator route reads another
+  person's conversation, and a conversation that is not the caller's answers
+  404. A person may delete their own.
+- A conversation is deleted 30 days after its last use. An hourly timer in
+  the API deletes old conversations and expires old cards. At startup, a
+  turn the last process was running when it stopped is closed as
+  interrupted.
+- Backups include these tables, so a backup holds a conversation until that
+  backup expires (section 24.9). The notice says so.
+
+**The socket.** Each conversation has one WebSocket on the API, speaking the
+chat's wire events (section 10.2), with a snapshot on reconnect. A person may
+hold at most 10 open assistant sockets, and a frame is limited like the
+chat's. The session is checked again on every frame, and the socket closes
+when it no longer qualifies. Caddy keeps the socket open through a reload.
+
+**Conversation kinds.** A conversation is a plain one, or opened with a
+context (`health`, `workspace`, `job` or `alert`) and a course. A conversation
+opened with a context is read-only: its tools are the read operations a
+read-scope key would have, so a Diagnose conversation looks and reports and
+never changes anything.
+
+**Tested models.** CI never calls a real model. A paid check on the pilot
+runs the same scripted tasks with one current OpenAI model and one Claude
+model through the Anthropic adapter, after the owner's go-ahead, and the
+administrator guide then lists the models known to work. Until it has run,
+the guide lists none. Other models are not tested.
+
+**Left out.** A model on the institution's own network; dollar caps; an
+"always allow" button; embedding search over the guides; any assistant
+route for API keys, second factor, impersonation or the root shell; and a
+shared package for the chat store.
+
+**Model prices.** The restart estimate students see (section 10.2) reads a
+price table that an administrator keeps on the Pricing tab. A price check is
+a fixed pipeline, not an agent: it fetches each address in an
+administrator-edited list (the list on the Pricing tab; two provider pages
+by default) through the proxy, turns the page into text, makes one model
+call whose only tool is `submit_rows`, checks the rows with Zod, retries once
+with the errors, and stores what changed as proposals. The model has no
+Portikus tools in that call and never picks an address; any other tool call
+is refused. Saving an address whose host is not on the proxy list offers to
+add it, as for the base address. An administrator accepts or rejects each
+proposal on its own; only the newest proposal for a model stays pending. Rows
+can also be added, edited and deleted by hand, and a page that refuses the
+fetch falls back to that. An Anthropic row's model name is stored as its API
+id, lowercased with runs of spaces and dots turned into dashes ("Claude Opus
+5.5" becomes `claude-opus-5-5`), whether a check or an administrator wrote it;
+OpenAI names are only lowercased and trimmed. One check runs at a time, and only while the
+assistant is available. A timer in the API looks hourly and starts a check
+when the last one began more than a week ago, and it tells administrators
+when it found changes. A check's tokens count against the monthly cap. When
+the table has no row for a model, the built-in numbers are used. The price
+check and each decision are audited (section 24.11). `GET /pricing` answers
+the table to any signed-in person, because the browser reads it for the
+estimate and it holds nothing private; administrators manage it under
+`/admin/pricing`.
+
+**Bulk work with a preview.** A request such as "invite these 30 addresses
+as students" becomes one `run_batch` call that stops at one card. It names a
+change or destructive operation and up to 100 rows, each the input
+`run_operation` takes; a read operation cannot be batched. Every row is
+checked before anything runs, and one bad row stops the whole call with the
+row numbers named. The card lists every row. A batch of changes asks the
+person to type the number of rows and a batch of destructive operations
+the operation's name. Each row then runs as its own call, in order, as the
+person, and each is audited like any other call; a refused or failed row
+does not stop the rest, but a row after the person's session has ended does
+not run. The model reads a table of each row's status and code.
+Invitations have no course field, so inviting students in a course's
+conversation adds them as students without course membership.
+
+**Diagnose and the guides.** Buttons on the health tab, a workspace's page,
+a failed certificate, image or site job and an alert open a read-only
+conversation with that item in context. The person's message is "Diagnose"
+and the subject, such as "Diagnose workspace 1a2b3c4d". A fixed list of read
+operations for that kind of item runs first, as the person, and each shows
+as an ordinary tool block. The model then answers once, giving the most
+likely cause from those reads and what to check next. The server refuses a
+context whose id does not fit its kind before a conversation exists. The
+model can also search and read the guides the package carries and cites
+"FILE § heading". Administrators may read ADMIN-GUIDE, OPERATIONS, INSTALL and
+INSTRUCTOR-GUIDE; instructors read only INSTRUCTOR-GUIDE.
+
+**The instructor panel.** The same panel appears on the course page for
+instructors, with tools limited to what an instructor may run.
+**Who is stuck?** is a read operation (`courses.stuck`, route
+`GET /courses/:courseId/stuck`) that lists each student of the course with
+failing-check streaks, live help requests and agent use over 7 days, most
+likely stuck first, and is useful as a table without the AI. A share (ADR
+0057) opens a project to every course the student belongs to, so checks are
+counted on the projects the student shares, open and unexpired, not for the
+course; live help is counted for the course; agent use is the student's use
+overall. A test runs every operation through the assistant and through plain
+HTTP for each role and expects the same answer, and a student gets 403 on
+every assistant route.
+
+**Usage.** The Agents tab shows the built-in AI's token use by person,
+purpose and model (the weekly price check shows as its own line) and this
+month's use against the cap. It shows tokens only; dollars wait for output
+token prices.
+
 ## 21. Infrastructure as cattle
 
 ### 21.1 Principle
@@ -4725,6 +4981,16 @@ Added by Epic 58.1: assistant Markdown may show the student's own local images, 
 
 Added by Epic 68 (ADRs 0077 to 0079, section 20.4): an API key is a new way in to the control plane. A key is the credential of the administrator or instructor who made it, limited by its scope and by the operation catalog, so a stolen key is worth that person's role at that scope and no more. Keys skip the second factor at use, because a program cannot answer one; the check moved to creation and to renewal with a new secret, where a Dex local-password account must prove a code or a passkey. A request that carries a key ignores the session cookie and skips the browser origin check, because a browser cannot send that header from another site without a preflight the API never answers. A key never opens a WebSocket and never reaches the never list (the root shell, key management, password and second-factor changes, account linking and any route that carries a secret), so a key is never root on the host. The one risk the design accepts is in section 24.13: a role removed at the sign-in provider does not end a key before it expires.
 
+Added by Epic 69 (ADRs 0080 and 0081, section 20.5): the AI provider an administrator configures is an outside party in zone 8, and it receives administrator and instructor data. The rules:
+
+- What is sent: the person's messages, the fixed system prompt, and the results of the tools the assistant ran. Results can hold people's real names, course names, workspace and process details and log lines. What is never sent: file contents, terminal bytes, students' chat prompts and secrets, because those routes are not in the catalog and the never list keeps them out (section 20.4). The model's replies and the tool inputs and results are never logged.
+- The feature is off on a new site. It is on only after an administrator has read a plain notice of the above and accepted it, and the notice carries a version, so a change to its text asks again. Acceptance is audited.
+- Only a hosted provider is reachable. The base address must be `https`, by host name, with no IP address, local or private name, credentials, query or fragment, and not this site's own host or a preview host. Requests leave only through the server's egress proxy, on port 443, to hosts on its list (ADR 0027). The worker never holds the AI key.
+- The assistant acts as the signed-in person and never as a system identity (section 20.5). It runs only in a signed-in browser: a student, an API key and any request without a session are refused at every assistant route and socket. A person's own session is checked again on every message and every approval.
+- A change or destructive call waits for the person at an approval card that code draws from the catalog and the checked inputs, not from the model's words. A destructive card also needs the typed operation name, checked by the server. A card is claimed once, so two tabs or a replay cannot run it twice.
+- Text from tools is data. A student can write a project name, a file name or a log line that tries to steer the model. The barriers are the cards, the rule that a conversation which can read Portikus data never has web search or web fetch, and that the price check, which does fetch pages, has no Portikus tools and picks no address. Accepted risk: a steered model may read what the person may read and send it to the provider already configured; it cannot change anything without a person approving the exact call.
+- Conversations are stored as data in PostgreSQL, filtered by owner on every query, for 30 days after last use, and never logged (section 20.5, STACK.md section 15, ADR 0081). No administrator route reads another person's conversation.
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -4968,6 +5234,15 @@ from the `portikus_alert_*` keys in `secrets.yaml` or the old
 channel as off with a notice, and the next save replaces it.
 
 Added by Epic 68 (ADR 0078): an API key's secret is shown once, when the key is made or rotated, and never again. Only its SHA-256 is stored; the list shows a short prefix and nothing that could rebuild the key. The secret is never in a log line, an audit row, a notification, a view or an error. A request's `Authorization` header is redacted from logs like any bearer token (STACK.md section 15). A reminder or notice names a key by its name and prefix only.
+
+Added by Epic 69 (ADR 0080): the AI key is a provider's secret that the administrator pastes into the AI tab.
+
+- It is write-only. The page shows whether a key is set and its last four characters, and nothing else. No view, log line, audit row, error or process argument holds it. A failed model call is reported as a short fixed code, never the provider's text, which could repeat a header.
+- It is sealed in the database with `sealSecret`, under a key of its own derived from `SECOND_FACTOR_KEY`, and the seal is bound to the purpose `ai-key:provider`, so it opens nowhere else. A sealed key that no longer opens, such as after a restore without the key file, counts as no key and the feature stays off.
+- It is separate from any key an institution hands to students' coding agents (section 10.6). Its spending can be limited at the provider on its own. Saving or clearing it is audited as a field name only.
+- Only the API process opens it. The worker gets no AI key and no new grants.
+- Every model client is built with the key and base address passed in, never read from the environment, so `ANTHROPIC_API_KEY` or a gateway default cannot stand in. A string model name, which would route through the SDK's hosted gateway, is never passed.
+- `AI_TEST_BASE_URL` is an environment setting for the browser tests: it points the model client at a local fake server with a plain fetch. The API refuses to start with it set when `NODE_ENV` is `production`.
 
 ### 24.9 Storage security
 
@@ -5417,10 +5692,26 @@ workspace's network address, or a name a workspace looked up.
   code. A request refused by the per-key rate limit (section 24.13)
   writes no `api_key.used` row; only the first refusal for each key in
   each minute is a warning log line, so this bends the rule that every
-  key request is audited. Every audit row also carries `via`
-  (`session` or `api_key`) and `api_key_id`, filled from the request, so a
+  key request is audited. `assistant.used`, one row for each operation
+  the built-in assistant runs as the signed-in person (section 20.4),
+  with the operation name, the status, the refusal code if any and the
+  result, never the inputs or the conversation. Every audit row also carries `via`
+  (`session`, `api_key` or `assistant`) and `api_key_id`, filled from the request, so a
   row for a change made by a key can be told from one made in the browser;
   rows written by the worker leave both empty.
+
+- The built-in AI (Epic 69, ADRs 0080 and 0081), never the key, a prompt,
+  a reply or a conversation: `ai_settings.updated` (actor the
+  administrator; target `ai_settings`; the names of the fields that
+  changed, and `key` set or cleared); `ai.notice_accepted` (the notice
+  version); `pricing.refresh_started` (one row for each price check, actor
+  the administrator or `system` for the weekly timer, with its trigger);
+  `pricing.proposal_decided` (accepted or rejected, with the provider and
+  model); and `pricing.row_changed` (a price row added, edited or deleted
+  by hand, with the provider and model). Saving a base address with the
+  proxy box ticked also writes the site job rows of the proxy host change
+  (`site.job_requested` and `site.job_finished`). A call the assistant runs writes the route's own rows as the person,
+  with `via` `assistant`, and one `assistant.used` row.
 
 A test checks that every event this section lists writes an audit row
 (#1138).
@@ -6008,7 +6299,7 @@ As built (Epic 67): finished runs are stored in `check_runs` with the project, c
 - timestamp;
 - result;
 - safe metadata;
-- via (Epic 68): `session` or `api_key`, empty for rows written outside a request;
+- via (Epics 68 and 69): `session`, `api_key` or `assistant`, empty for rows written outside a request;
 - API key id (Epic 68): the key that made the request, with no foreign key, like `actor`.
 
 ### Added by Epic 14.3
@@ -6049,6 +6340,14 @@ Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new tabl
 
 - `0058_api_keys` (sections 20.4, 24.8 and 24.13, ADR 0078): `api_keys` with `id`, `user_id` (cascades on delete), `name` (1 to 100 characters), unique `token_hash` (the SHA-256, never the secret), `display_prefix`, `scope` (`read`, `write` or `destructive`, default `read`, one ordered level), `period_days` (null for never), `created_at`, `expires_at` (null for never), `last_used_at`, `revoked_at`, `revoked_by` (set null on delete) and `expiry_reminded_for` (the expiry a reminder was sent for). The worker may read the table and update only `expiry_reminded_for`.
 - `0059_audit_arrival` (sections 20.4 and 24.11): `audit_events.via` (`session` or `api_key`, nullable) and `audit_events.api_key_id` (nullable, no foreign key).
+
+### Added by Epic 69
+
+- `0060_audit_via_assistant` (sections 20.5 and 24.11): `audit_events.via` also allows `assistant`.
+- `0061_ai_settings` (sections 20.5 and 24.8): one row (`id` is always 1) with the on switch, provider kind, base address, model, the sealed key and its last four characters, the monthly token cap (default 5,000,000), the per-conversation budget (default 200,000), the accepted notice version, who accepted it and when, and the price source addresses.
+- `0062_assistant_conversations` (sections 20.5 and 24.1): `assistant_conversations` (owner, optional course and context, a read-only flag, the title, tokens used, created and last-active times; deleted with its owner), `assistant_events` (the chat's wire events in order, with a sequence number for each conversation) and `assistant_approvals` (one row for each card: the operation, the checked input, the risk, the confirmation text and a status of `pending`, `approved`, `denied` or `expired`).
+- `0063_ai_usage_days` (section 20.5): token counts only, for each day, person, purpose (`assistant` or `pricing`) and model.
+- `0064_model_prices` (section 20.5): `model_prices` (one row for each provider and model), `price_runs` and `price_proposals`.
 
 ## 27. API principles
 
@@ -7780,6 +8079,25 @@ Acceptance:
 - a student can never make or hold a key, and a key never reaches the never list;
 - each operation, run through the catalog, gets the same answer as its HTTP route for each role and scope;
 - every key request is audited with how it arrived, except one refused by the per-key rate limit.
+
+### Epic 69 — Built-in AI
+
+Built on `epic/69-builtin-ai`, issues #2068 and #2018. Migrations 0060 to 0064 (`via` allows `assistant`, `ai_settings`, assistant conversations, events and approvals, `ai_usage_days`, model prices, runs and proposals). See ADRs 0080 and 0081 and sections 20.5, 24.1, 24.8, 24.11 and 27.
+
+Includes:
+
+- the AI tab: provider, base address, model, a sealed write-only key, the privacy notice and its acceptance, token limits, a Test button, and an offer to allow the provider's host through the proxy;
+- the assistant panel for administrators, and for instructors on the course page: it acts as the signed-in person through the operation catalog, stops at approval cards for changes, asks for a typed confirmation for destructive work, and previews bulk work as one card;
+- Diagnose buttons that open a read-only conversation, and answers from the guides the package carries;
+- "Who is stuck?" (`courses.stuck`) for a course;
+- the Pricing tab with a weekly check that proposes rows for the restart estimate, and token use in the Agents tab.
+
+Acceptance:
+
+- a student, and a request with an API key, is refused at every assistant route and socket;
+- each operation, run through the assistant, gets the same answer as its HTTP route for each role;
+- the key is never in a log, an audit row, a view or an error, and no conversation is ever logged;
+- CI never calls a real model.
 
 ### Estimated total
 

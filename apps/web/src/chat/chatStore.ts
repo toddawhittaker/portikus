@@ -208,7 +208,7 @@ type ChatEvent = Exclude<
 
 type ChatContextUsage = Pick<
 	Extract<ChatServerEvent, { type: "context" }>,
-	"usedTokens" | "windowTokens" | "cache"
+	"usedTokens" | "windowTokens" | "cache" | "model"
 > & {
 	/** Browser clock minus host clock when the event arrived; 0 when the host sent no time. */
 	clockOffsetMs: number;
@@ -658,6 +658,7 @@ function contextUsage(
 		usedTokens: event.usedTokens,
 		windowTokens: event.windowTokens,
 		cache: event.cache,
+		model: event.model,
 		clockOffsetMs: event.now === undefined ? 0 : now - event.now,
 	};
 }

@@ -8,6 +8,7 @@ import { buttonClass, Icon, Skeleton, Toggletip } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ApiError } from "../../api/request.js";
+import { DiagnoseButton } from "../../assistant/DiagnoseButton.js";
 import { QuietState } from "../../common/QuietState.js";
 import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { shortTime } from "../../text.js";
@@ -68,7 +69,13 @@ export function HealthTab() {
 
 	if (health.isError) {
 		return (
-			<AdminSection title="Health" intro={HEALTH_INTRO}>
+			<AdminSection
+				title="Health"
+				intro={HEALTH_INTRO}
+				actions={
+					<DiagnoseButton context={{ kind: "health" }} name="Diagnose site health" />
+				}
+			>
 				<p className="pk-error text-status-error" role="alert">
 					{health.error instanceof ApiError
 						? health.error.message
@@ -78,7 +85,13 @@ export function HealthTab() {
 		);
 	}
 	return (
-		<AdminSection title="Health" intro={HEALTH_INTRO}>
+		<AdminSection
+			title="Health"
+			intro={HEALTH_INTRO}
+			actions={
+				<DiagnoseButton context={{ kind: "health" }} name="Diagnose site health" />
+			}
+		>
 			{health.data ? (
 				<HealthView
 					report={health.data}

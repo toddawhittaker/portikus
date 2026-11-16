@@ -2,6 +2,7 @@ import type { AgentUsageWindow } from "@portikus/contracts";
 import { useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { AdminSection } from "../AdminSection.js";
+import { AiUsageSection } from "./AiUsageSection.js";
 import { useAgentUsage } from "./queries.js";
 import { UsagePeriodSelect, UsageTables } from "./UsageTables.js";
 
@@ -39,6 +40,7 @@ export function AgentUsageTab() {
 				</p>
 			) : null}
 			{data && data.users.length > 0 ? <UsageTables data={data} /> : null}
+			<AiUsageSection days={days} />
 		</AdminSection>
 	);
 }

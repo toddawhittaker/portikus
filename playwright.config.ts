@@ -20,6 +20,7 @@ import {
 	FAKE_AGENT_PORT,
 	FAKE_DEX_GRPC_PORT,
 	FAKE_DEX_HTTP_PORT,
+	FAKE_MODEL_PORT,
 	MOCK_LMS_ORIGIN,
 	MOCK_LMS_PORT,
 	MOCK_ISSUER as MOCK_OIDC_ISSUER,
@@ -176,6 +177,13 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
+			// Stands in for the AI provider, so the assistant tests never call a real model.
+			command: "node e2e/fake-model-server.mjs",
+			port: FAKE_MODEL_PORT,
+			env: { FAKE_MODEL_PORT: String(FAKE_MODEL_PORT) },
+			timeout: 120_000,
+		},
+		{
 			command: "node packages/auth/dist/testing/mock-oidc-main.js",
 			url: `${MOCK_OIDC_ISSUER}/.well-known/openid-configuration`,
 			env: {
@@ -220,6 +228,8 @@ export default defineConfig({
 			env: {
 				NODE_ENV: "test",
 				PORT: String(API_PORT),
+				// Model requests go to the fake model server instead of the saved address.
+				AI_TEST_BASE_URL: `http://127.0.0.1:${FAKE_MODEL_PORT}/v1`,
 				AGENT_PORT: String(FAKE_AGENT_PORT),
 				DATABASE_URL: databaseUrl,
 				PUBLIC_URL: WEB_URL,

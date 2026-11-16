@@ -14,6 +14,8 @@ import {
 import { Link, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { ApiError } from "../api/request.js";
+import { AssistantProvider } from "../assistant/AssistantContext.js";
+import { AssistantButton, AssistantPanel } from "../assistant/AssistantPanel.js";
 import { usePageTitle } from "../pageTitle.js";
 import { useMe } from "../useMe.js";
 import { CourseFrame } from "./CourseFrame.js";
@@ -21,6 +23,7 @@ import { LiveHelpCard, MemberCounts } from "./CourseGlance.js";
 import { CourseEyebrow } from "./CourseHead.js";
 import { CourseProfile } from "./CourseProfile.js";
 import { CourseStatus } from "./CourseStatus.js";
+import { CourseStuck } from "./CourseStuck.js";
 import { CourseUsage } from "./CourseUsage.js";
 import { useLiveSessions } from "./live/queries.js";
 import {
@@ -293,10 +296,23 @@ function MemberRow({
 
 /** `/course/:courseId`: who has opened Portikus from this course, and removing them. */
 export function CourseMembersPage() {
+	const { courseId } = useParams({ from: "/course/$courseId" });
+	const me = useMe();
+	// Students never get the assistant (SPEC.md section 20.5).
+	const staff =
+		me.status === "authenticated" &&
+		(me.user.role === "instructor" || me.user.role === "administrator");
 	return (
-		<CourseFrame testId="page-course" labelledBy="course-title">
-			<CourseMembers />
-		</CourseFrame>
+		<AssistantProvider>
+			<CourseFrame
+				testId="page-course"
+				labelledBy="course-title"
+				actions={staff ? <AssistantButton /> : undefined}
+				aside={staff ? <AssistantPanel courseId={courseId} /> : undefined}
+			>
+				<CourseMembers />
+			</CourseFrame>
+		</AssistantProvider>
 	);
 }
 
@@ -463,6 +479,7 @@ function CourseMembers() {
 					</table>
 				</div>
 			) : null}
+			{members.isError ? null : <CourseStuck courseId={courseId} />}
 			<section className="mt-10 grid gap-4" aria-labelledby="course-settings-title">
 				<h2 className="pk-text-heading m-0" id="course-settings-title">
 					Course settings

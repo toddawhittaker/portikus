@@ -118,6 +118,39 @@ export const NOT_EXPOSED: Readonly<Record<string, NotExposed>> = {
 		SECRET_FIELDS,
 		true,
 	),
+	...group(
+		[
+			"GET /admin/ai",
+			"PUT /admin/ai",
+			"POST /admin/ai/notice",
+			"POST /admin/ai/test",
+			"GET /admin/ai/models",
+		],
+		"The built-in AI's provider key and the notice an administrator reads in person; the key is write-only and never goes to a caller",
+		true,
+	),
+	...group(
+		[
+			"GET /admin/pricing",
+			"POST /admin/pricing/refresh",
+			"POST /admin/pricing/proposals/:id/decision",
+			"POST /admin/pricing/rows",
+			"PUT /admin/pricing/rows/:id",
+			"DELETE /admin/pricing/rows/:id",
+			"GET /pricing",
+		],
+		"The model price table: a check starts a paid model call, and the rest edits site data an administrator reviews in person",
+	),
+	...group(
+		[
+			"GET /assistant/status",
+			"POST /assistant/conversations",
+			"GET /assistant/conversations",
+			"DELETE /assistant/conversations/:id",
+			"GET /assistant/conversations/:id/socket",
+		],
+		"The built-in assistant is used in a signed-in browser; it runs operations as that person's session, and a key already has MCP",
+	),
 
 	// Sign-in machinery, loopback and preview-edge routes.
 	...group(

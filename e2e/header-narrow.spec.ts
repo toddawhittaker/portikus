@@ -86,7 +86,16 @@ for (const width of [320, 480]) {
 				expect(name?.length ?? 0).toBeGreaterThan(2);
 
 				// The account button is reached by keyboard and its focus ring is on screen.
+				// The Assistant button sits between them, its name kept when only its icon shows.
+				const assistant = header.getByRole("button", {
+					name: "Assistant",
+					exact: true,
+				});
 				await back.focus();
+				await course.keyboard.press("Tab");
+				await expect(assistant).toBeFocused();
+				const shown = await assistant.boundingBox();
+				expect((shown?.x ?? width) + (shown?.width ?? 0)).toBeLessThanOrEqual(width);
 				await course.keyboard.press("Tab");
 				await expect(me).toBeFocused();
 				const focused = await me.boundingBox();

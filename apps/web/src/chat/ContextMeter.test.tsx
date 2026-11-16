@@ -347,7 +347,21 @@ test("an older host that sends no time gets no correction", () => {
 	);
 });
 
-/** A Claude chat on a one-hour cache whose first report was 58k, one message in. */
+/** Two finished messages: a warm-up of 18k in 14 requests, then 18k in 14 requests, from a 58k start. */
+function finishedTwice() {
+	return {
+		firstUsedTokens: 58_000,
+		messagesSent: 2,
+		contextEvents: 28,
+		usedAfterFirstMessage: 76_000,
+		firstMessageEvents: 14,
+		messagesDone: 2,
+		usedAtLastDone: 94_000,
+		eventsAtLastDone: 28,
+	};
+}
+
+/** A Claude chat on a one-hour cache whose first report was 58k, two messages in. */
 function growing(used: number) {
 	act(() =>
 		store.setState({
@@ -357,16 +371,7 @@ function growing(used: number) {
 				effort: "medium",
 				mode: "default",
 			},
-			growth: {
-				firstUsedTokens: 58_000,
-				messagesSent: 1,
-				contextEvents: 1,
-				usedAfterFirstMessage: null,
-				firstMessageEvents: 0,
-				messagesDone: 0,
-				usedAtLastDone: 0,
-				eventsAtLastDone: 0,
-			},
+			growth: finishedTwice(),
 			context: report(used, 1_000_000, { agoSeconds: 0, ttlSeconds: 3600 }),
 		}),
 	);
@@ -377,9 +382,48 @@ test("the fresh-chat hint is hidden on an empty chat", () => {
 	expect(screen.queryByTestId("composer-restart")).toBeNull();
 });
 
+test("no hint, and no handoff button, before the gate: the pilot's one-message chat at 28k", () => {
+	act(() =>
+		store.setState({
+			settings: { agent: "claude", model: "opus", effort: "medium", mode: "default" },
+			growth: {
+				firstUsedTokens: 26_313,
+				messagesSent: 1,
+				contextEvents: 3,
+				usedAfterFirstMessage: 28_328,
+				firstMessageEvents: 3,
+				messagesDone: 1,
+				usedAtLastDone: 28_328,
+				eventsAtLastDone: 3,
+			},
+			context: report(28_328, 1_000_000, { agoSeconds: 0, ttlSeconds: 3600 }),
+		}),
+	);
+	expect(screen.queryByTestId("composer-restart")).toBeNull();
+	expect(screen.queryByRole("button", { name: HANDOFF_BUTTON })).toBeNull();
+	expect(screen.queryByText(/fresh chat/i)).toBeNull();
+});
+
+test("the hint prices the model the host reported, not the settings alias", () => {
+	// The setting says haiku, whose prices differ; the reported Opus 5.5 id sets the count.
+	growing(60_000);
+	act(() =>
+		store.setState({
+			settings: { agent: "claude", model: "haiku", effort: "medium", mode: "default" },
+			context: {
+				...report(60_000, 1_000_000, { agoSeconds: 0, ttlSeconds: 3600 }),
+				model: "claude-opus-5-5",
+			},
+		}),
+	);
+	expect(screen.getByTestId("composer-restart").textContent).toContain(
+		"About 5 more messages",
+	);
+});
+
 test("the fresh-chat hint counts down in words, singular at one", () => {
-	// Fallback rates put the cheapest restart at 156k, 18k per message.
-	growing(58_000);
+	// The first message's rates put the cheapest restart at 156k, 18k per message.
+	growing(60_000);
 	const hint = screen.getByTestId("composer-restart");
 	expect(hint.textContent).toContain(
 		"About 5 more messages before a fresh chat saves usage",
@@ -453,16 +497,7 @@ test("a Codex chat on the 30-minute cache goes cold too", () => {
 				effort: "medium",
 				mode: "default",
 			},
-			growth: {
-				firstUsedTokens: 58_000,
-				messagesSent: 1,
-				contextEvents: 1,
-				usedAfterFirstMessage: null,
-				firstMessageEvents: 0,
-				messagesDone: 0,
-				usedAtLastDone: 0,
-				eventsAtLastDone: 0,
-			},
+			growth: finishedTwice(),
 			context: {
 				...report(100_000, 475_000, null),
 				cache: { at: START, ttlSeconds: 1800 },
@@ -502,7 +537,16 @@ test("after a compaction the host's restarted counts bring the estimate back to 
 		windowTokens: 1_000_000,
 		cache,
 		now: START,
-		growth: { startTokens: 58_000, messages: 10, requests: 140 },
+		growth: {
+			startTokens: 58_000,
+			messages: 10,
+			requests: 140,
+			firstMessageTokens: 76_000,
+			firstMessageRequests: 14,
+			doneMessages: 10,
+			doneTokens: 400_000,
+			doneRequests: 140,
+		},
 	});
 	expect(screen.getByTestId("composer-restart").textContent).toContain(RESTART_NOW);
 	// Compacted to 60k: below the old start, with the counts begun again from there.
@@ -512,11 +556,20 @@ test("after a compaction the host's restarted counts bring the estimate back to 
 		windowTokens: 1_000_000,
 		cache,
 		now: START,
-		growth: { startTokens: 60_000, messages: 0, requests: 0 },
+		growth: {
+			startTokens: 42_000,
+			messages: 2,
+			requests: 28,
+			firstMessageTokens: 60_000,
+			firstMessageRequests: 14,
+			doneMessages: 2,
+			doneTokens: 78_000,
+			doneRequests: 28,
+		},
 	});
 	const hint = screen.getByTestId("composer-restart");
 	expect(hint.classList.contains("is-warning")).toBe(false);
 	expect(hint.textContent).toContain(
-		"About 5 more messages before a fresh chat saves usage",
+		"About 3 more messages before a fresh chat saves usage",
 	);
 });

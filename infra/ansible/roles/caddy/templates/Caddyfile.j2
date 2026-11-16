@@ -248,6 +248,14 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			stream_close_delay 1h
 		}
 	}
+	# The administrator assistant's WebSocket (docs/SPEC.md section 20.5), kept
+	# open through a reload as above and ahead of @api, which would close it.
+	@assistant_ws path /assistant/conversations/*/socket
+	handle @assistant_ws {
+		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+			stream_close_delay 1h
+		}
+	}
 	# The rest of the control-plane API.  /lti/* is the LTI launch from an
 	# LMS, answered 404 when no platform is registered.  /courses* is an
 	# instructor's course data; the pages live at /course, served by the
@@ -255,8 +263,9 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# pre-flight path carries the certificate check's nonce, which proves
 	# the name reaches this server (docs/SPEC.md section 21.12).  /mcp is the
 	# MCP server and /openapi.json the API's description, both answered by the
-	# API, not the bundle.
-	@api path /auth/* /admin* /lti/* /courses* /me/* /health /mcp /openapi.json /.well-known/portikus-preflight/*
+	# API, not the bundle.  /assistant* is the assistant's conversations, and
+	# /pricing the public price list; the bundle has no page at either.
+	@api path /auth/* /admin* /lti/* /courses* /me/* /health /mcp /openapi.json /assistant* /pricing /.well-known/portikus-preflight/*
 	handle @api {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}

@@ -22,7 +22,12 @@ import { useStore } from "zustand";
 import { stopTime } from "../shell/useCountdown.js";
 import { useCacheCold } from "./cacheCold.js";
 import type { ChatState, ChatStore } from "./chatStore.js";
-import { estimateRestart, priceRatios } from "./restartEstimate.js";
+import {
+	estimateRestart,
+	loadPriceTable,
+	priceRatios,
+	pricingModel,
+} from "./restartEstimate.js";
 
 type Cache = NonNullable<NonNullable<ChatState["context"]>["cache"]>;
 
@@ -242,7 +247,7 @@ function selectMessagesLeft(state: ChatState, cold: boolean): number | null {
 	const { context, growth, settings } = state;
 	if (!context || context.windowTokens === null || !settings) return null;
 	if (growth.firstUsedTokens === null) return null;
-	return estimateRestart({
+	const estimate = estimateRestart({
 		usedTokens: context.usedTokens,
 		windowTokens: context.windowTokens,
 		firstUsedTokens: growth.firstUsedTokens,
@@ -256,10 +261,11 @@ function selectMessagesLeft(state: ChatState, cold: boolean): number | null {
 		cold,
 		prices: priceRatios(
 			settings.agent,
-			settings.model,
+			pricingModel(context.model, settings.model),
 			context.cache?.ttlSeconds ?? null,
 		),
-	}).messagesLeft;
+	});
+	return estimate ? estimate.messagesLeft : null;
 }
 
 /** Mounted afresh for each conversation, so it announces at most once in one. */
@@ -324,6 +330,11 @@ interface Props {
 }
 
 export function ContextMeter({ store, onAnnounce }: Props) {
+	// Read the site's prices before the first estimate, and estimate again once they arrive.
+	const [, setPricesRead] = useState(false);
+	useEffect(() => {
+		void loadPriceTable().then(() => setPricesRead(true));
+	}, []);
 	const context = useStore(store, (state) => state.context);
 	const cold = useCacheCold(store);
 	const messagesLeft = useStore(store, (state) => selectMessagesLeft(state, cold));

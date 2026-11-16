@@ -32,6 +32,8 @@ const ADMIN_TAB_NAMES = [
 	"Docker",
 	"Sign-in",
 	"Site address",
+	"AI",
+	"Model prices",
 	"Settings",
 	"Root shell",
 ];

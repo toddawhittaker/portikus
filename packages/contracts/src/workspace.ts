@@ -371,6 +371,13 @@ export const ApiErrorCode = z.enum([
 	"SEED_MATCH_UNKNOWN",
 	"SEED_ALREADY_MATCHES",
 	"SEED_OVER_LIMIT",
+	// Turning the built-in AI on before it has a key, a provider, address and model, or an
+	// accepted notice; or naming a new provider or host without its key (SPEC.md sections 20.4, 24.8).
+	"AI_KEY_REQUIRED",
+	"AI_SETTINGS_INCOMPLETE",
+	"AI_NOTICE_REQUIRED",
+	// The assistant is off, has no key or accepted notice, or the month's tokens are spent.
+	"AI_NOT_ENABLED",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;
 

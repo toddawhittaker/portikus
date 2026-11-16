@@ -132,6 +132,27 @@ test.describe("admin audit", () => {
 		await expect(person).toHaveAccessibleDescription("Choose a person from the list.");
 	});
 
+	test("the Via column says Assistant for a change the built-in assistant made", async ({
+		page,
+	}) => {
+		const action = `e2e.via.${randomUUID().slice(0, 8)}`;
+		await query(
+			`insert into audit_events (actor, target, action, result, metadata, via)
+			 values ('system', $1, $2, 'ok', null, 'assistant'),
+			        ('system', $1, $2, 'ok', null, 'session')`,
+			[randomUUID(), action],
+		);
+
+		await loginAs(page, "carol");
+		await page.goto(`/admin/audit?action=${action}`);
+		const table = page.getByRole("table", { name: /Audit events, newest first/ });
+		await expect(table).toBeVisible({ timeout: 15_000 });
+		const rows = table.locator("tbody tr");
+		await expect(rows).toHaveCount(2);
+		await expect(rows.first().getByTestId("audit-via")).toHaveText("Session");
+		await expect(rows.last().getByTestId("audit-via")).toHaveText("Assistant");
+	});
+
 	test("the filter inputs and buttons line up, with and without help or an error", async ({
 		page,
 	}) => {

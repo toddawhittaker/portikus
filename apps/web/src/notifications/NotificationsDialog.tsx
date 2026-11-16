@@ -1,6 +1,7 @@
 import type { Notification, NotificationTone } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, Icon, type IconName } from "@portikus/ui";
 import { useEffect, useRef } from "react";
+import { DiagnoseButton } from "../assistant/DiagnoseButton.js";
 import { timeAgo } from "../text.js";
 import {
 	useClearNotifications,
@@ -27,10 +28,12 @@ function NotificationItem({
 	item,
 	now,
 	onMarkRead,
+	onDiagnose,
 }: {
 	item: Notification;
 	now: number;
 	onMarkRead: (id: string) => void;
+	onDiagnose: () => void;
 }) {
 	const markRead = useMarkNotificationRead();
 	const unread = item.readAt === null;
@@ -59,6 +62,15 @@ function NotificationItem({
 						{timeAgo(item.createdAt, now)}
 					</time>
 				</p>
+				{item.tone === "warning" || item.tone === "danger" ? (
+					<div className="mt-1.5">
+						<DiagnoseButton
+							context={{ kind: "alert", id: item.id }}
+							name={`Diagnose: "${item.title}"`}
+							onOpen={onDiagnose}
+						/>
+					</div>
+				) : null}
 			</div>
 			{unread ? (
 				<>
@@ -190,6 +202,7 @@ export function NotificationsDialog({
 									onMarkRead={(id) => {
 										marked.current = id;
 									}}
+									onDiagnose={onClose}
 								/>
 							))}
 						</ul>

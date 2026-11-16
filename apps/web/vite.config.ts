@@ -61,6 +61,9 @@ export default defineConfig({
 			"^/lti(/|\\?|$)": api,
 			// Live help's terminal sockets are course routes too (ADR 0063).
 			"^/courses(/|\\?|$)": { ...api, ws: true },
+			// The built-in assistant's routes and its conversation sockets.
+			"/assistant": { ...api, ws: true },
+			"/pricing": api,
 			// /admin and /admin/<tab> are the administration screen in the
 			// bundle; /admin/* is also its data. Only a document navigation to
 			// the screen stays in the browser; a download such as

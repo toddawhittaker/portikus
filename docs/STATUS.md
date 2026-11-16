@@ -90,6 +90,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 66, Codex in the chat.** A Codex (GUI) chat tab at parity with Claude Code, through one shared chat core with a driver for each agent (ADR 0076); skills and MCP servers for both agents, Codex subagent rows in the left pane and the chat, switching a chat between Claude Code and Codex mid-conversation, Up and Down through the chat's sent messages, and a warning when the student is not signed in to either agent.
 - **Epic 67, fix batch for usage savings.** Claude Code in a terminal starts at Opus with medium effort and its Explore subagent runs on Haiku; Codex waits on subagents for at least 20 minutes; the chat shows Claude at most 30,000 characters of a `!` command's output and asks before a model change in a chat with history, offering a fresh chat with a handoff; pane zoom is kept in the student's settings on the server; the shared coding agents can update themselves each night behind an admin switch; finished check runs are kept and listed as check history; HTML, CSS and JSON get code help in the browser; and the Claude Agent SDK is upgraded.
 - **Epic 68, operation catalog, API keys and the MCP server.** A catalog of every API operation with a risk level, an OpenAPI document at `/openapi.json` built from it, API keys for administrators and instructors with read, write and destructive scopes and a renewable expiry, and an MCP server at `/mcp` so tools such as Claude Code can run the operations a key allows (ADRs 0077 to 0079, SPEC.md section 20.4).
+- **Epic 69, built-in AI.** An AI tab for an administrator's own provider key (sealed and write-only, with a privacy notice to accept and token limits), a table of model prices that a weekly check proposes changes to, and an assistant panel for administrators, and for instructors on the course page, that acts as the signed-in person with approval cards, one preview for bulk work, Diagnose buttons that read and explain, answers from the guides, and "Who is stuck?" for a course (ADRs 0080 and 0081, SPEC.md section 20.5).
 
 ## Open items
 
@@ -115,6 +116,7 @@ list was made and may already be fixed.
 
 ### Sign-in and courses
 
+- Invitations have no course field, so inviting students in bulk, by the assistant or by hand, adds them without course membership.
 - Google and Entra group sign-in have not met a real tenant (#1587), and Entra users in more groups than a token holds need a Microsoft Graph lookup (#1588). Active Directory has not been tried; OpenLDAP stood in for it.
 - Real mail delivery has been checked only through a stand-in relay.
 - Two set-password links sent in the same millisecond both stay valid, and a link whose email failed to send stays until it expires.
@@ -183,6 +185,12 @@ list was made and may already be fixed.
 - A model row from Claude Code whose value ends in `[1m]` would be listed as its own family and never highlight (only if Claude Code lists such rows).
 - Unread marks do not survive a reload, and usage warnings are remembered per browser, not per user.
 
+### Built-in AI
+
+- The paid pilot check, with one current OpenAI model and one Claude model, waits for the owner's go. The administrator guide's list of tested models stays empty until it runs.
+- Usage shows tokens only, because the price table has no output-token price (#2090).
+- A model on the institution's own network cannot be reached, because the proxy refuses private ranges and plain HTTP (#2097).
+
 ### Interface and accessibility
 
 - A manual VoiceOver pass over headings inside `<summary>` elements is #1260.
@@ -195,6 +203,7 @@ list was made and may already be fixed.
 
 ### Infrastructure, packaging and backups
 
+- `OUTBOUND_PROXY_URL` is optional in the production configuration, though ADR 0027 assumes it is set; a hand install without it fetches directly.
 - Incremental, deduplicated backups with an off-host copy are #753. The off-site target needs rrsync, and its prune bounds only steady use, so a broken-into server can fill the target's disk.
 - The `FAILED`, `SKIPPED` and `REQUESTED` marker files in a backup set are not covered by its MAC (message authentication code), and a set's MAC does not check its `vm` line. A whole-server restore is a shell command, not a button.
 - A VM that sends data slowly can hold the host-wide backup lock for up to 12 hours.
@@ -208,6 +217,7 @@ list was made and may already be fixed.
 
 ### Tests and docs
 
+- Some timing-dependent unit tests are flaky (#2098).
 - Under heavy machine load some unit tests and chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
 - Two browser tests, `e2e/editor-schemes.spec.ts` (line 193) and `e2e/guard-settings.spec.ts` (line 125), failed even on retry in one run and passed when CI was rerun.
 - Nothing checks that the guides and the in-app Help agree, and the documentation images show scripted data.

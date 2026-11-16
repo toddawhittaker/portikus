@@ -1,14 +1,9 @@
 import * as RadixSelect from "@radix-ui/react-select";
 import type * as React from "react";
 import { cx } from "./cx.js";
+import { FieldMessages, fieldDescribedBy } from "./FieldMessages.js";
 import { Icon } from "./Icon.js";
-import {
-	CONTROL_CLASS,
-	FIELD_CLASS,
-	FieldLabel,
-	HINT_CLASS,
-	LABEL_CLASS,
-} from "./TextField.js";
+import { CONTROL_CLASS, FIELD_CLASS, FieldLabel, LABEL_CLASS } from "./TextField.js";
 
 export interface SelectOption {
 	value: string;
@@ -30,6 +25,8 @@ export interface SelectProps {
 	value?: string;
 	placeholder?: string;
 	hint?: React.ReactNode;
+	/** What is wrong with the choice; marks the field invalid and is read with it. */
+	error?: React.ReactNode;
 	/** A Toggletip, shown beside the label and never inside it. */
 	help?: React.ReactNode;
 	/** Render the list open; used by previews and tests. */
@@ -60,6 +57,7 @@ export function Select({
 	value,
 	placeholder,
 	hint,
+	error,
 	help,
 	open,
 	disabled,
@@ -82,12 +80,14 @@ export function Select({
 				<RadixSelect.Trigger
 					id={id}
 					aria-labelledby={`${id}-l ${id}`}
-					aria-describedby={hint ? `${id}-hint` : undefined}
+					aria-describedby={fieldDescribedBy({ id, hint, error })}
+					aria-invalid={error ? true : undefined}
 					aria-disabled={ariaDisabled || undefined}
 					className={cx(
 						"pk-select flex cursor-pointer items-center justify-between gap-2 text-left",
 						disabled || ariaDisabled ? "cursor-default opacity-60" : "",
 						CONTROL_CLASS,
+						"aria-[invalid=true]:border-status-error",
 					)}
 				>
 					<RadixSelect.Value
@@ -123,11 +123,7 @@ export function Select({
 					</RadixSelect.Content>
 				</RadixSelect.Portal>
 			</RadixSelect.Root>
-			{hint ? (
-				<p className={HINT_CLASS} id={`${id}-hint`}>
-					{hint}
-				</p>
-			) : null}
+			<FieldMessages id={id} hint={hint} error={error} />
 		</div>
 	);
 }

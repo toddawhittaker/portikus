@@ -1,0 +1,364 @@
+/*
+ * The assistant side panel: a column beside the page content, at the
+ * frame's inline end, holding the chat's own log and card dock. Values are
+ * design tokens only.
+ */
+.pk-assistant {
+	flex: none;
+	inline-size: clamp(22rem, 34%, 34rem);
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	border-inline-start: 1px solid var(--line);
+	background: var(--surface);
+	color: var(--ink);
+}
+
+/* Too narrow for a column beside the content, it covers the content instead. */
+@media (width < 56rem) {
+	.pk-adminframe:has(> .pk-assistant) {
+		position: relative;
+	}
+	.pk-assistant {
+		position: absolute;
+		inset: 0;
+		/* Over the page's sticky table headers, under dialogs and menus. */
+		z-index: calc(var(--z-sticky) + 1);
+		inline-size: auto;
+		border-inline-start: 0;
+	}
+}
+
+.pk-assistant-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-3) var(--space-4);
+	border-block-end: 1px solid var(--line);
+}
+
+.pk-assistant-title {
+	flex: 1;
+	margin: 0;
+	font-size: var(--text-lg);
+	line-height: var(--leading-lg);
+	font-weight: 600;
+}
+.pk-assistant-title:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+
+.pk-assistant-subtitle {
+	margin: 0;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 600;
+}
+
+.pk-assistant-muted {
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+}
+
+.pk-assistant-pad {
+	padding: var(--space-4);
+}
+.pk-assistant-pad-inline {
+	padding-inline: var(--space-4);
+}
+
+.pk-assistant-off {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-2);
+}
+.pk-assistant-off p {
+	margin: 0;
+}
+
+/* The conversation list. */
+.pk-assistant-index {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	padding: var(--space-4);
+}
+
+.pk-assistant-list {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	border-block-start: 1px solid var(--line);
+}
+
+.pk-assistant-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	border-block-end: 1px solid var(--line);
+}
+
+.pk-assistant-open {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-0\.5);
+	padding: var(--space-2) var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+}
+.pk-assistant-open:hover {
+	background: var(--surface-hover);
+}
+
+.pk-assistant-row-title {
+	max-inline-size: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* One conversation: its title, then the chat grid filling the rest. */
+.pk-assistant-conversation {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.pk-assistant-conv-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--space-4) var(--space-2) var(--space-2);
+}
+
+.pk-assistant-conv-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pk-assistant-chat.pk-chat {
+	/* A side panel is narrow; the chat's own gutter math would leave no column. */
+	--pk-chat-gutter: var(--space-4);
+}
+
+.pk-assistant-notice {
+	grid-row: 2;
+	margin: 0;
+	padding: var(--space-1) var(--space-4);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+}
+
+/* The message box. */
+.pk-assistant-composer {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1\.5);
+}
+
+.pk-assistant-box {
+	box-sizing: border-box;
+	inline-size: 100%;
+	min-block-size: calc(2 * var(--leading-md) + 2 * var(--space-2));
+	max-block-size: 12rem;
+	resize: vertical;
+	padding: var(--space-2) var(--space-3);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+}
+.pk-assistant-box::placeholder {
+	color: var(--ink-faint);
+}
+
+.pk-assistant-composer-row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+/* The approval card: the operation, its risk and its inputs, then the answer. */
+.pk-assistant-card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	min-height: 0;
+	overflow-y: auto;
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-inline-start: 4px solid var(--status-warning);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	box-shadow: var(--shadow-md);
+}
+.pk-assistant-card[data-risk="destructive"] {
+	border-inline-start-color: var(--status-error);
+}
+.pk-assistant-card[data-decision] {
+	border-inline-start-color: var(--line-strong);
+	box-shadow: none;
+}
+
+.pk-assistant-card-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+}
+
+.pk-assistant-card-title {
+	margin: 0;
+	min-width: 0;
+	font-size: var(--text-md);
+	line-height: var(--leading-md);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.pk-assistant-card-op {
+	margin: 0;
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+	overflow-wrap: anywhere;
+}
+.pk-assistant-card-op code {
+	color: var(--ink);
+}
+
+.pk-assistant-inputs {
+	inline-size: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-sm);
+	line-height: var(--leading-sm);
+}
+.pk-assistant-inputs th,
+.pk-assistant-inputs td {
+	padding: var(--space-1) var(--space-2);
+	border-block-start: 1px solid var(--line);
+	text-align: start;
+	vertical-align: top;
+}
+.pk-assistant-inputs th[scope="row"] {
+	inline-size: 1%;
+	white-space: nowrap;
+	color: var(--ink-muted);
+	font-weight: 500;
+}
+
+/* A batch's rows: about ten show before the region scrolls; its header stays in view. */
+.pk-assistant-batch {
+	max-block-size: 20rem;
+	overflow: auto;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+}
+.pk-assistant-batch:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-assistant-batch .pk-assistant-inputs thead th {
+	position: sticky;
+	inset-block-start: 0;
+	background: var(--surface-raised);
+	color: var(--ink-muted);
+	font-weight: 500;
+	border-block-start: 0;
+	border-block-end: 1px solid var(--line-strong);
+}
+.pk-assistant-batch .pk-assistant-inputs tbody th[scope="row"] {
+	font-variant-numeric: tabular-nums;
+}
+
+.pk-assistant-value {
+	margin: 0;
+	font-family: var(--font-mono);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.pk-assistant-card-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.pk-assistant-card-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.pk-assistant-card-error {
+	margin: 0;
+	color: var(--status-error);
+	font-size: var(--text-sm);
+}
+/* Hidden while empty but kept in the accessibility tree, so a message added later is announced. */
+.pk-assistant-card-error:empty {
+	position: absolute;
+	inline-size: 1px;
+	block-size: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.pk-assistant-outcome {
+	margin: 0;
+	font-weight: 600;
+}
+.pk-assistant-card[data-decision="denied"] .pk-assistant-outcome {
+	color: var(--status-error);
+}
+.pk-assistant-card[data-decision="allowed"] .pk-assistant-outcome {
+	color: var(--status-running);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.pk-assistant {
+		animation: pk-assistant-in 120ms ease-out;
+	}
+	@keyframes pk-assistant-in {
+		from {
+			opacity: 0;
+			transform: translateX(0.5rem);
+		}
+	}
+}
+
+/* A Diagnose button keeps its own width in any flex or grid parent, including a narrow page's action row. */
+.pk-diagnose,
+.pk-admin-actions > .pk-diagnose {
+	flex: none;
+	align-self: start;
+	justify-self: start;
+}

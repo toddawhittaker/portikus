@@ -37,7 +37,16 @@ function figures(agoMinutes: number, ttlSeconds: 1800 | 3600) {
 		usedTokens: 300_000,
 		windowTokens: 1_000_000,
 		cache: { at: Date.now() - agoMinutes * 60_000, ttlSeconds },
-		growth: { startTokens: 48_000, messages: 2, requests: 20 },
+		growth: {
+			startTokens: 48_000,
+			messages: 2,
+			requests: 20,
+			firstMessageTokens: 66_000,
+			firstMessageRequests: 10,
+			doneMessages: 2,
+			doneTokens: 300_000,
+			doneRequests: 20,
+		},
 	};
 }
 
