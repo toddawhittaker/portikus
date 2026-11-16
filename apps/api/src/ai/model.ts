@@ -124,8 +124,8 @@ function sdkFetch(outbound: OutboundFetch): typeof globalThis.fetch {
 	};
 }
 
-// OpenAI itself rejects max_tokens on current models and needs its own adapter,
-// which sends max_completion_tokens; other compatible servers keep max_tokens.
+// OpenAI itself goes through its Responses API: current models refuse max_tokens,
+// and refuse tools on Chat Completions. Other compatible servers keep Chat Completions.
 function isOpenAi(s: ModelSettings): boolean {
 	return (
 		s.kind === "openai-compatible" && new URL(s.baseUrl).hostname === "api.openai.com"
@@ -143,7 +143,9 @@ function languageModel(
 		return createAnthropic({ baseURL: s.baseUrl, apiKey: s.apiKey, fetch })(s.model);
 	}
 	if (isOpenAi(s)) {
-		return createOpenAI({ baseURL: s.baseUrl, apiKey: s.apiKey, fetch }).chat(s.model);
+		return createOpenAI({ baseURL: s.baseUrl, apiKey: s.apiKey, fetch }).responses(
+			s.model,
+		);
 	}
 	return createOpenAICompatible({
 		name: "openai-compatible",
@@ -264,9 +266,9 @@ async function* runStep(
 			: req.system,
 		messages: modelMessages(req.messages),
 		tools: toolSet(req.tools, anthropic),
-		...(isOpenAi(s)
-			? { providerOptions: { openai: { maxCompletionTokens: req.maxOutputTokens } } }
-			: { maxOutputTokens: req.maxOutputTokens }),
+		maxOutputTokens: req.maxOutputTokens,
+		// OpenAI would otherwise keep the conversation on its side.
+		...(isOpenAi(s) ? { providerOptions: { openai: { store: false } } } : {}),
 		abortSignal: req.signal,
 		// One request per step; retrying is the caller's choice.
 		maxRetries: 0,

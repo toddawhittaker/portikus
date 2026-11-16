@@ -400,20 +400,102 @@ describe("openai itself", () => {
 		baseUrl: "https://api.openai.com/v1",
 	};
 
-	test("sends max_completion_tokens, not max_tokens, which current OpenAI models reject", async () => {
-		const { fn, captured } = fakeFetch(openAiSse(OPENAI_TOOL_CALL_STREAM));
+	function responsesSse(
+		events: Array<{ type: string } & Record<string, unknown>>,
+	): Response {
+		return new Response(
+			sseBody(events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`)),
+			{ status: 200, headers: { "content-type": "text/event-stream" } },
+		);
+	}
+
+	const FUNCTION_CALL = {
+		type: "function_call",
+		id: "fc_1",
+		call_id: "call_1",
+		name: "users_list",
+		arguments: "",
+		status: "in_progress",
+	};
+
+	const RESPONSES_TOOL_CALL_STREAM = () =>
+		responsesSse([
+			{
+				type: "response.created",
+				response: { id: "resp_1", created_at: 1, model: "gpt-test" },
+			},
+			{ type: "response.output_item.added", output_index: 0, item: FUNCTION_CALL },
+			{
+				type: "response.function_call_arguments.delta",
+				item_id: "fc_1",
+				output_index: 0,
+				delta: '{"limit": 5}',
+			},
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				item: { ...FUNCTION_CALL, arguments: '{"limit": 5}', status: "completed" },
+			},
+			{
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 40,
+						input_tokens_details: { cached_tokens: 30 },
+						output_tokens: 7,
+						output_tokens_details: { reasoning_tokens: 0 },
+					},
+				},
+			},
+		]);
+
+	test("uses the Responses API with max_output_tokens and nothing stored", async () => {
+		const { fn, captured } = fakeFetch(RESPONSES_TOOL_CALL_STREAM());
 		const parts = await collect(createModelClient(REAL_OPENAI, fn).step(request()));
-		expect(parts).toContainEqual({
-			type: "tool-call",
-			id: "call_1",
-			name: "users_list",
-			input: { limit: 5 },
-		});
+		expect(parts).toEqual([
+			{ type: "tool-call", id: "call_1", name: "users_list", input: { limit: 5 } },
+			{
+				type: "finish",
+				usage: { input: 40, output: 7, cacheRead: 30, cacheWrite: 0 },
+			},
+		]);
 		expectOnlyOurs(captured, REAL_OPENAI.baseUrl);
+		expect(captured[0]?.url).toBe("https://api.openai.com/v1/responses");
 		const body = captured[0]?.body as Record<string, unknown>;
 		expect(body).not.toHaveProperty("max_tokens");
-		expect(body.max_completion_tokens).toBe(1000);
-		expect(body.stream_options).toEqual({ include_usage: true });
+		expect(body).not.toHaveProperty("max_completion_tokens");
+		expect(body.max_output_tokens).toBe(1000);
+		expect(body.store).toBe(false);
+	});
+
+	test("sends a tool result back as a function_call_output item", async () => {
+		const { fn, captured } = fakeFetch(RESPONSES_TOOL_CALL_STREAM());
+		const messages: AiMessage[] = [
+			{ role: "user", text: "list users" },
+			{
+				role: "assistant",
+				text: "",
+				toolCalls: [{ id: "call_1", name: "users_list", input: { limit: 5 } }],
+			},
+			{
+				role: "tool",
+				results: [{ id: "call_1", name: "users_list", text: "[]" }],
+			},
+		];
+		await collect(createModelClient(REAL_OPENAI, fn).step(request({ messages })));
+		const body = captured[0]?.body as { input: Array<Record<string, unknown>> };
+		expect(body.input).toContainEqual(
+			expect.objectContaining({
+				type: "function_call",
+				call_id: "call_1",
+				name: "users_list",
+			}),
+		);
+		expect(body.input).toContainEqual({
+			type: "function_call_output",
+			call_id: "call_1",
+			output: "[]",
+		});
 	});
 });
 
