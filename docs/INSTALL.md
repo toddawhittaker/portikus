@@ -487,6 +487,18 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   The alert that a service failed runs through the worker's bundled
   Node, so a broken worker install can also stop that alert from being
   sent.
+- **Turning on the built-in AI.** Portikus can use an AI model to help
+  administrators and instructors (docs/ADMIN-GUIDE.md, "The built-in AI
+  assistant"). It is off after install, and nothing is sent anywhere
+  until you turn it on. You need an account and a key at a hosted
+  provider, either OpenAI-compatible or Anthropic. Open **Admin**, then
+  **AI**, read and accept the privacy notice, choose the provider, give
+  the model and the key, allow the provider's host when the page offers
+  to, run **Test**, and switch it on. The key is stored sealed in the
+  database under the server's second-factor key, so a restore needs the
+  same key file as the rest of the install. Conversations are stored for
+  30 days and are in the nightly backups until each backup expires.
+  A model on your own network cannot be reached yet.
 - **The root shell.** The admin page has a **Root shell** tab that opens
   a root shell on the server for any administrator. It is on by
   default, and an upgrade turns it on for an existing site. Nothing
