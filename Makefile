@@ -4,7 +4,7 @@
 .PHONY: help install check docs-check typecheck lint format test test-coverage build dev clean \
        infra-check backup-scope-test bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight rehearsal-lti tofu-destroy install-test \
-       build-deb install-screens screenshots deploy-app build-workspace-image workspace-create workspace-destroy \
+       build-deb install-screens screenshots model-check deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
        mock-lms lti-mock-register lti-mock-unregister external-port-check
 
@@ -544,6 +544,18 @@ install-screens: ## Capture the install screens in docs/INSTALL.md as PNGs under
 
 screenshots: ## Take the documentation images in docs/images from the end-to-end stack with demo data (needs Docker unless TEST_DATABASE_URL is set, and ImageMagick; never run in CI)
 	e2e/doc-images/run.sh
+
+# The paid check costs money at two providers, so it runs only with the
+# owner's go-ahead; DRY_RUN=1 is free (docs/OPERATIONS.md, "The model check").
+PROVIDER ?= both
+MODEL_CHECK_ARGS = --provider $(PROVIDER) $(if $(TASK),--task $(TASK),)
+model-check: ## Run the assistant's scripted tasks with real models on the pilot (PROVIDER=openai|anthropic|both, TASK=<id>; key files in MODEL_CHECK_OPENAI_KEY_FILE and MODEL_CHECK_ANTHROPIC_KEY_FILE; DRY_RUN=1 runs it free against the fake model and needs TEST_DATABASE_URL like pnpm test:e2e)
+ifdef DRY_RUN
+	pnpm build
+	MODEL_CHECK_ARGS="$(MODEL_CHECK_ARGS)" node e2e/with-run-database.mjs --config scripts/model-check/dry-run/playwright.config.ts
+else
+	pnpm exec tsx scripts/model-check/run.ts $(MODEL_CHECK_ARGS)
+endif
 
 # Installing the package restarts the services and runs the migrations from the
 # API unit's ExecStartPre (ADR 0007).

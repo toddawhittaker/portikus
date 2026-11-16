@@ -17,7 +17,10 @@
 				"playwright.config.ts",
 				"e2e/**/*.{spec,setup}.ts",
 				"e2e/doc-images/playwright.config.ts",
-				"e2e/doc-images/*.capture.ts"
+				"e2e/doc-images/*.capture.ts",
+				"scripts/model-check/run.ts",
+				"scripts/model-check/dry-run/playwright.config.ts",
+				"scripts/model-check/dry-run/*.dryrun.ts"
 			],
 			"project": ["scripts/**/*.{ts,mjs}", "e2e/**/*.{ts,mjs}", "*.ts"],
 			"playwright": false
