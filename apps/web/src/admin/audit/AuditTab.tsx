@@ -377,7 +377,7 @@ function useKeyPrefixes(): ReadonlyMap<string, string> {
 
 /** How a row arrived, in words (SPEC.md section 24.11); null when it was not recorded. */
 interface Arrival {
-	kind: "session" | "api_key";
+	kind: "session" | "api_key" | "assistant";
 	text: string;
 	/** The start of the key, when the row names one that is still listed. */
 	prefix: string | null;
@@ -389,6 +389,8 @@ export function arrival(
 ): Arrival | null {
 	if (event.via === "session")
 		return { kind: "session", text: "Session", prefix: null };
+	if (event.via === "assistant")
+		return { kind: "assistant", text: "Assistant", prefix: null };
 	if (event.via !== "api_key") return null;
 	const prefix = event.apiKeyId ? (prefixes.get(event.apiKeyId) ?? null) : null;
 	return { kind: "api_key", text: prefix ? `API key ${prefix}` : "API key", prefix };
@@ -404,6 +406,13 @@ function ArrivalCell({ arrival: value }: { arrival: Arrival | null }) {
 		);
 	}
 	if (value.kind === "session") return <span className="pk-muted">Session</span>;
+	if (value.kind === "assistant") {
+		return (
+			<span data-testid="audit-via-assistant">
+				<Badge tone="accent">Assistant</Badge>
+			</span>
+		);
+	}
 	return (
 		<span className="pk-cell-stack" data-testid="audit-via-key">
 			<Badge tone="accent">API key</Badge>

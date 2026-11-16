@@ -20,7 +20,7 @@ describe("the tool set", () => {
 			.filter((op) => op.tool && op.audience !== "instructor")
 			.map(toolName);
 		const names = assistantTools(ADMIN).tools.map((t) => t.name);
-		expect(names).toEqual([...named, "find_operation", "run_operation"]);
+		expect(names).toEqual([...named, "find_operation", "run_operation", "run_batch"]);
 	});
 
 	test("an instructor's set leaves out every administrator operation", () => {
@@ -142,5 +142,88 @@ describe("checking a call before it runs", () => {
 		expect(resolveCall({ name: "find_operation", input: {} }, ADMIN)).toMatchObject({
 			isError: true,
 		});
+	});
+});
+
+describe("run_batch", () => {
+	const ID = crypto.randomUUID();
+	const invite = (email: string) => ({
+		body: { email, name: "Ann", role: "student" },
+	});
+	const batch = (input: unknown, caller: typeof ADMIN | typeof INSTRUCTOR = ADMIN) =>
+		resolveCall({ name: "run_batch", input }, caller);
+
+	test("is offered to a person who may change things, never to a read-only conversation", () => {
+		expect(assistantTools(ADMIN).tools.map((t) => t.name)).toContain("run_batch");
+		expect(assistantTools(INSTRUCTOR).tools.map((t) => t.name)).toContain("run_batch");
+		expect(
+			assistantTools({ role: "administrator", readOnly: true }).tools.map(
+				(t) => t.name,
+			),
+		).not.toContain("run_batch");
+		expect(
+			batch({ operation: "invitations.create", rows: [invite("a@example.edu")] }, {
+				role: "administrator",
+				readOnly: true,
+			} as never),
+		).toMatchObject({ kind: "answer", isError: true });
+	});
+
+	test("checked rows become one batch for the operation, each input as the route will read it", () => {
+		const resolved = batch({
+			operation: "invitations.create",
+			rows: [invite("a@example.edu"), invite("b@example.edu")],
+		});
+		expect(resolved).toMatchObject({
+			kind: "batch",
+			operation: { name: "invitations.create", risk: "change" },
+			batch: {
+				operation: "invitations.create",
+				rows: [invite("a@example.edu"), invite("b@example.edu")],
+			},
+		});
+	});
+
+	test("one bad row means an error naming its number and nothing is asked", () => {
+		const resolved = batch({
+			operation: "invitations.create",
+			rows: [invite("a@example.edu"), invite("not-an-email"), { body: {} }],
+		});
+		expect(resolved).toMatchObject({ kind: "answer", isError: true });
+		const text = (resolved as { text: string }).text;
+		expect(JSON.parse(text).code).toBe("VALIDATION_FAILED");
+		expect(text).toMatch(/Nothing ran\. 2 rows are not valid: row 2: .* row 3: /);
+		expect(text).not.toMatch(/row 1/);
+	});
+
+	test("a read operation, an unknown one, and one the role may not run are refused", () => {
+		const read = batch({ operation: "users.list", rows: [{ query: {} }] });
+		expect(read).toMatchObject({ kind: "answer", isError: true });
+		expect((read as { text: string }).text).toMatch(/only reads/);
+		for (const operation of ["no.such_thing", "users.disable"]) {
+			const resolved = batch(
+				{ operation, rows: [{ path: { id: ID } }] },
+				operation === "users.disable" ? INSTRUCTOR : ADMIN,
+			);
+			expect(JSON.parse((resolved as { text: string }).text).code).toBe("NOT_FOUND");
+		}
+	});
+
+	test("no rows, too many rows, and extra fields are refused", () => {
+		const row = invite("a@example.edu");
+		for (const input of [
+			{ operation: "invitations.create", rows: [] },
+			{ operation: "invitations.create", rows: Array.from({ length: 101 }, () => row) },
+			{ operation: "invitations.create", rows: [row], extra: 1 },
+			{ rows: [row] },
+		]) {
+			expect(batch(input)).toMatchObject({ kind: "answer", isError: true });
+		}
+		expect(
+			batch({
+				operation: "invitations.create",
+				rows: Array.from({ length: 100 }, () => row),
+			}),
+		).toMatchObject({ kind: "batch" });
 	});
 });

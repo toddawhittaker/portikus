@@ -175,7 +175,6 @@ async function auditRows(action: string) {
 
 const FINISH = (input = 10, output = 5): ModelPart => ({
 	type: "finish",
-	reason: "stop",
 	usage: { input, output, cacheRead: 0, cacheWrite: 0 },
 });
 const PING: ModelPart = {
@@ -430,6 +429,40 @@ describe.skipIf(skip)("PUT /admin/ai", () => {
 			expect(AiSettingsView.parse(on.json()).enabled).toBe(true);
 			const off = await call("PUT", "/admin/ai", { enabled: false });
 			expect(AiSettingsView.parse(off.json()).enabled).toBe(false);
+		});
+	});
+
+	test("turning on with no base address or model is refused (409 AI_SETTINGS_INCOMPLETE)", async () => {
+		await withApp(async (call) => {
+			await call("POST", "/admin/ai/notice", { noticeVersion: AI_NOTICE_VERSION });
+			const res = await call("PUT", "/admin/ai", { key: KEY, enabled: true });
+			expect(res.statusCode).toBe(409);
+			expect(res.json()).toMatchObject({ code: "AI_SETTINGS_INCOMPLETE" });
+			expect(
+				AiSettingsView.parse((await call("GET", "/admin/ai")).json()),
+			).toMatchObject({ enabled: false, keySet: false });
+		});
+	});
+
+	test("a new provider or base address host needs the key entered again (409 AI_KEY_REQUIRED)", async () => {
+		await withApp(async (call) => {
+			await call("PUT", "/admin/ai", FULL);
+			for (const body of [
+				{ baseUrl: "https://models.elsewhere.example.com/v1" },
+				{ providerKind: "anthropic" },
+			]) {
+				const res = await call("PUT", "/admin/ai", body);
+				expect(res.statusCode, JSON.stringify(body)).toBe(409);
+				expect(res.json()).toMatchObject({ code: "AI_KEY_REQUIRED" });
+			}
+			expect(
+				AiSettingsView.parse((await call("GET", "/admin/ai")).json()),
+			).toMatchObject({ baseUrl: BASE, providerKind: "openai-compatible" });
+			const moved = await call("PUT", "/admin/ai", {
+				baseUrl: "https://models.elsewhere.example.com/v1",
+				key: "another-provider-key-1234",
+			});
+			expect(moved.statusCode).toBe(200);
 		});
 	});
 
@@ -848,6 +881,25 @@ describe.skipIf(skip)("POST /admin/ai/test", () => {
 				stage: "tool-call",
 				errorCode: "empty-reply",
 			});
+		});
+	});
+
+	test("a refused host change adds no proxy host, and the test still uses the saved address", async () => {
+		useModel([
+			[PING, FINISH(10, 2)],
+			[{ type: "text", text: "pong" }, FINISH(10, 2)],
+		]);
+		await withApp(async (call) => {
+			await saved(call);
+			const res = await call("PUT", "/admin/ai", {
+				baseUrl: "https://models.elsewhere.example.com/v1",
+				addProxyHost: true,
+			});
+			expect(res.statusCode).toBe(409);
+			expect(await requests()).toEqual([]);
+			const test = await call("POST", "/admin/ai/test");
+			expect(TestAiResult.parse(test.json()).ok).toBe(true);
+			expect(model.settings.map((s) => s.baseUrl)).toEqual([BASE]);
 		});
 	});
 

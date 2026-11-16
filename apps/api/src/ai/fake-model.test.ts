@@ -20,7 +20,6 @@ async function collect(parts: AsyncIterable<ModelPart>): Promise<ModelPart[]> {
 
 const FINISH: ModelPart = {
 	type: "finish",
-	reason: "stop",
 	usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
 };
 

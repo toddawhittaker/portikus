@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { AssistantUnavailableReason } from "@portikus/contracts";
+import {
+	type AssistantBatchInput,
+	type AssistantUnavailableReason,
+	batchConfirmText,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
@@ -19,10 +23,12 @@ import {
 	runOperation,
 } from "../catalog/run.js";
 import { toolResult } from "../mcp/result.js";
+import { allOk, BATCH_TOOL, resultsText, runRows } from "./batch.js";
 import { chargeStep, LIMIT_TEXT, MAX_STEPS_PER_MESSAGE, spentLimit } from "./budget.js";
 import {
 	type ApprovalRisk,
 	approvalCard,
+	batchCard,
 	cardDecision,
 	confirmTextFor,
 	decide,
@@ -61,7 +67,10 @@ const MAX_OUTPUT_TOKENS = 4096;
 
 const NOT_ENABLED_TEXT: Record<AssistantUnavailableReason, string> = {
 	off: "The assistant is not enabled: it is turned off for this site.",
+	incomplete:
+		"The assistant is not enabled: its provider, address or model is not set.",
 	"no-key": "The assistant is not enabled: it has no AI key yet.",
+	"key-unreadable": "The assistant is not enabled: its saved AI key no longer opens.",
 	notice:
 		"The assistant is not enabled: an administrator has not accepted the privacy notice.",
 	"monthly-cap":
@@ -171,7 +180,7 @@ function stepsSinceMessage(messages: readonly AiMessage[]): number {
 
 /** The tool block's title: the operation's description when the call names one. */
 function callTitle(call: { name: string; input: unknown }, caller: ToolCaller): string {
-	if (call.name === RUN_TOOL) {
+	if (call.name === RUN_TOOL || call.name === BATCH_TOOL) {
 		const name = (call.input as { operation?: unknown } | null)?.operation;
 		const found = typeof name === "string" ? operationByName(name) : undefined;
 		return found?.operation.description ?? call.name;
@@ -234,6 +243,24 @@ export function createAssistantLoop(deps: LoopDeps) {
 		);
 	}
 
+	/** Run an approved batch's rows one at a time, each as its own call, and give the model the per-row table. */
+	async function runBatchAs(
+		caller: TurnCaller,
+		callId: string,
+		batch: AssistantBatchInput,
+	): Promise<void> {
+		const inputs = batch.rows as OperationInputValues[];
+		const results = await runRows(inputs, (input) =>
+			runOperation(app, db, caller.run, batch.operation, input),
+		);
+		await output(
+			caller.conversationId,
+			callId,
+			resultsText(batch.operation, results),
+			!allOk(results),
+		);
+	}
+
 	/** Answer one call, run it, or draw its card; true when it waits for a person. */
 	async function handleCall(caller: TurnCaller, call: ToolCall): Promise<boolean> {
 		const id = caller.conversationId;
@@ -241,6 +268,21 @@ export function createAssistantLoop(deps: LoopDeps) {
 		if (resolved.kind === "answer") {
 			await output(id, call.id, resolved.text, resolved.isError);
 			return false;
+		}
+		if (resolved.kind === "batch") {
+			const risky = resolved.operation as typeof resolved.operation & {
+				risk: ApprovalRisk;
+			};
+			await insertApproval(db, {
+				conversationId: id,
+				toolCallId: call.id,
+				operation: BATCH_TOOL,
+				input: resolved.batch,
+				risk: risky.risk,
+				confirmText: batchConfirmText(resolved.batch),
+			});
+			await emit(id, batchCard(call.id, risky, resolved.batch));
+			return true;
 		}
 		const { operation, input } = resolved;
 		if (operation.risk === "read") {
@@ -489,7 +531,9 @@ export function createAssistantLoop(deps: LoopDeps) {
 					id: answer.id,
 					decision: cardDecision(status),
 				});
-				if (status === "approved") {
+				if (status === "approved" && claimed.operation === BATCH_TOOL) {
+					await runBatchAs(caller, answer.id, claimed.input as AssistantBatchInput);
+				} else if (status === "approved") {
 					await runAs(
 						caller,
 						answer.id,

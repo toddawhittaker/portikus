@@ -104,7 +104,11 @@ export function batchConfirmText(batch: AssistantBatchInput): string {
 /** Why the assistant cannot be used now, or null when it can (SPEC.md section 20.4). */
 export const AssistantUnavailableReason = z.enum([
 	"off",
+	// No provider, base address or model saved.
+	"incomplete",
 	"no-key",
+	// A key is saved but no longer opens, as after a restore without the key file.
+	"key-unreadable",
 	"notice",
 	"monthly-cap",
 ]);

@@ -10,12 +10,8 @@ import {
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import {
-	type AiTool,
-	type ModelClient,
-	ModelError,
-	type StepRequest,
-} from "../ai/model.js";
+import { addUsage, collectStep } from "../ai/collect.js";
+import type { AiTool, StepRequest } from "../ai/model.js";
 import {
 	type AiSettings,
 	loadAiSettings,
@@ -49,37 +45,6 @@ const TEST_TOOL: AiTool = {
 };
 const TEST_STEP_MS = 60_000;
 const TEST_MAX_OUTPUT_TOKENS = 300;
-
-type Drained = {
-	text: string;
-	calls: { id: string; name: string; input: unknown }[];
-	usage: StepUsage | null;
-	/** Whether the server sent anything at all. */
-	started: boolean;
-	error: string | null;
-};
-
-async function drain(client: ModelClient, req: StepRequest): Promise<Drained> {
-	const out: Drained = {
-		text: "",
-		calls: [],
-		usage: null,
-		started: false,
-		error: null,
-	};
-	try {
-		for await (const part of client.step(req)) {
-			out.started = true;
-			if (part.type === "text") out.text += part.text;
-			else if (part.type === "tool-call")
-				out.calls.push({ id: part.id, name: part.name, input: part.input });
-			else out.usage = part.usage;
-		}
-	} catch (error) {
-		out.error = error instanceof ModelError ? error.code : "other";
-	}
-	return out;
-}
 
 function hostOf(address: string): string {
 	return new URL(address).hostname.toLowerCase();
@@ -242,16 +207,14 @@ export function registerAdminAiRoutes(
 	// that cannot call tools before anyone relies on it (SPEC.md section 20.4).
 	app.post("/admin/ai/test", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const opened = modelClientFor(await loadAiSettings(db), config);
-		const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+		const found = modelClientFor(await loadAiSettings(db), config);
+		const opened = "unavailable" in found ? null : found;
+		const total: StepUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 		let counted = false;
 		const add = (usage: StepUsage | null) => {
 			if (!usage) return;
 			counted = true;
-			total.input += usage.input;
-			total.output += usage.output;
-			total.cacheRead += usage.cacheRead;
-			total.cacheWrite += usage.cacheWrite;
+			addUsage(total, usage);
 		};
 		const done = async (
 			stage: TestAiResult["stage"],
@@ -290,10 +253,10 @@ export function registerAdminAiRoutes(
 		});
 		const prompt = { role: "user" as const, text: AI_TEST_PROMPT };
 
-		const first = await drain(client, stepRequest([prompt]));
+		const first = await collectStep(client, stepRequest([prompt]));
 		add(first.usage);
 		if (first.error)
-			return send(await done(first.started ? "connect" : null, first.error));
+			return send(await done(first.started ? "connect" : null, first.error.code));
 		if (!first.usage) return send(await done("connect", "bad-response"));
 		const call = first.calls[0];
 		if (!call) return send(await done("reply", "no-tool-call"));
@@ -302,7 +265,7 @@ export function registerAdminAiRoutes(
 			return send(await done("reply", "bad-tool-call"));
 		}
 
-		const second = await drain(
+		const second = await collectStep(
 			client,
 			stepRequest([
 				prompt,
@@ -311,7 +274,7 @@ export function registerAdminAiRoutes(
 			]),
 		);
 		add(second.usage);
-		if (second.error) return send(await done("tool-call", second.error));
+		if (second.error) return send(await done("tool-call", second.error.code));
 		if (!second.text.trim()) return send(await done("tool-call", "empty-reply"));
 		return send(await done("tool-result", null));
 	});
@@ -319,7 +282,7 @@ export function registerAdminAiRoutes(
 	app.get("/admin/ai/models", adminOnly, async (_request, reply) => {
 		const opened = modelClientFor(await loadAiSettings(db), config);
 		const out: ModelListResponse = {
-			models: opened ? await opened.client.listModels() : null,
+			models: "unavailable" in opened ? null : await opened.client.listModels(),
 		};
 		return reply.header("cache-control", "no-store").send(out);
 	});

@@ -25,6 +25,7 @@ import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAccountLinkRoutes } from "./routes/admin-account-links.js";
 import { registerAdminAddressRoutes } from "./routes/admin-address.js";
 import { registerAdminAiRoutes } from "./routes/admin-ai.js";
+import { registerAdminAiUsageRoutes } from "./routes/admin-ai-usage.js";
 import { registerAdminAlertRoutes } from "./routes/admin-alerts.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
 import { registerAdminBackupKeyRoutes } from "./routes/admin-backup-key.js";
@@ -360,6 +361,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminAccountLinkRoutes(instance, deps);
 		registerAdminProxyHostRoutes(instance, deps);
 		registerAdminAiRoutes(instance, deps);
+		registerAdminAiUsageRoutes(instance, deps);
 		registerAdminPricingRoutes(instance, deps);
 		registerAssistantRoutes(instance, deps);
 		registerAdminLmsRoutes(instance, deps);
