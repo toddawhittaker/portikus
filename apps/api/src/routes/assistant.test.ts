@@ -95,8 +95,9 @@ async function enableAssistant(extra: Record<string, unknown> = {}): Promise<voi
 
 beforeEach(async () => {
 	if (skip) return;
-	await testDb.truncate();
+	// First: deleting two users would null both users' usage rows into a duplicate.
 	await testDb.db.deleteFrom("ai_usage_days").execute();
+	await testDb.truncate();
 	await enableAssistant();
 	model.client = null;
 	logLines = [];
@@ -794,6 +795,7 @@ describe.skipIf(skip)("the loop", () => {
 			const carol = await signIn(app, "carol");
 			const alice = await signIn(app, "alice");
 			const conv = await newConversation(app, carol, { context: { kind: "health" } });
+			// The first reply follows the Diagnose reads that run when the socket opens.
 			const client = fake([
 				toolCall("call-o1", "run_operation", {
 					operation: "users.disable",
@@ -802,8 +804,7 @@ describe.skipIf(skip)("the loop", () => {
 				reply("I may only read."),
 			]);
 			const socket = await connect(app, carol, conv.id);
-			socket.send({ type: "send", text: "disable alice", attachments: [] });
-			await socket.waitFor(turnDone());
+			await turnsFinished(socket, 2);
 			const names = client.requests[0]?.tools.map((t) => t.name) ?? [];
 			expect(names).toContain("users_list");
 			expect(names).not.toContain("users_disable");
@@ -1262,5 +1263,210 @@ describe.skipIf(skip)("bulk work through run_batch", () => {
 			});
 			expect(second.frames.some((f) => f.type === "permission.requested")).toBe(false);
 			second.socket.close();
+		}));
+});
+
+describe.skipIf(skip)("Diagnose", () => {
+	/** A stopped workspace with no agent, so its agent reads answer with errors the model still sees. */
+	async function makeWorkspace(): Promise<string> {
+		const owner = await testDb.db
+			.insertInto("users")
+			.values({
+				oidc_issuer: "http://mock",
+				oidc_subject: `subject-${crypto.randomUUID()}`,
+				display_name: "Student",
+				email: null,
+				role: "student",
+				shutdown_grace_seconds: null,
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		const row = await testDb.db
+			.insertInto("workspaces")
+			.values({
+				label: `ws-${crypto.randomUUID().slice(0, 8)}`,
+				owner_user_id: owner.id,
+				state: "stopped",
+			})
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		return row.id;
+	}
+
+	function started(client: Client) {
+		return client.frames.filter(
+			(f): f is Extract<Frame, { type: "tool.started" }> => f.type === "tool.started",
+		);
+	}
+
+	test("opening the socket runs the fixed reads as the person, then asks the model once", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol, { context: { kind: "health" } });
+			const client = fake([reply("The disk is fine; nothing is wrong.")]);
+			const socket = await connect(app, carol, conv.id);
+			await turnsFinished(socket, 2);
+
+			const calls = started(socket);
+			expect(calls.map((c) => c.name)).toEqual([
+				"health_get",
+				"health_series",
+				"logs_list",
+			]);
+			expect(calls[0]?.title).toMatch(/^Returns the site's current health/);
+			expect(calls[1]?.input).toEqual({ query: { range: "1h" } });
+			for (const one of calls) {
+				expect(JSON.parse(outputOf(socket, one.id))).toBeTypeOf("object");
+			}
+			// Every call is closed; the log read may fail where there is no journal.
+			const finished = socket.frames.filter((f) => f.type === "tool.finished");
+			expect(finished.map((f) => f.id)).toEqual(calls.map((c) => c.id));
+			expect(finished.slice(0, 2).map((f) => f.isError)).toEqual([false, false]);
+
+			// One model call: the request, the reads as one step, then the fixed question.
+			expect(client.requests).toHaveLength(1);
+			const messages = client.requests[0]?.messages ?? [];
+			expect(messages.map((m) => m.role)).toEqual([
+				"user",
+				"assistant",
+				"tool",
+				"user",
+			]);
+			expect(messages[0]).toMatchObject({ text: "Diagnose the site's health" });
+			expect(messages[3]).toMatchObject({
+				text: expect.stringMatching(
+					/^What is the most likely cause for the site's health\?/,
+				),
+			});
+			expect(
+				lastToolResults({
+					...(client.requests[0] as StepRequest),
+					messages: messages.slice(0, 3),
+				}).map((r) => r.name),
+			).toEqual(["health_get", "health_series", "logs_list"]);
+			expect(client.requests[0]?.system).toBe(
+				systemPrompt({ role: "administrator", readOnly: true }),
+			);
+			const names = client.requests[0]?.tools.map((t) => t.name) ?? [];
+			expect(names).not.toContain("run_batch");
+			expect(names).not.toContain("users_disable");
+
+			// Each read ran as the person and was audited; nothing asked for approval.
+			const used = await auditOf("assistant.used");
+			expect(
+				used.map((r) => (r.metadata as { operation: string }).operation).sort(),
+			).toEqual(["health.get", "health.series", "logs.list"]);
+			expect(
+				used.every((r) => r.via === "assistant" && r.actor === `user:${carol.id}`),
+			).toBe(true);
+			expect(socket.frames.some((f) => f.type === "permission.requested")).toBe(false);
+			expect(
+				await testDb.db.selectFrom("assistant_approvals").selectAll().execute(),
+			).toEqual([]);
+
+			const list = await call(app, carol, "GET", "/assistant/conversations");
+			expect(list.json().conversations[0]).toMatchObject({
+				title: "Diagnose the site's health",
+				readOnly: true,
+			});
+
+			// A reconnect, or a second tab, repeats nothing.
+			const before = (await storedTypes(conv.id)).length;
+			socket.socket.close();
+			const again = await connect(app, carol, conv.id);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(await storedTypes(conv.id)).toHaveLength(before);
+			expect(client.requests).toHaveLength(1);
+			expect(again.frames.some((f) => f.type === "turn.started")).toBe(true);
+			again.socket.close();
+		}));
+
+	test("a workspace is read through its detail, agent log, processes and audit rows", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const workspace = await makeWorkspace();
+			const conv = await newConversation(app, carol, {
+				context: { kind: "workspace", id: workspace },
+			});
+			fake([reply("It is stopped.")]);
+			const socket = await connect(app, carol, conv.id);
+			await turnsFinished(socket, 2);
+			const operations = (await auditOf("assistant.used")).map(
+				(r) => (r.metadata as { operation: string }).operation,
+			);
+			expect(operations.sort()).toEqual([
+				"audit.list",
+				"workspaces.agent_log",
+				"workspaces.get_detail",
+				"workspaces.list_processes",
+			]);
+			const detail = started(socket).find((c) => c.title.startsWith("Returns"));
+			expect(detail).toBeDefined();
+			// The detail answers as the route does for the same workspace.
+			const http = await call(app, carol, "GET", `/admin/workspaces/${workspace}`);
+			const first = started(socket)[0];
+			expect(JSON.parse(outputOf(socket, first?.id ?? ""))).toEqual(http.json());
+			expect(socket.frames.some((f) => f.type === "permission.requested")).toBe(false);
+			socket.socket.close();
+		}));
+
+	test("a job and an alert open too; an item that cannot be named, or a non-administrator, is refused", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const ivy = await signIn(app, "ivy");
+			const id = crypto.randomUUID();
+			for (const context of [
+				{ kind: "job", id: "site:address" },
+				{ kind: "job", id: `certificate:${id}` },
+				{ kind: "alert", id },
+			]) {
+				const made = await newConversation(app, carol, { context });
+				expect(made).toMatchObject({ readOnly: true, context });
+			}
+			for (const context of [
+				{ kind: "workspace" },
+				{ kind: "workspace", id: "x" },
+				{ kind: "job", id: "site:nope" },
+			]) {
+				const res = await call(app, carol, "POST", "/assistant/conversations", {
+					context,
+				});
+				expect(res.statusCode, JSON.stringify(context)).toBe(400);
+			}
+			const instructor = await call(app, ivy, "POST", "/assistant/conversations", {
+				context: { kind: "health" },
+			});
+			expect(instructor.statusCode).toBe(403);
+		}));
+
+	test("a read that fails still reaches the model, as an error result", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol, {
+				context: { kind: "workspace", id: crypto.randomUUID() },
+			});
+			const client = fake([reply("There is no such workspace.")]);
+			const socket = await connect(app, carol, conv.id);
+			await turnsFinished(socket, 2);
+			const results = client.requests[0]?.messages.find((m) => m.role === "tool");
+			expect(results?.role === "tool" && results.results.some((r) => r.isError)).toBe(
+				true,
+			);
+			socket.socket.close();
+		}));
+
+	test("a session that has ended gets no reads", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol, { context: { kind: "health" } });
+			fake([reply("x")]);
+			await testDb.db.deleteFrom("sessions").execute();
+			const upgrade = await upgradeStatus(
+				app,
+				`/assistant/conversations/${conv.id}/socket`,
+				{ origin: ORIGIN, cookie: carol.jar.cookieHeader() },
+			);
+			expect(upgrade).not.toBe(101);
+			expect(await storedTypes(conv.id)).toEqual([]);
 		}));
 });

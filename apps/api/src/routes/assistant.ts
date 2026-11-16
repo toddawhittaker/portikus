@@ -3,6 +3,7 @@ import { loadSession, sessionGate } from "@portikus/auth";
 import {
 	type ApiError,
 	AssistantClientMessage,
+	AssistantContext,
 	type AssistantStatus,
 	CloseCode,
 	type ConversationList,
@@ -11,6 +12,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { openModelClient } from "../ai/settings.js";
+import { planDiagnose, startDiagnose } from "../assistant/diagnose.js";
 import { createAssistantHub } from "../assistant/hub.js";
 import {
 	createAssistantLoop,
@@ -104,6 +106,25 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 		if (!body) return reply;
 		const user = request.user;
 		if (!user) return reply;
+		if (body.context !== undefined) {
+			// Diagnose reads site-wide operations an instructor may not run.
+			if (user.role !== "administrator") {
+				return sendError(
+					reply,
+					403,
+					"FORBIDDEN",
+					"Only administrators can diagnose an item.",
+				);
+			}
+			if (!planDiagnose(body.context)) {
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"That item cannot be diagnosed.",
+				);
+			}
+		}
 		if (body.courseId !== undefined) {
 			const known =
 				user.role === "administrator"
@@ -258,7 +279,28 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 			});
 			await hub.attach(id, socket);
 			// Closed while the history was being sent: the close handler ran first.
-			if (socket.readyState !== socket.OPEN) hub.detach(id, socket);
+			if (socket.readyState !== socket.OPEN) {
+				hub.detach(id, socket);
+				return;
+			}
+			// A Diagnose conversation reads its item first; a conversation already begun is left alone.
+			const context = AssistantContext.safeParse(conversation.context);
+			const first = context.success ? await callerNow() : null;
+			if (context.success && first) {
+				void startDiagnose(
+					{ app, db, hub, send: loop.send },
+					first,
+					context.data,
+				).catch((error: unknown) => {
+					request.log.error(
+						{
+							conversationId: id,
+							error: error instanceof Error ? error.name : "unknown",
+						},
+						"assistant diagnose failed",
+					);
+				});
+			}
 		},
 	);
 }

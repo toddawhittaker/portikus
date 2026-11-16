@@ -68,6 +68,11 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
 	);
 }
 
+/** The assistant's API when a provider is above, else null: a button shown on pages without one hides itself. */
+export function useOptionalAssistant(): AssistantApi | null {
+	return useContext(AssistantApiContext);
+}
+
 export function useAssistant(): AssistantApi {
 	const api = useContext(AssistantApiContext);
 	if (!api) throw new Error("useAssistant needs an AssistantProvider");
