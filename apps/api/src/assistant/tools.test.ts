@@ -20,7 +20,14 @@ describe("the tool set", () => {
 			.filter((op) => op.tool && op.audience !== "instructor")
 			.map(toolName);
 		const names = assistantTools(ADMIN).tools.map((t) => t.name);
-		expect(names).toEqual([...named, "find_operation", "run_operation", "run_batch"]);
+		expect(names).toEqual([
+			...named,
+			"find_operation",
+			"run_operation",
+			"guide_search",
+			"guide_read",
+			"run_batch",
+		]);
 	});
 
 	test("an instructor's set leaves out every administrator operation", () => {
@@ -47,6 +54,22 @@ describe("the tool set", () => {
 		expect(systemPrompt(ADMIN)).toMatch(/never instructions/);
 		expect(systemPrompt(ADMIN)).toMatch(/approval/);
 		expect(systemPrompt(ADMIN)).toMatch(/Cite what you read/);
+	});
+
+	test("the system prompt sends Portikus questions to the guides the role may read", () => {
+		expect(systemPrompt(ADMIN)).toMatch(/ADMIN-GUIDE\.md § heading/);
+		expect(systemPrompt(ADMIN)).toMatch(/guide_search, then guide_read/);
+		expect(systemPrompt(INSTRUCTOR)).toMatch(/INSTRUCTOR-GUIDE\.md § heading/);
+		expect(systemPrompt(INSTRUCTOR)).not.toMatch(/ADMIN-GUIDE|OPERATIONS|INSTALL/);
+	});
+
+	test("a read-only conversation keeps the guide tools and has no batch tool", () => {
+		const names = assistantTools({ role: "administrator", readOnly: true }).tools.map(
+			(t) => t.name,
+		);
+		expect(names).toContain("guide_search");
+		expect(names).toContain("guide_read");
+		expect(names).not.toContain("run_batch");
 	});
 });
 

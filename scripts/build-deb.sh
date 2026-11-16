@@ -156,6 +156,16 @@ for name in api worker controller workspace-agent; do
 	prune_tree "dist/deploy/$name"
 done
 
+# The built-in assistant answers Portikus questions from these guides, which it
+# reads from guides/ beside the API's dist/ (docs/SPEC.md section 20.5). A
+# missing guide fails the build, and so does a package that lacks one below.
+guides=(ADMIN-GUIDE.md OPERATIONS.md INSTALL.md INSTRUCTOR-GUIDE.md)
+mkdir -p dist/deploy/api/guides
+for guide in "${guides[@]}"; do
+	cp "docs/$guide" dist/deploy/api/guides/
+done
+chmod -R u=rwX,go=rX dist/deploy/api/guides
+
 # systemd inside the container starts the agent through this shim, so the
 # unit does not need to know where node lives or how the tree is laid out.
 mkdir -p dist/deploy/workspace-agent/bin
@@ -252,6 +262,13 @@ if [ -n "$found" ]; then
 	echo "$found" >&2
 	exit 1
 fi
+
+for guide in "${guides[@]}"; do
+	if ! grep -qxF "./usr/lib/portikus/api/guides/$guide" <<<"$listing"; then
+		echo "The package lacks the assistant's guide $guide" >&2
+		exit 1
+	fi
+done
 
 # The mock LMS signs launches as anyone, so it must never reach the VM
 # (ADR 0025). Nothing depends on it; this proves it.

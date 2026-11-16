@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import "../shell/right-pane.css";
 import { errorText } from "../api/request.js";
+import { DiagnoseButton } from "../assistant/DiagnoseButton.js";
 import { ProcessesSection } from "./ProcessesSection.js";
 import { useAdminWorkspace } from "./queries.js";
 import { AccountSection } from "./workspace-detail/AccountSection.js";
@@ -118,6 +119,14 @@ export function WorkspaceDetail({
 							ownerName={user.displayName}
 							onFocusLost={focusHeading}
 						/>
+					) : null}
+					{workspaceId ? (
+						<div>
+							<DiagnoseButton
+								context={{ kind: "workspace", id: workspaceId }}
+								name={`Diagnose ${user.workspace?.label ?? user.displayName}'s workspace`}
+							/>
+						</div>
 					) : null}
 				</div>
 				<IconButton

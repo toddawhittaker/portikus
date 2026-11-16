@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ZodType } from "zod";
 import { request } from "../api/request.js";
+import { DiagnoseButton } from "../assistant/DiagnoseButton.js";
 import { Notice } from "./Notice.js";
 
 /** A queued or running job is polled every two seconds, as the certificate page does. */
@@ -79,7 +80,21 @@ export function SiteJobLine({ job }: { job: SiteJobView | null }) {
 			</p>
 		);
 	}
-	if (job.state === "failed") return <Notice tone="error">{failureText(job)}</Notice>;
+	if (job.state === "failed") {
+		return (
+			<>
+				<Notice tone="error">{failureText(job)}</Notice>
+				{job.kind ? (
+					<div>
+						<DiagnoseButton
+							context={{ kind: "job", id: `site:${job.kind}` }}
+							name="Diagnose the failed change"
+						/>
+					</div>
+				) : null}
+			</>
+		);
+	}
 	if (job.state === "queued" || job.state === "running") {
 		return (
 			<Notice tone="warning">
