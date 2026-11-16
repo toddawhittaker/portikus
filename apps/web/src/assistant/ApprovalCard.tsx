@@ -5,7 +5,11 @@
  * is about to do. Approve or Deny only; a destructive card stays locked
  * until its confirmation text is typed exactly, as the server checks again.
  */
-import type { ChatCardDecision, ChatOpenCard } from "@portikus/contracts";
+import {
+	AssistantBatchInput,
+	type ChatCardDecision,
+	type ChatOpenCard,
+} from "@portikus/contracts";
 import { Badge, Button, TextField } from "@portikus/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import "./assistant.css";
@@ -39,9 +43,109 @@ function valueText(value: unknown): string {
 	return JSON.stringify(value, null, 2) ?? String(value);
 }
 
-/** The inputs the operation will run with, one row per field. The one place a card's inputs are drawn, so a batch card's rows belong here too. */
+/** The card's rows when it is a batch: one operation, one input per row. */
+function batchOf(card: ApprovalCardData): AssistantBatchInput | null {
+	const parsed = AssistantBatchInput.safeParse(card.input);
+	return parsed.success ? parsed.data : null;
+}
+
+const ROW_PARTS = ["path", "query", "body"] as const;
+
+type Cell = { part: (typeof ROW_PARTS)[number]; name: string; value: unknown };
+
+/** A row's input values as cells: path and query fields, and body fields (a body that is not an object is one cell). */
+function rowCells(row: Record<string, unknown>): Cell[] {
+	const cells: Cell[] = [];
+	for (const part of ROW_PARTS) {
+		const value = row[part];
+		if (value === undefined || value === null) continue;
+		if (isRecord(value)) {
+			for (const [name, field] of Object.entries(value)) {
+				cells.push({ part, name, value: field });
+			}
+		} else if (part === "body") {
+			cells.push({ part, name: "body", value });
+		}
+	}
+	return cells;
+}
+
+/** The columns of a batch, in order of first appearance; a field name used by two parts says which part. */
+function batchColumns(cells: Cell[][]): { key: string; label: string }[] {
+	const seen = new Map<string, Set<string>>();
+	for (const cell of cells.flat()) {
+		seen.set(cell.name, (seen.get(cell.name) ?? new Set()).add(cell.part));
+	}
+	const columns = new Map<string, string>();
+	for (const cell of cells.flat()) {
+		const key = `${cell.part}:${cell.name}`;
+		const label =
+			(seen.get(cell.name)?.size ?? 0) > 1 ? `${cell.part}.${cell.name}` : cell.name;
+		columns.set(key, label);
+	}
+	return [...columns].map(([key, label]) => ({ key, label }));
+}
+
+/**
+ * The rows a batch will run, one table row per call, numbered from 1. The
+ * region scrolls after about ten rows and takes the keyboard so its rows can
+ * be read without a mouse.
+ */
+function BatchRows({ batch }: { batch: AssistantBatchInput }) {
+	const rows = batch.rows.map(rowCells);
+	const columns = batchColumns(rows);
+	return (
+		<section
+			className="pk-assistant-batch"
+			aria-label={`Rows for ${batch.operation}`}
+			// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must be reachable by keyboard
+			tabIndex={0}
+		>
+			<table className="pk-assistant-inputs" data-testid="approval-batch">
+				<caption className="sr-only">
+					{batch.rows.length === 1 ? "1 row" : `${batch.rows.length} rows`} for{" "}
+					{batch.operation}
+				</caption>
+				<thead>
+					<tr>
+						<th scope="col">Row</th>
+						{columns.map(({ key, label }) => (
+							<th key={key} scope="col" className="pk-mono-body">
+								{label}
+							</th>
+						))}
+					</tr>
+				</thead>
+				<tbody>
+					{rows.map((cells, at) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: rows have no identity beyond their position
+						<tr key={at}>
+							<th scope="row">{at + 1}</th>
+							{columns.map(({ key }) => {
+								const cell = cells.find((c) => `${c.part}:${c.name}` === key);
+								return (
+									<td key={key}>
+										{cell ? (
+											<span className="pk-assistant-value">
+												{valueText(cell.value)}
+											</span>
+										) : null}
+									</td>
+								);
+							})}
+						</tr>
+					))}
+				</tbody>
+			</table>
+		</section>
+	);
+}
+
+/** The inputs the operation will run with, one row per field, or a batch's rows. The one place a card's inputs are drawn. */
 function ApprovalInputs({ card }: { card: ApprovalCardData }) {
 	const { input } = card;
+	const batch = batchOf(card);
+	if (batch) return <BatchRows batch={batch} />;
 	if (!isRecord(input) || Object.keys(input).length === 0) {
 		return isRecord(input) ? (
 			<p className="pk-assistant-muted">No inputs</p>
@@ -106,9 +210,12 @@ export function ApprovalCard({
 	const [chosen, setChosen] = useState<string | null>(null);
 	const [error, setError] = useState("");
 	const destructive = card.risk === "destructive";
-	const confirmText = destructive ? card.confirmText : undefined;
+	const batch = batchOf(card);
+	// A batch carries its row count as confirmText whatever its risk; a destructive card always asks.
+	const mustType = destructive || card.confirmText !== undefined;
+	const confirmText = mustType ? card.confirmText : undefined;
 	const { approve, deny } = approvalOptions(card);
-	const locked = destructive && (confirmText === undefined || typed !== confirmText);
+	const locked = mustType && (confirmText === undefined || typed !== confirmText);
 	const resolved = decision !== undefined;
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the card first appears
@@ -147,7 +254,11 @@ export function ApprovalCard({
 				</Badge>
 			</header>
 			<p className="pk-assistant-card-op">
-				Operation <code className="pk-mono-body">{card.toolName}</code>
+				Operation{" "}
+				<code className="pk-mono-body">{batch?.operation ?? card.toolName}</code>
+				{batch
+					? `, ${batch.rows.length === 1 ? "1 row" : `${batch.rows.length} rows`}, run one at a time`
+					: null}
 			</p>
 			<ApprovalInputs card={card} />
 			{resolved ? (
@@ -162,7 +273,7 @@ export function ApprovalCard({
 						if (!locked) send(approve, confirmText === undefined ? undefined : typed);
 					}}
 				>
-					{destructive ? (
+					{mustType ? (
 						<TextField
 							id={typedId}
 							label={

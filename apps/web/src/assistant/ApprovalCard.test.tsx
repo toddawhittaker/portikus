@@ -132,3 +132,124 @@ test("an operation with no description is titled by its name, and empty inputs s
 	expect(screen.getByRole("heading", { name: "users_disable" })).toBeTruthy();
 	expect(screen.getByText("No inputs")).toBeTruthy();
 });
+
+const BATCH: ApprovalCardData = {
+	type: "permission",
+	id: "call-3",
+	toolName: "run_batch",
+	title: "Invites someone by email to join the site with a role",
+	input: {
+		operation: "invitations.create",
+		rows: [
+			{ body: { email: "a@example.edu", name: "Ann", role: "student" } },
+			{ body: { email: "b@example.edu", name: "Ben", role: "student" } },
+			{ body: { email: "c@example.edu", role: "student" } },
+		],
+	},
+	risk: "change",
+	confirmText: "3",
+	options: [
+		{ id: "approve", label: "Approve", decision: "allowed" },
+		{ id: "deny", label: "Deny", decision: "denied" },
+	],
+};
+
+test("a batch card draws one numbered table row per input, under header cells and a caption", () => {
+	render(<ApprovalCard card={BATCH} onAnswer={() => true} />);
+	const table = screen.getByRole("table", {
+		name: "3 rows for invitations.create",
+	});
+	expect(
+		within(table)
+			.getAllByRole("columnheader")
+			.map((cell) => cell.textContent),
+	).toEqual(["Row", "email", "name", "role"]);
+	const rows = within(table).getAllByRole("row").slice(1);
+	expect(rows.map((row) => row.textContent)).toEqual([
+		"1a@example.eduAnnstudent",
+		"2b@example.eduBenstudent",
+		"3c@example.edustudent",
+	]);
+	expect(within(rows[0] as HTMLElement).getByRole("rowheader").textContent).toBe("1");
+	expect(screen.getByText("invitations.create")).toBeTruthy();
+	expect(screen.getByText(/3 rows, run one at a time/)).toBeTruthy();
+	// The scrolling region is reachable by keyboard.
+	expect(
+		screen.getByRole("region", { name: "Rows for invitations.create" }).tabIndex,
+	).toBe(0);
+});
+
+test("a change batch stays locked until its row count is typed", () => {
+	const onAnswer = vi.fn(() => true);
+	render(<ApprovalCard card={BATCH} onAnswer={onAnswer} autoFocus />);
+	expect(screen.getByTestId("approval-risk").textContent).toBe("Change");
+	const box = screen.getByLabelText("Type 3 to approve");
+	expect(document.activeElement).toBe(box);
+	const approve = screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement;
+	expect(approve.disabled).toBe(true);
+	for (const wrong of ["2", "30", "three", " 3"]) {
+		fireEvent.change(box, { target: { value: wrong } });
+		expect(approve.disabled).toBe(true);
+	}
+	fireEvent.change(box, { target: { value: "3" } });
+	expect(approve.disabled).toBe(false);
+	fireEvent.click(approve);
+	expect(onAnswer).toHaveBeenCalledWith("approve", "3");
+});
+
+test("a field name used by two parts of the input keeps its part, and a missing field is an empty cell", () => {
+	render(
+		<ApprovalCard
+			card={{
+				...BATCH,
+				confirmText: "2",
+				input: {
+					operation: "x.y",
+					rows: [
+						{ path: { id: "w-1" }, body: { id: "b-1", note: "n1" } },
+						{ path: { id: "w-2" }, query: { page: 2 } },
+					],
+				},
+			}}
+			onAnswer={() => true}
+		/>,
+	);
+	const table = screen.getByRole("table");
+	expect(
+		within(table)
+			.getAllByRole("columnheader")
+			.map((cell) => cell.textContent),
+	).toEqual(["Row", "path.id", "body.id", "note", "page"]);
+	expect(
+		within(table)
+			.getAllByRole("row")
+			.slice(1)
+			.map((row) => row.textContent),
+	).toEqual(["1w-1b-1n1", "2w-22"]);
+});
+
+test("a destructive batch and a batch whose body is not an object both draw", () => {
+	render(
+		<ApprovalCard
+			card={{
+				...BATCH,
+				risk: "destructive",
+				input: { operation: "egress.add_entry", rows: [{ body: "raw" }] },
+				confirmText: "1",
+			}}
+			onAnswer={() => true}
+		/>,
+	);
+	expect(screen.getByTestId("approval-risk").textContent).toBe("Destructive");
+	expect(
+		screen.getByRole("table", { name: "1 row for egress.add_entry" }),
+	).toBeTruthy();
+	expect(screen.getByText("raw")).toBeTruthy();
+	expect(screen.getByLabelText("Type 1 to approve")).toBeTruthy();
+});
+
+test("a resolved batch shows its outcome and no box", () => {
+	render(<ApprovalCard card={BATCH} decision="allowed" onAnswer={() => true} />);
+	expect(screen.getByTestId("approval-outcome").textContent).toBe("Approved");
+	expect(screen.queryByRole("textbox")).toBeNull();
+});

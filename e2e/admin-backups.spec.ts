@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
+	BACKUP_CHANNEL_LOCK,
 	backupSet,
 	hostPull,
 	hostReport,
@@ -10,6 +11,7 @@ import {
 import {
 	createStudent,
 	finishOperation,
+	lockSharedState,
 	loginAs,
 	openAdmin,
 	query,
@@ -72,6 +74,16 @@ async function openTab(page: Page) {
 	await page.goto("/admin/backups");
 	await expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible();
 }
+
+let release: (() => Promise<void>) | undefined;
+
+test.beforeAll(async () => {
+	release = await lockSharedState(BACKUP_CHANNEL_LOCK);
+});
+
+test.afterAll(async () => {
+	await release?.();
+});
 
 test.beforeEach(async () => {
 	await resetBackups();
