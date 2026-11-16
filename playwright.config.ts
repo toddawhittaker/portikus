@@ -20,6 +20,7 @@ import {
 	FAKE_AGENT_PORT,
 	FAKE_DEX_GRPC_PORT,
 	FAKE_DEX_HTTP_PORT,
+	FAKE_MODEL_PORT,
 	MOCK_LMS_ORIGIN,
 	MOCK_LMS_PORT,
 	MOCK_ISSUER as MOCK_OIDC_ISSUER,
@@ -173,6 +174,13 @@ export default defineConfig({
 				FAKE_AGENT_PORT: String(FAKE_AGENT_PORT),
 				FAKE_AGENT_TOKEN: FAKE_AGENT_TOKEN,
 			},
+			timeout: 120_000,
+		},
+		{
+			// Stands in for the AI provider, so the assistant tests never call a real model.
+			command: "node e2e/fake-model-server.mjs",
+			port: FAKE_MODEL_PORT,
+			env: { FAKE_MODEL_PORT: String(FAKE_MODEL_PORT) },
 			timeout: 120_000,
 		},
 		{
