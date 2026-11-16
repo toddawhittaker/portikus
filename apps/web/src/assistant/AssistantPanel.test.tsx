@@ -73,8 +73,9 @@ function stubServer(server: Server, user: typeof ADMIN | typeof USER = ADMIN) {
 		if (url === "/assistant/conversations" && method === "POST") {
 			if (server.createStatus) {
 				return json(server.createStatus, {
-					code: "FORBIDDEN",
-					message: "The assistant is not enabled.",
+					code: "AI_NOT_ENABLED",
+					message: "The built-in AI is switched off.",
+					reason: "off",
 				});
 			}
 			server.created.push(JSON.parse(String(init?.body)));
@@ -403,14 +404,14 @@ test("an administrator sees why the assistant is off and a link to the AI settin
 });
 
 test("a start the server refuses as not enabled shows the plain line", async () => {
-	stubServer(server({ createStatus: 403 }));
+	stubServer(server({ createStatus: 409 }));
 	renderApp("/admin/users");
 	const { panel } = await openPanel();
 	fireEvent.click(
 		await within(panel).findByRole("button", { name: "New conversation" }),
 	);
 	const off = await within(panel).findByTestId("assistant-off");
-	expect(off.textContent).toMatch(/not enabled/);
+	expect(off.textContent).toMatch(/switched off/);
 });
 
 function Diagnose() {

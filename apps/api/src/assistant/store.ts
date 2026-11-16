@@ -123,22 +123,20 @@ export async function nameConversation(
 		.execute();
 }
 
-/** Add a step's tokens and mark the conversation used; returns the new total. */
+/** Add a step's tokens and mark the conversation used. */
 export async function addTokens(
 	db: Kysely<Database>,
 	id: string,
 	tokens: number,
-): Promise<number> {
-	const row = await db
+): Promise<void> {
+	await db
 		.updateTable("assistant_conversations")
 		.set({
 			tokens_used: sql`tokens_used + ${tokens}`,
 			last_active_at: new Date().toISOString(),
 		})
 		.where("id", "=", id)
-		.returning("tokens_used")
-		.executeTakeFirst();
-	return Number(row?.tokens_used ?? 0);
+		.execute();
 }
 
 export async function touchConversation(
