@@ -1,6 +1,11 @@
 import type { IncomingHttpHeaders } from "node:http";
 import cookie, { type CookieSerializeOptions } from "@fastify/cookie";
-import { type AuditArrival, auditArrival, type Database } from "@portikus/db";
+import {
+	ASSISTANT_MARK,
+	type AuditArrival,
+	auditArrival,
+	type Database,
+} from "@portikus/db";
 import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from "fastify";
 import fp from "fastify-plugin";
 import type { Kysely } from "kysely";
@@ -15,6 +20,10 @@ declare module "fastify" {
 		sessionToken: string | null;
 		/** The key that signed this request in; null for a session (SPEC.md section 24.13). */
 		apiKey: ApiKeyIdentity | null;
+	}
+	interface FastifyInstance {
+		/** The session cookie's name, so the in-process runner can send it. */
+		sessionCookieName: string;
 	}
 }
 
@@ -300,13 +309,20 @@ export const authPlugin = fp<AuthPluginOptions>(
 		app.decorateRequest("user", null);
 		app.decorateRequest("sessionToken", null);
 		app.decorateRequest("apiKey", null);
+		app.decorate("sessionCookieName", sessionCookie);
 
 		// Every audit row written while serving the request records how it arrived.
 		// Callback style, so the store covers the later hooks and the handler.
 		app.addHook("onRequest", (request, _reply, done) => {
+			// Checked first and removed, so no route or later hook ever sees the mark.
+			const marked = request.headers[ASSISTANT_MARK.header] === ASSISTANT_MARK.value;
+			delete request.headers[ASSISTANT_MARK.header];
 			const arrival: AuditArrival = {
-				via:
-					bearerApiKey(request.headers.authorization) === null ? "session" : "api_key",
+				via: marked
+					? "assistant"
+					: bearerApiKey(request.headers.authorization) === null
+						? "session"
+						: "api_key",
 				apiKeyId: null,
 			};
 			auditArrival.run(arrival, done);
@@ -325,6 +341,10 @@ export const authPlugin = fp<AuthPluginOptions>(
 			if (user) {
 				request.user = user;
 				request.sessionToken = token;
+				// Only the runner reads inject's answer; it never reaches a socket.
+				if (auditArrival.getStore()?.via === "assistant") {
+					reply.header(ASSISTANT_MARK.header, user.id);
+				}
 				return true;
 			}
 			if (opts.unknownSession && !(await opts.unknownSession(request, reply, token))) {

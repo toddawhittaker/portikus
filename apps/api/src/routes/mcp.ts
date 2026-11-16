@@ -56,6 +56,7 @@ export function registerMcpRoutes(
 		return serveMcp(handler, request, reply, {
 			origin,
 			authInfo: toAuthInfo({
+				kind: "api_key",
 				apiKey: secret,
 				userId: user.id,
 				keyId: key.id,

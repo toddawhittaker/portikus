@@ -75,7 +75,7 @@ type Run = (name: string, input: OperationInputValues) => Promise<CallToolResult
  */
 function runner(app: FastifyInstance, db: Kysely<Database>, caller: McpCaller): Run {
 	return async (name, input) => {
-		const result = await runOperation(app, caller, name, input);
+		const result = await runOperation(app, db, caller, name, input);
 		if (!result.ok) {
 			try {
 				await auditArrival.run({ via: "api_key", apiKeyId: caller.keyId }, () =>

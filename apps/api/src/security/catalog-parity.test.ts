@@ -287,7 +287,8 @@ async function ask(
 		if (!operation) throw new Error(`${key} is not an operation`);
 		const result: RunResult = await runOperation(
 			app,
-			{ apiKey: holder.secret, ip: "127.0.0.1" },
+			testDb.db,
+			{ kind: "api_key", apiKey: holder.secret, ip: "127.0.0.1" },
 			operation.name,
 			{
 				path: values,
