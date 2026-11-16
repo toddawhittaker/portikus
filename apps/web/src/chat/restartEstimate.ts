@@ -8,7 +8,8 @@
  * tracks API prices, so it is an estimate.
  */
 
-import { HANDOFF_TOKENS } from "@portikus/contracts";
+import { HANDOFF_TOKENS, type ModelPrice, PricingTable } from "@portikus/contracts";
+import { request } from "../api/request.js";
 
 export interface PriceRatios {
 	/** A cache read, as a multiple of the model's input price. */
@@ -20,7 +21,8 @@ export interface PriceRatios {
 }
 
 /**
- * Price ratios by model. Claude: the Claude pricing page. Codex: OpenAI's
+ * The built-in price ratios, used for a model the site's table has no row
+ * for. Claude: the Claude pricing page. Codex: OpenAI's
  * API prices, since subscription metering is not published. A cache write
  * is 1.25 times the input price for the default 30-minute cache (OpenAI's
  * prompt-caching guide). A cache read is a twentieth of the input price for
@@ -59,7 +61,64 @@ const MIN_GROWTH = 1000;
 const MIN_REQUESTS = 1;
 const WINDOW_SHARE = 0.9;
 
+// The site's price table, read once per page load; null until it arrives or
+// when it could not be read, and then the built-in table answers.
+let siteTable: readonly ModelPrice[] | null = null;
+let loading: Promise<void> | null = null;
+
+/** Start reading `GET /pricing`, once per page load. Failures stay silent. */
+export function loadPriceTable(): Promise<void> {
+	loading ??= request(PricingTable, "/pricing").then(
+		(table) => {
+			siteTable = table.prices;
+		},
+		() => undefined,
+	);
+	return loading;
+}
+
+/** For tests: forget the table read so far. */
+export function resetPriceTable(): void {
+	siteTable = null;
+	loading = null;
+}
+
+/** The longest site row whose model is part of `model`, for the agent's provider. */
+function siteRow(agent: "claude" | "codex", model: string): ModelPrice | null {
+	const provider = agent === "codex" ? "openai" : "anthropic";
+	let best: ModelPrice | null = null;
+	for (const row of siteTable ?? []) {
+		if (row.provider !== provider || !model.includes(row.model)) continue;
+		if (!best || row.model.length > best.model.length) best = row;
+	}
+	return best;
+}
+
 export function priceRatios(
+	agent: "claude" | "codex",
+	model: string,
+	cacheTtlSeconds: number | null,
+): PriceRatios {
+	void loadPriceTable();
+	const row = siteRow(agent, model);
+	if (row) {
+		const oneHour = cacheTtlSeconds !== null && cacheTtlSeconds >= 3600;
+		return {
+			read: row.cacheReadRatio,
+			write:
+				oneHour && row.cacheWriteOneHourRatio !== null
+					? row.cacheWriteOneHourRatio
+					: row.cacheWriteRatio,
+			surcharge:
+				row.surchargeAboveTokens !== null && row.surchargeFactor !== null
+					? { above: row.surchargeAboveTokens, factor: row.surchargeFactor }
+					: null,
+		};
+	}
+	return builtInRatios(agent, model, cacheTtlSeconds);
+}
+
+function builtInRatios(
 	agent: "claude" | "codex",
 	model: string,
 	cacheTtlSeconds: number | null,

@@ -5,6 +5,12 @@ import { AiBaseUrl } from "./ai.js";
 export const PriceProvider = z.enum(["anthropic", "openai"]);
 export type PriceProvider = z.infer<typeof PriceProvider>;
 
+/** Read when the AI settings list no pricing sources: the providers' own API price pages. */
+export const DEFAULT_PRICE_SOURCES: readonly string[] = [
+	"https://platform.openai.com/docs/pricing",
+	"https://docs.claude.com/en/docs/about-claude/pricing",
+];
+
 const Ratio = z.number().positive().max(10);
 
 /**

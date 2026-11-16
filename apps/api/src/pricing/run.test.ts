@@ -4,6 +4,8 @@
  * proposals only for what changed. The weekly timer runs only when due and
  * available. Model calls use the fake client; pages a fake fetch.
  */
+
+import { DEFAULT_PRICE_SOURCES } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -13,7 +15,7 @@ import {
 } from "../ai/fake-model.js";
 import type { ModelPart } from "../ai/model.js";
 import type { SourcePage } from "./fetch.js";
-import { DEFAULT_PRICE_SOURCES, startPriceRun } from "./run.js";
+import { startPriceRun } from "./run.js";
 import { WEEK_MS, weeklyDue, weeklyPriceTick } from "./weekly.js";
 
 const state = vi.hoisted(() => ({

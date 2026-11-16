@@ -186,6 +186,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 		"Sign-in",
 		"Site address",
 		"AI",
+		"Model prices",
 		"Settings",
 	]);
 	expect(
