@@ -326,6 +326,8 @@ has "/lti/* reaches the API" '^[[:space:]]+@api path .* /lti/\* ' "${app}"
 has "the course list and members reach the API" '^[[:space:]]+@api path .* /courses\* ' "${app}"
 has "/mcp reaches the API" '^[[:space:]]+@api path .* /mcp ' "${app}"
 has "/openapi.json reaches the API" '^[[:space:]]+@api path .* /openapi\.json ' "${app}"
+has "the assistant's REST paths reach the API" '^[[:space:]]+@api path .* /assistant\* ' "${app}"
+has "the public price list reaches the API, by its exact path" '^[[:space:]]+@api path .* /pricing ' "${app}"
 # The setup code is gone (ADR 0031); /setup is only a page.
 lacks "no /setup route reaches the API" 'handle /setup' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
@@ -428,7 +430,8 @@ edge_open=0
 while IFS= read -r m; do
   case "${m}" in
     /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | /mcp | /openapi.json | \
-      /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset | /admin/root-shell/ws) ;;
+      /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset | /admin/root-shell/ws | \
+      /assistant\* | /pricing | /assistant/conversations/\*/socket) ;;
     *)
       bad "the route '${m}' proxies to the API and could cover /edge"
       edge_open=1
@@ -488,7 +491,7 @@ has "the global options keep Caddy's internal authority, so its root exists what
 echo ""
 echo "--- Reloads keep WebSockets open ---"
 
-count_is "the API's WebSocket proxies and the preview proxies delay closing streams on a reload" 3 \
+count_is "the API's WebSocket proxies and the preview proxies delay closing streams on a reload" 4 \
   '^[[:space:]]+stream_close_delay 1h$' "${rendered}"
 awk '/^\thandle \/workspaces\* \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${app}" >"${work}/workspaces-block"
 has "the /workspaces proxy, which carries every API WebSocket, has the delay" \
@@ -501,6 +504,16 @@ if [ "$(awk '/^\thandle @root_shell_ws \{$/ { print NR }' "${app}")" -lt "$(awk 
 else
   bad "the root-shell handle comes ahead of @api, which would take it"
 fi
+awk '/^\thandle @assistant_ws \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${app}" >"${work}/assistant-block"
+has "the assistant's socket proxy has the delay, so a reload does not cut a conversation" \
+  '^[[:space:]]+stream_close_delay 1h$' "${work}/assistant-block"
+if [ "$(awk '/^\thandle @assistant_ws \{$/ { print NR }' "${app}")" -lt "$(awk '/^\thandle @api \{$/ { print NR }' "${app}")" ]; then
+  ok "the assistant socket handle comes ahead of @api, which would take it"
+else
+  bad "the assistant socket handle comes ahead of @api, which would take it"
+fi
+has "the assistant socket is matched by its exact path shape" \
+  '^[[:space:]]+@assistant_ws path /assistant/conversations/\*/socket$' "${app}"
 has "the preview proxies' shared rules have the delay" \
   '^[[:space:]]+stream_close_delay 1h$' "${preview}"
 

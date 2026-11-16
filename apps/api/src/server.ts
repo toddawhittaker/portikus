@@ -50,6 +50,7 @@ import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAgentMeterRoutes } from "./routes/agent-meter.js";
 import { registerAgentUsageRoutes } from "./routes/agent-usage.js";
 import { registerApiKeyRoutes } from "./routes/api-keys.js";
+import { registerAssistantRoutes } from "./routes/assistant.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChatSocket } from "./routes/chat.js";
 import { registerCheckHistoryRoutes } from "./routes/check-history.js";
@@ -360,6 +361,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminProxyHostRoutes(instance, deps);
 		registerAdminAiRoutes(instance, deps);
 		registerAdminPricingRoutes(instance, deps);
+		registerAssistantRoutes(instance, deps);
 		registerAdminLmsRoutes(instance, deps);
 		registerAdminCourseRoutes(instance, deps);
 		registerAdminAddressRoutes(instance, deps, nonces, deps.certificateNet);

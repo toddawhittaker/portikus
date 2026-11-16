@@ -83,6 +83,9 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/dex-users/:id/remove": 404,
 	"POST /admin/dex-users/:id/send-reset-link": 404,
 	"PATCH /admin/dex-users/:id": 404,
+	// The built-in AI is off in the matrix world, and it holds no conversation.
+	"POST /assistant/conversations": 409,
+	"DELETE /assistant/conversations/:id": 404,
 	// The matrix world has no waiting invitation.
 	"POST /admin/invitations/:id/revoke": 404,
 	"POST /admin/invitations/:id/send": 404,

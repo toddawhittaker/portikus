@@ -492,7 +492,7 @@ const socketKeys = unexposedKeys.filter(
 
 test("every route outside the catalog and its doors is checked", () => {
 	expect(unexposedKeys.length).toBeGreaterThan(150);
-	expect(socketKeys.length).toBe(8);
+	expect(socketKeys.length).toBe(9);
 });
 
 /** The status of a real upgrade with this key, or 101 if the socket opened. */

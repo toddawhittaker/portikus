@@ -133,6 +133,7 @@ test("every admin tab's intro has an anchor on the admin help to land on", () =>
 		"admin-settings",
 		"admin-signin",
 		"admin-address",
+		"admin-ai",
 		"admin-api-keys",
 	]) {
 		expect(ids).toContain(anchor);
