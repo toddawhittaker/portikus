@@ -143,6 +143,10 @@ test("the notice must be accepted before the switch works", async ({ page }) => 
 	await expectNoViolations(page, "main");
 	await notice.getByRole("button", { name: "I have read this" }).click();
 	await expect(page.getByTestId("ai-notice-accepted")).toContainText("Accepted by");
+	// The button went with the full notice; the next group holds the keyboard.
+	await expect(
+		page.getByRole("heading", { level: 3, name: "Provider", exact: true }),
+	).toBeFocused();
 	await expect(notice.getByText("Read the notice again")).toBeVisible();
 
 	await expect(toggle).not.toHaveAttribute("aria-disabled");
@@ -209,8 +213,19 @@ test("a set key shows only its last four characters, and the proxy offer is sent
 	expect(saves[1]).not.toHaveProperty("key");
 	await expectNoViolations(page, "main");
 
+	// Replace gives way to the field it opens.
+	await page.getByRole("button", { name: "Replace" }).click();
+	await expect(page.getByLabel("New key", { exact: true })).toBeFocused();
+
+	// Clear and Replace go with the key; focus stays on what the key now is.
 	await page.getByRole("button", { name: "Clear" }).click();
 	await expect(page.getByTestId("ai-key-state")).toHaveText("Not set");
+	await expect(page.getByTestId("ai-key-state")).toBeFocused();
+	await page.screenshot({ path: "/tmp/epic69/fr2/shots/ai-key-cleared-dark.png" });
+	await expectNoViolations(page, "main");
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, "main");
+	await page.screenshot({ path: "/tmp/epic69/fr2/shots/ai-key-cleared-light.png" });
 });
 
 test("the test passes all four stages and never shows the reply", async ({ page }) => {

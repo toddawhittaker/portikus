@@ -204,6 +204,37 @@ test.describe("admin health", () => {
 		});
 	}
 
+	test("in a narrow frame the Diagnose button keeps its own width under the title", async ({
+		page,
+	}) => {
+		await seedSample(50, 0);
+		// The assistant reads as on, so the page offers Diagnose (SPEC.md section 20.5).
+		await routeApi(page, "**/assistant/status", (route) =>
+			route.fulfill({ json: { enabled: true, reason: null } }),
+		);
+		await page.setViewportSize({ width: 400, height: 800 });
+		await page.emulateMedia({ colorScheme: "dark" });
+		await openHealth(page);
+		const diagnose = page.getByRole("button", {
+			name: "Diagnose site health",
+			exact: true,
+		});
+		await expect(diagnose).toBeVisible();
+		const [button, main] = await Promise.all([
+			diagnose.boundingBox(),
+			page.getByTestId("admin-content").boundingBox(),
+		]);
+		expect(button?.width ?? 0).toBeLessThan((main?.width ?? 0) / 2);
+		await page.screenshot({ path: "/tmp/epic69/fr2/shots/health-narrow-dark.png" });
+		await page.emulateMedia({ colorScheme: "light" });
+		await page.screenshot({ path: "/tmp/epic69/fr2/shots/health-narrow-light.png" });
+		const results = await (await settledAxe(page))
+			.withTags(WCAG_TAGS)
+			.include(".pk-admin-head")
+			.analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+
 	test("with nothing failed, the failures card says so and its zeros step back", async ({
 		page,
 	}) => {

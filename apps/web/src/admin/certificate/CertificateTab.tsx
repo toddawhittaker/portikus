@@ -18,6 +18,7 @@ import { useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import "../backups/backups.css";
+import { DiagnoseButton } from "../../assistant/DiagnoseButton.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
 import { Notice } from "../Notice.js";
@@ -466,6 +467,12 @@ function JobGroup({ job }: { job: CertificateJobView }) {
 					</>
 				) : null}
 			</dl>
+			{shown.state === "failed" ? (
+				<DiagnoseButton
+					context={{ kind: "job", id: `certificate:${shown.id}` }}
+					name="Diagnose the failed certificate job"
+				/>
+			) : null}
 			<JobLog idPrefix="cert" log={log} />
 		</Group>
 	);

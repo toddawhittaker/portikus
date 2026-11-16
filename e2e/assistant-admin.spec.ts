@@ -112,7 +112,7 @@ test("inviting three people as students takes one approval typed with the row co
 
 		// A change batch still asks for the count; the wrong one keeps Approve locked.
 		const approve = card.getByRole("button", { name: "Approve" });
-		await expect(typeBox(card)).toBeFocused();
+		await expect(card.getByRole("heading", { level: 3 })).toBeFocused();
 		await expect(card.getByText("Type 3 to approve")).toBeVisible();
 		await expect(approve).toBeDisabled();
 		await typeBox(card).fill("2");

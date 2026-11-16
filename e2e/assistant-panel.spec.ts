@@ -9,6 +9,8 @@ import {
 } from "./assistant-helpers";
 import { expectNoViolations, openAdmin } from "./helpers";
 
+const SHOTS = "/tmp/epic69/fr2/shots";
+
 /**
  * The administrator's assistant panel against the real API and the fake
  * model server (SPEC.md section 20.5): a reply, a read tool, a change card
@@ -59,6 +61,10 @@ test("ask, see a reply and a read tool, approve a change, and keyboard focus mov
 		panel.getByRole("heading", { name: "Assistant", level: 2 }),
 	).toBeFocused();
 	await panel.getByRole("button", { name: "New conversation" }).click();
+	// The new conversation takes the keyboard at its message box.
+	await expect(
+		panel.getByRole("textbox", { name: "Message the assistant" }),
+	).toBeFocused();
 	await expect(panel.getByTestId("assistant-note")).toContainText(
 		"Conversations are kept 30 days and only you can see them.",
 	);
@@ -78,7 +84,8 @@ test("ask, see a reply and a read tool, approve a change, and keyboard focus mov
 	await expect(card.getByTestId("approval-risk")).toHaveText("Change");
 	await expect(card.getByRole("table", { name: "Inputs" })).toBeVisible();
 	await expect(card.getByRole("button", { name: /always/i })).toHaveCount(0);
-	await expect(card.getByRole("button", { name: "Approve" })).toBeFocused();
+	// A new card is read from its title first, not from a button.
+	await expect(card.getByRole("heading", { level: 3 })).toBeFocused();
 	await expectNoViolations(page, "#pk-assistant-panel");
 	await card.getByRole("button", { name: "Approve" }).click();
 	await expect(card.getByTestId("approval-outcome")).toHaveText("Approved");
@@ -112,7 +119,16 @@ test("a destructive card stays locked until typed, a denial is shown, and the hi
 	const label = (await card.locator("label").first().textContent()) ?? "";
 	const confirmText = label.replace(/^Type /, "").replace(/ to approve$/, "");
 	const approve = card.getByRole("button", { name: "Approve" });
-	await expect(approve).toBeDisabled();
+	// Locked, but focusable and described by what unlocks it.
+	await expect(approve).toHaveAttribute("aria-disabled", "true");
+	await expect(approve).toHaveAccessibleDescription(`Type ${confirmText} to approve`);
+	await approve.focus();
+	await expect(approve).toBeFocused();
+	await page.screenshot({ path: `${SHOTS}/locked-approve-dark.png` });
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, "#pk-assistant-panel");
+	await page.screenshot({ path: `${SHOTS}/locked-approve-light.png` });
+	await page.emulateMedia({ colorScheme: "dark" });
 	await box.fill(confirmText.slice(0, -1));
 	await expect(approve).toBeDisabled();
 	await box.fill(confirmText.toUpperCase());
@@ -134,6 +150,9 @@ test("a destructive card stays locked until typed, a denial is shown, and the hi
 		.first()
 		.click();
 	await expect(again.getByText(`Left alone ${tag}.`)).toBeVisible({ timeout: 15_000 });
+	// The replayed history is not news: nothing is announced on opening it.
+	await page.waitForTimeout(1_000);
+	await expect(page.getByTestId("assistant-announcer")).toHaveText("");
 	await expect(again.getByTestId("chat-decision").first()).toHaveAttribute(
 		"data-decision",
 		"denied",
@@ -152,6 +171,8 @@ test("a conversation is deleted behind a confirm", async ({ page }) => {
 	await panel.getByTestId("assistant-back").click();
 
 	const rows = panel.getByTestId("assistant-conversation");
+	// Back returns to the row the conversation was opened from; this one is newest.
+	await expect(rows.first().getByRole("button").first()).toBeFocused();
 	const before = await rows.count();
 	await rows.first().getByTestId("assistant-delete").click();
 	const confirm = page.getByTestId("assistant-delete-confirm");
@@ -159,6 +180,12 @@ test("a conversation is deleted behind a confirm", async ({ page }) => {
 	await expect(confirm).toHaveCount(0);
 	await expect(rows).toHaveCount(before - 1);
 	await expect(panel).toBeVisible();
+	// The deleted row's place goes to the next row, or to the list's heading when none is left.
+	await expect(
+		before > 1
+			? rows.first().getByRole("button").first()
+			: panel.getByRole("heading", { name: "Conversations", exact: true }),
+	).toBeFocused();
 });
 
 test("with the assistant off the panel says so and links to the AI settings", async ({
@@ -173,5 +200,46 @@ test("with the assistant off the panel says so and links to the AI settings", as
 	);
 	await expect(panel.getByRole("button", { name: "New conversation" })).toHaveCount(0);
 	await expectNoViolations(page, "#pk-assistant-panel");
+	await setAssistant(page, true);
+});
+
+test("where the panel covers the page, the page under it is inert until it closes", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 600, height: 800 });
+	const main = page.getByTestId("page-admin");
+	const panel = await openPanel(page);
+	await expect(main).toHaveAttribute("inert", "");
+	const navInert = await page
+		.locator("nav.pk-adminnav")
+		.evaluate((el) => el.closest("[inert]") !== null);
+	expect(navInert).toBe(true);
+	await expect(panel).not.toHaveAttribute("inert");
+	// The keyboard stays in the panel and the header; nothing under it is reached.
+	for (let step = 0; step < 12; step += 1) {
+		await page.keyboard.press("Tab");
+		const inside = await main.evaluate((el) => el.contains(document.activeElement));
+		expect(inside).toBe(false);
+	}
+	await page.screenshot({ path: `${SHOTS}/covering-dark.png` });
+	await expectNoViolations(page);
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page);
+	await page.screenshot({ path: `${SHOTS}/covering-light.png` });
+
+	await panel.getByRole("button", { name: "Close the assistant" }).click();
+	await expect(panel).toHaveCount(0);
+	await expect(page.locator("[inert]")).toHaveCount(0);
+});
+
+test("a start refused as not enabled is announced in the panel's status region", async ({
+	page,
+}) => {
+	const panel = await openPanel(page);
+	await expect(panel.getByRole("button", { name: "New conversation" })).toBeVisible();
+	await setAssistant(page, false);
+	await panel.getByRole("button", { name: "New conversation" }).click();
+	await expect(panel.getByTestId("assistant-status")).toContainText("switched off");
+	await expect(panel.getByTestId("assistant-off")).toBeVisible();
 	await setAssistant(page, true);
 });
