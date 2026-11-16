@@ -60,6 +60,7 @@ import { registerCourseLiveHelpRoutes } from "./routes/course-live-help.js";
 import { registerCourseLiveHelpPreviewRoutes } from "./routes/course-live-help-preview.js";
 import { registerCourseRosterRoutes } from "./routes/course-roster.js";
 import { registerCourseShareRoutes } from "./routes/course-shares.js";
+import { registerCourseStuckRoutes } from "./routes/course-stuck.js";
 import { registerCourseRoutes } from "./routes/courses.js";
 import { registerFileSearchRoutes } from "./routes/file-search.js";
 import { registerFileRoutes } from "./routes/files.js";
@@ -310,6 +311,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerCourseLiveHelpRoutes(instance, routeDeps);
 		registerCourseLiveHelpPreviewRoutes(instance, routeDeps);
 		registerAgentUsageRoutes(instance, deps);
+		registerCourseStuckRoutes(instance, deps);
 		registerLtiDeepLinkRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
 		registerWorkspaceSocket(instance, routeDeps);

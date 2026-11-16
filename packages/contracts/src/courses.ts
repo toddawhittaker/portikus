@@ -137,3 +137,34 @@ export type CourseProfileResponse = z.infer<typeof CourseProfileResponse>;
 /** Response body for `GET /admin/courses`: every course on the site, sorted by title. */
 export const AdminCoursesResponse = z.array(CourseListItem);
 export type AdminCoursesResponse = z.infer<typeof AdminCoursesResponse>;
+
+/**
+ * One student in `GET /courses/:courseId/stuck`: counts and times only, never
+ * file contents or chat text (SPEC.md section 20.5).
+ */
+export const CourseStuckStudent = z.object({
+	userId: z.string().uuid(),
+	displayName: z.string(),
+	/** Failed or errored check runs since the student's last passing one. */
+	failingStreak: Count,
+	lastCheckAt: z.string().datetime({ offset: true }).nullable(),
+	/** Live help sessions in this course still open. */
+	liveHelpOpen: Count,
+	/** Live help sessions in this course started in the last 7 days. */
+	liveHelpRecent: Count,
+	/** Coding-agent sessions and input plus output tokens over the last 7 days. */
+	agentSessions: Count,
+	agentTokens: Count,
+	/** The latest of a launch, a check, a live help request or a day of agent use. */
+	lastActivityAt: z.string().datetime({ offset: true }).nullable(),
+	/** Short reasons this student may be stuck, most telling first; empty when none. */
+	reasons: z.array(z.string()),
+});
+export type CourseStuckStudent = z.infer<typeof CourseStuckStudent>;
+
+/** Response body for `GET /courses/:courseId/stuck`: students, most likely stuck first. */
+export const CourseStuckResponse = z.object({
+	days: z.literal(7),
+	students: z.array(CourseStuckStudent),
+});
+export type CourseStuckResponse = z.infer<typeof CourseStuckResponse>;
