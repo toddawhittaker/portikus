@@ -91,6 +91,23 @@ export function splitSections(file: string, markdown: string): Section[] {
 	return sections;
 }
 
+/** Where a guide is installed, or undefined when it is not. */
+function guidePath(file: string, dirs: readonly string[]): string | undefined {
+	const dir = dirs.find((one) => existsSync(join(one, file)));
+	return dir === undefined ? undefined : join(dir, file);
+}
+
+/** The installed guides a role may read, each with the path of its whole text. */
+export function guideFilesFor(
+	role: AssistantRole,
+	dirs: readonly string[] = GUIDE_DIRS,
+): { file: string; path: string }[] {
+	return FILES_BY_ROLE[role].flatMap((file) => {
+		const path = guidePath(file, dirs);
+		return path === undefined ? [] : [{ file, path }];
+	});
+}
+
 let loaded: Map<string, Section[]> | undefined;
 
 /** The guides on disk, read once; a missing file is simply not offered. */
@@ -98,9 +115,8 @@ function guideSections(dirs: readonly string[] = GUIDE_DIRS): Map<string, Sectio
 	if (loaded && dirs === GUIDE_DIRS) return loaded;
 	const files = new Map<string, Section[]>();
 	for (const file of GUIDE_FILES) {
-		const dir = dirs.find((one) => existsSync(join(one, file)));
-		if (dir)
-			files.set(file, splitSections(file, readFileSync(join(dir, file), "utf8")));
+		const path = guidePath(file, dirs);
+		if (path) files.set(file, splitSections(file, readFileSync(path, "utf8")));
 	}
 	if (dirs === GUIDE_DIRS) loaded = files;
 	return files;
