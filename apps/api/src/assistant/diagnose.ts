@@ -35,7 +35,7 @@ const DIAGNOSE_RESULT_CHARS = 6000;
 
 const FAILED_TEXT = "Something went wrong, and the assistant stopped.";
 
-const UuidText = z.string().uuid();
+export const UuidText = z.string().uuid();
 
 const ERROR_LOGS: Read = {
 	operation: "logs.list",

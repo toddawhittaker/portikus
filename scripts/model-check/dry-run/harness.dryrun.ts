@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { apiLoginAs, WEB_ORIGIN } from "../../../e2e/helpers";
 import { FAKE_MODEL_PORT } from "../../../e2e/ports";
+import { AI_NOTICE_VERSION } from "../../../packages/contracts/dist/ai.js";
 
 /**
  * The model check's whole harness (scripts/model-check/run.ts) against the
@@ -25,7 +26,7 @@ test("every scripted task passes against the fake model, and the settings are re
 	expect((await request.put("/admin/ai", { headers, data: BEFORE })).ok()).toBe(true);
 	const notice = await request.post("/admin/ai/notice", {
 		headers,
-		data: { noticeVersion: 1 },
+		data: { noticeVersion: AI_NOTICE_VERSION },
 	});
 	expect(notice.ok()).toBe(true);
 	const on = await request.put("/admin/ai", { headers, data: { enabled: true } });

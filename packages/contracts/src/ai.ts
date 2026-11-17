@@ -4,7 +4,7 @@ import { isLocalOrPrivateHost } from "./browser.js";
 import { isHttpsUrl } from "./settings.js";
 
 /** Bumped when the privacy notice text changes, so it must be read again. */
-export const AI_NOTICE_VERSION = 1;
+export const AI_NOTICE_VERSION = 2;
 
 export const ProviderKind = z.enum(["openai-compatible", "anthropic"]);
 export type ProviderKind = z.infer<typeof ProviderKind>;

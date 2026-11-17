@@ -54,8 +54,7 @@ export const AssistantContextKind = z.enum([
 export type AssistantContextKind = z.infer<typeof AssistantContextKind>;
 
 /** Which setup page a setup conversation helps with. */
-export const AssistantSetupId = z.enum(["lms", "signin"]);
-export type AssistantSetupId = z.infer<typeof AssistantSetupId>;
+const AssistantSetupId = z.enum(["lms", "signin"]);
 
 /** The item a Diagnose button opens the conversation about; a setup context names its page. */
 export const AssistantContext = z

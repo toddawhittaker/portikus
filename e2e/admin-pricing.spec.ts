@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 
 import { type Browser, expect, type Page, test } from "@playwright/test";
+import { AI_NOTICE_VERSION } from "../packages/contracts/dist/ai.js";
 import { FAKE_PRICE_ROWS } from "./fake-model-server.mjs";
 import {
 	createSignedInUser,
@@ -23,8 +24,6 @@ import { FAKE_MODEL_PORT } from "./ports";
 /** The same lock as the AI settings specs: these tests change the one AI settings row. */
 const AI_SETTINGS_LOCK = "e2e-ai-settings";
 const SHOTS = "/tmp/epic69/t12/shots";
-// The privacy notice version the API expects, as packages/contracts sets it.
-const AI_NOTICE_VERSION = 1;
 
 const AI_COLUMNS =
 	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at, price_sources";
