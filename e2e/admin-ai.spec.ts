@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Browser, expect, type Page, test } from "@playwright/test";
+import { AI_NOTICE_VERSION } from "../packages/contracts/dist/ai.js";
 import {
 	createSignedInUser,
 	expectNoViolations,
@@ -36,12 +37,14 @@ async function script(steps: unknown[]): Promise<void> {
 }
 
 const ROW_COLUMNS =
-	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at";
+	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at, triage_enabled, triage_daily_limit, triage_forward";
 let saved: Record<string, unknown> | undefined;
 let release: (() => Promise<void>) | undefined;
 
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
+	// Other specs hold the lock for minutes; waiting for it is not a failure.
+	test.setTimeout(600_000);
 	release = await lockSharedState(AI_SETTINGS_LOCK);
 	[saved] = await query(`select ${ROW_COLUMNS} from ai_settings where id = 1`);
 });
@@ -62,7 +65,8 @@ test.beforeEach(async ({ page }) => {
 		`update ai_settings set enabled = false, provider_kind = null, base_url = null,
 		model = null, key_sealed = null, key_hint = null, monthly_token_cap = 5000000,
 		conversation_token_budget = 200000, notice_version = null,
-		notice_accepted_by = null, notice_accepted_at = null where id = 1`,
+		notice_accepted_by = null, notice_accepted_at = null, triage_enabled = false,
+		triage_daily_limit = 5, triage_forward = false where id = 1`,
 	);
 	await page.emulateMedia({ colorScheme: "dark" });
 	await openAdmin(page);
@@ -98,7 +102,7 @@ async function configure(page: Page): Promise<void> {
 	const headers = { origin: WEB_ORIGIN };
 	const notice = await page.request.post("/admin/ai/notice", {
 		headers,
-		data: { noticeVersion: 1 },
+		data: { noticeVersion: AI_NOTICE_VERSION },
 	});
 	expect(notice.ok(), await notice.text()).toBe(true);
 	const put = await page.request.put("/admin/ai", {

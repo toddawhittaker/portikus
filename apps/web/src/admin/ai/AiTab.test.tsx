@@ -90,7 +90,7 @@ test("the notice shows in full until accepted, then who accepted it", async () =
 test("the switch is locked with its reason until the notice and key are in place", async () => {
 	const sent = serve(BASE);
 	renderWithQuery(<AiTab />);
-	const toggle = await screen.findByRole("switch");
+	const toggle = await screen.findByRole("switch", { name: /Turn on the assistant/ });
 	expect(toggle.getAttribute("aria-disabled")).toBe("true");
 	expect(screen.getByTestId("ai-switch-reason").textContent).toMatch(
 		/notice and set a key/,
@@ -102,7 +102,7 @@ test("the switch is locked with its reason until the notice and key are in place
 test("a ready site turns the assistant on", async () => {
 	const sent = serve(READY);
 	renderWithQuery(<AiTab />);
-	const toggle = await screen.findByRole("switch");
+	const toggle = await screen.findByRole("switch", { name: /Turn on the assistant/ });
 	expect(toggle.getAttribute("aria-disabled")).toBe(null);
 	fireEvent.click(toggle);
 	await waitFor(() =>
@@ -235,7 +235,7 @@ test("a refused switch shows the API's reason", async () => {
 		return json(200, READY);
 	});
 	renderWithQuery(<AiTab />);
-	fireEvent.click(await screen.findByRole("switch"));
+	fireEvent.click(await screen.findByRole("switch", { name: /Turn on the assistant/ }));
 	expect((await screen.findByRole("alert")).textContent).toBe("Set a key first.");
 });
 
@@ -286,4 +286,98 @@ test("a listed model left unchosen shows its error on the Select", async () => {
 	);
 	expect(trigger.getAttribute("aria-describedby")).toContain("ai-model-err");
 	expect(document.activeElement).toBe(trigger);
+});
+
+test("a notice accepted at an older version must be accepted again", async () => {
+	const sent = serve({ ...READY, noticeVersion: AI_NOTICE_VERSION - 1 });
+	renderWithQuery(<AiTab />);
+	const notice = await screen.findByTestId("ai-notice");
+	// The full notice is back, with its alert explanation paragraph.
+	expect(within(notice).getByTestId("ai-notice-alerts").textContent).toMatch(
+		/without anyone asking.*alert, the latest health figures and a few recent error lines.*Nothing else is sent/,
+	);
+	expect(
+		screen
+			.getByRole("switch", { name: /Turn on the assistant/ })
+			.getAttribute("aria-disabled"),
+	).toBe("true");
+	fireEvent.click(within(notice).getByRole("button", { name: "I have read this" }));
+	await screen.findByTestId("ai-notice-accepted");
+	expect(sent.find((r) => r.url === "/admin/ai/notice")?.body).toEqual({
+		noticeVersion: AI_NOTICE_VERSION,
+	});
+});
+
+test("alert explanations are off by default and hide the limit until turned on", async () => {
+	const sent = serve(READY);
+	renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	const explain = within(group).getByRole("switch", { name: "Explain alerts" });
+	const forward = within(group).getByRole("switch", {
+		name: "Add explanations to email and Pushover alerts",
+	});
+	expect((explain as HTMLInputElement).checked).toBe(false);
+	expect((forward as HTMLInputElement).checked).toBe(false);
+	expect(within(group).queryByLabelText("Most explanations a day")).toBeNull();
+	fireEvent.click(explain);
+	await waitFor(() =>
+		expect(
+			within(group).getByLabelText<HTMLInputElement>("Most explanations a day").value,
+		).toBe("5"),
+	);
+	expect(sent.find((r) => r.method === "PUT")?.body).toEqual({ triageEnabled: true });
+	fireEvent.click(forward);
+	await waitFor(() =>
+		expect(sent.filter((r) => r.method === "PUT").at(-1)?.body).toEqual({
+			triageForward: true,
+		}),
+	);
+});
+
+test("the daily limit takes 0 to 100 and refuses the rest at its field", async () => {
+	const sent = serve({ ...READY, triageEnabled: true });
+	renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	const limit = within(group).getByLabelText("Most explanations a day");
+	const save = within(group).getByRole("button", { name: "Save daily limit" });
+	for (const bad of ["101", "-1", "2.5", "five", ""]) {
+		fireEvent.change(limit, { target: { value: bad } });
+		fireEvent.click(save);
+		await waitFor(() => expect(limit.getAttribute("aria-invalid")).toBe("true"));
+		expect(document.activeElement).toBe(limit);
+	}
+	expect(sent.some((r) => r.method === "PUT")).toBe(false);
+	fireEvent.change(limit, { target: { value: "0" } });
+	fireEvent.click(save);
+	await waitFor(() =>
+		expect(sent.find((r) => r.method === "PUT")?.body).toEqual({ triageDailyLimit: 0 }),
+	);
+	// The saved value remounts the form, so find the field again.
+	await waitFor(() =>
+		expect(
+			screen.getByLabelText<HTMLInputElement>("Most explanations a day").value,
+		).toBe("0"),
+	);
+	fireEvent.change(screen.getByLabelText("Most explanations a day"), {
+		target: { value: "100" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Save daily limit" }));
+	await waitFor(() =>
+		expect(sent.filter((r) => r.method === "PUT").at(-1)?.body).toEqual({
+			triageDailyLimit: 100,
+		}),
+	);
+});
+
+test("a refused alert setting shows the API's reason", async () => {
+	stubFetch((url, init) => {
+		if (url === "/admin/ai/models") return json(200, { models: null });
+		if (init?.method === "PUT")
+			return json(400, { code: "VALIDATION_FAILED", message: "Not allowed." });
+		return json(200, READY);
+	});
+	renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	fireEvent.click(within(group).getByRole("switch", { name: "Explain alerts" }));
+	expect((await within(group).findByRole("alert")).textContent).toBe("Not allowed.");
 });
