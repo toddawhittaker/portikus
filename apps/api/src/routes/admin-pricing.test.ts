@@ -198,6 +198,21 @@ describe.skipIf(skip)("who may use the price routes", () => {
 	});
 });
 
+/** The columns of ROW as the price tables store them. */
+function figures() {
+	return {
+		provider: ROW.provider as "openai",
+		model: ROW.model,
+		input_price_per_million: ROW.inputPricePerMillion,
+		output_price_per_million: ROW.outputPricePerMillion,
+		cache_read_ratio: ROW.cacheReadRatio,
+		cache_write_ratio: ROW.cacheWriteRatio,
+		cache_ttl_seconds: ROW.cacheTtlSeconds,
+		source_url: ROW.sourceUrl,
+		source_quote: ROW.sourceQuote,
+	};
+}
+
 describe.skipIf(skip)("a price check from the page", () => {
 	test("refresh is refused while the AI is unavailable", async () => {
 		await withApp(async (admin) => {
@@ -295,6 +310,70 @@ describe.skipIf(skip)("a price check from the page", () => {
 		});
 	});
 
+	test("a proposal saved before output prices needs one entered to be accepted", async () => {
+		await withApp(async (admin) => {
+			const run = await testDb.db
+				.insertInto("price_runs")
+				.values({ trigger: "manual", status: "done" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			const old = await testDb.db
+				.insertInto("price_proposals")
+				.values({ run_id: run.id, ...figures(), output_price_per_million: null })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			const url = `/admin/pricing/proposals/${old.id}/decision`;
+
+			const refused = await admin("POST", url, { decision: "accept" });
+			expect(refused.statusCode).toBe(400);
+			expect(refused.json()).toMatchObject({ code: "VALIDATION_FAILED" });
+			const zero = await admin("POST", url, {
+				decision: "accept",
+				outputPricePerMillion: 0,
+			});
+			expect(zero.statusCode).toBe(400);
+			// Still pending, nothing stored, nothing audited.
+			expect(
+				await testDb.db.selectFrom("model_prices").selectAll().execute(),
+			).toHaveLength(0);
+			expect(
+				await testDb.db
+					.selectFrom("price_proposals")
+					.select("status")
+					.where("id", "=", old.id)
+					.executeTakeFirstOrThrow(),
+			).toEqual({ status: "pending" });
+			expect(await audit("pricing.proposal_decided")).toHaveLength(0);
+
+			const ok = await admin("POST", url, {
+				decision: "accept",
+				outputPricePerMillion: 12.5,
+			});
+			expect(ok.statusCode).toBe(200);
+			const [price] = await testDb.db.selectFrom("model_prices").selectAll().execute();
+			expect(Number(price?.output_price_per_million)).toBe(12.5);
+		});
+	});
+
+	test("an old proposal may be rejected without an output price", async () => {
+		await withApp(async (admin) => {
+			const run = await testDb.db
+				.insertInto("price_runs")
+				.values({ trigger: "manual", status: "done" })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			const old = await testDb.db
+				.insertInto("price_proposals")
+				.values({ run_id: run.id, ...figures(), output_price_per_million: null })
+				.returning("id")
+				.executeTakeFirstOrThrow();
+			const res = await admin("POST", `/admin/pricing/proposals/${old.id}/decision`, {
+				decision: "reject",
+			});
+			expect(res.statusCode).toBe(200);
+		});
+	});
+
 	test("a rejected proposal leaves the table alone", async () => {
 		await withApp(async (admin) => {
 			await switchOn(admin);
@@ -345,6 +424,9 @@ describe.skipIf(skip)("manual edits", () => {
 			expect(invalid.statusCode).toBe(400);
 			const added = await admin("POST", "/admin/pricing/rows", ROW);
 			expect(added.statusCode).toBe(201);
+			const { outputPricePerMillion: _omit, ...noOutput } = ROW;
+			const unpriced = await admin("POST", "/admin/pricing/rows", noOutput);
+			expect(unpriced.statusCode).toBe(400);
 			const dup = await admin("POST", "/admin/pricing/rows", ROW);
 			expect(dup.statusCode).toBe(409);
 			const prices = AdminModelPrice.array().parse(

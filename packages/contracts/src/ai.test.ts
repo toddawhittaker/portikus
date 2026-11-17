@@ -108,16 +108,21 @@ test("an AI usage response round-trips and refuses a negative count", () => {
 				purpose: "pricing",
 				model: "m",
 				...counts,
+				dollars: null,
 			},
 		],
 		daily: [{ day: "2026-11-10", purpose: "pricing", ...counts }],
 		totals: counts,
 		dollars: null,
+		dollarsPartial: false,
 		month: { usedTokens: 3, capTokens: 100 },
 	};
 	expect(AiUsageResponse.parse(body)).toEqual(body);
 	expect(AiUsageResponse.parse({ ...body, dollars: 1.5 }).dollars).toBe(1.5);
 	expect(AiUsageResponse.safeParse({ ...body, dollars: -1 }).success).toBe(false);
+	expect(
+		AiUsageResponse.safeParse({ ...body, dollarsPartial: undefined }).success,
+	).toBe(false);
 	const triage = {
 		...body,
 		daily: [{ day: "2026-11-10", purpose: "triage", ...counts }],

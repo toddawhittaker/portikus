@@ -1,11 +1,12 @@
 import type { PriceProposal } from "@portikus/contracts";
-import { Button, useToast } from "@portikus/ui";
+import { Button, TextField, useToast } from "@portikus/ui";
+import { useState } from "react";
 import { errorText } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
 import { TableBox } from "../TableBox.js";
 import { SourceCell } from "./PriceTableGroup.js";
 import { useDecide } from "./queries.js";
-import { DIFF_FIELDS, PROVIDER_LABEL } from "./text.js";
+import { DIFF_FIELDS, PROVIDER_LABEL, parseOutputPrice } from "./text.js";
 
 /** Rows a check proposes, each beside the row it would replace; nothing changes until accepted. */
 export function ProposalsGroup({ proposals }: { proposals: PriceProposal[] }) {
@@ -32,15 +33,36 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 	const { current } = proposal;
 	const headingId = `proposal-${proposal.id}`;
 	const deciding = decide.isPending ? decide.variables?.decision : undefined;
+	// A proposal saved before output prices existed has none; accepting needs one typed here.
+	const needsOutputPrice = proposal.outputPricePerMillion == null;
+	const [outputPrice, setOutputPrice] = useState("");
+	const [outputError, setOutputError] = useState<string | null>(null);
+	const outputId = `proposal-output-${proposal.id}`;
 
 	function choose(decision: "accept" | "reject", from: HTMLElement) {
 		if (decide.isPending) return;
+		let typed: number | null = null;
+		if (decision === "accept" && needsOutputPrice) {
+			typed = parseOutputPrice(outputPrice);
+			if (typed === null) {
+				setOutputError(
+					"Give the price in US dollars per million output tokens, above 0.",
+				);
+				document.getElementById(outputId)?.focus();
+				return;
+			}
+		}
+		setOutputError(null);
 		// The decided proposal leaves the list; the next one takes the keyboard, or the Prices group after the last.
 		const item = from.closest("li");
 		const next = item?.nextElementSibling ?? item?.previousElementSibling;
 		const target = next?.querySelector<HTMLElement>("h4") ?? null;
 		decide
-			.mutateAsync({ id: proposal.id, decision })
+			.mutateAsync({
+				id: proposal.id,
+				decision,
+				...(typed === null ? {} : { outputPricePerMillion: typed }),
+			})
 			.then(() => {
 				(target ?? document.getElementById("pricing-table-title"))?.focus();
 				toast.show({
@@ -102,6 +124,20 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 					</tbody>
 				</table>
 			</TableBox>
+			{needsOutputPrice ? (
+				<TextField
+					id={outputId}
+					label="Output price per million tokens"
+					unit="USD"
+					hint="This proposal has no output price. Read it from the source, then enter it to accept."
+					value={outputPrice}
+					error={outputError ?? undefined}
+					inputMode="decimal"
+					autoComplete="off"
+					spellCheck={false}
+					onChange={(e) => setOutputPrice(e.target.value)}
+				/>
+			) : null}
 			<SourceCell url={proposal.sourceUrl} quote={proposal.sourceQuote} />
 			<div className="flex flex-wrap gap-2">
 				<Button

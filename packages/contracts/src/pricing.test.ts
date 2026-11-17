@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
 	normalizePriceModel,
 	normalizePriceRow,
+	PriceProposalDecision,
 	PriceRowInput,
 	PricingTable,
 	priceRowFor,
@@ -165,5 +166,26 @@ describe("usageDollars", () => {
 		expect(usageDollars(none, { ...row, outputPricePerMillion: null })).toBeNull();
 		const { outputPricePerMillion: _, ...noOutput } = row;
 		expect(usageDollars(none, noOutput)).toBeNull();
+	});
+});
+
+describe("PriceProposalDecision", () => {
+	test("takes an optional output price, above zero and within the cap", () => {
+		expect(PriceProposalDecision.safeParse({ decision: "accept" }).success).toBe(true);
+		expect(
+			PriceProposalDecision.parse({ decision: "accept", outputPricePerMillion: 12.5 })
+				.outputPricePerMillion,
+		).toBe(12.5);
+		for (const bad of [0, -1, 10_001, null]) {
+			expect(
+				PriceProposalDecision.safeParse({
+					decision: "accept",
+					outputPricePerMillion: bad,
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			PriceProposalDecision.safeParse({ decision: "accept", extra: 1 }).success,
+		).toBe(false);
 	});
 });

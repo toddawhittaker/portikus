@@ -2,6 +2,7 @@ import {
 	type AdminModelPrice,
 	type ModelPrice,
 	type PriceProposal,
+	PriceProposalDecision,
 	type PriceProvider,
 	PriceRowInput,
 	type PriceRun,
@@ -27,6 +28,11 @@ const DATE_TIME = new Intl.DateTimeFormat("en", {
 
 export function dollars(n: number): string {
 	return DOLLARS.format(n);
+}
+
+/** A price that rows saved before output prices existed leave empty. */
+export function optionalDollars(n: number | null | undefined): string {
+	return n == null ? "None" : DOLLARS.format(n);
 }
 
 /** A multiple of the input price, such as "0.1×". */
@@ -149,6 +155,11 @@ export const DIFF_FIELDS: readonly {
 		label: "Input per million",
 		show: (r) => dollars(r.inputPricePerMillion),
 	},
+	{
+		key: "output",
+		label: "Output per million",
+		show: (r) => optionalDollars(r.outputPricePerMillion),
+	},
 	{ key: "read", label: "Cache read", show: (r) => ratio(r.cacheReadRatio) },
 	{ key: "write", label: "Cache write", show: (r) => ratio(r.cacheWriteRatio) },
 	{
@@ -244,6 +255,15 @@ const FIELD_ERRORS: Partial<Record<DraftField, string>> = {
 function number(text: string): number | null {
 	const clean = text.trim().replace(/[$,_\s]/g, "");
 	return clean === "" ? null : Number(clean);
+}
+
+/** The output price an administrator typed for a proposal that has none, or null when the contract refuses it. */
+export function parseOutputPrice(text: string): number | null {
+	const parsed = PriceProposalDecision.safeParse({
+		decision: "accept",
+		outputPricePerMillion: number(text) ?? undefined,
+	});
+	return parsed.success ? (parsed.data.outputPricePerMillion ?? null) : null;
 }
 
 /** The row to send, or the message for each field the contract refuses. */

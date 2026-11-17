@@ -3,6 +3,8 @@ import {
 	type AiPurpose,
 	AiUsageQuery,
 	type AiUsageResponse,
+	priceRowFor,
+	usageDollars,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
@@ -10,6 +12,7 @@ import { loadAiSettings } from "../ai/settings.js";
 import { usedThisMonth } from "../ai/usage.js";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
+import { listPrices } from "../pricing/store.js";
 import { windowDays } from "../usage-window.js";
 
 const total = (col: string) => sql<string>`sum(${sql.ref(col)})::text`;
@@ -44,7 +47,9 @@ function nameFor(displayName: string | null, purpose: AiPurpose): string {
 /**
  * Built-in AI usage for administrators (SPEC.md section 20.4): token counts
  * by person and by day, and this month's use against the monthly cap.
- * Counts only, never any conversation text.
+ * Counts only, never any conversation text. Dollars are an estimate from
+ * the price table (section 20.5), left out of a row whose model has no
+ * price row or no output price.
  */
 export function registerAdminAiUsageRoutes(
 	app: FastifyInstance,
@@ -89,13 +94,20 @@ export function registerAdminAiUsageRoutes(
 				.orderBy("u.purpose")
 				.execute();
 
-			const users = userRows.map((r) => ({
-				userId: r.user_id,
-				displayName: nameFor(r.display_name, r.purpose),
-				purpose: r.purpose,
-				model: r.model,
-				...counts(r),
-			}));
+			const prices = await listPrices(db);
+			const users = userRows.map((r) => {
+				const row = counts(r);
+				const price = priceRowFor(r.model, prices);
+				return {
+					userId: r.user_id,
+					displayName: nameFor(r.display_name, r.purpose),
+					purpose: r.purpose,
+					model: r.model,
+					...row,
+					dollars: price ? usageDollars(row, price) : null,
+				};
+			});
+			const priced = users.flatMap((u) => (u.dollars === null ? [] : [u.dollars]));
 			const totals = users.reduce(
 				(sum, row) => ({
 					inputTokens: sum.inputTokens + row.inputTokens,
@@ -112,7 +124,8 @@ export function registerAdminAiUsageRoutes(
 				users,
 				daily: dayRows.map((r) => ({ day: r.day, purpose: r.purpose, ...counts(r) })),
 				totals,
-				dollars: null,
+				dollars: priced.length > 0 ? priced.reduce((a, b) => a + b, 0) : null,
+				dollarsPartial: priced.length < users.length,
 				month: {
 					usedTokens: await usedThisMonth(db, now),
 					capTokens: (await loadAiSettings(db)).monthlyTokenCap,
