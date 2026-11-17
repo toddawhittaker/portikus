@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { AI_NOTICE_VERSION } from "../packages/contracts/dist/ai.js";
 import { lockSharedState, query, WEB_ORIGIN } from "./helpers";
 import { FAKE_MODEL_PORT } from "./ports";
 
@@ -12,9 +13,6 @@ const MODEL = `http://127.0.0.1:${FAKE_MODEL_PORT}`;
 
 /** Held alone: these specs turn the site's one AI settings row on and off. */
 const AI_SETTINGS_LOCK = "e2e-ai-settings";
-
-/** Bumped with the privacy notice text (packages/contracts ai.ts; e2e cannot import the contracts). */
-const AI_NOTICE_VERSION = 1;
 
 const ROW_COLUMNS =
 	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at";

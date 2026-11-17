@@ -101,7 +101,10 @@ test("shows a row per person and agent, a dash for Codex's cost, and the daily t
 	expect(within(rows[0] as HTMLElement).getByText("Claude Code")).toBeDefined();
 	expect(within(rows[0] as HTMLElement).getByText("$4.50")).toBeDefined();
 	expect(within(rows[0] as HTMLElement).getByText("1,200")).toBeDefined();
-	expect(within(rows[1] as HTMLElement).getByText("—")).toBeDefined();
+	// The dash is hidden from a screen reader, which hears "no cost" instead.
+	const codexCost = within(rows[1] as HTMLElement).getByText("—");
+	expect(codexCost.getAttribute("aria-hidden")).toBe("true");
+	expect(within(rows[1] as HTMLElement).getByText("no cost").className).toBe("sr-only");
 	expect(
 		within(table).getByRole("button", { name: "About Estimated API cost" }),
 	).toBeDefined();
@@ -182,10 +185,13 @@ test("the Built-in assistant section shows the month against the cap and a row p
 	// The estimate is labelled as one; a row with no price shows a dash.
 	expect(within(table).getByRole("button", { name: "About Estimate" })).toBeDefined();
 	expect(alice.getByText("$12.34")).toBeDefined();
-	expect(check.getByText("—")).toBeDefined();
+	expect(check.getByText("—").getAttribute("aria-hidden")).toBe("true");
+	expect(check.getByText("no estimate").className).toBe("sr-only");
 	const note = section.getByTestId("ai-usage-estimate");
 	expect(note.textContent).toMatch(/Estimated cost in this period: \$12\.34\./);
-	expect(note.textContent).toMatch(/Rows with a dash are not included/);
+	expect(note.textContent).toMatch(
+		/Rows with no estimate \(shown as a dash\) are not included/,
+	);
 });
 
 test("the estimate has no partial note when every row was priced", async () => {

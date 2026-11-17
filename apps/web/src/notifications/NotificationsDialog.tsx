@@ -53,7 +53,27 @@ function NotificationItem({
 					</span>
 					{item.title}
 				</p>
-				{item.body ? <p className="mt-0.5 mb-0 text-ink-muted">{item.body}</p> : null}
+				{/* Plain text with its line breaks: the weekly digest is several lines. */}
+				{item.body ? (
+					<p className="mt-0.5 mb-0 break-words whitespace-pre-line text-ink-muted">
+						{item.body}
+					</p>
+				) : null}
+				{item.triage ? (
+					<section
+						className="mt-1.5 grid gap-0.5 border-s-2 border-line-strong ps-3"
+						aria-label="Explanation written by AI"
+						data-testid="notification-triage"
+					>
+						<p className="m-0 text-xs font-semibold text-ink-muted">
+							Explanation written by AI. It can be wrong.
+						</p>
+						{/* A text node only: the model's words are never read as HTML or Markdown. */}
+						<p className="m-0 break-words whitespace-pre-line text-ink">
+							{item.triage}
+						</p>
+					</section>
+				) : null}
 				<p className="mt-0.5 mb-0 text-xs text-ink-muted">
 					<time
 						dateTime={item.createdAt}

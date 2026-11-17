@@ -1,4 +1,5 @@
-import type { CodeHelpLanguage, CourseProfile } from "@portikus/contracts";
+import type { CourseProfile } from "./courses.js";
+import type { CodeHelpLanguage } from "./language-servers.js";
 
 /*
  * The memory figures behind the code-help estimate, in MiB. Each comes from
