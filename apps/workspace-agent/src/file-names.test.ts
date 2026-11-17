@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { MAX_FILE_NAME_MATCHES } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { AgentFailure } from "./errors.js";
 import {
 	type Candidate,
@@ -207,39 +207,69 @@ test.skipIf(!haveRg)("a cap on files scanned stops the scan and says so", async 
 	expect(result.paths.length).toBeLessThanOrEqual(2);
 });
 
+/**
+ * Runs `body` with a stand-in `rg` first on PATH that never finishes, so a
+ * search ends only when the code under test kills it. Sending SIGSTOP to a
+ * real rg right after spawn did not hold it on a busy machine.
+ */
+async function withEndlessRg(body: () => Promise<void>): Promise<void> {
+	const bin = join(homeDir, "endless-bin");
+	await mkdir(bin, { recursive: true });
+	await writeFile(join(bin, "rg"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+	const path = process.env.PATH;
+	process.env.PATH = `${bin}:${path}`;
+	try {
+		await body();
+	} finally {
+		process.env.PATH = path;
+	}
+}
+
 test.skipIf(!haveRg)(
 	"a search that runs out of time answers with what it has",
 	async () => {
-		const result = await find("", 20, {
-			timeoutMs: 100,
-			// A stopped ripgrep never answers, so only the time limit can end this.
-			onChild: (child: { kill: (signal: string) => void }) => child.kill("SIGSTOP"),
+		await withEndlessRg(async () => {
+			// The stand-in never answers, so only the time limit can end this.
+			const result = await find("", 20, { timeoutMs: 100 });
+			expect(result).toEqual({ paths: [], truncated: true });
 		});
-		expect(result).toEqual({ paths: [], truncated: true });
 	},
 );
 
 test.skipIf(!haveRg)("a search whose caller goes away stops", async () => {
-	const controller = new AbortController();
-	const pending = find("", 20, {
-		timeoutMs: 10_000,
-		signal: controller.signal,
-		onChild: (child: { kill: (signal: string) => void }) => {
-			child.kill("SIGSTOP");
-			setTimeout(() => controller.abort(), 20);
-		},
+	await withEndlessRg(async () => {
+		const controller = new AbortController();
+		const pending = find("", 20, {
+			timeoutMs: 10_000,
+			signal: controller.signal,
+			// The abort waits a microtask so it lands after the search starts
+			// listening for it. Only the abort can end this search before the
+			// 10 s timeout, so resolving at all shows the cancellation stopped it.
+			onChild: () => queueMicrotask(() => controller.abort()),
+		});
+		await expect(pending).resolves.toEqual({ paths: [], truncated: false });
 	});
-	await expect(pending).resolves.toEqual({ paths: [], truncated: false });
 });
 
 test.skipIf(!haveRg)("only a few searches run at once", async () => {
 	const controller = new AbortController();
-	const stop = (child: { kill: (signal: string) => void }) => child.kill("SIGSTOP");
-	const running = Array.from({ length: MAX_RUNNING_FILE_NAME_SEARCHES }, () =>
-		find("", 20, { timeoutMs: 10_000, signal: controller.signal, onChild: stop }),
-	);
-	// Let every one of them reach its spawn.
-	await new Promise((resolve) => setTimeout(resolve, 200));
+	let spawned = 0;
+	let running: Promise<unknown>[] = [];
+	await withEndlessRg(async () => {
+		running = Array.from({ length: MAX_RUNNING_FILE_NAME_SEARCHES }, () =>
+			find("", 20, {
+				timeoutMs: 10_000,
+				signal: controller.signal,
+				onChild: () => {
+					spawned += 1;
+				},
+			}),
+		);
+		// Every one of them holds a slot once it has spawned.
+		await vi.waitFor(() => expect(spawned).toBe(MAX_RUNNING_FILE_NAME_SEARCHES), {
+			timeout: 4000,
+		});
+	});
 	await expect(find("README")).rejects.toMatchObject({ code: "BUSY" });
 	controller.abort();
 	await Promise.all(running);

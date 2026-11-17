@@ -38,7 +38,11 @@ if (!hasTestDb()) {
 	);
 }
 
-describe("database migrations and schema", () => {
+// Migration tests run real migrations down and back up against PostgreSQL,
+// which takes more than the default 5 s on a busy machine.
+const MIGRATION_TEST_TIMEOUT = { timeout: 30_000 };
+
+describe("database migrations and schema", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -1741,7 +1745,7 @@ describe("orphaned test database sweep", () => {
 
 // --- migration 0020: resource guard and acceptable use (ADR 0032) ---
 
-describe("resource guard migration", () => {
+describe("resource guard migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2569,7 +2573,7 @@ describe("resource guard migration", () => {
 	);
 });
 
-describe("backups migration", () => {
+describe("backups migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2742,7 +2746,7 @@ describe("backups migration", () => {
 	);
 });
 
-describe("api request samples migration", () => {
+describe("api request samples migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2887,7 +2891,7 @@ describe("pool options", () => {
 	);
 });
 
-describe("throttle hold migration", () => {
+describe("throttle hold migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
