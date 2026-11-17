@@ -207,18 +207,6 @@ test.skipIf(!haveRg)("a cap on files scanned stops the scan and says so", async 
 	expect(result.paths.length).toBeLessThanOrEqual(2);
 });
 
-test.skipIf(!haveRg)(
-	"a search that runs out of time answers with what it has",
-	async () => {
-		const result = await find("", 20, {
-			timeoutMs: 100,
-			// A stopped ripgrep never answers, so only the time limit can end this.
-			onChild: (child: { kill: (signal: string) => void }) => child.kill("SIGSTOP"),
-		});
-		expect(result).toEqual({ paths: [], truncated: true });
-	},
-);
-
 /**
  * Runs `body` with a stand-in `rg` first on PATH that never finishes, so a
  * search ends only when the code under test kills it. Sending SIGSTOP to a
@@ -236,6 +224,17 @@ async function withEndlessRg(body: () => Promise<void>): Promise<void> {
 		process.env.PATH = path;
 	}
 }
+
+test.skipIf(!haveRg)(
+	"a search that runs out of time answers with what it has",
+	async () => {
+		await withEndlessRg(async () => {
+			// The stand-in never answers, so only the time limit can end this.
+			const result = await find("", 20, { timeoutMs: 100 });
+			expect(result).toEqual({ paths: [], truncated: true });
+		});
+	},
+);
 
 test.skipIf(!haveRg)("a search whose caller goes away stops", async () => {
 	await withEndlessRg(async () => {
