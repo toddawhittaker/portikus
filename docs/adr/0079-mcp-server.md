@@ -1,6 +1,6 @@
 # 0079. An MCP server on the API, on the version 2 SDK, with named tools and a find and run pair
 
-- **Status**: Accepted (Epic 68)
+- **Status**: Accepted (Epic 68); amended by Epic 70
 - **Date**: 2026-11-15
 - **References**: SPEC.md sections 20.4, 24.1 and 24.13; STACK.md sections 4 and 35; ADR 0077, ADR 0078
 
@@ -63,7 +63,25 @@ The MCP specification makes OAuth optional, and both clients accept a fixed
   writes the usual `api_key.used` row (ADR 0078).
 - A new major SDK release is a deliberate upgrade, not an accident.
 - The bridge is ours to keep working when the SDK or Fastify changes.
-- No resources, prompts or OAuth now. A later epic may add them.
+- No OAuth. Resources and prompts were left out at first and added by Epic 70 (see Amended).
+
+## Amended by Epic 70
+
+The server now offers **resources** and **prompts**, still with no OAuth and
+still built fresh for each request.
+
+- Resources are `portikus://guides/<FILE>` for each guide the key owner's
+  role may read, from the same role map the built-in assistant uses, and
+  `portikus://health`, which runs the operation `health.get` through the
+  in-process runner with the caller's key. A resource is listed only to a
+  key whose owner may read it.
+- Prompts are `diagnose_workspace` and `diagnose_health` (administrators)
+  and `who_is_stuck` (staff). A prompt is fixed text written by code that
+  asks the model to use the read tools. It runs nothing, and a prompt the
+  caller may not use is neither listed nor answered.
+- Decision 8 holds for both: text from users in a result is data.
+- The consequence "No resources, prompts or OAuth now" is replaced by "No
+  OAuth". Sign-in through Dex for MCP is a separate decision.
 
 ## Alternatives rejected
 

@@ -88,6 +88,50 @@ the first time. Later launches open the same project. If the student
 already has a project of that name, Portikus opens it and never overwrites
 it; if it is archived, the student is told so.
 
+## Draft a project's checks and starter files with a coding agent
+
+A **check** is a command that tells a student whether their project works,
+such as `npm test`. Checks live in a file named `.portikus/checks.json` in the
+project. A **starter project** is the project students begin from. You can
+ask Claude Code or Codex in your own workspace to draft both from your
+assignment description, then read what it wrote, run the checks yourself and
+edit anything you do not like. Portikus's built-in assistant does not do this.
+The coding agent works in your workspace, so you see every file it writes
+and Git records it.
+
+1. Open a new project in your own workspace and open its **Claude Code** or
+   **Codex** chat, or start `claude` or `codex` in a terminal.
+2. Paste the assignment description and say what you want. For example:
+
+   > Here is an assignment for my students: *(paste it)*. Make this folder a
+   > starter project. Write the starter files with the structure students
+   > should begin from, leaving the parts they must write as clearly marked
+   > gaps. Then write `.portikus/checks.json` with checks that tell a
+   > student whether each part works. Read `.portikus/README.md` first for the
+   > format. Do not put the answers in the starter files.
+
+   The README that every new project holds under `.portikus/` explains the
+   `checks.json` format to the agent: a list of checks, each with a short
+   `id`, a `name` and one `command`, which passes when it exits with code 0.
+3. **Read what it wrote.** Look for checks that always pass, checks that pass
+   on the starter files before the student has done anything, and answers
+   that leaked into the starter. A check that is too strict or too loose will
+   confuse students more than no check.
+4. **Run the checks.** Open the **Checks** tab and press the run button beside
+   each one. On the untouched starter, the checks for work still to be done
+   should fail, with output a student can understand. Then try them against
+   your own solution and see them pass. Use **Edit checks**, or ask the agent,
+   to change what is wrong.
+5. **Publish the starter.** Push the project to a public Git repository. In the
+   learning system, add a Portikus link whose starter is that repository's
+   `https://` address (see "Starter projects from the learning system").
+   Students get the starter and its checks the first time they open the link.
+
+Checks run real commands in the student's workspace, so keep them to the
+tools the workspace has. Nothing the agent writes reaches a student until you
+publish it. Coding agents make mistakes, so do the run in step 4 every time.
+<!-- TODO(T7 finish): check the Checks tab and Edit checks wording against the student guide and UI; confirm the Claude Code and Codex chat tab names; check that a public repository is the way a starter is published. -->
+
 ## Coding-agent use in your course
 
 The Course page shows how much each person in the course used Claude Code
@@ -177,6 +221,15 @@ You can also ask the assistant "who is stuck?" It adds each student's
 coding-agent use (sessions and tokens) over the last 7 days, counted across
 all their work, not just this course. These are counts and times only.
 Like the agent counts, use them to start a conversation, never to grade.
+
+### Who is stuck? from Claude Code or Codex
+
+If you have connected Claude Code or Codex to Portikus with an API key (see
+"API keys and the MCP server" below), your program may list a prompt named
+`who_is_stuck`. Choosing it asks the program to read the same list the Course
+page shows, using your key, and tell you who may need help and why. It only
+reads, and it reaches only your own courses.
+<!-- TODO(T7 finish): check the prompt name and whether it asks for a course. -->
 
 ### What is kept and what is sent
 

@@ -3730,7 +3730,34 @@ Claude Code, Codex and similar clients can use a key.
   bad path value) writes one `api_key.used` row, result `denied`, with the
   attempted operation name and the code, so such a call is not missing
   from the audit. A call that reaches a route is audited by the gate.
-- It offers no resources, prompts or OAuth.
+- It offers no OAuth.
+- **Resources** (Epic 70, ADR 0079 as amended). A resource is a read-only
+  document a client may load. There are two kinds, and both are listed only
+  when the key's owner may read them.
+  - `portikus://guides/<FILE>` is one of the guides the package carries.
+    The guides a role may read are the same ones the built-in assistant may
+    read (section 20.5): an administrator's key lists ADMIN-GUIDE,
+    OPERATIONS, INSTALL and INSTRUCTOR-GUIDE; an instructor's key lists
+    INSTRUCTOR-GUIDE only. The role map lives in one place, in
+    `assistant/guides.ts`, so the two cannot drift apart.
+  - `portikus://health` is the current health snapshot. Reading it runs the
+    operation `health.get` through the in-process runner with the caller's
+    own key, so the key's scope, the route's checks and the `api_key.used`
+    audit row apply exactly as for a tool call. It is listed only to an
+    administrator's key.
+  <!-- TODO(T7 finish): say whether a guide read writes an audit row, and the exact guide file list and URI form, once resources.ts is built. -->
+- **Prompts** (Epic 70). A prompt is a ready-made request the client may
+  offer its user. Three are offered: `diagnose_workspace` and
+  `diagnose_health` for administrators, and `who_is_stuck` for staff (an
+  administrator or an instructor). A prompt is listed only when the key's
+  owner and scope may run the operations it asks the model to use, and a
+  prompt the caller may not use is refused as if it did not exist. A prompt
+  has fixed wording written by code. It only returns a message that asks
+  the model to look with the read tools and report; it runs nothing
+  itself, so asking for a prompt changes nothing and every tool call that
+  follows is checked and audited as usual. Text a user wrote (a workspace
+  name, a log line) is still data, never instructions (section 24.1).
+  <!-- TODO(T7 finish): check the prompt names, their arguments (workspace id, course id) and their wording against prompts.ts. -->
 
 ### 20.5 The built-in AI assistant
 
@@ -3748,7 +3775,10 @@ has turned it on. It also stops while the month's token cap is spent. Saving
 the settings without a key turns it off; turning it on without a key,
 without a provider, base address and model (409 `AI_SETTINGS_INCOMPLETE`), or
 before the notice is accepted is refused. When the notice text changes, its
-version number goes up and it must be accepted again. A saved key that no
+version number goes up and it must be accepted again. Epic 70 moves the
+notice to version 2 (it now covers alert explanations, below), so after an
+upgrade the assistant, and with it the price check, the alert explanations
+and the guided setup, stay paused until an administrator accepts version 2. A saved key that no
 longer opens (a restore without the server's key file) counts as no key.
 Each of these reasons has its own plain message in the panel (`off`,
 `incomplete`, `no-key`, `key-unreadable`, `notice`, `monthly-cap`).
@@ -3869,8 +3899,8 @@ reports, and both checked before every step: the site's monthly cap, shared
 by all people and by the price check, and each conversation's budget. A
 spent limit ends the turn with a plain message. The count keeps only token
 numbers for each day, person, purpose and model, never content. The cap and
-every figure shown are in tokens; dollars wait until the table can price
-output tokens, because Portikus cannot know every model's price.
+every limit is in tokens. Dollars are shown as an estimate and are never a
+limit (see Dollar estimate below).
 
 **What is sent.** Each model call sends the person's messages and the system
 prompt, and the results of the tools the assistant used, to the provider the
@@ -3903,7 +3933,8 @@ chat's. The session is checked again on every frame, and the socket closes
 when it no longer qualifies. Caddy keeps the socket open through a reload.
 
 **Conversation kinds.** A conversation is a plain one, or opened with a
-context (`health`, `workspace`, `job` or `alert`) and a course. A conversation
+context (`health`, `workspace`, `job`, `alert` or, since Epic 70, `setup`)
+and a course. A conversation
 opened with a context is read-only: its tools are the read operations a
 read-scope key would have, so a Diagnose conversation looks and reports and
 never changes anything.
@@ -3937,8 +3968,13 @@ id, lowercased with runs of spaces and dots turned into dashes ("Claude Opus
 OpenAI names are only lowercased and trimmed. One check runs at a time, and only while the
 assistant is available. A timer in the API looks hourly and starts a check
 when the last one began more than a week ago, and it tells administrators
-when it found changes. A check's tokens count against the monthly cap. When
-the table has no row for a model, the built-in numbers are used. The price
+when it found changes. A check's tokens count against the monthly cap. A row holds
+the input price per million tokens, the cache ratios and, since Epic 70,
+the output price per million tokens. The output price may be empty on a row
+stored before Epic 70, but every save, by a person or by accepting a
+proposal, must give one (a save without it is refused with
+`VALIDATION_FAILED`). When the table has no row for a model, the built-in
+numbers are used for the students' restart estimate. The price
 check and each decision are audited (section 24.11). `GET /pricing` answers
 the table to any signed-in person, because the browser reads it for the
 estimate and it holds nothing private; administrators manage it under
@@ -3984,9 +4020,100 @@ HTTP for each role and expects the same answer, and a student gets 403 on
 every assistant route.
 
 **Usage.** The Agents tab shows the built-in AI's token use by person,
-purpose and model (the weekly price check shows as its own line) and this
-month's use against the cap. It shows tokens only; dollars wait for output
-token prices.
+purpose and model (the weekly price check shows as its own line, and the
+alert explanations as another, `triage`, with no person) and this month's
+use against the cap, with a dollar estimate (below).
+
+**Dollar estimate.** Added by Epic 70. The usage route answers a dollar
+figure, or none, for each line.
+
+- Two pure functions in the contracts package do the sums, so the route and
+  the weekly digest agree: one finds the price row for a model, and one
+  turns a line's token counts into dollars. The row is found by an exact
+  match on the model name after the same normalizing a stored row gets (the
+  lowercasing and dash rule under Model prices). No close match is guessed.
+- The sum is input tokens that were neither read from nor written to the
+  provider's cache, at the input price; cache reads and cache writes at their
+  ratios; and output tokens at the output price. The SDK's input count
+  already includes cache reads and writes, so they are subtracted before
+  pricing, or cached tokens would be charged twice.
+- A line whose model has no row, or a row with no output price, shows no
+  dollars rather than a low figure, and the total says it is partial.
+- Every figure is labelled an estimate. Prices change, and a provider's own
+  bill decides. Dollars are never a limit: the monthly cap and the
+  conversation budget stay in tokens.
+<!-- TODO(T7 finish): check the exact label text ("estimate"), the partial-total wording, and that the usage route returns `dollars` null for an unpriced line. -->
+
+**Alert explanations (triage).** Added by Epic 70 (ADR 0082). This is the
+one place Portikus calls the model when no person asked. It is off by
+default and has its own rules, because nobody reviews the call as it
+happens.
+
+- **Switches.** On the AI page, **Explain alerts** turns it on, and a
+  second switch, **Add explanations to email and Pushover alerts**, sends
+  the explanation outward too. Both are off by default. Turning the first on
+  needs the assistant to be available, which needs the notice accepted at
+  its current version. Each change is audited with the other settings
+  changes (`ai_settings.updated`).
+- **What it does.** An API timer, guarded by an advisory lock so two
+  processes never run it at once, looks for administrator notifications of
+  level warning or danger that have no explanation yet. For each it makes
+  one model call with no tools. Code, not the model, picks what is read: the
+  notification's own title and text, the newest health sample, and the
+  latest error log lines. The model has no Portikus tools and picks no
+  address, as in the price check. The reply is cut to about 400 characters,
+  stored on the notification as plain text, and shown with a label that says
+  an AI wrote it and may be wrong. It is never Markdown, so it cannot draw a
+  link or an image.
+- **Limits.** One explanation for each alert title in an hour. A daily
+  maximum, set by the administrator on the AI page (5 by default), counted
+  from the database so a restart does not reset it. About 5,000 input and
+  300 output tokens for each call. The tokens count against the shared
+  monthly cap, as usage purpose `triage` with no person. An alert past a
+  limit, or any failed call, simply gets no explanation; the alert itself is
+  never held back or changed.
+- **Forwarding.** With the second switch on, the alert forwarder in the
+  worker waits up to 60 seconds for the explanation to be stored and then
+  appends it to the email and Pushover message. After 60 seconds it sends
+  the alert without it. The worker only reads the stored text; it has no AI
+  key and makes no model call (ADR 0080). Other channels (ntfy, Teams, the
+  webhook) never carry an explanation.
+- **Audit.** One audit row for each explanation, actor `system` (section
+  24.11).
+<!-- TODO(T7 finish): check the switch labels, the "AI wrote it" label text, the default of 5, the 5,000 and 300 token figures, the 400-character cut, and the 60-second wait against what T5a/T5b built. -->
+
+**Weekly digest.** Added by Epic 70. Once a week the API sends each
+administrator one information notification that summarizes the last seven
+days. It makes no model call and needs no key, so it works with the
+assistant off. A timer in the API tracks the last send in
+`settings.digest_sent_at`, so a restart or a second process does not send it
+twice. The notification is plain lines, at most 2,000 characters, with:
+
+- the week's health in a line or two;
+- the most workspaces that ran at once, against the site's capacity (the
+  estimate in `docs/CAPACITY.md`, which lives in the contracts package as
+  `capacity.ts` so the web app and the digest share it);
+- the built-in AI's use, with the dollar estimate above; and
+- a fixed list of odd audit entries, chosen by code and listed in the
+  guide, so the digest never searches the audit trail freely.
+
+It is not sent to instructors or by email.
+<!-- TODO(T7 finish): list the actual odd audit entries and thresholds, the day and hour the timer sends, the notification title, and whether the digest has a switch (this draft assumes none) from apps/api/src/digest/. -->
+
+**Guided setup on the hard pages.** Added by Epic 70. The LTI platforms
+group and the sign-in group of the Sign-in page each have a **Help me set
+this up** button, shown to administrators only, that opens a conversation
+of kind `setup` with id `lms` or `signin`. Like the other contexts it is
+read-only (its tools are the read operations a read-scope key has) and the
+server refuses a `setup` context from anyone but an administrator, or with
+an id that does not fit. A fixed list of reads runs first, as the person: for
+`lms`, `lms.get`, `proxy_hosts.get` and the recent error logs; for `signin`,
+`signin.get`, `address.get` and the recent error logs. The system prompt adds
+one line: explain the page, check what is set against the guide, and never
+ask for a secret. Secrets are still typed into the form and never into the
+conversation. The assistant changes nothing: a person makes every change in
+the form.
+<!-- TODO(T7 finish): check button label, the context kind and ids, and the first-read list against diagnose.ts and the e2e spec. -->
 
 ## 21. Infrastructure as cattle
 
@@ -4991,6 +5118,16 @@ Added by Epic 69 (ADRs 0080 and 0081, section 20.5): the AI provider an administ
 - Text from tools is data. A student can write a project name, a file name or a log line that tries to steer the model. The barriers are the cards, the rule that a conversation which can read Portikus data never has web search or web fetch, and that the price check, which does fetch pages, has no Portikus tools and picks no address. Accepted risk: a steered model may read what the person may read and send it to the provider already configured; it cannot change anything without a person approving the exact call.
 - Conversations are stored as data in PostgreSQL, filtered by owner on every query, for 30 days after last use, and never logged (section 20.5, STACK.md section 15, ADR 0081). No administrator route reads another person's conversation.
 
+Added by Epic 70 (ADR 0082, section 20.5): one model call is made with no person asking, the alert explanation. The rules:
+
+- It is off by default, behind the **Explain alerts** switch, and runs only while the assistant is available, which needs the privacy notice accepted at its current version. The notice is version 2 and says so plainly: an administrator who accepted version 1 is asked again, and the assistant stays paused until then.
+- What leaves the site in that call: the alert's own title and text, the newest health sample and the most recent error log lines, chosen by code. Error lines can name workspaces, paths and people. Never sent: file contents, terminal bytes, students' chat prompts, secrets, and anything the assistant's tools could read. The call has no tools and picks no address.
+- It is a fixed pipeline in the API, not an agent. The worker and the alert forwarder get no AI key; with **Add explanations to email and Pushover alerts** on, the forwarder only appends text already stored, and waits at most 60 seconds for it. That switch is also off by default, and it widens where an explanation goes: email and Pushover leave the site, so the explanation, which was written from the alert and the lines above, goes to those recipients too.
+- The answer is stored and shown as plain text, never as Markdown, so a log line that steers the model cannot make the page draw a link or an image. It is capped near 400 characters and labelled as written by an AI.
+- It is bounded in cost and rate (one for each alert title each hour, an administrator-set daily maximum, about 5,000 input and 300 output tokens a call, and the shared monthly cap), so an alert storm cannot spend the budget or send the provider an unbounded stream of log lines.
+- Accepted risk: a student can influence a log line that is sent, and so can try to steer the explanation. The explanation can only mislead a reader, who still has the alert and the real logs; it can change nothing, because the call has no tools.
+- The guided setup button and the weekly digest add no new data path. The setup conversation is an administrator's own read-only conversation under the rules above, and the digest is built by code and sends nothing outside the site.
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -5712,6 +5849,9 @@ workspace's network address, or a name a workspace looked up.
   proxy box ticked also writes the site job rows of the proxy host change
   (`site.job_requested` and `site.job_finished`). A call the assistant runs writes the route's own rows as the person,
   with `via` `assistant`, and one `assistant.used` row.
+
+- The unasked model call (Epic 70, ADR 0082): one audit row each time Portikus explains an alert, actor `system`. It never holds the alert's text, the log lines sent or the answer, which is stored on the notification and not in the audit trail. Turning **Explain alerts** or the forwarding switch on or off, and changing the daily maximum, are `ai_settings.updated` rows with the names of the fields that changed. Accepting notice version 2 is an `ai.notice_accepted` row with the version. The weekly digest makes no model call and writes no audit row of its own.
+<!-- TODO(T7 finish): name the triage audit action and its fields, and confirm the digest writes no row, once triage/ and digest/ are built. The audit-coverage test reads this section, so the action name goes in only when the code writes it. -->
 
 A test checks that every event this section lists writes an audit row
 (#1138).
@@ -8098,6 +8238,27 @@ Acceptance:
 - each operation, run through the assistant, gets the same answer as its HTTP route for each role;
 - the key is never in a log, an audit row, a view or an error, and no conversation is ever logged;
 - CI never calls a real model.
+
+### Epic 70 — Built-in AI extras
+
+Built on `epic/70-ai-extras`, issues #2069 and #2090. Migrations 0065 to 0067 (the output price on model prices and proposals, the alert explanation columns and settings, `settings.digest_sent_at`). See ADRs 0079 (amended) and 0082 and sections 20.4, 20.5, 24.1 and 24.11.
+
+Includes:
+
+- an output price per million tokens in the price table, the price check and the Pricing tab, and a dollar estimate on the Agents tab's built-in assistant usage and in the weekly digest;
+- MCP resources (the guides a role may read, and a health snapshot) and prompts (`diagnose_workspace`, `diagnose_health`, `who_is_stuck`);
+- a **Help me set this up** button on the LTI and sign-in pages that opens a read-only setup conversation for administrators;
+- alert explanations: an off-by-default fixed pipeline in the API that adds a short plain-text explanation to administrator alerts, bounded by an hourly and a daily limit, with a second off-by-default switch that adds it to email and Pushover alerts, and the privacy notice at version 2;
+- a weekly digest notification for administrators, built by code with no model call;
+- an Instructor Guide section on asking a coding agent in the instructor's own workspace to draft a project's checks and starter files.
+
+Acceptance:
+
+- the unasked model call has no tools, never runs while its switch is off or the notice is not accepted at the current version, and stays inside its limits and the monthly cap;
+- the worker holds no AI key, and the forwarder only appends stored text;
+- a resource or prompt a role may not use is neither listed nor readable, and reading one changes nothing;
+- the setup conversation is refused for anyone but an administrator and asks for no secret;
+- dollars are shown as an estimate from an exact price row, never used as a limit, and cached tokens are not charged twice.
 
 ### Estimated total
 
