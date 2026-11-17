@@ -124,10 +124,16 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 					</tbody>
 				</table>
 			</TableBox>
+			<SourceCell url={proposal.sourceUrl} quote={proposal.sourceQuote} />
 			{needsOutputPrice ? (
 				<TextField
 					id={outputId}
-					label="Output price per million tokens"
+					label={
+						<>
+							Output price per million tokens
+							<span className="sr-only"> for {proposal.model}</span>
+						</>
+					}
 					unit="USD"
 					hint="This proposal has no output price. Read it from the source, then enter it to accept."
 					value={outputPrice}
@@ -138,7 +144,6 @@ function Proposal({ proposal }: { proposal: PriceProposal }) {
 					onChange={(e) => setOutputPrice(e.target.value)}
 				/>
 			) : null}
-			<SourceCell url={proposal.sourceUrl} quote={proposal.sourceQuote} />
 			<div className="flex flex-wrap gap-2">
 				<Button
 					size="sm"

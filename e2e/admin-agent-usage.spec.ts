@@ -70,7 +70,12 @@ test("the Agent usage tab lists each person and agent, with a period choice", as
 	await expect(claude).toContainText("$4.50");
 	await expect(claude).toContainText("1,200");
 	const codex = people.getByRole("row", { name: new RegExp(`${name} Codex`) });
-	await expect(codex.getByRole("cell").nth(5)).toHaveText("—");
+	// The dash is hidden from a screen reader, which hears "no cost".
+	await expect(codex.getByRole("cell").nth(5)).toHaveText("—no cost");
+	await expect(codex.getByRole("cell").nth(5).getByText("—")).toHaveAttribute(
+		"aria-hidden",
+		"true",
+	);
 	await expect(page.getByTestId("agent-usage-daily")).toBeVisible();
 	await expectUsageColumnsAligned(page);
 
@@ -117,7 +122,7 @@ test("the Built-in assistant section shows the month against the cap and each pe
 	await expect(row).toContainText("1,000");
 	await expect(section).not.toContainText("Estimated input cost");
 	// No price row names this model, so its estimate is a dash.
-	await expect(row.getByRole("cell").last()).toHaveText("—");
+	await expect(row.getByRole("cell").last()).toHaveText("—no estimate");
 });
 
 /** The price table is the AI settings specs' shared state, so this one waits its turn. */
@@ -165,14 +170,20 @@ test("the Built-in assistant section estimates dollars from the price table and 
 		const other = section.getByRole("row", {
 			name: new RegExp(`${name} Assistant ${unpriced}`),
 		});
-		await expect(other.getByRole("cell").last()).toHaveText("—");
+		await expect(other.getByRole("cell").last()).toHaveText("—no estimate");
 		await expect(section.getByTestId("ai-usage-estimate")).toContainText(
-			"Rows with a dash are not included",
+			"Rows with no estimate (shown as a dash) are not included",
 		);
 		await section.getByRole("button", { name: "About Estimate" }).click();
 		await expect(openToggletip(page)).toContainText("A rough figure, not an invoice");
-		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		const scan = async () => {
+			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		};
+		// Price rows are present, so the priced and unpriced cells are both scanned.
+		await scan();
+		await page.emulateMedia({ colorScheme: "light" });
+		await scan();
 	} finally {
 		await query("delete from model_prices where model = $1", [priced]);
 		await release();

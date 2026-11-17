@@ -152,6 +152,8 @@ test("the table lists each row's figures, with the source quote behind a disclos
 	expect(row.textContent).toMatch(/5 min/);
 	expect(within(row).getByRole("link", { name: "platform.claude.com" })).toBeTruthy();
 	expect(within(row).getByText("Quote")).toBeTruthy();
+	// The summary is a 24px target (WCAG 2.5.8).
+	expect(within(row).getByText("Quote").className).toMatch(/\bmin-h-6\b/);
 	expect(row.textContent).toMatch(/Opus 5\.5: \$5 \/ MTok/);
 });
 
@@ -343,6 +345,15 @@ test("a proposal with no output price asks for one before it can be accepted", a
 	renderWithQuery(<PricingTab />);
 	const proposal = await screen.findByTestId("proposal-opus-5-5");
 	expect(proposal.textContent).toMatch(/Output per million.*None.*None/);
+	// The field is named for its model, so a second proposal's field is not a duplicate.
+	const field = within(proposal).getByLabelText(
+		"Output price per million tokens for opus-5-5",
+	);
+	// The source comes before the field in reading and Tab order.
+	const source = within(proposal).getByRole("link", { name: "platform.claude.com" });
+	expect(
+		source.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
 	fireEvent.click(within(proposal).getByTestId("proposal-accept"));
 	expect(
 		await within(proposal).findByText(/per million output tokens, above 0/),
