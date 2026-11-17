@@ -23,6 +23,7 @@ export {
 	recordRecoveryPoint,
 } from "./recovery-points.js";
 export type { Database, NotificationsTable } from "./schema.js";
+export { adminAlertGroups } from "./site-alerts.js";
 
 /** Whether an error is the pool giving up waiting for a free connection. */
 export function isPoolTimeout(error: unknown): boolean {

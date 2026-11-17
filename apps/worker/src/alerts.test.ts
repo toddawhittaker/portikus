@@ -30,6 +30,7 @@ import {
 	ALERTS_PER_HOUR,
 	AlertGate,
 	createAlertForwarder,
+	TRIAGE_WAIT_MS,
 } from "./alerts.js";
 
 const T0 = new Date("2026-10-04T12:00:00Z");
@@ -321,5 +322,146 @@ describe.skipIf(skip)("forwarding", () => {
 			await tick();
 			expect(sent.map(([a]) => a.title)).toEqual(["Down"]);
 		});
+	});
+});
+
+// SPEC.md section 20.4: with the switch on, email and Pushover wait up to a
+// minute for the API's stored explanation; the worker never calls a model.
+describe.skipIf(skip)("alert explanations", () => {
+	const all = {
+		pushoverUserKey: "user",
+		pushoverAppToken: "app",
+		webhookUrl: "http://127.0.0.1:1/hook",
+		email: { smtp: {}, to: ["ops@example.edu"] },
+	} as unknown as AlertChannels;
+
+	async function switches(enabled: boolean, forward: boolean) {
+		await tdb.db
+			.updateTable("ai_settings")
+			.set({ triage_enabled: enabled, triage_forward: forward })
+			.execute();
+	}
+
+	async function explain(title: string, text: string) {
+		await tdb.db
+			.updateTable("notifications")
+			.set({ triage: text, triaged_at: new Date().toISOString() })
+			.where("title", "=", title)
+			.execute();
+	}
+
+	/** A forwarder on a fake clock; `onSleep` runs at each wait. */
+	function forwarder(channels: AlertChannels, onSleep?: (n: number) => Promise<void>) {
+		let clock = Date.now() - 1000;
+		let waited = 0;
+		const sent: [Alert, AlertChannels][] = [];
+		const { logger } = collectingLogger();
+		const tick = createAlertForwarder({
+			db: tdb.db,
+			logger,
+			loadChannels: async () => channels,
+			now: () => new Date(clock),
+			sleep: async (ms) => {
+				clock += ms;
+				waited += ms;
+				await onSleep?.(waited);
+			},
+			send: async (alert, to) => {
+				sent.push([alert, to]);
+				return [];
+			},
+		});
+		return { tick, sent, waited: () => waited };
+	}
+
+	beforeEach(async () => {
+		await insertTestUser(tdb.db, { role: "administrator" });
+		await insertTestUser(tdb.db, { role: "administrator" });
+	});
+
+	test("appends a stored explanation to email and Pushover only", async () => {
+		await switches(true, true);
+		const f = forwarder(all);
+		await notifyAdministrators(tdb.db, { tone: "danger", title: "Down", body: "b" });
+		await explain("Down", "The controller stopped.");
+		await f.tick();
+		expect(f.waited()).toBe(0);
+		expect(f.sent).toHaveLength(2);
+		const [[withText, to], [plain, rest]] = f.sent as [
+			[Alert, AlertChannels],
+			[Alert, AlertChannels],
+		];
+		expect(withText.text).toBe("b\n\nAI explanation: The controller stopped.");
+		expect(to).toMatchObject({ pushoverUserKey: "user", webhookUrl: "" });
+		expect(to.email).toBeTruthy();
+		expect(plain.text).toBe("b");
+		expect(rest).toMatchObject({ pushoverUserKey: "", email: null });
+		expect(rest.webhookUrl).toBe(all.webhookUrl);
+	});
+
+	test("waits for an explanation written after the alert", async () => {
+		await switches(true, true);
+		const f = forwarder(all, async (waited) => {
+			if (waited >= 10_000) await explain("Disk", "The pool is full.");
+		});
+		await notifyAdministrators(tdb.db, { tone: "warning", title: "Disk", body: "b" });
+		await f.tick();
+		expect(f.waited()).toBeGreaterThanOrEqual(10_000);
+		expect(f.waited()).toBeLessThan(TRIAGE_WAIT_MS);
+		expect(f.sent[0]?.[0].text).toContain("AI explanation: The pool is full.");
+	});
+
+	test("sends as before when no explanation comes within the minute", async () => {
+		await switches(true, true);
+		const f = forwarder(all);
+		await notifyAdministrators(tdb.db, { tone: "danger", title: "Down", body: "b" });
+		await f.tick();
+		expect(f.waited()).toBeGreaterThan(TRIAGE_WAIT_MS - 5_000);
+		expect(f.waited()).toBeLessThanOrEqual(TRIAGE_WAIT_MS + 2_000);
+		expect(f.sent).toHaveLength(1);
+		expect(f.sent[0]?.[0].text).toBe("b");
+		expect(f.sent[0]?.[1]).toBe(all);
+	});
+
+	test.each([
+		["the forward switch is off", true, false, all],
+		["explanations are off", false, true, all],
+		[
+			"neither email nor Pushover is set",
+			true,
+			true,
+			{ ...all, pushoverUserKey: "", email: null },
+		],
+	])("neither waits nor appends when %s", async (_name, enabled, forward, channels) => {
+		await switches(enabled, forward);
+		const f = forwarder(channels as AlertChannels);
+		await notifyAdministrators(tdb.db, { tone: "danger", title: "Down", body: "b" });
+		await explain("Down", "The controller stopped.");
+		await f.tick();
+		expect(f.waited()).toBe(0);
+		expect(f.sent.map(([a]) => a.text)).toEqual(["b"]);
+	});
+
+	test("an older alert's explanation is not used for a new one", async () => {
+		await switches(true, true);
+		const admin = (
+			await tdb.db.selectFrom("users").select("id").limit(1).executeTakeFirstOrThrow()
+		).id;
+		await tdb.db
+			.insertInto("notifications")
+			.values({
+				user_id: admin,
+				tone: "danger",
+				title: "Down",
+				body: "b",
+				site_alert: true,
+				created_at: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+				triage: "Old explanation.",
+			})
+			.execute();
+		const f = forwarder(all);
+		await notifyAdministrators(tdb.db, { tone: "danger", title: "Down", body: "b" });
+		await f.tick();
+		expect(f.sent.map(([a]) => a.text)).toEqual(["b"]);
 	});
 });

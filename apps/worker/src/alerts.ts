@@ -1,4 +1,4 @@
-import type { Database } from "@portikus/db";
+import { adminAlertGroups, type Database } from "@portikus/db";
 import {
 	type Alert,
 	type AlertChannels,
@@ -26,6 +26,12 @@ export const ALERT_QUIET_MS = 60 * 60_000;
 export const ALERTS_PER_HOUR = 10;
 
 const HOUR_MS = 60 * 60_000;
+
+/** How long an alert waits for the API's explanation before it is sent without one. */
+export const TRIAGE_WAIT_MS = 60_000;
+const TRIAGE_POLL_MS = 5_000;
+// The rows of one alert are written together; an older alert with the same words is a different one.
+const ALERT_ROWS_SPREAD_MS = 60_000;
 
 /**
  * Flood control. The title is the alert's key: a key fires once, then stays
@@ -60,6 +66,8 @@ export interface AlertForwarderOptions {
 	loadChannels: () => Promise<AlertChannels>;
 	now?: () => Date;
 	send?: Send;
+	/** Waits between looks for an explanation; tests advance a fake clock. */
+	sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -76,8 +84,22 @@ export function createAlertForwarder(
 	const send =
 		options.send ??
 		((alert: Alert, channels: AlertChannels) => sendAlert(channels, alert));
+	const sleep =
+		options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 	const gate = new AlertGate();
 	let since = now();
+
+	/** The stored explanation, waiting up to TRIAGE_WAIT_MS from when the alert was raised. */
+	async function awaitTriage(row: AlertRow, at: Date): Promise<string | null> {
+		const deadline = at.getTime() + TRIAGE_WAIT_MS;
+		for (;;) {
+			const found = await triageOf(db, row, at);
+			if (found !== null) return found;
+			const left = deadline - now().getTime();
+			if (left <= 0) return null;
+			await sleep(Math.min(TRIAGE_POLL_MS, left));
+		}
+	}
 
 	return async function tick(): Promise<void> {
 		let channels: AlertChannels;
@@ -92,6 +114,11 @@ export function createAlertForwarder(
 		const rows = await adminAlertsSince(db, since);
 		// Rows read while no channel is set are passed over, never sent later.
 		const live = anyAlertChannel(channels) ? channels : null;
+		const explain =
+			live !== null &&
+			rows.length > 0 &&
+			explanationChannels(live) !== null &&
+			(await forwardsTriage(db, logger));
 		for (const row of rows) {
 			const at = new Date(row.at);
 			if (at > since) since = at;
@@ -106,9 +133,71 @@ export function createAlertForwarder(
 				tone: row.tone === "danger" ? "danger" : "warning",
 				at,
 			};
-			await forward(send, alert, live, logger);
+			const triage = explain ? await awaitTriage(row, at) : null;
+			await forward(send, alert, live, logger, triage);
 		}
 	};
+}
+
+type AlertRow = Awaited<ReturnType<typeof adminAlertsSince>>[number];
+
+/**
+ * Whether administrators asked for explanations on email and Pushover
+ * (SPEC.md section 20.4). The worker reads only these two switches and the
+ * stored text; the API writes it, and the worker never calls a model.
+ */
+async function forwardsTriage(db: Kysely<Database>, logger: Logger): Promise<boolean> {
+	try {
+		const row = await db
+			.selectFrom("ai_settings")
+			.select(["triage_enabled", "triage_forward"])
+			.executeTakeFirst();
+		return row?.triage_enabled === true && row.triage_forward === true;
+	} catch (e) {
+		logger.warn(
+			{ error: errorMessage(e) },
+			"alert explanation switch could not be read",
+		);
+		return false;
+	}
+}
+
+async function triageOf(
+	db: Kysely<Database>,
+	row: AlertRow,
+	at: Date,
+): Promise<string | null> {
+	const found = await db
+		.selectFrom("notifications")
+		.select("triage")
+		.where("site_alert", "=", true)
+		.where("title", "=", row.title)
+		.where("body", "=", row.body)
+		.where("tone", "=", row.tone)
+		.where("triage", "is not", null)
+		.where("created_at", ">", new Date(at.getTime() - ALERT_ROWS_SPREAD_MS))
+		.limit(1)
+		.executeTakeFirst();
+	return found?.triage ?? null;
+}
+
+/** Only email and Pushover carry the explanation; null when neither is set. */
+function explanationChannels(channels: AlertChannels): AlertChannels | null {
+	const picked: AlertChannels = {
+		pushoverUserKey: channels.pushoverUserKey,
+		pushoverAppToken: channels.pushoverAppToken,
+		webhookUrl: "",
+		email: channels.email ?? null,
+		ntfy: null,
+		teamsUrl: "",
+		...(channels.proxyUrl !== undefined ? { proxyUrl: channels.proxyUrl } : {}),
+	};
+	return anyAlertChannel(picked) ? picked : null;
+}
+
+/** The other channels, which are sent the alert as it is. */
+function plainChannels(channels: AlertChannels): AlertChannels {
+	return { ...channels, pushoverUserKey: "", pushoverAppToken: "", email: null };
 }
 
 /**
@@ -117,29 +206,44 @@ export function createAlertForwarder(
  */
 function adminAlertsSince(db: Kysely<Database>, since: Date) {
 	return (
-		db
-			.selectFrom("notifications")
-			.innerJoin("users", "users.id", "notifications.user_id")
-			.select(["notifications.title", "notifications.body", "notifications.tone"])
-			.select((eb) => eb.fn.max("notifications.created_at").as("at"))
-			.where("users.role", "=", "administrator")
-			// Personal notices to an administrator stay on the site.
-			.where("notifications.site_alert", "=", true)
-			.where("notifications.tone", "in", ["warning", "danger"])
+		adminAlertGroups(db)
 			// At the Date's precision, or the newest row stays newer than `since`.
 			.where(
 				sql<Date>`date_trunc('milliseconds', notifications.created_at)`,
 				">",
 				since,
 			)
-			.groupBy(["notifications.title", "notifications.body", "notifications.tone"])
 			.orderBy("at")
 			.execute()
 	);
 }
 
-/** Send one alert and log each channel's outcome; a failed send is logged, never thrown. */
+/**
+ * Send one alert and log each channel's outcome; a failed send is logged,
+ * never thrown. With an explanation, email and Pushover get it appended.
+ */
 async function forward(
+	send: Send,
+	alert: Alert,
+	channels: AlertChannels,
+	logger: Logger,
+	triage: string | null,
+): Promise<void> {
+	const explained = triage === null ? null : explanationChannels(channels);
+	const sends: [Alert, AlertChannels][] =
+		explained === null
+			? [[alert, channels]]
+			: [
+					[{ ...alert, text: `${alert.text}\n\nAI explanation: ${triage}` }, explained],
+					[alert, plainChannels(channels)],
+				];
+	for (const [message, to] of sends) {
+		if (!anyAlertChannel(to)) continue;
+		await sendOnce(send, message, to, logger);
+	}
+}
+
+async function sendOnce(
 	send: Send,
 	alert: Alert,
 	channels: AlertChannels,
