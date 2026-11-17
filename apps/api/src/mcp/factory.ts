@@ -40,10 +40,13 @@ function annotationsOf(operation: Operation) {
 /**
  * Run an operation as the caller. A refusal the runner makes itself never
  * reaches a route, so no route or gate row names it; this writes the one
- * `api_key.used` row every key request gets (SPEC.md section 24.11).
+ * `api_key.used` row every key request gets (SPEC.md section 24.11). A call
+ * that does reach a route gets its row from the gate. Either way the row
+ * names the operation, so the outer `POST /mcp` request is told to write none.
  */
 function runner(app: FastifyInstance, db: Kysely<Database>, caller: McpCaller): Run {
 	return async (name, input) => {
+		caller.markOperation();
 		const result = await runOperation(app, db, caller, name, input);
 		if (!result.ok) {
 			try {
