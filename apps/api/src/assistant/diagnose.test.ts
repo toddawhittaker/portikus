@@ -120,11 +120,11 @@ describe("Diagnose only reads", () => {
 	});
 
 	test("the read-only system prompt asks for the likely cause from the reads, the same text every time", () => {
-		const prompt = systemPrompt({ role: "administrator", readOnly: true });
+		const prompt = systemPrompt({ role: "administrator", readOnly: true }, false);
 		expect(prompt).toContain("Give the most likely cause, using only those reads");
-		expect(prompt).toBe(systemPrompt({ role: "administrator", readOnly: true }));
-		expect(systemPrompt({ role: "administrator", readOnly: false })).not.toContain(
-			"most likely cause",
-		);
+		expect(prompt).toBe(systemPrompt({ role: "administrator", readOnly: true }, false));
+		expect(
+			systemPrompt({ role: "administrator", readOnly: false }, false),
+		).not.toContain("most likely cause");
 	});
 });

@@ -292,10 +292,13 @@ describe("an instructor's assistant offers only what an instructor may run", () 
 
 	test("a course conversation's prompt names the course and Who is stuck", () => {
 		const courseId = "11111111-2222-4333-8444-555555555555";
-		const prompt = systemPrompt({ role: "instructor", readOnly: false, courseId });
+		const prompt = systemPrompt(
+			{ role: "instructor", readOnly: false, courseId },
+			false,
+		);
 		expect(prompt).toContain(courseId);
 		expect(prompt).toContain("courses_stuck");
-		expect(systemPrompt({ role: "instructor", readOnly: false })).not.toContain(
+		expect(systemPrompt({ role: "instructor", readOnly: false }, false)).not.toContain(
 			"courses_stuck",
 		);
 	});
