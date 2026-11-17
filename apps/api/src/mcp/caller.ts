@@ -11,6 +11,8 @@ export type McpCaller = Extract<RunCaller, { kind: "api_key" }> & {
 	keyId: string;
 	scope: ApiKeyScope;
 	role: Role;
+	/** Tells the HTTP request that carried this call that an operation ran for it. */
+	markOperation: () => void;
 };
 
 export function toAuthInfo(caller: McpCaller): AuthInfo {
@@ -23,6 +25,7 @@ export function toAuthInfo(caller: McpCaller): AuthInfo {
 			role: caller.role,
 			ip: caller.ip,
 			userAgent: caller.userAgent,
+			markOperation: caller.markOperation,
 		},
 	};
 }
@@ -36,7 +39,8 @@ export function fromAuthInfo(authInfo: AuthInfo | undefined): McpCaller {
 		!extra ||
 		!scope ||
 		typeof extra.ip !== "string" ||
-		typeof extra.userId !== "string"
+		typeof extra.userId !== "string" ||
+		typeof extra.markOperation !== "function"
 	) {
 		throw new Error("an MCP request arrived without its key holder");
 	}
@@ -48,6 +52,7 @@ export function fromAuthInfo(authInfo: AuthInfo | undefined): McpCaller {
 		scope: scope as ApiKeyScope,
 		role: extra.role as Role,
 		ip: extra.ip,
+		markOperation: extra.markOperation as () => void,
 		...(typeof extra.userAgent === "string" ? { userAgent: extra.userAgent } : {}),
 	};
 }

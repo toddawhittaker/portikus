@@ -122,6 +122,9 @@ async function recentAudit(
 			"audit_events.via",
 			"audit_events.api_key_id",
 		])
+		// A key's use is about the key, not the workspace, and an agent checking in
+		// would crowd out the events an administrator came to see. The Audit list keeps them.
+		.where("audit_events.action", "<>", "api_key.used")
 		.where((eb) =>
 			eb.or([
 				eb("audit_events.target", "in", [workspaceId, ownerId]),

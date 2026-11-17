@@ -12,8 +12,26 @@ import { riskWithinScope, scopeRequiredMessage } from "./scope.js";
  * The scope gate for API key requests (SPEC.md sections 24.8 and 24.13). A
  * key may run only an operation the catalog exposes, and only one whose risk
  * its scope covers; every other route answers 403. Each key request counts
- * against the key's own limit and writes one `api_key.used` audit row.
+ * against the key's own limit and writes one `api_key.used` audit row. An MCP
+ * request that runs an operation is the exception: the operation's row is its
+ * one row (section 24.11).
  */
+
+declare module "fastify" {
+	interface FastifyRequest {
+		/** Set once an MCP tool call has run an operation, whose own row then stands for the request. */
+		ranOperation: boolean;
+	}
+}
+
+/**
+ * Note that an MCP request ran an operation. The operation's own row (from
+ * the route's gate, or from the runner when it refused) names what ran, so
+ * the outer `POST /mcp` request writes none.
+ */
+export function markOperationRan(request: FastifyRequest): void {
+	request.ranOperation = true;
+}
 
 /** Routes any valid key may reach whatever its scope: the MCP server and the OpenAPI document. */
 const KEY_ROUTES: ReadonlySet<string> = new Set([
@@ -55,6 +73,7 @@ export function registerApiKeyGate(
 ): ApiKeyHooks["authorize"] {
 	const { db } = deps;
 	const allowKey = apiKeyLimit();
+	app.decorateRequest("ranOperation", false);
 
 	// Written when the response is done, so it holds the status the caller got.
 	app.addHook("onResponse", async (request, reply) => {
@@ -64,6 +83,7 @@ export function registerApiKeyGate(
 		// The limiter logs the first refusal; a row for each would let a runaway
 		// client fill the audit table at no cost to itself.
 		if (reply.statusCode === 429) return;
+		if (request.ranOperation) return;
 		try {
 			await auditArrival.run({ via: "api_key", apiKeyId: key.id }, () =>
 				recordAudit(db, {
