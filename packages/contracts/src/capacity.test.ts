@@ -6,7 +6,7 @@ import {
 	LANGUAGE_MIB,
 	PLATFORM_MIB,
 	RESERVE_MIB,
-} from "./estimate.js";
+} from "./capacity.js";
 
 const GIB = 1024 ** 3;
 
@@ -50,10 +50,7 @@ describe("estimate", () => {
 
 /** The rows of the "Estimate on the Settings page" table in docs/CAPACITY.md, by figure. */
 function capacityTable(): Map<string, number> {
-	const doc = readFileSync(
-		`${import.meta.dirname}/../../../../../docs/CAPACITY.md`,
-		"utf8",
-	);
+	const doc = readFileSync(`${import.meta.dirname}/../../../docs/CAPACITY.md`, "utf8");
 	const section = doc.split("### Estimate on the Settings page")[1]?.split("\n## ")[0];
 	if (!section) throw new Error("docs/CAPACITY.md has no estimate table");
 	const rows = new Map<string, number>();

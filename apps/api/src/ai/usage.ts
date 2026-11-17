@@ -1,3 +1,4 @@
+import type { AiPurpose } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 import type { ModelPart } from "./model.js";
@@ -6,9 +7,9 @@ import type { ModelPart } from "./model.js";
 export type StepUsage = Extract<ModelPart, { type: "finish" }>["usage"];
 
 export type UsageEntry = {
-	/** Null for a system call such as the weekly price check. */
+	/** Null for a system call such as the weekly price check or an alert explanation. */
 	userId: string | null;
-	purpose: "assistant" | "pricing";
+	purpose: AiPurpose;
 	model: string;
 	usage: StepUsage;
 };

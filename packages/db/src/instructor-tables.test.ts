@@ -112,6 +112,9 @@ describe("instructor feature tables", () => {
 					"0062_assistant_conversations",
 					"0063_ai_usage_days",
 					"0064_model_prices",
+					"0065_model_output_price",
+					"0066_alert_triage",
+					"0067_weekly_digest",
 				]);
 				expect((await tables.execute(trx)).rows[0]?.n).toBe(6);
 				expect((await contextColumns.execute(trx)).rows[0]?.n).toBe(4);

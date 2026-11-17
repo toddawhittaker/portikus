@@ -132,3 +132,14 @@ describe("AssistantBatchInput", () => {
 		);
 	});
 });
+
+test("a setup context names the LMS or sign-in page, and nothing else", () => {
+	for (const id of ["lms", "signin"]) {
+		expect(
+			CreateConversationRequest.safeParse({ context: { kind: "setup", id } }).success,
+		).toBe(true);
+	}
+	for (const context of [{ kind: "setup" }, { kind: "setup", id: "health" }]) {
+		expect(CreateConversationRequest.safeParse({ context }).success).toBe(false);
+	}
+});

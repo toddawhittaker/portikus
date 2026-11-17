@@ -398,7 +398,9 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 
 	/**
 	 * Audit a held throttle and tell every administrator once (SPEC.md
-	 * §19.4). The notice names the owner, never usage beyond the counts.
+	 * §19.4). The notice names no person: its text goes to the model when
+	 * alerts are explained (SPEC.md section 20.4), and the Health tab names
+	 * the owner.
 	 */
 	async function recordHold(
 		trx: Kysely<Database>,
@@ -412,16 +414,10 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			result: "ok",
 			metadata: held,
 		});
-		const owner = await trx
-			.selectFrom("workspaces")
-			.innerJoin("users", "users.id", "workspaces.owner_user_id")
-			.select("users.display_name")
-			.where("workspaces.id", "=", id)
-			.executeTakeFirst();
 		await notifyAdministrators(trx, {
 			tone: "warning",
-			title: `${owner?.display_name ?? "A student"}'s workspace stays slowed after a restart`,
-			body: `It was slowed ${held.count} times in the last ${held.hours} hours. The Health tab shows it, and its detail panel can lift the throttle.`,
+			title: "A student's workspace stays slowed after a restart",
+			body: `It was slowed ${held.count} times in the last ${held.hours} hours. The Health tab shows whose it is, and its detail panel can lift the throttle.`,
 		});
 	}
 

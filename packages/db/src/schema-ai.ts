@@ -42,6 +42,12 @@ export interface AiSettingsTable {
 	notice_accepted_at: NullableTimestamp;
 	/** Web addresses the weekly price check reads. */
 	price_sources: ColumnType<string[], string[] | undefined, string[]>;
+	/** Whether new warning and danger administrator alerts get a model's explanation. */
+	triage_enabled: Generated<boolean>;
+	/** The most explanations written in one UTC day. */
+	triage_daily_limit: Generated<number>;
+	/** Whether forwarded email and Pushover alerts carry the explanation. */
+	triage_forward: Generated<boolean>;
 	updated_at: ColumnType<Date, Date | string | undefined, Date | string>;
 	updated_by: ColumnType<string | null, string | null | undefined, string | null>;
 }
@@ -97,7 +103,7 @@ export interface AiUsageDaysTable {
 	day: ColumnType<Date, string, string>;
 	/** Null for a deleted person or a system call. */
 	user_id: ColumnType<string | null, string | null | undefined, string | null>;
-	purpose: "assistant" | "pricing";
+	purpose: "assistant" | "pricing" | "triage";
 	model: string;
 	input_tokens: Count;
 	output_tokens: Count;
@@ -112,6 +118,12 @@ interface PriceColumns {
 	model: string;
 	/** Dollars per million input tokens. */
 	input_price_per_million: Price;
+	/** Dollars per million output tokens; null on rows saved before it was asked for. */
+	output_price_per_million: ColumnType<
+		string | null,
+		number | string | null | undefined,
+		number | string | null
+	>;
 	/** A cache read, as a multiple of the input price; above 0 and at most 1. */
 	cache_read_ratio: Price;
 	/** A cache write for the default lifetime, as a multiple of the input price. */

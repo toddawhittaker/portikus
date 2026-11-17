@@ -136,7 +136,7 @@ What this means:
 
 ### Estimate on the Settings page
 
-The Student tools section of the Settings tab estimates the memory each student needs with the ticked languages, and how many students the server holds. It reads the server's total memory from the Health data. These are its figures, in MiB. A unit test (`apps/web/src/admin/settings/estimate.test.ts`) reads this table and fails if `estimate.ts` differs.
+The Student tools section of the Settings tab estimates the memory each student needs with the ticked languages, and how many students the server holds. It reads the server's total memory from the Health data. These are its figures, in MiB. A unit test (`packages/contracts/src/capacity.test.ts`) reads this table and fails if `capacity.ts` in the same folder differs.
 
 | Figure | MiB | How it was worked out |
 |---|---|---|

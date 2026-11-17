@@ -362,6 +362,43 @@ describe.skipIf(skip)("the worker's role", () => {
 		expect(stopped.state).not.toBe("running");
 	});
 
+	test("the alert forwarder reads the explanation switches and text as the restricted role", async () => {
+		await insertTestUser(tdb.db, { role: "administrator" });
+		await tdb.db
+			.updateTable("ai_settings")
+			.set({ triage_enabled: true, triage_forward: true })
+			.execute();
+		await notifyAdministrators(tdb.db, { tone: "danger", title: "Down", body: "b" });
+		await tdb.db
+			.updateTable("notifications")
+			.set({ triage: "The controller stopped.", triaged_at: new Date().toISOString() })
+			.where("title", "=", "Down")
+			.execute();
+		const { logger, lines } = collectingLogger("debug");
+		// The earlier test's alert is also in the table; only this one has an explanation.
+		const sent: [string, string | undefined][] = [];
+		let clock = Date.now() - 60_000;
+		await createAlertForwarder({
+			db: worker,
+			logger,
+			loadChannels: async () => ({
+				pushoverUserKey: "user",
+				pushoverAppToken: "app",
+				webhookUrl: "",
+			}),
+			now: () => new Date(clock),
+			sleep: async (ms) => {
+				clock += ms;
+			},
+			send: async (alert) => {
+				if (alert.title === "Down") sent.push([alert.text, alert.explanation]);
+				return [];
+			},
+		})();
+		expect(JSON.stringify(lines)).not.toMatch(/permission denied|could not be read/i);
+		expect(sent).toEqual([["b", "The controller stopped."]]);
+	});
+
 	test("an alert tick saves its raised flag as the restricted role", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "grants-alert-"));
 		const rebootFile = join(dir, "reboot-required");

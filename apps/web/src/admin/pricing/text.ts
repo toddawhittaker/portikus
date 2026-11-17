@@ -2,6 +2,7 @@ import {
 	type AdminModelPrice,
 	type ModelPrice,
 	type PriceProposal,
+	PriceProposalDecision,
 	type PriceProvider,
 	PriceRowInput,
 	type PriceRun,
@@ -27,6 +28,11 @@ const DATE_TIME = new Intl.DateTimeFormat("en", {
 
 export function dollars(n: number): string {
 	return DOLLARS.format(n);
+}
+
+/** A price that rows saved before output prices existed leave empty. */
+export function optionalDollars(n: number | null | undefined): string {
+	return n == null ? "None" : DOLLARS.format(n);
 }
 
 /** A multiple of the input price, such as "0.1×". */
@@ -149,6 +155,11 @@ export const DIFF_FIELDS: readonly {
 		label: "Input per million",
 		show: (r) => dollars(r.inputPricePerMillion),
 	},
+	{
+		key: "output",
+		label: "Output per million",
+		show: (r) => optionalDollars(r.outputPricePerMillion),
+	},
 	{ key: "read", label: "Cache read", show: (r) => ratio(r.cacheReadRatio) },
 	{ key: "write", label: "Cache write", show: (r) => ratio(r.cacheWriteRatio) },
 	{
@@ -193,6 +204,7 @@ export interface RowDraft {
 	provider: PriceProvider;
 	model: string;
 	inputPricePerMillion: string;
+	outputPricePerMillion: string;
 	cacheReadRatio: string;
 	cacheWriteRatio: string;
 	cacheWriteOneHourRatio: string;
@@ -210,6 +222,7 @@ export function draftOf(row: AdminModelPrice | null): RowDraft {
 		provider: row?.provider ?? "anthropic",
 		model: row?.model ?? "",
 		inputPricePerMillion: text(row?.inputPricePerMillion ?? null),
+		outputPricePerMillion: text(row?.outputPricePerMillion ?? null),
 		cacheReadRatio: text(row?.cacheReadRatio ?? null),
 		cacheWriteRatio: text(row?.cacheWriteRatio ?? null),
 		cacheWriteOneHourRatio: text(row?.cacheWriteOneHourRatio ?? null),
@@ -225,6 +238,8 @@ const FIELD_ERRORS: Partial<Record<DraftField, string>> = {
 	model: "Give the model's name, or the part of its id every version shares.",
 	inputPricePerMillion:
 		"Give the price in US dollars per million input tokens, above 0.",
+	outputPricePerMillion:
+		"Give the price in US dollars per million output tokens, above 0.",
 	cacheReadRatio: "Give a multiple above 0 and at most 1, such as 0.1.",
 	cacheWriteRatio: "Give a multiple above 0 and at most 10, such as 1.25.",
 	cacheWriteOneHourRatio: "Give a multiple above 0 and at most 10, or leave it empty.",
@@ -242,6 +257,15 @@ function number(text: string): number | null {
 	return clean === "" ? null : Number(clean);
 }
 
+/** The output price an administrator typed for a proposal that has none, or null when the contract refuses it. */
+export function parseOutputPrice(text: string): number | null {
+	const parsed = PriceProposalDecision.safeParse({
+		decision: "accept",
+		outputPricePerMillion: number(text) ?? undefined,
+	});
+	return parsed.success ? (parsed.data.outputPricePerMillion ?? null) : null;
+}
+
 /** The row to send, or the message for each field the contract refuses. */
 export function parseDraft(
 	draft: RowDraft,
@@ -250,6 +274,7 @@ export function parseDraft(
 		provider: draft.provider,
 		model: draft.model,
 		inputPricePerMillion: number(draft.inputPricePerMillion),
+		outputPricePerMillion: number(draft.outputPricePerMillion),
 		cacheReadRatio: number(draft.cacheReadRatio),
 		cacheWriteRatio: number(draft.cacheWriteRatio),
 		cacheWriteOneHourRatio: number(draft.cacheWriteOneHourRatio),

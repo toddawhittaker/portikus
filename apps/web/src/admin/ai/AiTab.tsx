@@ -7,6 +7,7 @@ import { NoticeGroup } from "./NoticeGroup.js";
 import { ProviderGroup } from "./ProviderGroup.js";
 import { useAiSettings, useUpdateAi } from "./queries.js";
 import { TestGroup } from "./TestGroup.js";
+import { TriageGroup } from "./TriageGroup.js";
 import { switchBlocked } from "./text.js";
 
 const TITLE = "AI";
@@ -55,6 +56,7 @@ export function AiTab() {
 			/>
 			<TestGroup />
 			<SwitchGroup view={view} />
+			<TriageGroup view={view} />
 		</AdminSection>
 	);
 }

@@ -185,6 +185,19 @@ describe.skipIf(skip)("notifications API", () => {
 		expect((await list(jar)).unreadCount).toBe(0);
 	});
 
+	test("an alert's explanation is listed once written, and absent before", async () => {
+		const jar = await signIn("alice");
+		expect(
+			(await record(jar, { tone: "warning", title: "Disk filling" })).statusCode,
+		).toBe(201);
+		expect((await list(jar)).notifications[0]).not.toHaveProperty("triage");
+		await testDb.db
+			.updateTable("notifications")
+			.set({ triage: "The backups folder grew.", triaged_at: new Date().toISOString() })
+			.execute();
+		expect((await list(jar)).notifications[0]?.triage).toBe("The backups folder grew.");
+	});
+
 	test("newer notifications never push out a reset notice", async () => {
 		await signIn("alice");
 		const user = await testDb.db

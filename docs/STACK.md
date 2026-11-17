@@ -342,6 +342,7 @@ The API serves a Model Context Protocol (MCP) endpoint at `/mcp` so that coding 
 - The software development kit (SDK) is version 2. Version 1 of the SDK pulls in Express, a second web framework Portikus does not otherwise run; version 2's `createMcpHandler` takes a Web `Request` and returns a Web `Response`, with nothing else attached.
 - The handler is mounted on the existing Fastify app through a small bridge of our own, under 50 lines, from a Fastify request to `handler.fetch` and back. `@modelcontextprotocol/node` is not used because it needs the raw request body, which Fastify has already read, and `@modelcontextprotocol/fastify` is not used because it builds a separate app.
 - Sign-in is a fixed API key in the `Authorization` header, not OAuth, which the MCP specification makes optional.
+- Since Epic 70 the server also offers MCP resources (the guides a role may read, and a health snapshot) and prompts (`diagnose_workspace`, `diagnose_health`, `who_is_stuck`), registered with the same SDK in `mcp/resources.ts` and `mcp/prompts.ts` and listed only to a key whose owner and scope may use them (SPEC.md section 20.4, ADR 0079 as amended). They add no dependency.
 
 ### AI model client
 

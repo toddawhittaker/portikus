@@ -2,7 +2,7 @@ import type { AgentUsageWindow, AiPurpose } from "@portikus/contracts";
 import { Meter, Toggletip } from "@portikus/ui";
 import { ApiError } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
-import { count } from "./format.js";
+import { count, estimate, estimateText } from "./format.js";
 import { useAiUsage } from "./queries.js";
 import { LEAD_CELL_CLASS } from "./UsageTables.js";
 import "./usage.css";
@@ -10,12 +10,16 @@ import "./usage.css";
 const PURPOSE_NAME: Record<AiPurpose, string> = {
 	assistant: "Assistant",
 	pricing: "Price check",
+	triage: "Alert explanations",
 };
 
 const CACHE_HELP =
 	"Tokens read from and written to the prompt cache, added together. Cached tokens cost far less than new input.";
 
-const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[52rem]";
+const ESTIMATE_HELP =
+	"Tokens priced from the Pricing tab's table: new input, cache reads and writes, and output. A rough figure, not an invoice. Models with no price row, or no output price, show a dash.";
+
+const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[54rem]";
 
 /**
  * The built-in assistant's tokens this month against the site's cap, and
@@ -30,7 +34,7 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 			id="ai-usage-title"
 			title="Built-in assistant"
 			testId="ai-usage"
-			description="Tokens the assistant and the weekly price check used. Counts only, never what was said."
+			description="Tokens the assistant and the weekly price check used, with a rough dollar estimate. Counts only, never what was said."
 		>
 			{usage.isError ? (
 				<p className="pk-error text-status-error" role="alert">
@@ -69,11 +73,12 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 									</caption>
 									<colgroup>
 										<col />
-										<col className="w-28" />
-										<col className="w-44" />
-										<col className="w-28" />
-										<col className="w-32" />
+										<col className="w-24" />
 										<col className="w-36" />
+										<col className="w-28" />
+										<col className="w-28" />
+										<col className="w-28" />
+										<col className="w-28" />
 									</colgroup>
 									<thead>
 										<tr>
@@ -90,6 +95,12 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 												<span className="inline-flex items-center gap-1">
 													Cache tokens
 													<Toggletip label="Cache tokens">{CACHE_HELP}</Toggletip>
+												</span>
+											</th>
+											<th scope="col" className="pk-num">
+												<span className="inline-flex items-center gap-1">
+													Estimate
+													<Toggletip label="Estimate">{ESTIMATE_HELP}</Toggletip>
 												</span>
 											</th>
 										</tr>
@@ -113,11 +124,22 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 												<td className="pk-num" data-label="Cache">
 													{count(row.cacheReadTokens + row.cacheWriteTokens)}
 												</td>
+												<td className="pk-num" data-label="Estimate">
+													{estimate(row.dollars)}
+												</td>
 											</tr>
 										))}
 									</tbody>
 								</table>
 							</div>
+							<p className="pk-text-body pk-muted" data-testid="ai-usage-estimate">
+								{data.dollars === null
+									? "No estimate: none of the models used has a price row with an output price."
+									: `Estimated cost in this period: ${estimateText(data.dollars)}.`}
+								{data.dollars !== null && data.dollarsPartial
+									? " Rows with no estimate (shown as a dash) are not included, so the real cost is higher."
+									: null}
+							</p>
 						</div>
 					)}
 				</>

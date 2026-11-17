@@ -54,6 +54,7 @@ const AI_USAGE = {
 			outputTokens: 40_000,
 			cacheReadTokens: 2_000_000,
 			cacheWriteTokens: 800_000,
+			dollars: 12.34,
 		},
 		{
 			userId: null,
@@ -64,6 +65,7 @@ const AI_USAGE = {
 			outputTokens: 80,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
+			dollars: null,
 		},
 	],
 	daily: [],
@@ -73,6 +75,8 @@ const AI_USAGE = {
 		cacheReadTokens: 2_000_000,
 		cacheWriteTokens: 800_000,
 	},
+	dollars: 12.34,
+	dollarsPartial: true,
 	month: { usedTokens: 1_500_000, capTokens: 5_000_000 },
 };
 
@@ -97,7 +101,10 @@ test("shows a row per person and agent, a dash for Codex's cost, and the daily t
 	expect(within(rows[0] as HTMLElement).getByText("Claude Code")).toBeDefined();
 	expect(within(rows[0] as HTMLElement).getByText("$4.50")).toBeDefined();
 	expect(within(rows[0] as HTMLElement).getByText("1,200")).toBeDefined();
-	expect(within(rows[1] as HTMLElement).getByText("—")).toBeDefined();
+	// The dash is hidden from a screen reader, which hears "no cost" instead.
+	const codexCost = within(rows[1] as HTMLElement).getByText("—");
+	expect(codexCost.getAttribute("aria-hidden")).toBe("true");
+	expect(within(rows[1] as HTMLElement).getByText("no cost").className).toBe("sr-only");
 	expect(
 		within(table).getByRole("button", { name: "About Estimated API cost" }),
 	).toBeDefined();
@@ -175,9 +182,31 @@ test("the Built-in assistant section shows the month against the cap and a row p
 	const check = within(rows[1] as HTMLElement);
 	expect(check.getByText("Weekly price check")).toBeDefined();
 	expect(check.getByText("Price check")).toBeDefined();
-	// Tokens only: a cost without output tokens would undercount.
-	expect(screen.queryByText(/Estimated input cost/)).toBeNull();
-	expect(within(table).queryByText(/\$/)).toBeNull();
+	// The estimate is labelled as one; a row with no price shows a dash.
+	expect(within(table).getByRole("button", { name: "About Estimate" })).toBeDefined();
+	expect(alice.getByText("$12.34")).toBeDefined();
+	expect(check.getByText("—").getAttribute("aria-hidden")).toBe("true");
+	expect(check.getByText("no estimate").className).toBe("sr-only");
+	const note = section.getByTestId("ai-usage-estimate");
+	expect(note.textContent).toMatch(/Estimated cost in this period: \$12\.34\./);
+	expect(note.textContent).toMatch(
+		/Rows with no estimate \(shown as a dash\) are not included/,
+	);
+});
+
+test("the estimate has no partial note when every row was priced", async () => {
+	serve(USAGE, { ...AI_USAGE, dollarsPartial: false });
+	renderWithQuery(<AgentUsageTab />);
+	const note = await screen.findByTestId("ai-usage-estimate");
+	expect(note.textContent).toBe("Estimated cost in this period: $12.34.");
+});
+
+test("the estimate says so when no row could be priced", async () => {
+	serve(USAGE, { ...AI_USAGE, dollars: null });
+	renderWithQuery(<AgentUsageTab />);
+	expect((await screen.findByTestId("ai-usage-estimate")).textContent).toMatch(
+		/^No estimate: none of the models used has a price row with an output price\.$/,
+	);
 });
 
 test("the assistant section asks for the chosen period and says when nothing was used", async () => {
