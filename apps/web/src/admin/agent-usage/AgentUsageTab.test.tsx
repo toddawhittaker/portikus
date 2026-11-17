@@ -73,6 +73,7 @@ const AI_USAGE = {
 		cacheReadTokens: 2_000_000,
 		cacheWriteTokens: 800_000,
 	},
+	dollars: null,
 	month: { usedTokens: 1_500_000, capTokens: 5_000_000 },
 };
 

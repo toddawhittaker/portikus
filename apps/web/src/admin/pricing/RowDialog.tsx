@@ -115,6 +115,9 @@ export function RowDialog({
 					{text("inputPricePerMillion", "Input price per million tokens", {
 						unit: "USD",
 					})}
+					{text("outputPricePerMillion", "Output price per million tokens", {
+						unit: "USD",
+					})}
 					<div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
 						{text("cacheReadRatio", "Cache read ratio", { hint: "Such as 0.1." })}
 						{text("cacheWriteRatio", "Cache write ratio", { hint: "Such as 1.25." })}

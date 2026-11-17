@@ -252,6 +252,9 @@ describe.skipIf(skip)("GET /admin/ai", () => {
 				noticeAcceptedBy: null,
 				usedThisMonth: 0,
 				priceSources: [],
+				triageEnabled: false,
+				triageDailyLimit: 5,
+				triageForward: false,
 				hostListed: false,
 			});
 		});

@@ -40,6 +40,7 @@ const ROW: AdminModelPrice = {
 	provider: "anthropic",
 	model: "opus-5-5",
 	inputPricePerMillion: 5,
+	outputPricePerMillion: 10,
 	cacheReadRatio: 0.1,
 	cacheWriteRatio: 1.25,
 	cacheWriteOneHourRatio: 2,
@@ -237,6 +238,7 @@ test("adding a row checks the fields against the contract before it sends", asyn
 		fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
 	type(/^Model/, "gpt-7");
 	type(/^Input price/, "2");
+	type(/^Output price/, "8");
 	type(/^Cache read ratio/, "0.1");
 	type(/^Cache write ratio/, "1.25");
 	type(/^Source page/, "https://developers.openai.com/api/docs/pricing");

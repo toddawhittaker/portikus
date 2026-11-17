@@ -675,6 +675,9 @@ describe("database migrations and schema", () => {
 					"0062_assistant_conversations",
 					"0063_ai_usage_days",
 					"0064_model_prices",
+					"0065_model_output_price",
+					"0066_alert_triage",
+					"0067_weekly_digest",
 				]);
 				throw rollback;
 			}),
@@ -2098,10 +2101,16 @@ describe("resource guard migration", () => {
 						"0062_assistant_conversations",
 						"0063_ai_usage_days",
 						"0064_model_prices",
+						"0065_model_output_price",
+						"0066_alert_triage",
+						"0067_weekly_digest",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0064 down to 0020, and 0018 (applied 0018, 0020 to 0064, 0019).
+					// Undo 0019, 0067 down to 0020, and 0018 (applied 0018, 0020 to 0067, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2196,6 +2205,9 @@ describe("resource guard migration", () => {
 						"0062_assistant_conversations",
 						"0063_ai_usage_days",
 						"0064_model_prices",
+						"0065_model_output_price",
+						"0066_alert_triage",
+						"0067_weekly_digest",
 					]);
 					throw rollback;
 				}),

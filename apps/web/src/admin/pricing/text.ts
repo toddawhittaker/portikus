@@ -193,6 +193,7 @@ export interface RowDraft {
 	provider: PriceProvider;
 	model: string;
 	inputPricePerMillion: string;
+	outputPricePerMillion: string;
 	cacheReadRatio: string;
 	cacheWriteRatio: string;
 	cacheWriteOneHourRatio: string;
@@ -210,6 +211,7 @@ export function draftOf(row: AdminModelPrice | null): RowDraft {
 		provider: row?.provider ?? "anthropic",
 		model: row?.model ?? "",
 		inputPricePerMillion: text(row?.inputPricePerMillion ?? null),
+		outputPricePerMillion: text(row?.outputPricePerMillion ?? null),
 		cacheReadRatio: text(row?.cacheReadRatio ?? null),
 		cacheWriteRatio: text(row?.cacheWriteRatio ?? null),
 		cacheWriteOneHourRatio: text(row?.cacheWriteOneHourRatio ?? null),
@@ -225,6 +227,8 @@ const FIELD_ERRORS: Partial<Record<DraftField, string>> = {
 	model: "Give the model's name, or the part of its id every version shares.",
 	inputPricePerMillion:
 		"Give the price in US dollars per million input tokens, above 0.",
+	outputPricePerMillion:
+		"Give the price in US dollars per million output tokens, above 0.",
 	cacheReadRatio: "Give a multiple above 0 and at most 1, such as 0.1.",
 	cacheWriteRatio: "Give a multiple above 0 and at most 10, such as 1.25.",
 	cacheWriteOneHourRatio: "Give a multiple above 0 and at most 10, or leave it empty.",
@@ -250,6 +254,7 @@ export function parseDraft(
 		provider: draft.provider,
 		model: draft.model,
 		inputPricePerMillion: number(draft.inputPricePerMillion),
+		outputPricePerMillion: number(draft.outputPricePerMillion),
 		cacheReadRatio: number(draft.cacheReadRatio),
 		cacheWriteRatio: number(draft.cacheWriteRatio),
 		cacheWriteOneHourRatio: number(draft.cacheWriteOneHourRatio),
