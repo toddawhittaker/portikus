@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { compact, cost, count, dayName } from "./format.js";
+import { compact, cost, count, dayName, estimate } from "./format.js";
 
 test("counts get thousands separators", () => {
 	expect(count(1234567)).toBe("1,234,567");
@@ -21,4 +21,11 @@ test("big totals read compactly", () => {
 test("a usage day reads as a weekday and date, in UTC like the day itself", () => {
 	expect(dayName("2026-11-06")).toBe("Fri, Nov 6");
 	expect(dayName("2026-11-06", true)).toBe("Fri 6");
+});
+
+test("an estimate is a dash when unpriced, and never a false zero", () => {
+	expect(estimate(null)).toBe("—");
+	expect(estimate(0)).toBe("$0.00");
+	expect(estimate(0.003)).toBe("under $0.01");
+	expect(estimate(2.335)).toBe("$2.34");
 });

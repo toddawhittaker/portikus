@@ -12,6 +12,7 @@ export const DEFAULT_PRICE_SOURCES: readonly string[] = [
 ];
 
 const Ratio = z.number().positive().max(10);
+const OutputPrice = z.number().positive().max(10_000);
 
 /**
  * The figures of one model's price row, as the student restart estimate
@@ -25,7 +26,7 @@ const PriceFigures = z.object({
 	/** US dollars per million input tokens. */
 	inputPricePerMillion: z.number().positive().max(10_000),
 	/** US dollars per million output tokens; null on rows saved before it was asked for. */
-	outputPricePerMillion: z.number().positive().max(10_000).nullable().optional(),
+	outputPricePerMillion: OutputPrice.nullable().optional(),
 	cacheReadRatio: z.number().positive().max(1),
 	cacheWriteRatio: Ratio,
 	/** Write ratio for a one-hour cache, where the provider offers one. */
@@ -46,7 +47,7 @@ const surchargeRule = { message: "Give both surcharge figures or neither" };
 
 /** What the price check model submits, and what a manual edit sends. */
 export const PriceRowInput = PriceFigures.extend({
-	outputPricePerMillion: z.number().positive().max(10_000),
+	outputPricePerMillion: OutputPrice,
 })
 	.strict()
 	.refine(surchargeBoth, surchargeRule);
@@ -105,8 +106,12 @@ export const PriceRun = z.object({
 });
 export type PriceRun = z.infer<typeof PriceRun>;
 
+/** Accepting a proposal saved before output prices existed needs one in the same request. */
 export const PriceProposalDecision = z
-	.object({ decision: z.enum(["accept", "reject"]) })
+	.object({
+		decision: z.enum(["accept", "reject"]),
+		outputPricePerMillion: OutputPrice.optional(),
+	})
 	.strict();
 export type PriceProposalDecision = z.infer<typeof PriceProposalDecision>;
 
