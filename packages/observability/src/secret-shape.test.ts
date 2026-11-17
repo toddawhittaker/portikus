@@ -2,11 +2,11 @@ import { describe, expect, test } from "vitest";
 import { looksLikeSecret } from "./secret-shape.js";
 
 // Test strings are built at run time so no realistic key sits in the source.
-const entraSecret = "abc" + "8Q~" + "x".repeat(34);
-const googleSecret = "GOCSPX" + "-" + "a".repeat(28);
-const modelKey = "sk" + "-" + "a".repeat(24);
-const anthropicKey = "sk" + "-ant-" + "a".repeat(24);
-const portikusKey = "portikus" + "_" + "A1b2".repeat(11).slice(0, 43);
+const entraSecret = `abc8Q~${"x".repeat(34)}`;
+const googleSecret = `GOCSPX-${"a".repeat(28)}`;
+const modelKey = `sk-${"a".repeat(24)}`;
+const anthropicKey = `sk-ant-${"a".repeat(24)}`;
+const portikusKey = `portikus_${"A1b2".repeat(11).slice(0, 43)}`;
 
 // Key headers are built at run time so the repository's secret scan does not flag this file.
 const BEGIN = (kind: string) => `-----BEGIN ${kind}KEY-----`;
@@ -53,13 +53,16 @@ describe("a message that looks like a secret", () => {
 			"a JSON key name that only mentions private_key",
 			"the field private_key_id is set",
 		],
-		["a short Entra-like value", "abc8Q~" + "x".repeat(20)],
+		["a short Entra-like value", `abc8Q~${"x".repeat(20)}`],
 		["the Entra marker in prose", "the 8Q~ marker appears in secret ids"],
 		["a short Google prefix", "GOCSPX- is the prefix Google uses"],
 		["sk- in prose", "the sk-learn docs and a risk-averse task-based plan"],
-		["a short sk- value", "sk-" + "a".repeat(10)],
-		["a short portikus_ identifier", "the portikus_session cookie and portikus_ping tool"],
-		["a long portikus_ word with a space", "portikus_ " + "a".repeat(50)],
+		["a short sk- value", `sk-${"a".repeat(10)}`],
+		[
+			"a short portikus_ identifier",
+			"the portikus_session cookie and portikus_ping tool",
+		],
+		["a long portikus_ word with a space", `portikus_ ${"a".repeat(50)}`],
 	])("%s is allowed", (_, text) => {
 		expect(looksLikeSecret(text)).toBe(false);
 	});
