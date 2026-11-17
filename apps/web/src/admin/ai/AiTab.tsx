@@ -56,7 +56,7 @@ export function AiTab() {
 			/>
 			<TestGroup />
 			<SwitchGroup view={view} />
-			<TriageGroup key={view.triageDailyLimit} view={view} />
+			<TriageGroup view={view} />
 		</AdminSection>
 	);
 }

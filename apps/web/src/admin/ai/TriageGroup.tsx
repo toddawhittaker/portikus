@@ -1,6 +1,6 @@
 import { type AiSettingsView, MAX_AI_TRIAGE_DAILY_LIMIT } from "@portikus/contracts";
 import { Button, TextField, useToast } from "@portikus/ui";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 import { errorText } from "../../api/request.js";
 import { AdminGroup as Group } from "../AdminSection.js";
 import { useUpdateAi } from "./queries.js";
@@ -55,6 +55,11 @@ export function TriageGroup({ view }: { view: AiSettingsView }) {
 	const save = useUpdateAi();
 	const [limit, setLimit] = useState(String(view.triageDailyLimit));
 	const [error, setError] = useState<string>();
+	// The group is never remounted, so focus stays where it was after a save; a
+	// new saved value, from this tab or another, replaces the field's text.
+	useEffect(() => {
+		setLimit(String(view.triageDailyLimit));
+	}, [view.triageDailyLimit]);
 	const pending = save.isPending ? save.variables : undefined;
 	const explain = pending?.triageEnabled ?? view.triageEnabled;
 	const forward = pending?.triageForward ?? view.triageForward;

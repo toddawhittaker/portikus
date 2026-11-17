@@ -30,8 +30,11 @@ function show(...items: Notification[]) {
 test("an alert's explanation shows under it, labelled as written by AI", async () => {
 	show(note({ body: "Pool at 91%", triage: "Old snapshots are likely the cause." }));
 	const triage = await screen.findByTestId("notification-triage");
-	expect(triage.getAttribute("aria-label")).toBe("Explanation written by AI");
-	expect(triage.textContent).toContain("Explanation written by AI");
+	// A visible line says who wrote it; there is no landmark to read it twice (WCAG 1.3.1).
+	expect(triage.getAttribute("aria-label")).toBeNull();
+	expect(triage.tagName).toBe("DIV");
+	expect(screen.queryByRole("region")).toBeNull();
+	expect(within(triage).getByText(/^Explanation written by AI/)).toBeTruthy();
 	expect(triage.textContent).toContain("Old snapshots are likely the cause.");
 	// It comes after the body, inside the same notification.
 	const item = screen.getByTestId("notification");
