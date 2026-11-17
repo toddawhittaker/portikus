@@ -85,7 +85,7 @@ test("many files at once produce a truncated frame of at most 200 paths", async 
 		ms?: number,
 		...rest: unknown[]
 	) => {
-		if (ms !== FS_EVENT_BATCH_MS) return realSetTimeout(callback, ms, ...rest);
+		if (ms !== FS_EVENT_BATCH_MS) return realSetTimeout(callback, ms, ...(rest as []));
 		held.push(callback);
 		return { unref() {} };
 	}) as unknown as typeof setTimeout);
