@@ -13,6 +13,7 @@ import {
 	insertTestUser,
 	type TestDb,
 } from "@portikus/db/testing";
+import { collectingLogger } from "@portikus/observability/testing";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { createFakeModelClient, type FakeStep } from "../ai/fake-model.js";
@@ -47,11 +48,28 @@ const FINISH: ModelPart = {
 };
 const say = (text: string): FakeStep => [{ type: "text", text }, FINISH];
 
-function depsWith(steps: FakeStep[], lines: string[] | null = ["boom"]) {
-	const client = createFakeModelClient(steps);
+let logged: Record<string, unknown>[] = [];
+
+/** `during(n)` runs inside the nth model call, before it answers. */
+function depsWith(
+	steps: FakeStep[],
+	lines: string[] | null = ["boom"],
+	during?: (call: number) => Promise<void>,
+) {
+	const fake = createFakeModelClient(steps);
+	const client: typeof fake = {
+		...fake,
+		async *step(req) {
+			await during?.(fake.requests.length + 1);
+			yield* fake.step(req);
+		},
+	};
+	const { logger, lines: logLines } = collectingLogger();
+	logged = logLines;
 	const deps: TriageDeps = {
 		db: testDb.db,
 		config,
+		logger,
 		readErrorLines: async () => lines,
 		open: async (db, c) => {
 			const opened = await openModelClient(db, c);
@@ -461,5 +479,81 @@ describe.skipIf(skip)("triageTick", () => {
 		});
 		expect(outcome).toBe("busy");
 		expect(client.requests).toHaveLength(0);
+	});
+
+	test("the attempt is counted before the call, so a crash mid-call cannot bring a second call", async () => {
+		await raise("Pool almost full");
+		const seen: string[] = [];
+		const { deps } = depsWith([say("Delete old images.")], ["boom"], async () => {
+			seen.push(...(await audits()).map((a) => a.result));
+		});
+		expect(await triageTick(deps, NOW)).toMatchObject({ triaged: 1 });
+		expect(seen).toEqual(["started"]);
+		expect((await audits()).map((a) => a.result)).toEqual(["ok"]);
+
+		// A restart left a row at "started" and the alert unexplained: no second call.
+		await testDb.db
+			.updateTable("audit_events")
+			.set({ result: "started" })
+			.where("action", "=", TRIAGE_AUDIT_ACTION)
+			.execute();
+		await testDb.db
+			.updateTable("notifications")
+			.set({ triage: null, triaged_at: null })
+			.execute();
+		const after = depsWith([]);
+		expect(await triageTick(after.deps, NOW)).toMatchObject({ triaged: 0, failed: 0 });
+		expect(after.client.requests).toHaveLength(0);
+	});
+
+	test("turning the switch off during a call stops the tick before the next call", async () => {
+		await raise("A");
+		await raise("B");
+		const { client, deps } = depsWith([say("one"), say("two")], ["boom"], async () => {
+			await settings({ triage_enabled: false });
+		});
+		expect(await triageTick(deps, NOW)).toEqual({
+			triaged: 1,
+			failed: 0,
+			stopped: "triage-off",
+		});
+		expect(client.requests).toHaveLength(1);
+	});
+
+	test("lowering the daily limit during a call takes effect before the next call", async () => {
+		await raise("A");
+		await raise("B");
+		const { client, deps } = depsWith([say("one"), say("two")], ["boom"], async () => {
+			await settings({ triage_daily_limit: 1 });
+		});
+		expect(await triageTick(deps, NOW)).toEqual({
+			triaged: 1,
+			failed: 0,
+			stopped: "daily-limit",
+		});
+		expect(client.requests).toHaveLength(1);
+	});
+
+	test("a failure is logged with its message and code, never the alert or the snapshot", async () => {
+		await raise("Secret title text", NOW, "danger", "Body words here");
+		const { deps } = depsWith([{ error: "unreachable" }], ["journal line words"]);
+		expect(await triageTick(deps, NOW)).toMatchObject({ failed: 1 });
+		const line = logged.find((l) => l.msg === "alert explanation failed");
+		expect(line).toMatchObject({ code: "unreachable", error: expect.any(String) });
+		const all = JSON.stringify(logged);
+		for (const words of ["Secret title text", "Body words here", "journal line words"])
+			expect(all).not.toContain(words);
+	});
+
+	test("an error before the call is logged too", async () => {
+		await raise("A");
+		const { deps } = depsWith([]);
+		deps.readErrorLines = async () => {
+			throw new Error("journal gone");
+		};
+		expect(await triageTick(deps, NOW)).toMatchObject({ failed: 1 });
+		expect(logged.find((l) => l.msg === "alert explanation failed")).toMatchObject({
+			error: "journal gone",
+		});
 	});
 });

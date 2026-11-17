@@ -60,9 +60,8 @@ function NotificationItem({
 					</p>
 				) : null}
 				{item.triage ? (
-					<section
+					<div
 						className="mt-1.5 grid gap-0.5 border-s-2 border-line-strong ps-3"
-						aria-label="Explanation written by AI"
 						data-testid="notification-triage"
 					>
 						<p className="m-0 text-xs font-semibold text-ink-muted">
@@ -72,7 +71,7 @@ function NotificationItem({
 						<p className="m-0 break-words whitespace-pre-line text-ink">
 							{item.triage}
 						</p>
-					</section>
+					</div>
 				) : null}
 				<p className="mt-0.5 mb-0 text-xs text-ink-muted">
 					<time

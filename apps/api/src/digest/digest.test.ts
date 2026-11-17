@@ -271,6 +271,46 @@ describe.skipIf(skip)("the digest's figures", () => {
 			"Built-in AI: 15 tokens, no price on file, so no dollar estimate.",
 		);
 	});
+
+	test("usage: a positive cost under one cent says so instead of $0.00", async () => {
+		await testDb.db
+			.insertInto("model_prices")
+			.values({
+				provider: "openai",
+				model: "priced-model",
+				input_price_per_million: 2,
+				output_price_per_million: 10,
+				cache_read_ratio: 0.1,
+				cache_write_ratio: 1,
+				cache_ttl_seconds: 300,
+				source_url: "https://example.com/p",
+				source_quote: "q",
+				checked_at: "2026-01-01T00:00:00Z",
+			})
+			.execute();
+		const usage = (input: number) =>
+			testDb.db
+				.deleteFrom("ai_usage_days")
+				.execute()
+				.then(() =>
+					testDb.db
+						.insertInto("ai_usage_days")
+						.values({
+							day: ago(DAY).toISOString().slice(0, 10),
+							user_id: null,
+							purpose: "pricing",
+							model: "priced-model",
+							input_tokens: input,
+							output_tokens: 0,
+							cache_read_tokens: 0,
+							cache_write_tokens: 0,
+						})
+						.execute(),
+				)
+				.then(() => composeDigest(testDb.db, NOW));
+		expect(await usage(100)).toContain("100 tokens, under $0.01 estimate.");
+		expect(await usage(0)).toContain("0 tokens, about $0.00 estimate.");
+	});
 });
 
 describe.skipIf(skip)("the odd audit entries", () => {
@@ -357,6 +397,15 @@ describe("fitBody", () => {
 		expect(body.endsWith("…")).toBe(true);
 	});
 
+	test("cuts at the end of a whole line, never mid-word", () => {
+		const lines = Array.from({ length: 200 }, (_, i) => `line number ${i} here`);
+		const body = fitBody([["Long", lines]]);
+		expect(body.length).toBeLessThanOrEqual(MAX_NOTIFICATION_BODY_LENGTH);
+		expect(body.endsWith("\n…")).toBe(true);
+		for (const line of body.slice(0, -2).split("\n").slice(1))
+			expect(line).toMatch(/^line number \d+ here$/);
+	});
+
 	test("leaves a body at the limit alone", () => {
 		const text = "y".repeat(MAX_NOTIFICATION_BODY_LENGTH - "S\n".length);
 		expect(fitBody([["S", [text]]])).toHaveLength(MAX_NOTIFICATION_BODY_LENGTH);
@@ -380,6 +429,11 @@ describe.skipIf(skip)("a full digest", () => {
 		expect(body.length).toBeLessThanOrEqual(MAX_NOTIFICATION_BODY_LENGTH);
 		for (const heading of ["Health", "Capacity", "Usage", "Audit"])
 			expect(body).toContain(`${heading}\n`);
+	});
+
+	test("the Audit section comes first, so a cut cannot hide it", async () => {
+		await audit("admin.root_shell_opened");
+		expect((await composeDigest(testDb.db, NOW)).startsWith("Audit\n")).toBe(true);
 	});
 });
 
@@ -461,14 +515,14 @@ describe.skipIf(skip)("digestTick", () => {
 		expect(await digestTick(testDb.db, NOW)).toBe("not-due");
 	});
 
-	test("a failed send puts the old stamp back so the next tick tries again", async () => {
+	test("a failed send leaves the week unclaimed so the next tick tries again", async () => {
 		await user("administrator");
 		const before = new Date(2026, 10, 9, 8, 1);
 		await testDb.db
 			.updateTable("settings")
 			.set({ digest_sent_at: before.toISOString() })
 			.execute();
-		// Without its table the notification fails after the week was claimed.
+		// Without its table the notification fails.
 		await sql`alter table notifications rename to notifications_away`.execute(
 			testDb.db,
 		);
@@ -481,6 +535,34 @@ describe.skipIf(skip)("digestTick", () => {
 		}
 		expect(await sentAt()).toEqual(before);
 		expect(await digestTick(testDb.db, NOW)).toBe("sent");
+	});
+
+	test("one administrator's insert failing leaves no rows and the week unclaimed, and a retry sends exactly once", async () => {
+		const one = await user("administrator");
+		const two = await user("administrator");
+		await sql`
+			create function fail_digest_for_one() returns trigger as $$
+			begin
+				if new.user_id = '${sql.raw(two.id)}'::uuid then
+					raise exception 'insert refused';
+				end if;
+				return new;
+			end $$ language plpgsql`.execute(testDb.db);
+		await sql`create trigger fail_digest before insert on notifications
+			for each row execute function fail_digest_for_one()`.execute(testDb.db);
+		try {
+			await expect(digestTick(testDb.db, NOW)).rejects.toThrow("insert refused");
+		} finally {
+			await sql`drop trigger fail_digest on notifications`.execute(testDb.db);
+			await sql`drop function fail_digest_for_one()`.execute(testDb.db);
+		}
+		expect(await notices()).toHaveLength(0);
+		expect(await sentAt()).toBeNull();
+		expect(await digestTick(testDb.db, NOW)).toBe("sent");
+		expect((await notices()).map((r) => r.user_id).sort()).toEqual(
+			[one.id, two.id].sort(),
+		);
+		expect(await digestTick(testDb.db, NOW)).toBe("not-due");
 	});
 });
 

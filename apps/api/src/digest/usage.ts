@@ -6,6 +6,12 @@ import { windowDays } from "../usage-window.js";
 
 const SEVEN = 7;
 
+/** "under $0.01" for a positive amount that would round to nothing, as the Agents tab says it. */
+function dollarText(dollars: number): string {
+	if (dollars > 0 && dollars < 0.005) return "under $0.01";
+	return `about $${dollars.toFixed(2)}`;
+}
+
 /** People, workspaces, coding agents and built-in AI over the last seven days, as plain lines. */
 export async function usageLines(
 	db: Kysely<Database>,
@@ -71,7 +77,7 @@ export async function usageLines(
 	const priced = unpriced < ai.length;
 	const estimate = !priced
 		? "no price on file, so no dollar estimate"
-		: `about $${dollars.toFixed(2)} estimate${unpriced > 0 ? ", partial because some models have no price" : ""}`;
+		: `${dollarText(dollars)} estimate${unpriced > 0 ? ", partial because some models have no price" : ""}`;
 	lines.push(`Built-in AI: ${tokens.toLocaleString("en-US")} tokens, ${estimate}.`);
 	return lines;
 }

@@ -22,6 +22,13 @@ export interface Alert {
 	text: string;
 	tone: AlertTone;
 	at: Date;
+	/** The built-in AI's explanation; only email and Pushover carry it (SPEC.md section 20.4). */
+	explanation?: string;
+}
+
+/** The alert text with its explanation, if any, under it. */
+function withExplanation(text: string, explanation: string | undefined): string {
+	return explanation === undefined ? text : `${text}\n\nAI explanation: ${explanation}`;
 }
 
 /** Empty strings mean the channel is off, as in the environment. */
@@ -55,6 +62,31 @@ export interface AlertWebhookBody {
 export type ChannelResult = AlertChannelResult;
 
 export const PUSHOVER_MESSAGES_URL = "https://api.pushover.net/1/messages.json";
+
+/** Pushover refuses a longer message. */
+export const PUSHOVER_MESSAGE_MAX = 1024;
+
+/** `text` cut to `max` characters, with an ellipsis when cut; empty when `max` is below 1. */
+function cut(text: string, max: number): string {
+	if (text.length <= max) return text;
+	return max < 1 ? "" : `${text.slice(0, max - 1)}…`;
+}
+
+/**
+ * The Pushover message within PUSHOVER_MESSAGE_MAX: the site always, then the
+ * text, then the explanation, which is cut first and dropped when the text
+ * alone fills the message.
+ */
+export function pushoverMessage(alert: Alert, site: string): string {
+	const tail = `\n(${site})`;
+	const room = PUSHOVER_MESSAGE_MAX - tail.length;
+	const full = withExplanation(alert.text, alert.explanation);
+	if (full.length <= room) return `${full}${tail}`;
+	const head = withExplanation(alert.text, "");
+	if (alert.explanation === undefined || head.length >= room)
+		return `${cut(alert.text, room)}${tail}`;
+	return `${head}${cut(alert.explanation, room - head.length)}${tail}`;
+}
 
 const SEND_TIMEOUT_MS = 10_000;
 
@@ -173,7 +205,7 @@ export async function sendPushover(
 		token: channels.pushoverAppToken,
 		user: channels.pushoverUserKey,
 		title: alert.title,
-		message: `${alert.text}\n(${site})`,
+		message: pushoverMessage(alert, site),
 		// High priority skips the recipient's quiet hours.
 		priority: alert.tone === "danger" ? "1" : "0",
 		timestamp: String(Math.floor(alert.at.getTime() / 1000)),
@@ -300,7 +332,7 @@ export async function sendEmail(
 		{
 			to: email.to,
 			subject: alert.title,
-			text: `${alert.text}\n\n(${site}, ${alert.at.toISOString()})`,
+			text: `${withExplanation(alert.text, alert.explanation)}\n\n(${site}, ${alert.at.toISOString()})`,
 			priority: alert.tone === "danger" ? "high" : "normal",
 		},
 		transportFactory,

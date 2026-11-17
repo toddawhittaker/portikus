@@ -387,14 +387,18 @@ describe.skipIf(skip)("alert explanations", () => {
 		await f.tick();
 		expect(f.waited()).toBe(0);
 		expect(f.sent).toHaveLength(2);
-		const [[withText, to], [plain, rest]] = f.sent as [
+		const [[plain, rest], [withText, to]] = f.sent as [
 			[Alert, AlertChannels],
 			[Alert, AlertChannels],
 		];
-		expect(withText.text).toBe("b\n\nAI explanation: The controller stopped.");
+		expect(withText).toMatchObject({
+			text: "b",
+			explanation: "The controller stopped.",
+		});
 		expect(to).toMatchObject({ pushoverUserKey: "user", webhookUrl: "" });
 		expect(to.email).toBeTruthy();
 		expect(plain.text).toBe("b");
+		expect(plain.explanation).toBeUndefined();
 		expect(rest).toMatchObject({ pushoverUserKey: "", email: null });
 		expect(rest.webhookUrl).toBe(all.webhookUrl);
 	});
@@ -408,7 +412,55 @@ describe.skipIf(skip)("alert explanations", () => {
 		await f.tick();
 		expect(f.waited()).toBeGreaterThanOrEqual(10_000);
 		expect(f.waited()).toBeLessThan(TRIAGE_WAIT_MS);
-		expect(f.sent[0]?.[0].text).toContain("AI explanation: The pool is full.");
+		expect(f.sent[1]?.[0].explanation).toBe("The pool is full.");
+	});
+
+	test("webhook, ntfy and Teams are sent before the wait; only email and Pushover wait", async () => {
+		await switches(true, true);
+		let sentBeforeWait: AlertChannels[] | null = null;
+		const f = forwarder(all, async () => {
+			sentBeforeWait ??= f.sent.map(([, to]) => to);
+			await explain("Disk", "The pool is full.");
+		});
+		await notifyAdministrators(tdb.db, { tone: "warning", title: "Disk", body: "b" });
+		await f.tick();
+		expect(sentBeforeWait).toHaveLength(1);
+		expect(sentBeforeWait?.[0]).toMatchObject({
+			webhookUrl: all.webhookUrl,
+			pushoverUserKey: "",
+			email: null,
+		});
+		expect(f.sent.map(([a]) => a.explanation)).toEqual([
+			undefined,
+			"The pool is full.",
+		]);
+	});
+
+	test("a database error while waiting still sends the alert, without an explanation", async () => {
+		await switches(true, true);
+		const f = forwarder(all, async () => {
+			await sql`alter table notifications rename column triage to triage_gone`.execute(
+				tdb.db,
+			);
+		});
+		await notifyAdministrators(tdb.db, {
+			tone: "danger",
+			title: "Root shell",
+			body: "b",
+		});
+		try {
+			await f.tick();
+		} finally {
+			await sql`alter table notifications rename column triage_gone to triage`.execute(
+				tdb.db,
+			);
+		}
+		expect(f.sent.map(([a, to]) => [a.text, Boolean(to.email), to.webhookUrl])).toEqual(
+			[
+				["b", false, all.webhookUrl],
+				["b", true, ""],
+			],
+		);
 	});
 
 	test("sends as before when no explanation comes within the minute", async () => {
@@ -418,9 +470,9 @@ describe.skipIf(skip)("alert explanations", () => {
 		await f.tick();
 		expect(f.waited()).toBeGreaterThan(TRIAGE_WAIT_MS - 5_000);
 		expect(f.waited()).toBeLessThanOrEqual(TRIAGE_WAIT_MS + 2_000);
-		expect(f.sent).toHaveLength(1);
-		expect(f.sent[0]?.[0].text).toBe("b");
-		expect(f.sent[0]?.[1]).toBe(all);
+		expect(f.sent.map(([a]) => a.text)).toEqual(["b", "b"]);
+		expect(f.sent[0]?.[1]).toMatchObject({ webhookUrl: all.webhookUrl, email: null });
+		expect(f.sent[1]?.[1]).toMatchObject({ pushoverUserKey: "user", webhookUrl: "" });
 	});
 
 	test.each([
@@ -462,6 +514,6 @@ describe.skipIf(skip)("alert explanations", () => {
 		const f = forwarder(all);
 		await notifyAdministrators(tdb.db, { tone: "danger", title: "Down", body: "b" });
 		await f.tick();
-		expect(f.sent.map(([a]) => a.text)).toEqual(["b"]);
+		expect(f.sent.map(([a]) => a.text)).toEqual(["b", "b"]);
 	});
 });

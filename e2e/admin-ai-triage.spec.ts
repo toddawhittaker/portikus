@@ -142,6 +142,29 @@ test("the daily limit takes 0 to 100 and refuses the rest at its field", async (
 	});
 });
 
+test("saving the daily limit leaves focus where it was (WCAG 2.4.3)", async ({
+	page,
+}) => {
+	await query("update ai_settings set triage_enabled = true where id = 1");
+	await openAi(page);
+	const group = page.getByTestId("ai-triage");
+	const limit = group.getByLabel("Most explanations a day");
+	const save = group.getByRole("button", { name: "Save daily limit" });
+
+	await limit.fill("12");
+	await limit.press("Enter");
+	await expect.poll(async () => (await settings())?.limit).toBe(12);
+	await expect(group.getByLabel("Most explanations a day")).toHaveValue("12");
+	await expect(limit).toBeFocused();
+
+	await limit.fill("30");
+	await save.click();
+	await expect.poll(async () => (await settings())?.limit).toBe(30);
+	await expect(group.getByLabel("Most explanations a day")).toHaveValue("30");
+	await expect(save).toBeFocused();
+	await expect(save).not.toHaveAttribute("aria-busy", "true");
+});
+
 test("a notice accepted at version 1 must be read and accepted again", async ({
 	page,
 }) => {
@@ -239,9 +262,8 @@ test("an explanation shows as plain text under its alert, labelled as written by
 	await expect(triage).toContainText("**not bold**");
 	await expect(triage.locator("script, img, strong, b")).toHaveCount(0);
 	expect(await page.evaluate(() => "__pwned" in window)).toBe(false);
-	await expect(
-		item.getByRole("region", { name: "Explanation written by AI" }),
-	).toBeVisible();
+	// One visible line says who wrote it; no landmark repeats it per alert.
+	await expect(item.getByRole("region")).toHaveCount(0);
 	await expectNoViolations(page, '[data-testid="dialog-notifications"]');
 	await page.screenshot({
 		path: "/tmp/epic70/t5b/shots/notifications-triage-dark.png",

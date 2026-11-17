@@ -338,7 +338,9 @@ test("the daily limit takes 0 to 100 and refuses the rest at its field", async (
 	const sent = serve({ ...READY, triageEnabled: true });
 	renderWithQuery(<AiTab />);
 	const group = await screen.findByTestId("ai-triage");
-	const limit = within(group).getByLabelText("Most explanations a day");
+	const limit = within(group).getByLabelText<HTMLInputElement>(
+		"Most explanations a day",
+	);
 	const save = within(group).getByRole("button", { name: "Save daily limit" });
 	for (const bad of ["101", "-1", "2.5", "five", ""]) {
 		fireEvent.change(limit, { target: { value: bad } });
@@ -352,21 +354,71 @@ test("the daily limit takes 0 to 100 and refuses the rest at its field", async (
 	await waitFor(() =>
 		expect(sent.find((r) => r.method === "PUT")?.body).toEqual({ triageDailyLimit: 0 }),
 	);
-	// The saved value remounts the form, so find the field again.
-	await waitFor(() =>
-		expect(
-			screen.getByLabelText<HTMLInputElement>("Most explanations a day").value,
-		).toBe("0"),
-	);
-	fireEvent.change(screen.getByLabelText("Most explanations a day"), {
-		target: { value: "100" },
-	});
-	fireEvent.click(screen.getByRole("button", { name: "Save daily limit" }));
+	await waitFor(() => expect(limit.value).toBe("0"));
+	fireEvent.change(limit, { target: { value: "100" } });
+	fireEvent.click(save);
 	await waitFor(() =>
 		expect(sent.filter((r) => r.method === "PUT").at(-1)?.body).toEqual({
 			triageDailyLimit: 100,
 		}),
 	);
+});
+
+test("saving the daily limit by Enter keeps focus on the field (WCAG 2.4.3)", async () => {
+	const sent = serve({ ...READY, triageEnabled: true });
+	renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	const limit = within(group).getByLabelText<HTMLInputElement>(
+		"Most explanations a day",
+	);
+	limit.focus();
+	fireEvent.change(limit, { target: { value: "12" } });
+	fireEvent.submit(limit.closest("form") as HTMLFormElement);
+	await waitFor(() =>
+		expect(sent.find((r) => r.method === "PUT")?.body).toEqual({
+			triageDailyLimit: 12,
+		}),
+	);
+	// The saved value comes back; the same field stays in the page, still focused.
+	await waitFor(() => expect(sent.filter((r) => r.url === "/admin/ai").length).toBe(2));
+	expect(limit.isConnected).toBe(true);
+	expect(document.activeElement).toBe(limit);
+	expect(limit.value).toBe("12");
+});
+
+test("saving the daily limit with the button keeps focus on the button", async () => {
+	const sent = serve({ ...READY, triageEnabled: true });
+	renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	const limit = within(group).getByLabelText<HTMLInputElement>(
+		"Most explanations a day",
+	);
+	const save = within(group).getByRole("button", { name: "Save daily limit" });
+	fireEvent.change(limit, { target: { value: "7" } });
+	save.focus();
+	fireEvent.click(save);
+	await waitFor(() =>
+		expect(sent.find((r) => r.method === "PUT")?.body).toEqual({ triageDailyLimit: 7 }),
+	);
+	await waitFor(() => expect(save.getAttribute("aria-busy")).toBe(null));
+	expect(save.isConnected).toBe(true);
+	expect(document.activeElement).toBe(save);
+});
+
+test("a limit saved elsewhere replaces the field's text in place", async () => {
+	serve({ ...READY, triageEnabled: true });
+	const queryClient = renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	const limit = within(group).getByLabelText<HTMLInputElement>(
+		"Most explanations a day",
+	);
+	expect(limit.value).toBe("5");
+	queryClient.setQueryData(["admin", "ai"], {
+		...READY,
+		triageEnabled: true,
+		triageDailyLimit: 9,
+	});
+	await waitFor(() => expect(limit.value).toBe("9"));
 });
 
 test("a refused alert setting shows the API's reason", async () => {
