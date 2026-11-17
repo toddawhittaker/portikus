@@ -4122,9 +4122,11 @@ the assistant off. It has no switch and writes no audit row.
 - **When.** A timer in the API wakes every 10 minutes and sends when it is
   Monday 08:00 or later, in the server's local time, and none has been
   sent since the most recent Monday 08:00. It records the send in
-  `settings.digest_sent_at`, claiming it before the text is built, so a
-  restart or a second process does not send it twice; a failed send puts the
-  old value back so the next tick tries again. A site that has never sent
+  `settings.digest_sent_at`. The text is built first; then one transaction
+  stamps the week and writes every administrator's notification. A failure
+  leaves neither a notice nor a stamp, so the next tick tries again, and a
+  restart or a second process that finds the week already stamped sends
+  nothing. A site that has never sent
   one gets its first shortly after an install or an upgrade, not on the next
   Monday.
 - **What it says.** Plain lines under four headings, at most 2,000

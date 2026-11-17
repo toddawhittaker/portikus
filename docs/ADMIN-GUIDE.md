@@ -1212,7 +1212,8 @@ The **Alert explanations** group on the **AI** page has:
   new alerts simply get no explanation until the next UTC day, and the alerts
   themselves are unchanged.
 - **Add explanations to email and Pushover alerts** also puts the explanation
-  in those two kinds of message. It is off by default. Email and Pushover
+  in those two kinds of message, under the alert, after the words "AI
+  explanation:". It is off by default. Email and Pushover
   leave your site, so turn it on only if your recipients may see text drawn
   from your logs. Those two kinds wait up to a minute for the explanation, then
   go with it or without it. Webhook, ntfy and Teams alerts go out at once and
