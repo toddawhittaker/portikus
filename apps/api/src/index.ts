@@ -5,6 +5,7 @@ import { createLogger } from "@portikus/observability";
 import { startLogAlerts } from "./alerts/log-alerts.js";
 import { toAuthOptions } from "./auth-options.js";
 import { startCertificateNotices } from "./certificate/notices.js";
+import { startDigestTimer } from "./digest/send.js";
 import { startDefaultSeed } from "./docker/default-seed.js";
 import { startAgentsAutoUpdate } from "./image/agents-auto-update.js";
 import { imagesDirOf, startReleaseNotices } from "./image/release-notices.js";
@@ -78,6 +79,7 @@ const stopCertificateNotices = config.CERTIFICATE_JOBS_DIR
 		})
 	: () => {};
 const stopWeeklyPrices = startWeeklyPriceTimer({ db, config }, logger);
+const stopDigest = startDigestTimer(db, logger);
 const stopLogAlerts = startLogAlerts({
 	db,
 	logger,
@@ -91,6 +93,7 @@ app.addHook("onClose", async () => {
 	stopDefaultSeed();
 	stopCertificateNotices();
 	stopWeeklyPrices();
+	stopDigest();
 	dex?.close();
 });
 closeOnSigterm(app);
