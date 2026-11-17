@@ -201,6 +201,7 @@ test("rows are added, edited and deleted by hand", async ({ page }) => {
 	await expect(dialog.getByText(/Give the model's name/)).toBeVisible();
 	await dialog.getByLabel("Model", { exact: true }).fill("e2e-model-9");
 	await dialog.getByLabel(/^Input price/).fill("4");
+	await dialog.getByLabel(/^Output price/).fill("20");
 	await dialog.getByLabel(/^Cache read ratio/).fill("0.1");
 	await dialog.getByLabel(/^Cache write ratio/).fill("1.25");
 	await dialog

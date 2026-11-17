@@ -40,6 +40,7 @@ function priceRow(provider, model, quote) {
 		provider,
 		model,
 		inputPricePerMillion: provider === "openai" ? 2 : 3,
+		outputPricePerMillion: provider === "openai" ? 8 : 15,
 		cacheReadRatio: 0.1,
 		cacheWriteRatio: 1.25,
 		cacheWriteOneHourRatio: null,
