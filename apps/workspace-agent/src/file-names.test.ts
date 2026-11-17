@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { type ChildProcess, execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -238,8 +238,12 @@ test.skipIf(!haveRg)("a search whose caller goes away stops", async () => {
 test.skipIf(!haveRg)("only a few searches run at once", async () => {
 	const controller = new AbortController();
 	let spawned = 0;
-	const stop = (child: { kill: (signal: string) => void }) => {
+	const stop = (child: ChildProcess) => {
+		// A stopped rg can still finish on a busy machine, so its output is
+		// held too: the search cannot close until the test lets it read.
 		child.kill("SIGSTOP");
+		child.stdout?.pause();
+		controller.signal.addEventListener("abort", () => child.stdout?.resume());
 		spawned += 1;
 	};
 	const running = Array.from({ length: MAX_RUNNING_FILE_NAME_SEARCHES }, () =>

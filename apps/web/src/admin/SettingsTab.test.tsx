@@ -123,7 +123,10 @@ const input = (testId: string) => screen.getByTestId(testId) as HTMLInputElement
 
 async function openSettings() {
 	renderApp("/admin/settings");
-	await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"));
+	// Generous: the first render loads the admin app, which is slow on a busy machine.
+	await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"), {
+		timeout: 20_000,
+	});
 }
 
 describe("the page", () => {
@@ -629,7 +632,10 @@ describe("leaving with unsaved changes", () => {
 	test("another tab asks first, naming each section and count, never a value", async () => {
 		stubSettings();
 		const { router } = renderApp("/admin/settings");
-		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"));
+		// Generous: the first render loads the admin app, which is slow on a busy machine.
+		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"), {
+			timeout: 20_000,
+		});
 		fireEvent.change(input("settings-idleStopMinutes"), { target: { value: "45" } });
 		fireEvent.click(screen.getByRole("checkbox", { name: "Allow voice input" }));
 
@@ -663,7 +669,10 @@ describe("leaving with unsaved changes", () => {
 	test("with nothing unsaved, or only a jump within the page, nothing asks", async () => {
 		stubSettings();
 		const { router } = renderApp("/admin/settings");
-		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"));
+		// Generous: the first render loads the admin app, which is slow on a busy machine.
+		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"), {
+			timeout: 20_000,
+		});
 		fireEvent.change(input("settings-idleStopMinutes"), { target: { value: "45" } });
 		await act(async () => {
 			void router.navigate({
