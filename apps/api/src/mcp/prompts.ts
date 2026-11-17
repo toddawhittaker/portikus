@@ -1,6 +1,6 @@
 import type { GetPromptResult, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { planDiagnose } from "../assistant/diagnose.js";
+import { planDiagnose, UuidText } from "../assistant/diagnose.js";
 import { operationByName } from "../catalog/index.js";
 import { type McpCaller, mayRun } from "./caller.js";
 
@@ -15,8 +15,6 @@ type Plan = { request: string; reads: { operation: string; input: object }[] };
 
 const SAMPLE_ID = "00000000-0000-4000-8000-000000000000";
 
-const UuidText = z.string().uuid();
-
 const WorkspaceArgs = z.object({
 	workspace: z.string().describe("The workspace's id, as workspaces.list gives it."),
 });
@@ -26,6 +24,9 @@ const CourseArgs = z.object({
 });
 
 function stuckPlan(courseId: string): Plan {
+	if (!UuidText.safeParse(courseId).success) {
+		throw new Error("The course must be given by its id.");
+	}
 	return {
 		request: "Find out which students in this course may be stuck",
 		reads: [{ operation: "courses.stuck", input: { path: { courseId } } }],
@@ -94,12 +95,7 @@ export function registerPrompts(
 				description: "Finds which students in one course may be stuck, and why.",
 				argsSchema: CourseArgs,
 			},
-			({ course }) => {
-				if (!UuidText.safeParse(course).success) {
-					throw new Error("The course must be given by its id.");
-				}
-				return message(stuckPlan(course), dataNote);
-			},
+			({ course }) => message(stuckPlan(course), dataNote),
 		);
 	}
 }
