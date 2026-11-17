@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { looksLikeSecret } from "./secret-shape.js";
 
+// Test strings are built at run time so no realistic key sits in the source.
+const entraSecret = "abc" + "8Q~" + "x".repeat(34);
+const googleSecret = "GOCSPX" + "-" + "a".repeat(28);
+const modelKey = "sk" + "-" + "a".repeat(24);
+const anthropicKey = "sk" + "-ant-" + "a".repeat(24);
+const portikusKey = "portikus" + "_" + "A1b2".repeat(11).slice(0, 43);
+
 /** A message is refused before it is stored or sent to a provider (SPEC.md section 24). */
 describe("a message that looks like a secret", () => {
 	test.each([
@@ -16,6 +23,11 @@ describe("a message that looks like a secret", () => {
 		["a private_key field without its block", '{ "private_key" : "MIIEvQIBADANBgkq" }'],
 		["a bearer token", "it fails with Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc"],
 		["a URL with a password", "DATABASE_URL=postgres://portikus:hunter2pass@db:5432/x"],
+		["an Entra client secret", `the secret is ${entraSecret} in the portal`],
+		["a Google OAuth client secret", `client secret: ${googleSecret}`],
+		["a model API key", `OPENAI_API_KEY=${modelKey}`],
+		["an Anthropic API key", `key ${anthropicKey} fails`],
+		["a Portikus API key", `Authorization: ${portikusKey}`],
 	])("%s is refused", (_, text) => {
 		expect(looksLikeSecret(text)).toBe(true);
 	});
@@ -37,6 +49,13 @@ describe("a message that looks like a secret", () => {
 			"a JSON key name that only mentions private_key",
 			"the field private_key_id is set",
 		],
+		["a short Entra-like value", "abc8Q~" + "x".repeat(20)],
+		["the Entra marker in prose", "the 8Q~ marker appears in secret ids"],
+		["a short Google prefix", "GOCSPX- is the prefix Google uses"],
+		["sk- in prose", "the sk-learn docs and a risk-averse task-based plan"],
+		["a short sk- value", "sk-" + "a".repeat(10)],
+		["a short portikus_ identifier", "the portikus_session cookie and portikus_ping tool"],
+		["a long portikus_ word with a space", "portikus_ " + "a".repeat(50)],
 	])("%s is allowed", (_, text) => {
 		expect(looksLikeSecret(text)).toBe(false);
 	});
