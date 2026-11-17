@@ -73,10 +73,11 @@ still built fresh for each request.
 - Resources are `portikus://guides/<FILE>` for each guide the key owner's
   role may read, from the same role map the built-in assistant uses, and
   `portikus://health`, which runs the operation `health.get` through the
-  in-process runner with the caller's key. A resource is listed only to a
-  key whose owner may read it.
+  in-process runner with the caller's key and is listed to administrators
+  only. A resource is listed only to a key whose owner may read it, and a
+  guide read adds no audit row beyond the request's own `api_key.used`.
 - Prompts are `diagnose_workspace` and `diagnose_health` (administrators)
-  and `who_is_stuck` (staff). A prompt is fixed text written by code that
+  and `who_is_stuck` (instructors only). A prompt is fixed text written by code that
   asks the model to use the read tools. It runs nothing, and a prompt the
   caller may not use is neither listed nor answered.
 - Decision 8 holds for both: text from users in a result is data.

@@ -48,6 +48,8 @@ async function clearPrices() {
 
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
+	// Other specs hold the lock for minutes; waiting for it is not a failure.
+	test.setTimeout(600_000);
 	release = await lockSharedState(AI_SETTINGS_LOCK);
 	[savedAi] = await query(`select ${AI_COLUMNS} from ai_settings where id = 1`);
 	for (const table of PRICE_TABLES)

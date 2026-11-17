@@ -30,8 +30,12 @@ token budget. Epic 70 adds this call. This record says how it is kept small.
    the assistant pauses until an administrator accepts it. Pausing every AI
    feature, not just this one, is the price of a notice that has one version.
 4. **Bounded.** One explanation for each alert title in an hour. A daily
-   maximum an administrator sets (5 by default), counted from the database,
-   not from memory. About 5,000 input and 300 output tokens for each call.
+   maximum an administrator sets (0 to 100, 5 by default), counted per UTC
+   day from the database, not from memory. Only alerts raised in the last 15
+   minutes are explained, so an alert missed during a longer outage is never
+   explained later. A source whose alert title keeps changing is not slowed by
+   the per-title limit and can use up the day's explanations; the daily
+   maximum and the monthly cap still bound the spending. About 5,000 input and 300 output tokens for each call.
    The tokens count against the shared monthly cap as purpose `triage`, with
    no person. Dollars are shown but never used as a limit.
 5. **Plain text.** The answer is cut near 400 characters and stored and shown
@@ -39,17 +43,25 @@ token budget. Epic 70 adds this call. This record says how it is kept small.
    page draw a link or an image. The label says an AI wrote it.
 6. **Forwarding is a second switch.** Email and Pushover leave the site, so
    adding the explanation to them is its own switch, off by default. When on,
-   the forwarder waits up to 60 seconds for the explanation and then sends
-   the alert with or without it. An alert is never held longer or changed.
-7. **Audited as the system.** One audit row for each explanation, actor
-   `system`, holding no alert text, log line or answer.
+   only those two wait up to 60 seconds for the explanation and then send the
+   alert with or without it; webhook, ntfy and Teams go at once. Pushover
+   keeps its 1,024-character limit by cutting the explanation first. An alert is never held longer or changed.
+7. **Audited as the system.** One `alert.triaged` row for each attempt, actor
+   `system`, written as started before the call and updated to ok or failed,
+   so the limits count started rows and a crash cannot hide an attempt. It
+   holds the alert's title and tone and no alert text, log line or answer.
 8. **The weekly digest stays code only.** It needs no model: the numbers are
    already in the database, and a model would add cost and a way to be wrong
    to a summary that should be dull and exact. It makes no model call, needs
-   no key, and is not behind the notice.
+   no key, and is not behind the notice. It has no switch and writes no audit
+   row. It is an information notification, so the forwarder never sends it to
+   email or Pushover.
 
 ## Consequences
 
+- A person might paste a secret into the assistant. A message that looks like
+  one (private keys, bearer tokens, passwords in URLs, OAuth client secrets,
+  model and Portikus API keys) is refused, neither stored nor sent.
 - Version 1 acceptances stop counting. The pilot's upgrade note must say an
   administrator re-accepts the notice.
 - An explanation can mislead. The page labels it, the alert and logs sit

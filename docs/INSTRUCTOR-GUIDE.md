@@ -99,8 +99,9 @@ edit anything you do not like. Portikus's built-in assistant does not do this.
 The coding agent works in your workspace, so you see every file it writes
 and Git records it.
 
-1. Open a new project in your own workspace and open its **Claude Code** or
-   **Codex** chat, or start `claude` or `codex` in a terminal.
+1. Open a new project in your own workspace. From the **New tab** menu, open
+   **Claude Code (GUI)** or **Codex (GUI)**, or start `claude` or `codex` in
+   a terminal. You sign in to the agent with your own account, as students do.
 2. Paste the assignment description and say what you want. For example:
 
    > Here is an assignment for my students: *(paste it)*. Make this folder a
@@ -130,7 +131,6 @@ and Git records it.
 Checks run real commands in the student's workspace, so keep them to the
 tools the workspace has. Nothing the agent writes reaches a student until you
 publish it. Coding agents make mistakes, so do the run in step 4 every time.
-<!-- TODO(T7 finish): check the Checks tab and Edit checks wording against the student guide and UI; confirm the Claude Code and Codex chat tab names; check that a public repository is the way a starter is published. -->
 
 ## Coding-agent use in your course
 
@@ -226,10 +226,14 @@ Like the agent counts, use them to start a conversation, never to grade.
 
 If you have connected Claude Code or Codex to Portikus with an API key (see
 "API keys and the MCP server" below), your program may list a prompt named
-`who_is_stuck`. Choosing it asks the program to read the same list the Course
-page shows, using your key, and tell you who may need help and why. It only
-reads, and it reaches only your own courses.
-<!-- TODO(T7 finish): check the prompt name and whether it asks for a course. -->
+`who_is_stuck`. It asks for the course's id, which the program can look up
+for you. Choosing it asks the program to read the same list the Course page
+shows, using your key, and tell you who may need help and why. It only reads,
+and it reaches only your own courses. The prompt is for instructors, so an
+administrator's key does not list it.
+
+Your program may also offer the instructor guide as a resource, so it can
+answer questions about Portikus from this text.
 
 ### What is kept and what is sent
 
