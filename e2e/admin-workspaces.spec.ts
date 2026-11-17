@@ -165,6 +165,34 @@ test("an administrator stops another user's workspace, and it is audited", async
 	);
 });
 
+test("the detail's recent activity leaves out API key use, which the Audit list keeps", async ({
+	page,
+	browser,
+}) => {
+	const student = await studentIn(browser, "E2E");
+	await query(
+		`insert into audit_events (actor, target, action, result, metadata, via)
+		 values ($1, $2, 'api_key.used', 'ok', '{"operation":"workspaces.get"}', 'api_key')`,
+		[`user:${student.userId}`, student.userId],
+	);
+	// A workspace event, so the list has something to show once it has loaded.
+	await query(
+		`insert into audit_events (actor, target, action, result, metadata)
+		 values ($1, $2, 'workspace.restart_requested', 'ok', null)`,
+		[`user:${student.userId}`, student.workspaceId],
+	);
+	await openAdmin(page);
+	const panel = await openDetail(page, student.name);
+	await panel.getByRole("tab", { name: "Activity" }).click();
+	await expect(panel.getByText("workspace.restart_requested")).toBeVisible({
+		timeout: 10_000,
+	});
+	await expect(panel.getByText("api_key.used")).toHaveCount(0);
+
+	await page.goto(`/admin/audit?user=${student.userId}&action=api_key.used`);
+	await expect(page.getByText("api_key.used").first()).toBeVisible();
+});
+
 test("disabling an account signs the student out, and enabling lets them back", async ({
 	page,
 	browser,

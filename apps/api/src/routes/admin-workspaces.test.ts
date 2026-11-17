@@ -513,6 +513,50 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"the recent audit leaves out API key use, which the Audit list still shows",
+	async () => {
+		await start();
+		const owner = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.where("display_name", "like", "Alice%")
+			.executeTakeFirstOrThrow();
+		await testDb.db
+			.insertInto("audit_events")
+			.values([
+				{
+					actor: `user:${owner.id}`,
+					target: owner.id,
+					action: "api_key.used",
+					result: "ok",
+					metadata: null,
+				},
+				{
+					actor: `user:${owner.id}`,
+					target: workspaceId,
+					action: "workspace.restart_requested",
+					result: "ok",
+					metadata: null,
+				},
+			])
+			.execute();
+
+		const recent: { action: string }[] = (await detail()).json().recentAudit;
+		expect(recent.map((event) => event.action)).toContain(
+			"workspace.restart_requested",
+		);
+		expect(recent.map((event) => event.action)).not.toContain("api_key.used");
+
+		const full = await app.inject({
+			method: "GET",
+			url: "/admin/audit?action=api_key.used",
+			headers: { cookie: carol.cookieHeader() },
+		});
+		expect(full.json().events).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
 	"archive stops the workspace and refuses start and restart",
 	async () => {
 		await start();
