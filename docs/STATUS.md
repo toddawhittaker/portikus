@@ -187,7 +187,7 @@ list was made and may already be fixed.
 
 ### Built-in AI
 
-- The paid pilot check, with one current OpenAI model and one Claude model, waits for the owner's go. The administrator guide's list of tested models stays empty until it runs.
+- The paid model check ran on 16 November 2026: Claude Haiku 5.5 passed 31 of 31 tasks and OpenAI GPT-6 Luna 28 of 31, and both are listed as tested in the administrator guide. OpenAI needs #2107.
 - Usage shows tokens only, because the price table has no output-token price (#2090).
 - A model on the institution's own network cannot be reached, because the proxy refuses private ranges and plain HTTP (#2097).
 
