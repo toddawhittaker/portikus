@@ -1054,10 +1054,10 @@ tasks on a real site with each of them:
 - **OpenAI GPT-6 Luna** (`gpt-6-luna`), with the provider set to
   OpenAI-compatible and the address `https://api.openai.com/v1`. This needs a
   Portikus version from after 16 November 2026; earlier versions cannot use
-  current OpenAI models. It passed 28 of 31, counting one retry of each
-  failure. It sometimes answers a guide question without naming the guide
-  section it used, and given five invitations with one bad address it did not
-  offer the batch card that Portikus refuses whole.
+  current OpenAI models. It passed 29 of 31, counting one retry of each
+  failure. The two it missed were guide questions it answered without naming
+  the guide section it used. The larger `gpt-6.1-terra` passed both, and the
+  one other task Luna missed at first, but has not run the full set.
 
 These are the smallest and cheapest models of each company, so their larger
 models should work as well, though they were not run. Other hosted models
