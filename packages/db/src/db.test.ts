@@ -38,7 +38,11 @@ if (!hasTestDb()) {
 	);
 }
 
-describe("database migrations and schema", () => {
+// Migration tests run real migrations down and back up against PostgreSQL,
+// which takes more than the default 5 s on a busy machine.
+const MIGRATION_TEST_TIMEOUT = { timeout: 30_000 };
+
+describe("database migrations and schema", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -594,101 +598,95 @@ describe("database migrations and schema", () => {
 		},
 	);
 
-	test.skipIf(!hasTestDb())(
-		"migrations roll back and reapply",
-		async () => {
-			const { Migrator } = await import("kysely/migration");
-			const { migrations } = await import("./migrations/index.js");
-			const rollback = new Error("rollback");
+	test.skipIf(!hasTestDb())("migrations roll back and reapply", async () => {
+		const { Migrator } = await import("kysely/migration");
+		const { migrations } = await import("./migrations/index.js");
+		const rollback = new Error("rollback");
 
-			// Runs inside a transaction that is always rolled back, so the
-			// schema other tests share is left untouched.
-			await expect(
-				t.db.transaction().execute(async (trx) => {
-					const migrator = new Migrator({
-						db: trx,
-						provider: { getMigrations: async () => migrations },
-					});
-					await migrateDownTo(migrator, "0001_workspaces");
-					const down25 = await migrator.migrateDown();
-					expect(down25.error).toBeUndefined();
-					const up = await migrator.migrateToLatest();
-					expect(up.error).toBeUndefined();
-					expect(up.results?.map((r) => r.migrationName)).toEqual([
-						"0001_workspaces",
-						"0002_users_sessions",
-						"0003_terminals",
-						"0004_projects",
-						"0005_settings",
-						"0006_log_level",
-						"0007_editor_settings",
-						"0008_preview",
-						"0009_project_directory_id",
-						"0010_terminal_theme",
-						"0011_terminal_agent",
-						"0012_profile",
-						"0013_recovery",
-						"0014_admin",
-						"0015_lti",
-						"0016_account_links",
-						"0017_session_method",
-						"0018_setup_codes",
-						"0019_local_admin",
-						"0020_resource_guard",
-						"0021_notifications",
-						"0022_api_request_samples",
-						"0023_guard_idle_lift",
-						"0024_process_snapshots",
-						"0025_egress",
-						"0026_backups",
-						"0027_workspace_limits",
-						"0028_throttle_hold",
-						"0029_package_survey",
-						"0030_egress_blocked_sites",
-						"0031_docker_cache",
-						"0032_docker_pull_days",
-						"0033_ghcr_default_on",
-						"0034_keep_running",
-						"0035_docker_seed_images_set",
-						"0036_start_retries_and_controller_check",
-						"0037_second_factor",
-						"0038_account_invitations",
-						"0039_notification_flags",
-						"0040_signin_counters",
-						"0041_lti_roster_and_deep_linking",
-						"0042_project_shares",
-						"0043_agent_usage_days",
-						"0044_dex_account_issuer",
-						"0046_docker_seed_image_bytes",
-						"0047_voice_input_switch",
-						"0048_live_help",
-						"0049_account_email",
-						"0050_course_profile",
-						"0051_code_help_languages",
-						"0052_terminal_kind",
-						"0053_chat_settings",
-						"0054_alert_state",
-						"0055_check_runs",
-						"0057_coding_agents_auto_update",
-						"0058_api_keys",
-						"0059_audit_arrival",
-						"0060_audit_via_assistant",
-						"0061_ai_settings",
-						"0062_assistant_conversations",
-						"0063_ai_usage_days",
-						"0064_model_prices",
-						"0065_model_output_price",
-						"0066_alert_triage",
-						"0067_weekly_digest",
-					]);
-					throw rollback;
-				}),
-			).rejects.toBe(rollback);
-			// Real migrations down and back up; on a busy machine they take more than
-			// the default 5 s.
-		},
-		30_000,
-	);
+		// Runs inside a transaction that is always rolled back, so the
+		// schema other tests share is left untouched.
+		await expect(
+			t.db.transaction().execute(async (trx) => {
+				const migrator = new Migrator({
+					db: trx,
+					provider: { getMigrations: async () => migrations },
+				});
+				await migrateDownTo(migrator, "0001_workspaces");
+				const down25 = await migrator.migrateDown();
+				expect(down25.error).toBeUndefined();
+				const up = await migrator.migrateToLatest();
+				expect(up.error).toBeUndefined();
+				expect(up.results?.map((r) => r.migrationName)).toEqual([
+					"0001_workspaces",
+					"0002_users_sessions",
+					"0003_terminals",
+					"0004_projects",
+					"0005_settings",
+					"0006_log_level",
+					"0007_editor_settings",
+					"0008_preview",
+					"0009_project_directory_id",
+					"0010_terminal_theme",
+					"0011_terminal_agent",
+					"0012_profile",
+					"0013_recovery",
+					"0014_admin",
+					"0015_lti",
+					"0016_account_links",
+					"0017_session_method",
+					"0018_setup_codes",
+					"0019_local_admin",
+					"0020_resource_guard",
+					"0021_notifications",
+					"0022_api_request_samples",
+					"0023_guard_idle_lift",
+					"0024_process_snapshots",
+					"0025_egress",
+					"0026_backups",
+					"0027_workspace_limits",
+					"0028_throttle_hold",
+					"0029_package_survey",
+					"0030_egress_blocked_sites",
+					"0031_docker_cache",
+					"0032_docker_pull_days",
+					"0033_ghcr_default_on",
+					"0034_keep_running",
+					"0035_docker_seed_images_set",
+					"0036_start_retries_and_controller_check",
+					"0037_second_factor",
+					"0038_account_invitations",
+					"0039_notification_flags",
+					"0040_signin_counters",
+					"0041_lti_roster_and_deep_linking",
+					"0042_project_shares",
+					"0043_agent_usage_days",
+					"0044_dex_account_issuer",
+					"0046_docker_seed_image_bytes",
+					"0047_voice_input_switch",
+					"0048_live_help",
+					"0049_account_email",
+					"0050_course_profile",
+					"0051_code_help_languages",
+					"0052_terminal_kind",
+					"0053_chat_settings",
+					"0054_alert_state",
+					"0055_check_runs",
+					"0057_coding_agents_auto_update",
+					"0058_api_keys",
+					"0059_audit_arrival",
+					"0060_audit_via_assistant",
+					"0061_ai_settings",
+					"0062_assistant_conversations",
+					"0063_ai_usage_days",
+					"0064_model_prices",
+					"0065_model_output_price",
+					"0066_alert_triage",
+					"0067_weekly_digest",
+				]);
+				throw rollback;
+			}),
+		).rejects.toBe(rollback);
+	});
 
 	test.skipIf(!hasTestDb())(
 		"migrateDownTo stops at the named migration and rejects a bad name",
@@ -1747,7 +1745,7 @@ describe("orphaned test database sweep", () => {
 
 // --- migration 0020: resource guard and acceptable use (ADR 0032) ---
 
-describe("resource guard migration", () => {
+describe("resource guard migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2219,9 +2217,6 @@ describe("resource guard migration", () => {
 				}),
 			).rejects.toBe(rollback);
 		},
-		// Real migrations down and back up; on a busy machine they take more than
-		// the default 5 s.
-		30_000,
 	);
 	test.skipIf(!hasTestDb())(
 		"0027 adds the nullable limits columns and rolls back",
@@ -2485,9 +2480,6 @@ describe("resource guard migration", () => {
 				}),
 			).rejects.toBe(rollback);
 		},
-		// Three trips down to 0034 and back are real migrations, each case one
-		// trip; on a busy machine they take more than the default 5 s.
-		30_000,
 	);
 	test.skipIf(!hasTestDb())(
 		"0032 keys pulls by day, keeps old rows on their last day, and folds them back",
@@ -2581,7 +2573,7 @@ describe("resource guard migration", () => {
 	);
 });
 
-describe("backups migration", () => {
+describe("backups migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2754,7 +2746,7 @@ describe("backups migration", () => {
 	);
 });
 
-describe("api request samples migration", () => {
+describe("api request samples migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2899,7 +2891,7 @@ describe("pool options", () => {
 	);
 });
 
-describe("throttle hold migration", () => {
+describe("throttle hold migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
