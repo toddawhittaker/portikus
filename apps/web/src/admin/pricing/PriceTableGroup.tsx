@@ -202,7 +202,9 @@ export function SourceCell({ url, quote }: { url: string; quote: string }) {
 				{hostOf(url)}
 			</a>
 			<details className="text-[12px]">
-				<summary className="pk-link w-fit cursor-pointer">Quote</summary>
+				<summary className="pk-link inline-flex min-h-6 w-fit cursor-pointer items-center">
+					Quote
+				</summary>
 				<q className="mt-1 block text-ink-muted [overflow-wrap:anywhere]">{quote}</q>
 			</details>
 		</div>

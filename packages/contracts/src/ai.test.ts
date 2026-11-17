@@ -86,8 +86,8 @@ describe("UpdateAiSettingsRequest", () => {
 	});
 });
 
-test("the notice version starts at 1", () => {
-	expect(AI_NOTICE_VERSION).toBe(1);
+test("the notice version is 2", () => {
+	expect(AI_NOTICE_VERSION).toBe(2);
 });
 
 test("an AI usage response round-trips and refuses a negative count", () => {

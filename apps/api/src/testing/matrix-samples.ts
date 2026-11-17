@@ -1,3 +1,4 @@
+import { AI_NOTICE_VERSION } from "@portikus/contracts";
 import { fakeKey } from "./fake-backup-key.js";
 
 /**
@@ -43,7 +44,7 @@ export const PAYLOADS: Record<string, object> = {
 	"PUT /me/settings": { timezone: "America/New_York" },
 	"PUT /me/profile": { github: null },
 	"PUT /admin/settings": { logLevel: null },
-	"POST /admin/ai/notice": { noticeVersion: 1 },
+	"POST /admin/ai/notice": { noticeVersion: AI_NOTICE_VERSION },
 	"PUT /courses/:courseId/profile": { profile: "traditional" },
 	"PUT /admin/courses/:courseId/profile": { profile: "traditional" },
 	"PUT /admin/users/:id/settings": { shutdownGraceSeconds: null },

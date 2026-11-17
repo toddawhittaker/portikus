@@ -1,5 +1,5 @@
 import type { AiSettingsView, AiTestStage, ProviderKind } from "@portikus/contracts";
-import { AI_NOTICE_VERSION } from "@portikus/contracts";
+import { AI_NOTICE_VERSION, MAX_AI_TRIAGE_DAILY_LIMIT } from "@portikus/contracts";
 
 /** Each provider kind's name and the base address the page fills in for it. */
 export const PROVIDERS: Record<ProviderKind, { label: string; baseUrl: string }> = {
@@ -118,4 +118,12 @@ export function parseCount(text: string, max: number): number | null {
 	if (!/^\d+$/.test(clean)) return null;
 	const n = Number(clean);
 	return n > 0 && n <= max ? n : null;
+}
+
+/** The daily explanation limit from a field: a whole number from 0 to the maximum, else null. */
+export function parseDailyLimit(text: string): number | null {
+	const clean = text.trim();
+	if (!/^\d+$/.test(clean)) return null;
+	const n = Number(clean);
+	return n <= MAX_AI_TRIAGE_DAILY_LIMIT ? n : null;
 }

@@ -50,13 +50,11 @@ export function SsoGroup() {
 			description="How people sign in besides local accounts."
 			testId="admin-signin-sso"
 			actions={
-				signin.data ? (
-					<DiagnoseButton
-						context={{ kind: "setup", id: "signin" }}
-						name="Help me set this up with single sign-on"
-						label="Help me set this up"
-					/>
-				) : undefined
+				<DiagnoseButton
+					context={{ kind: "setup", id: "signin" }}
+					name="Help me set this up with single sign-on"
+					label="Help me set this up"
+				/>
 			}
 		>
 			{signin.data ? (
