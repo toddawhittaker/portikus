@@ -2119,6 +2119,75 @@ setting and no export, and logs only how many it removed. The worker's
 database role cannot delete rows any other way. Nightly backups still
 hold rows older than 365 days until those backups are pruned.
 
+## The model check
+
+The model check runs about 30 scripted tasks through the built-in assistant
+on the pilot, once with an OpenAI model (`gpt-6-luna`) and once with a
+Claude model (`claude-haiku-5-5`) through Anthropic's own interface, and
+reports each task as pass or fail (SPEC.md section 20.5, "Tested models").
+The models are small on purpose: if they pass, larger ones will. A task
+passes on facts, never on the model's wording: which operations it called,
+which approval cards appeared, what ran (from the `assistant.used` audit
+rows), and the state of the site afterwards. The tasks are in
+`scripts/model-check/tasks.ts`. Each task's final reply, cut to 2,000
+characters, is kept in the `reply` field of the results and shown in the
+`.md` file. The batch-invalid-row task also passes when the model refuses
+the bad row itself: no invitation was created and its final reply names the
+bad address.
+
+**When to run it.** Run it when the assistant's loop, tools, cards or model
+client change, or when a model the administrator guide lists is retired.
+It costs real money at both providers, so it runs only with the owner's
+go-ahead. CI never runs it.
+
+**What it changes.** It saves each provider's settings on the AI tab,
+accepting the offer to add the provider's host to the proxy list, and
+presses **Test** first; a provider whose Test fails is skipped. It makes
+throwaway accounts, invitations and a course, all named `modelcheck-<run>`,
+and removes them at the end: invitations are revoked, accounts lose their
+Dex password and are disabled (Portikus has no delete), and the course rows
+are deleted. It deletes every conversation it made. It never changes a
+real account or workspace. At the end it puts the AI settings back as it
+found them, using the Anthropic key file, since a saved key cannot be read
+back. If the provider it found was not Anthropic, it leaves the assistant
+off and says so; enter that key on the AI tab.
+
+**How to run it.** Put each key in a file of mode 0600 and name the files
+in the environment. The script reads a key only at the moment it saves it,
+and never logs or writes it.
+
+```sh
+export MODEL_CHECK_SIGNIN_FILE=~/.config/portikus/smoke-signin   # email, password, TOTP secret if any
+export MODEL_CHECK_OPENAI_KEY_FILE=~/.config/portikus/openai-key
+export MODEL_CHECK_ANTHROPIC_KEY_FILE=~/.config/portikus/anthropic-key
+export MODEL_CHECK_SSH=deploy@10.100.0.120     # for the course fixture
+export MODEL_CHECK_WORKSPACE_ID=<uuid>         # a workspace the Diagnose task may read
+make model-check                               # PROVIDER=openai and TASK=<id> narrow it
+```
+
+The sign-in file is the smoke test's: an administrator's email and password
+on two lines, and a third line with the account's TOTP secret if it has
+one. Without `MODEL_CHECK_SSH` the instructor's course tasks are skipped;
+without `MODEL_CHECK_WORKSPACE_ID` the workspace Diagnose task is. The
+results go to `scripts/model-check/results/` (not committed): a JSON file
+and a short Markdown summary with each task's result, a short reason, its
+tokens, each provider's token totals and an estimated cost.
+
+**What it costs.** Each model step sends the system prompt and the tool
+list, about 6,400 tokens for an administrator and 4,000 for an instructor,
+plus the conversation so far. A task takes two to four steps, so a provider
+run is roughly one million input tokens and a few tens of thousands of
+output tokens. Both runs count against the site's monthly token cap
+(5,000,000 by default). The summary prices the input side from the
+Pricing tab; output tokens are listed but not priced, because the price
+table has no output price.
+
+**Testing the harness for free.** `make model-check DRY_RUN=1` runs the
+same script against the end-to-end stack's fake model, which plays each
+task's scripted turns. It needs PostgreSQL as `pnpm test:e2e` does
+(`TEST_DATABASE_URL`, see WORKFLOW.md). Every task must pass, and the AI
+settings must end as they began.
+
 ## Routine checks
 
 **Daily, during the pilot:**

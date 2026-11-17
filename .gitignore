@@ -26,6 +26,7 @@ coverage/
 .vitest/
 playwright-report/
 test-results/
+scripts/model-check/results/
 .playwright/
 
 # Infrastructure — OpenTofu state and secrets (STACK.md sections 20, 27)

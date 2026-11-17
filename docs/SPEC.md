@@ -3908,11 +3908,11 @@ opened with a context is read-only: its tools are the read operations a
 read-scope key would have, so a Diagnose conversation looks and reports and
 never changes anything.
 
-**Tested models.** CI never calls a real model. A paid check on the pilot
+**Tested models.** CI never calls a real model. A paid check on a real site
 runs the same scripted tasks with one current OpenAI model and one Claude
 model through the Anthropic adapter, after the owner's go-ahead, and the
-administrator guide then lists the models known to work. Until it has run,
-the guide lists none. Other models are not tested.
+administrator guide lists the models known to work. Other models are not
+tested.
 
 **Left out.** A model on the institution's own network; dollar caps; an
 "always allow" button; embedding search over the guides; any assistant

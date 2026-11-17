@@ -1046,11 +1046,23 @@ Open **Admin**, then **AI**, under **Site**. Work down the page.
 
 ### Which models work
 
-No model is listed as tested yet. Before this list can name one, Portikus
-runs a set of scripted tasks on a real site with one current OpenAI model and
-one Claude model, through Anthropic's own interface, and that check has not
-run. Hosted models may work. Small models often call tools badly, so run
-**Test** first and try a few real questions before you rely on one.
+Two models are tested. On 16 November 2026 Portikus ran its 31 scripted
+tasks on a real site with each of them:
+
+- **Claude Haiku 5.5** (`claude-haiku-5-5`), with the provider set to
+  Anthropic. It passed all 31 tasks, counting one retry of each failure.
+- **OpenAI GPT-6 Luna** (`gpt-6-luna`), with the provider set to
+  OpenAI-compatible and the address `https://api.openai.com/v1`. This needs a
+  Portikus version from after 16 November 2026; earlier versions cannot use
+  current OpenAI models. It passed 29 of 31, counting one retry of each
+  failure. The two it missed were guide questions it answered without naming
+  the guide section it used. The larger `gpt-6.1-terra` passed both of those,
+  but it has not run the full set.
+
+These are the smallest and cheapest models of each company, so their larger
+models should work as well, though they were not run. Other hosted models
+may work. Small models sometimes call tools badly, so run **Test** first and
+try a few real questions before you rely on one.
 
 A model that runs on your own network or on your own machine cannot be
 reached yet: the server may reach only listed hosts on port 443, and the
