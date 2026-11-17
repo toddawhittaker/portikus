@@ -15,6 +15,7 @@ import {
 } from "@portikus/ui";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
+import { DiagnoseButton } from "../../assistant/DiagnoseButton.js";
 import { AdminGroup } from "../AdminSection.js";
 import { Notice } from "../Notice.js";
 import { useAdminSignin, useApplySignin } from "./queries.js";
@@ -48,6 +49,15 @@ export function SsoGroup() {
 			title="Single sign-on"
 			description="How people sign in besides local accounts."
 			testId="admin-signin-sso"
+			actions={
+				signin.data ? (
+					<DiagnoseButton
+						context={{ kind: "setup", id: "signin" }}
+						name="Help me set this up with single sign-on"
+						label="Help me set this up"
+					/>
+				) : undefined
+			}
 		>
 			{signin.data ? (
 				<SsoBody data={signin.data} />

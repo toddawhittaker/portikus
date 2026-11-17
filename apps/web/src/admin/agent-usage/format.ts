@@ -22,6 +22,13 @@ export function cost(value: number | null): string {
 	return value === null ? "—" : MONEY.format(value);
 }
 
+/** An estimated dollar figure: a dash when it could not be priced, and "under $0.01" rather than a false zero. */
+export function estimate(value: number | null): string {
+	if (value === null) return "—";
+	if (value > 0 && value < 0.005) return "under $0.01";
+	return MONEY.format(value);
+}
+
 /** "Thu, Nov 6" for a usage day (YYYY-MM-DD, UTC); `short` gives "Thu 6" for a chart axis. */
 export function dayName(day: string, short = false): string {
 	const at = new Date(`${day}T00:00:00Z`);

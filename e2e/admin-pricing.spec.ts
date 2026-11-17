@@ -10,6 +10,7 @@ import {
 	query,
 	WEB_ORIGIN,
 } from "./helpers";
+import { FAKE_MODEL_PORT } from "./ports";
 
 /**
  * The Model prices tab (SPEC.md sections 10.8 and 20.4) against the real API
@@ -144,6 +145,10 @@ test("a check proposes rows from the source pages; one is accepted and one rejec
 	const anthropic = page.getByTestId(`proposal-${FAKE_PRICE_ROWS.anthropic.model}`);
 	await expect(openai).toContainText("a new row");
 	await expect(openai).toContainText(FAKE_PRICE_ROWS.openai.sourceQuote);
+	// The proposal lists the output price the model read from the page.
+	await expect(openai.getByRole("row", { name: /Output per million/ })).toContainText(
+		"$8.00",
+	);
 	await expect(anthropic).toBeVisible();
 
 	await page.screenshot({ path: `${SHOTS}/proposals-dark.png`, fullPage: true });
@@ -165,6 +170,9 @@ test("a check proposes rows from the source pages; one is accepted and one rejec
 	await expect(
 		page.getByTestId(`price-row-${FAKE_PRICE_ROWS.openai.model}`),
 	).toContainText("$2.00");
+	await expect(
+		page.getByTestId(`price-row-${FAKE_PRICE_ROWS.openai.model}`),
+	).toContainText("$8.00");
 	await anthropic.getByTestId("proposal-reject").click();
 	await expect(page.getByTestId("pricing-proposals")).toHaveCount(0);
 	// After the last proposal, the Prices group takes the keyboard.
@@ -189,6 +197,93 @@ test("a check proposes rows from the source pages; one is accepted and one rejec
 	]);
 });
 
+const MODEL_SERVER = `http://127.0.0.1:${FAKE_MODEL_PORT}`;
+
+test("a price page the model reads without an output price proposes nothing", async ({
+	page,
+}) => {
+	// The model answers the openai page twice (the second try follows the refusal) with a row that lacks it.
+	const { outputPricePerMillion: _omit, ...unpriced } = FAKE_PRICE_ROWS.openai;
+	const scripted = await fetch(`${MODEL_SERVER}/__script`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			match: "fake:prices:openai",
+			steps: [
+				{ toolCalls: [{ name: "submit_rows", arguments: { rows: [unpriced] } }] },
+				{ toolCalls: [{ name: "submit_rows", arguments: { rows: [unpriced] } }] },
+			],
+		}),
+	});
+	expect(scripted.ok).toBe(true);
+	try {
+		await query(`update ai_settings set price_sources = $1 where id = 1`, [
+			[SOURCES[0]],
+		]);
+		await turnOn(page);
+		await openPricing(page);
+		await page.getByTestId("pricing-refresh").click();
+		await expect(page.getByTestId("pricing-run-status")).toHaveText("Failed", {
+			timeout: 60_000,
+		});
+		await expect(page.getByTestId("pricing-run-failures")).toContainText(
+			"found no prices",
+		);
+		await expect(page.getByTestId("pricing-proposals")).toHaveCount(0);
+		expect(await query("select 1 from price_proposals")).toHaveLength(0);
+	} finally {
+		await fetch(`${MODEL_SERVER}/__reset`, { method: "POST" });
+	}
+});
+
+test("a proposal saved before output prices needs one entered before it can be accepted", async ({
+	page,
+}) => {
+	const [run] = await query<{ id: string }>(
+		`insert into price_runs (trigger, status, finished_at) values ('manual', 'done', now()) returning id`,
+	);
+	const [old] = await query<{ id: string }>(
+		`insert into price_proposals
+		   (run_id, provider, model, input_price_per_million, output_price_per_million,
+		    cache_read_ratio, cache_write_ratio, cache_ttl_seconds, source_url, source_quote)
+		 values ($1, 'openai', 'e2e-old-model', 3, null, 0.1, 1.25, 300,
+		         'https://developers.openai.com/api/docs/pricing', 'E2E Old Model: input $3 per million')
+		 returning id`,
+		[run?.id],
+	);
+	await openPricing(page);
+	const proposal = page.getByTestId("proposal-e2e-old-model");
+	await expect(proposal).toContainText("a new row");
+	await expect(proposal.getByRole("row", { name: /Output per million/ })).toContainText(
+		"None",
+	);
+	await expectNoViolations(page, "main");
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, "main");
+	await page.emulateMedia({ colorScheme: "dark" });
+
+	// Accepting with no price is refused on the page and by the server.
+	await proposal.getByTestId("proposal-accept").click();
+	await expect(proposal.getByText(/per million output tokens, above 0/)).toBeVisible();
+	await expect(proposal.getByLabel(/^Output price/)).toBeFocused();
+	const direct = await page.request.post(
+		`/admin/pricing/proposals/${old?.id}/decision`,
+		{ headers: { origin: WEB_ORIGIN }, data: { decision: "accept" } },
+	);
+	expect(direct.status()).toBe(400);
+	expect(
+		await query("select status from price_proposals where id = $1", [old?.id]),
+	).toEqual([{ status: "pending" }]);
+	expect(await query("select 1 from model_prices")).toHaveLength(0);
+
+	await proposal.getByLabel(/^Output price/).fill("12.5");
+	await proposal.getByTestId("proposal-accept").click();
+	await expect(page.getByTestId("pricing-proposals")).toHaveCount(0);
+	const row = page.getByTestId("price-row-e2e-old-model");
+	await expect(row).toContainText("$3.00");
+	await expect(row).toContainText("$12.50");
+});
+
 test("rows are added, edited and deleted by hand", async ({ page }) => {
 	await openPricing(page);
 	// The assistant is off here, so a check cannot start and the page says why.
@@ -199,6 +294,7 @@ test("rows are added, edited and deleted by hand", async ({ page }) => {
 	const dialog = page.getByTestId("price-row-dialog");
 	await dialog.getByTestId("price-row-save").click();
 	await expect(dialog.getByText(/Give the model's name/)).toBeVisible();
+	await expect(dialog.getByText(/per million output tokens, above 0/)).toBeVisible();
 	await dialog.getByLabel("Model", { exact: true }).fill("e2e-model-9");
 	await dialog.getByLabel(/^Input price/).fill("4");
 	await dialog.getByLabel(/^Output price/).fill("20");
@@ -213,6 +309,7 @@ test("rows are added, edited and deleted by hand", async ({ page }) => {
 	await dialog.getByTestId("price-row-save").click();
 	const row = page.getByTestId("price-row-e2e-model-9");
 	await expect(row).toContainText("$4.00");
+	await expect(row).toContainText("$20.00");
 
 	await page.screenshot({ path: `${SHOTS}/table-dark.png`, fullPage: true });
 	await page.emulateMedia({ colorScheme: "light" });
@@ -221,8 +318,10 @@ test("rows are added, edited and deleted by hand", async ({ page }) => {
 
 	await row.getByRole("button", { name: "Edit e2e-model-9" }).click();
 	await dialog.getByLabel(/^Input price/).fill("4.5");
+	await dialog.getByLabel(/^Output price/).fill("22.5");
 	await dialog.getByTestId("price-row-save").click();
 	await expect(row).toContainText("$4.50");
+	await expect(row).toContainText("$22.50");
 
 	const trash = row.getByRole("button", { name: "Delete e2e-model-9" });
 	await trash.click();

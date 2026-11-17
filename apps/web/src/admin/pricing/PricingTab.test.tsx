@@ -146,11 +146,20 @@ test("the table lists each row's figures, with the source quote behind a disclos
 	const row = await screen.findByTestId("price-row-opus-5-5");
 	expect(row.textContent).toMatch(/Anthropic/);
 	expect(row.textContent).toMatch(/\$5\.00/);
+	expect(within(row).getAllByRole("cell")[0]?.textContent).toBe("$5.00");
+	expect(within(row).getAllByRole("cell")[1]?.textContent).toBe("$10.00");
 	expect(row.textContent).toMatch(/2× for one hour/);
 	expect(row.textContent).toMatch(/5 min/);
 	expect(within(row).getByRole("link", { name: "platform.claude.com" })).toBeTruthy();
 	expect(within(row).getByText("Quote")).toBeTruthy();
 	expect(row.textContent).toMatch(/Opus 5\.5: \$5 \/ MTok/);
+});
+
+test("a row saved before output prices shows None for it", async () => {
+	serve({ prices: [{ ...ROW, outputPricePerMillion: null }] });
+	renderWithQuery(<PricingTab />);
+	const row = await screen.findByTestId("price-row-opus-5-5");
+	expect(within(row).getAllByRole("cell")[1]?.textContent).toBe("None");
 });
 
 test("the last run shows its trigger, and a refused source its sentence and a pointer to Sources", async () => {
@@ -321,6 +330,49 @@ test("with no proxy host list on this server nothing is offered, and an unticked
 	await waitFor(() =>
 		expect(sent.find((r) => r.method === "PUT")?.body).toEqual({ priceSources: [] }),
 	);
+});
+
+const OLD_PROPOSAL: PriceProposal = {
+	...PROPOSAL,
+	outputPricePerMillion: null,
+	current: { ...ROW_FIGURES, outputPricePerMillion: null },
+};
+
+test("a proposal with no output price asks for one before it can be accepted", async () => {
+	const sent = serve({ proposals: [OLD_PROPOSAL] });
+	renderWithQuery(<PricingTab />);
+	const proposal = await screen.findByTestId("proposal-opus-5-5");
+	expect(proposal.textContent).toMatch(/Output per million.*None.*None/);
+	fireEvent.click(within(proposal).getByTestId("proposal-accept"));
+	expect(
+		await within(proposal).findByText(/per million output tokens, above 0/),
+	).toBeTruthy();
+	fireEvent.change(within(proposal).getByLabelText(/^Output price/), {
+		target: { value: "0" },
+	});
+	fireEvent.click(within(proposal).getByTestId("proposal-accept"));
+	expect(sent.find((r) => r.url.endsWith("/decision"))).toBeUndefined();
+
+	fireEvent.change(within(proposal).getByLabelText(/^Output price/), {
+		target: { value: "$12.50" },
+	});
+	fireEvent.click(within(proposal).getByTestId("proposal-accept"));
+	await waitFor(() => expect(screen.queryByTestId("pricing-proposals")).toBeNull());
+	expect(sent.find((r) => r.url.endsWith("/decision"))?.body).toEqual({
+		decision: "accept",
+		outputPricePerMillion: 12.5,
+	});
+});
+
+test("rejecting a proposal with no output price needs none", async () => {
+	const sent = serve({ proposals: [OLD_PROPOSAL] });
+	renderWithQuery(<PricingTab />);
+	const proposal = await screen.findByTestId("proposal-opus-5-5");
+	fireEvent.click(within(proposal).getByTestId("proposal-reject"));
+	await waitFor(() => expect(screen.queryByTestId("pricing-proposals")).toBeNull());
+	expect(sent.find((r) => r.url.endsWith("/decision"))?.body).toEqual({
+		decision: "reject",
+	});
 });
 
 const SECOND: PriceProposal = {

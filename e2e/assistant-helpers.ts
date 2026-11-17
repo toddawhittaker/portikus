@@ -75,7 +75,7 @@ export async function setAssistant(page: Page, enabled: boolean): Promise<void> 
 	expect(toggle.ok(), await toggle.text()).toBe(true);
 }
 
-function panelOf(page: Page): Locator {
+export function panelOf(page: Page): Locator {
 	return page.getByRole("complementary", { name: "Assistant", exact: true });
 }
 
@@ -93,4 +93,17 @@ export async function ask(panel: Locator, text: string): Promise<void> {
 	).toBeVisible();
 	await box.fill(text);
 	await box.press("Enter");
+}
+
+/** The reads a Diagnose or setup conversation ran, each a tool block, kept in the folded "Worked for" lines. */
+export const toolBlocks = (page: Page): Locator =>
+	panelOf(page).locator("details.pk-chat-tool");
+
+/**
+ * A Diagnose or setup conversation's reads are stored as the model's first
+ * step after the person's message, so the fake model counts them as a step
+ * it took: its first scripted step is never asked for.
+ */
+export function afterReads(steps: unknown[]): unknown[] {
+	return [{ text: "The reads, already run." }, ...steps];
 }

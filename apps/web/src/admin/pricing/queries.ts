@@ -2,6 +2,7 @@ import {
 	AdminModelPrice,
 	AdminProxyHosts,
 	PriceProposal,
+	type PriceProposalDecision,
 	type PriceRowInput,
 	PriceRun,
 } from "@portikus/contracts";
@@ -52,8 +53,8 @@ export function useRefresh() {
 export function useDecide() {
 	const merge = useMerge();
 	return useMutation({
-		mutationFn: ({ id, decision }: { id: string; decision: "accept" | "reject" }) =>
-			sendJson(Decided, `/admin/pricing/proposals/${id}/decision`, { decision }),
+		mutationFn: ({ id, ...body }: { id: string } & PriceProposalDecision) =>
+			sendJson(Decided, `/admin/pricing/proposals/${id}/decision`, body),
 		onSuccess: merge,
 	});
 }

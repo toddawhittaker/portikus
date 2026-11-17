@@ -18,6 +18,7 @@ import {
 	dollars,
 	hostOf,
 	lifetime,
+	optionalDollars,
 	PROVIDER_LABEL,
 	ratio,
 	surcharge,
@@ -78,7 +79,12 @@ export function PriceTableGroup({ prices }: { prices: AdminModelPrice[] }) {
 						<thead>
 							<tr>
 								<th scope="col">Model</th>
-								<th scope="col">Input per million</th>
+								<th scope="col">
+									Input <span className="block">per million</span>
+								</th>
+								<th scope="col">
+									Output <span className="block">per million</span>
+								</th>
 								<th scope="col">Cache read</th>
 								<th scope="col">Cache write</th>
 								<th scope="col">Lifetime</th>
@@ -102,6 +108,9 @@ export function PriceTableGroup({ prices }: { prices: AdminModelPrice[] }) {
 										</span>
 									</th>
 									<td className="tabular-nums">{dollars(row.inputPricePerMillion)}</td>
+									<td className="tabular-nums">
+										{optionalDollars(row.outputPricePerMillion)}
+									</td>
 									<td className="tabular-nums">{ratio(row.cacheReadRatio)}</td>
 									<td className="tabular-nums">
 										{ratio(row.cacheWriteRatio)}

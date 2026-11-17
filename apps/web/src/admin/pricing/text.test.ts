@@ -3,7 +3,9 @@ import {
 	draftOf,
 	lifetime,
 	listedHosts,
+	optionalDollars,
 	parseDraft,
+	parseOutputPrice,
 	ratio,
 	runFailures,
 	surcharge,
@@ -169,4 +171,18 @@ test("an edited row starts from its saved figures", () => {
 		cacheTtlSeconds: "600",
 		surchargeAboveTokens: "272000",
 	});
+});
+
+test("a typed output price is read like the contract does, or refused", () => {
+	expect(parseOutputPrice("$12.50")).toBe(12.5);
+	expect(parseOutputPrice(" 1,000 ")).toBe(1000);
+	for (const bad of ["", "0", "-3", "abc", "10001"]) {
+		expect(parseOutputPrice(bad)).toBeNull();
+	}
+});
+
+test("a price that was never saved reads as None", () => {
+	expect(optionalDollars(null)).toBe("None");
+	expect(optionalDollars(undefined)).toBe("None");
+	expect(optionalDollars(8)).toBe("$8.00");
 });
