@@ -364,9 +364,11 @@ not to enforce a limit. Instructors see the same counts for their own
 courses on the Course page ([INSTRUCTOR-GUIDE.md](INSTRUCTOR-GUIDE.md)).
 
 Below the coding-agent tables, **Built-in assistant** shows the built-in AI's
-tokens for each person, purpose and model (the weekly price check is its own
-line) and this month's use against the cap. It counts tokens only, not
-dollars, and never any conversation text.
+tokens for each person, purpose and model (the weekly price check and the
+alert explanations are each their own line) and this month's use against the
+cap. It also shows a **dollar estimate** for each line that has a price (see
+"Model prices" under the built-in assistant). It never shows any conversation
+text.
 
 A line you may want in your acceptable-use statement:
 
@@ -828,6 +830,12 @@ If the server uses LDAP, the page shows that as read-only. LDAP is still
 changed with `sudo dpkg-reconfigure portikus`. You can switch from LDAP to
 another provider on the page.
 
+**Help me set this up**, beside the group's title, opens a read-only
+conversation about this group. It reads your current sign-in settings and the
+site address, looks at recent error lines, checks them against this guide and
+tells you what looks wrong and what to try. It never changes anything, and it
+never asks for a secret. Type secrets into the form, not the conversation.
+
 A change is a **trial**:
 
 1. Fill in the provider and choose **Apply as a trial**. Read the dialog:
@@ -859,6 +867,14 @@ add up to 20. Platforms from the operator's file show read-only.
 Saving restarts the API so it reads the new list. Root shells end and open
 sockets reconnect, and the dialog warns you first. Portikus also lets the
 servers behind the new addresses through the egress proxy, on port 443 only.
+**Help me set this up**, beside the group's title, opens a
+read-only conversation about this group. Like the one in **Single sign-on**,
+it is shown only to administrators. It reads the platforms you have
+saved, the hosts the egress proxy allows and recent error lines, and checks
+them against this guide, for example a login address with a typo or a
+deployment ID the learning system did not send. It never changes anything and
+never asks for a secret.
+
 The registration steps inside the learning system are in
 [OPERATIONS.md](OPERATIONS.md), "Signing in from a learning management
 system".
@@ -1013,7 +1029,11 @@ Open **Admin**, then **AI**, under **Site**. Work down the page.
    secrets), what is stored (conversations, for 30 days, visible only to
    the person who had them), and who the provider is. Choose **Accept**.
    Portikus records who accepted it and when. If the notice changes in a
-   later version, you are asked again.
+   later version, you are asked again. **After an upgrade that raises the
+   notice to version 2, the assistant stops, and so do the price check, the
+   alert explanations and the setup help, until an administrator accepts the
+   new notice.** Read what changed, then choose **Accept**. Nothing else needs
+   doing.
 2. **Provider.** Choose **OpenAI-compatible** or **Anthropic**. The page
    fills in the usual base address; change it only for another hosted
    service that speaks the same interface. Give the **Model** (the page
@@ -1043,6 +1063,9 @@ Open **Admin**, then **AI**, under **Site**. Work down the page.
    assistant, whatever it does in a chat window.
 6. **Turn it on.** The **Assistant** switch works only once a key is saved
    and the notice is accepted. Clearing the key turns it off.
+7. **Alert explanations (optional).** The **Alert explanations** group, the
+   last on the page, has two more switches. Both are off until you turn them
+   on. See "Alert explanations" below.
 
 ### Which models work
 
@@ -1103,6 +1126,13 @@ again, the notice not accepted, or the month's allowance used up.
 - **Questions about Portikus.** The assistant answers from this guide,
   the operations guide, the install guide and the instructor guide, and
   names the section it used, such as "ADMIN-GUIDE.md § Model prices".
+- **A pasted secret is refused.** If a message looks like a secret, such as
+  a private key, a bearer token, a password inside a web address, a Microsoft
+  Entra or Google client secret, a model provider key or a Portikus API key,
+  the assistant refuses it. The message is not stored and not sent to the
+  provider, and you are told why. This catches mistakes, not every secret in
+  every form, so never paste a secret into a conversation on purpose. Type it
+  into the form it belongs to.
 - **Text it reads is data.** Names, file names and log lines are written by
   users. The assistant is told to treat them as data, and every change still
   needs your approval, so a student cannot talk it into acting.
@@ -1144,6 +1174,107 @@ fetch. When you add a page whose host is not on the allowed list, the page
 offers to allow it, as for the provider. The check uses tokens from the same
 monthly cap, and its model has no access to your site's data. Without a row
 for a model, Portikus uses its built-in numbers.
+
+Each row has an **input price** and an **output price**, both for a million
+tokens, and the cache ratios. You must give an output price whenever you save
+a row. A row saved before the output price existed may show it empty until you
+edit it. Likewise, an old proposal that has no output price cannot be
+accepted until you type one in the box that appears on it, after reading it
+from the provider's page.
+
+**The dollar estimate.** The **Built-in assistant** section of **Agent
+usage** has an **Estimate** column: what each line cost, worked out from these
+rows, with the input, cached and output tokens each at its own price. Read it
+as a guide, not a bill. Your provider's invoice is what counts. A line shows a
+dash when its model has no row in the table or its row has no output price.
+The total under the table adds up only the lines that have a price, and says
+the real cost is higher when some lines show a dash. It reads "No estimate"
+when none has a price. Dollars are only shown. The limits stay in tokens, so a
+wrong price can never let more spending through.
+
+### Alert explanations
+
+When a service stops or a backup fails, Portikus can add a short explanation
+to the alert in your notifications: two sentences on the likely cause and
+the first thing to check, written by the model, under the label "Explanation
+written by AI. It can be wrong." It is **off until you turn it on**, and it
+is the one time Portikus calls the model when nobody asked. Read the privacy
+notice first. It says what is sent.
+
+The **Alert explanations** group on the **AI** page has:
+
+- **Explain alerts** turns it on. An explanation is written only while the
+  assistant itself is on and its notice is accepted.
+- **Most explanations a day** is the most Portikus will write in one UTC day,
+  from 0 to 100. The default is 5, and 0 writes none. Choose **Save daily
+  limit**. It also writes at most one for each alert title in an hour, so an
+  alert that repeats does not use them up. Once the daily number is reached,
+  new alerts simply get no explanation until the next UTC day, and the alerts
+  themselves are unchanged.
+- **Add explanations to email and Pushover alerts** also puts the explanation
+  in those two kinds of message, under the alert, after the words "AI
+  explanation:". It is off by default. Email and Pushover
+  leave your site, so turn it on only if your recipients may see text drawn
+  from your logs. Those two kinds wait up to a minute for the explanation, then
+  go with it or without it. Webhook, ntfy and Teams alerts go out at once and
+  never carry it. A Pushover message has a limit of 1,024 characters, so
+  Portikus cuts the explanation first, never the alert.
+
+Some things to know:
+
+- **Only new alerts are explained.** An alert is new for 15 minutes. If Portikus
+  was down longer than that when the alert was raised, or the feature was off,
+  that alert is never explained later.
+- **The limit is for each title.** An alert whose title keeps changing is not
+  slowed by the one-an-hour rule, so one noisy source can use up the day's
+  explanations. Spending stays bounded by the daily maximum and the monthly
+  cap.
+- **What is sent** to your AI provider for each explanation: the alert's title
+  and text, the newest health reading and up to 20 recent error lines from the
+  logs, with secrets redacted by the log reader. The lines can still name
+  workspaces, paths and people. File contents, terminal output and students'
+  chat prompts are never sent. The model has no tools: it cannot look anything
+  else up or change anything.
+- **The alert about a held slowdown no longer names the student.** It reads "A
+  student's workspace stays slowed after a restart"; the **Health** tab shows
+  whose it is.
+
+Each explanation is about 5,000 tokens in and a few hundred out, and counts
+against the monthly cap. It shows as its own line, **Alert explanations**, in
+**Agent usage**, with no person beside it. Each attempt is also written to the
+audit trail as `alert.triaged`, done by `system`, with the alert's title and
+tone and no other text. A model can be wrong and a log line can be written by a
+student, so read the alert and the logs yourself. The explanation is shown as
+plain text and never changes anything.
+
+### The weekly digest
+
+Every Monday at 08:00 in the server's own time zone, every administrator gets
+one notice titled **Weekly summary** about the last seven days. A site gets its
+first one shortly after Portikus is installed or upgraded, not only on the next
+Monday. It has four parts, in this order:
+
+- **Audit**, counts of unusual things that happened, each shown only if it
+  happened: denied requests; destructive operations done through an API key or
+  the assistant; root shells opened; accounts linked (linking acts as the
+  other person, so it counts as impersonation); API keys made or rotated;
+  administrator or instructor roles granted; and password or second-factor
+  resets. It shows counts only, never names. If none happened it says so.
+  Use **Audit** to look into any of them.
+- **Health**: how much of the time the workspace controller answered, peak
+  server CPU, how many requests the API served and how many failed, and how
+  often the usage guard throttled, flagged or stopped a workspace.
+- **Capacity**: the most workspaces that ran at once, against the number of
+  students the server's memory holds (see [CAPACITY.md](CAPACITY.md)).
+- **Usage**: people who signed in, workspace starts, coding-agent sessions and
+  the built-in assistant's tokens with the dollar estimate. A tiny amount reads
+  "under $0.01", and the estimate says it is partial if some models have no
+  price.
+
+Portikus writes it itself, with no model call, so it arrives even when the
+assistant is off, uses no tokens and has no switch. It is an information
+notice, so Portikus never sends it to email or Pushover. Instructors do not get
+it.
 
 ### If it will not turn on
 
@@ -1244,6 +1375,30 @@ start Codex. The tools you see are only those your role and the key's scope
 allow. A program that wants a plain web interface instead can read
 `https://<site>/openapi.json` and send the same key as `Authorization:
 Bearer <key>`.
+
+### Resources and prompts
+
+Besides tools, the MCP server offers two more things, which your program may
+show as menus.
+
+- **Resources** are documents the program can load into the conversation.
+  `portikus://guides/<FILE>` is one of the guides: this guide, the operations
+  guide, the install guide and the instructor guide for an administrator's
+  key, and the instructor guide alone for an instructor's. `portikus://health`
+  is the current health snapshot, the same reading **Health** shows, and only
+  an administrator's key lists it. Every request counts against the key's 300 a
+  minute and appears in **Audit** as `api_key.used`. A guide read adds nothing
+  else to the audit trail.
+- **Prompts** are ready-made requests: `diagnose_workspace` (you give the
+  workspace's id) and `diagnose_health` for administrators. `who_is_stuck` is
+  for instructors, so an administrator's key does not list it. A prompt only
+  supplies the wording. It asks the program to run read operations and report,
+  and it changes nothing by itself. A key never lists a prompt its owner may
+  not use.
+
+Text in a resource, such as a workspace name or a log line, was written by a
+user. The server tells the program to treat it as data, but a program can be
+fooled, so give a key the lowest scope that does the job.
 
 ### Keys across the site
 

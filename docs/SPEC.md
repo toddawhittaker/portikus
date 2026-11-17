@@ -2951,7 +2951,7 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 
 **Settings and overrides.** The platform values are columns on the `settings` row, edited in the "Resource guard" section of the admin Settings tab, saved with **Save resource guard** (section 20.1). The section opens with the measuring period, which sets the averaging for both CPU and memory, then has four groups, "Slow down heavy CPU use", "Give full speed back", "Keep repeat cases slowed" and "Flag high memory" (Epic 25). As built (Epic 53), the fields are labelled Measuring period (minutes), Heavy CPU use (%), Speed while slowed (%), Quiet time (minutes), Quiet means under (%), Slowdowns before a hold, Hold period (hours) and High memory (%), and the per-workspace guard dialog uses the same labels. The values are: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes` and, since Epic 28, `keepRunningMaxHours` (section 6.4); a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
 
-**Throttle hold (Epic 24).** Stopping and starting used to lift every throttle, so a student could run a heavy load, get throttled, restart and repeat. Two settings bound that: `cpu_throttle_hold_after` (0 turns holding off, otherwise 1 to 10, default 3) and `cpu_throttle_hold_hours` (1 to 168, default 24). The worker keeps each workspace's recent throttle times in `workspaces.cpu_throttle_recent`, trimmed to the window. When a throttle is the Nth within the window, the row's `cpu_throttle` gains `held: true`, the worker audits `workspace.cpu_throttle_held`, and every enabled administrator gets one warning notification. A held throttle is not cleared when the worker records a stop: the worker passes the allowance with the start request (`POST /instances/:name/start` with `{cpuAllowance}`), and the controller sets it before the instance runs, so there is no moment at full speed. The automatic idle lift and an administrator's lift still work. The student's notice adds "It stays slowed after a restart because it was slowed {n} times in the last {hours} hours." The Health tab and the Workspaces table show a **Held** tag beside **Throttled**. An administrator's lift does not clear `cpu_throttle_recent`, so a workspace lifted by hand can be held again sooner than one that started fresh.
+**Throttle hold (Epic 24).** Stopping and starting used to lift every throttle, so a student could run a heavy load, get throttled, restart and repeat. Two settings bound that: `cpu_throttle_hold_after` (0 turns holding off, otherwise 1 to 10, default 3) and `cpu_throttle_hold_hours` (1 to 168, default 24). The worker keeps each workspace's recent throttle times in `workspaces.cpu_throttle_recent`, trimmed to the window. When a throttle is the Nth within the window, the row's `cpu_throttle` gains `held: true`, the worker audits `workspace.cpu_throttle_held`, and every enabled administrator gets one warning notification. A held throttle is not cleared when the worker records a stop: the worker passes the allowance with the start request (`POST /instances/:name/start` with `{cpuAllowance}`), and the controller sets it before the instance runs, so there is no moment at full speed. The automatic idle lift and an administrator's lift still work. The student's notice adds "It stays slowed after a restart because it was slowed {n} times in the last {hours} hours." The administrators' alert is titled "A student's workspace stays slowed after a restart", without the student's name; the Health tab shows whose it is. The Health tab and the Workspaces table show a **Held** tag beside **Throttled**. An administrator's lift does not clear `cpu_throttle_recent`, so a workspace lifted by hand can be held again sooner than one that started fresh.
 
 **Per-workspace limits (Epic 24).** An administrator can set one workspace's CPU count (1 to 64), memory (512 to 262,144 MiB) and process ceiling (500 to 32,768) in the nullable jsonb column `workspaces.limits_config`; a missing key uses the Incus profile. A worker sync, like the quota sync, applies the change and records it in `limits_applied`. The controller sets or removes `limits.cpu`, `limits.memory` and `limits.processes` on the instance, never on the profile, and Incus applies them live to a running workspace. The controller refuses more CPUs than the host has. Lowering memory below what the workspace uses makes the kernel stop its biggest process (section 19.3), and the dialog says so before Save. A CPU change while throttled rewrites the throttle's allowance from its share in the same transaction; clearing the CPU override recomputes it from the profile's CPU count (a CPU set such as `0-3` counts as four), or the host's when none is readable. A process ceiling above 1,700 does not raise the terminals unit's own `TasksMax` (section 19.3), and the dialog says so. The guard's averages use the instance's own CPU limit, so an override counts.
 
@@ -3730,7 +3730,40 @@ Claude Code, Codex and similar clients can use a key.
   bad path value) writes one `api_key.used` row, result `denied`, with the
   attempted operation name and the code, so such a call is not missing
   from the audit. A call that reaches a route is audited by the gate.
-- It offers no resources, prompts or OAuth.
+- It offers no OAuth.
+- **Resources** (Epic 70, ADR 0079 as amended). A resource is a read-only
+  document a client may load. There are two kinds, and both are listed only
+  when the key's owner may read them.
+  - `portikus://guides/<FILE>` is one of the guides the package carries.
+    The guides a role may read are the same ones the built-in assistant may
+    read (section 20.5): an administrator's key lists ADMIN-GUIDE,
+    OPERATIONS, INSTALL and INSTRUCTOR-GUIDE; an instructor's key lists
+    INSTRUCTOR-GUIDE only. The role map lives in one place, in
+    `assistant/guides.ts`, so the two cannot drift apart.
+  - `portikus://health` is the current health snapshot. Reading it runs the
+    operation `health.get` through the in-process runner with the caller's
+    own key, so the key's scope, the route's checks and the `api_key.used`
+    audit row apply exactly as for a tool call. It is listed only to an
+    administrator's key, and an instructor's key neither lists nor reads
+    it.
+  - A guide read is a guide's text and nothing more. It writes no audit row
+    beyond the one `api_key.used` row every `/mcp` request already gets
+    (section 24.11). A guide the package does not carry is simply not listed.
+- **Prompts** (Epic 70). A prompt is a ready-made request the client may
+  offer its user. Three are offered: `diagnose_workspace` (it takes the
+  workspace's id) and `diagnose_health` for administrators, and
+  `who_is_stuck` (it takes the course's id) for instructors only. An
+  administrator's key does not list `who_is_stuck`. A prompt is listed only
+  when the key's owner and scope may run every operation it asks the model
+  to use, and a prompt the caller may not use is neither listed nor
+  answered. A prompt's wording is written by code from the same read lists
+  the Diagnose buttons use (section 20.5), plus the id the caller gave,
+  which must be well formed. It only returns a message that asks the model to
+  run those read operations with `run_operation` and report what it found; it
+  runs nothing itself, so asking for a prompt changes nothing and every tool
+  call that follows is checked and audited as usual. Text a user wrote (a
+  workspace name, a log line) is still data, never instructions (section
+  24.1).
 
 ### 20.5 The built-in AI assistant
 
@@ -3748,7 +3781,10 @@ has turned it on. It also stops while the month's token cap is spent. Saving
 the settings without a key turns it off; turning it on without a key,
 without a provider, base address and model (409 `AI_SETTINGS_INCOMPLETE`), or
 before the notice is accepted is refused. When the notice text changes, its
-version number goes up and it must be accepted again. A saved key that no
+version number goes up and it must be accepted again. Epic 70 moves the
+notice to version 2 (it now covers alert explanations, below), so after an
+upgrade the assistant, and with it the price check, the alert explanations
+and the guided setup, stay paused until an administrator accepts version 2. A saved key that no
 longer opens (a restore without the server's key file) counts as no key.
 Each of these reasons has its own plain message in the panel (`off`,
 `incomplete`, `no-key`, `key-unreadable`, `notice`, `monthly-cap`).
@@ -3869,15 +3905,21 @@ reports, and both checked before every step: the site's monthly cap, shared
 by all people and by the price check, and each conversation's budget. A
 spent limit ends the turn with a plain message. The count keeps only token
 numbers for each day, person, purpose and model, never content. The cap and
-every figure shown are in tokens; dollars wait until the table can price
-output tokens, because Portikus cannot know every model's price.
+every limit is in tokens. Dollars are shown as an estimate and are never a
+limit (see Dollar estimate below).
 
 **What is sent.** Each model call sends the person's messages and the system
 prompt, and the results of the tools the assistant used, to the provider the
 administrator configured. Results can hold people's real names, course names,
 workspace and process details and log lines. Never sent: file contents,
 terminal bytes, students' chat prompts and secrets. Those routes are not in
-the catalog, so no tool can reach them (section 20.4).
+the catalog, so no tool can reach them (section 20.4). A person might still
+paste a secret into the assistant by mistake. A message that looks like one is
+refused: it is not stored and not sent to the provider, and the person is told
+why. The shapes it refuses are private key blocks, a JSON `private_key` field,
+bearer tokens, a URL with a password in it, Microsoft Entra and Google OAuth
+client secrets, model provider API keys, and Portikus API keys. It is a net
+for mistakes, not a promise that every secret in every form is caught.
 
 **What is stored.** Conversations are stored in PostgreSQL as data (ADR 0081)
 and never in a log (STACK.md section 15, ADR 0012).
@@ -3903,7 +3945,8 @@ chat's. The session is checked again on every frame, and the socket closes
 when it no longer qualifies. Caddy keeps the socket open through a reload.
 
 **Conversation kinds.** A conversation is a plain one, or opened with a
-context (`health`, `workspace`, `job` or `alert`) and a course. A conversation
+context (`health`, `workspace`, `job`, `alert` or, since Epic 70, `setup`)
+and a course. A conversation
 opened with a context is read-only: its tools are the read operations a
 read-scope key would have, so a Diagnose conversation looks and reports and
 never changes anything.
@@ -3937,8 +3980,13 @@ id, lowercased with runs of spaces and dots turned into dashes ("Claude Opus
 OpenAI names are only lowercased and trimmed. One check runs at a time, and only while the
 assistant is available. A timer in the API looks hourly and starts a check
 when the last one began more than a week ago, and it tells administrators
-when it found changes. A check's tokens count against the monthly cap. When
-the table has no row for a model, the built-in numbers are used. The price
+when it found changes. A check's tokens count against the monthly cap. A row holds
+the input price per million tokens, the cache ratios and, since Epic 70,
+the output price per million tokens. The output price may be empty on a row
+stored before Epic 70, but every save, by a person or by accepting a
+proposal, must give one (a save without it is refused with
+`VALIDATION_FAILED`). When the table has no row for a model, the built-in
+numbers are used for the students' restart estimate. The price
 check and each decision are audited (section 24.11). `GET /pricing` answers
 the table to any signed-in person, because the browser reads it for the
 estimate and it holds nothing private; administrators manage it under
@@ -3984,9 +4032,141 @@ HTTP for each role and expects the same answer, and a student gets 403 on
 every assistant route.
 
 **Usage.** The Agents tab shows the built-in AI's token use by person,
-purpose and model (the weekly price check shows as its own line) and this
-month's use against the cap. It shows tokens only; dollars wait for output
-token prices.
+purpose and model (the weekly price check shows as its own line, and the
+alert explanations as another, `triage`, with no person) and this month's
+use against the cap, with a dollar estimate (below).
+
+**Dollar estimate.** Added by Epic 70. The usage route answers a dollar
+figure, or none, for each line.
+
+- Two pure functions in the contracts package do the sums, so the route and
+  the weekly digest agree: one finds the price row for a model, and one
+  turns a line's token counts into dollars. The row is found by an exact
+  match on the model name after the same normalizing a stored row gets (the
+  lowercasing and dash rule under Model prices). No close match is guessed.
+- The sum is input tokens that were neither read from nor written to the
+  provider's cache, at the input price; cache reads and cache writes at their
+  ratios; and output tokens at the output price. The SDK's input count
+  already includes cache reads and writes, so they are subtracted before
+  pricing, or cached tokens would be charged twice.
+- A line whose model has no row, or a row with no output price, shows a dash
+  rather than a low figure. The period's total adds up only the lines that
+  have one, says so, and reads "No estimate" when no line has a price.
+- The column is headed **Estimate** and explains itself in a note: a rough
+  figure, not an invoice. Prices change, and a provider's own bill decides.
+  Dollars are never a limit: the monthly cap and the conversation budget stay
+  in tokens.
+
+**Alert explanations (triage).** Added by Epic 70 (ADR 0082). This is the
+one place Portikus calls the model when no person asked. It is off by
+default and has its own rules, because nobody reviews the call as it
+happens.
+
+- **Switches.** The AI page has an **Alert explanations** group. Its
+  **Explain alerts** switch turns the feature on, and a second switch,
+  **Add explanations to email and Pushover alerts**, sends the explanation
+  outward too. Both are off by default. An explanation is written only while
+  the assistant is available, which needs the notice accepted at its current
+  version. Each change is audited with the other settings changes
+  (`ai_settings.updated`).
+- **What it does.** An API timer, guarded by an advisory lock so two
+  processes never run it at once, looks every 10 seconds for administrator
+  notifications of tone warning or danger that have no explanation yet and
+  were raised in the last 15 minutes. For each it makes one model call with
+  no tools. Code, not the model, picks what is read: the notification's own
+  title and text, the newest health sample (fixed figures only) and up to 20
+  recent error log lines, already redacted by the log reader. The model has
+  no Portikus tools and picks no address, as in the price check. The reply is
+  cut to about 400 characters, stored on the notification as plain text, and
+  shown with the label "Explanation written by AI. It can be wrong." It is
+  never Markdown, so it cannot draw a link or an image.
+- **New means the last 15 minutes.** An alert that is older than 15 minutes
+  when the timer first sees it is never explained. This happens after an API
+  outage longer than 15 minutes, and also while the feature is off or the
+  assistant is unavailable: turning it on later does not go back to earlier
+  alerts.
+- **Limits.** One explanation for each alert title in an hour. A daily
+  maximum, set by the administrator on the AI page (0 to 100, 5 by default;
+  0 writes none), counted per UTC day from the database so a restart does not
+  reset it. About 5,000 input and 300 output tokens for each call. The
+  tokens count against the shared monthly cap, as usage purpose `triage` with
+  no person; the cap is checked before each call. An alert past a limit, or
+  any failed call, simply gets no explanation; the alert itself is never held
+  back or changed. The hourly limit is for each title, so a source whose alert
+  title keeps changing is not slowed by it, and one busy source can use up
+  the day's explanations. Spending stays bounded all the same, by the daily
+  maximum and the monthly cap.
+- **Forwarding.** With the second switch on, only email and Pushover wait:
+  the alert forwarder in the worker waits up to 60 seconds for the
+  explanation to be stored and then appends it to the message, and after 60
+  seconds sends the alert without it. Webhook, ntfy and Teams alerts go out at
+  once and never carry an explanation. Pushover keeps its 1,024-character
+  limit by cutting the explanation first, so the alert's own text is never
+  shortened for it. The worker only reads the stored text; it has no AI key
+  and makes no model call (ADR 0080).
+- **Audit.** `alert.triaged`, actor `system`, one row for each attempt
+  (section 24.11).
+
+**Alerts that name no student.** The usage guard's alert for a workspace that
+stays slowed after a restart (section 19.4, Throttle hold) no longer puts the
+student's name in its title: it reads "A student's workspace stays slowed
+after a restart", and the Health tab shows whose it is. An alert's title and
+text are sent to the provider when explanations are on, so they carry no more
+of a person than they must.
+
+**Weekly digest.** Added by Epic 70. Once a week the API sends each
+administrator one notification titled **Weekly summary** that summarizes the
+last seven days. It makes no model call and needs no key, so it works with
+the assistant off. It has no switch and writes no audit row.
+
+- **When.** A timer in the API wakes every 10 minutes and sends when it is
+  Monday 08:00 or later, in the server's local time, and none has been
+  sent since the most recent Monday 08:00. It records the send in
+  `settings.digest_sent_at`. The text is built first; then one transaction
+  stamps the week and writes every administrator's notification. A failure
+  leaves neither a notice nor a stamp, so the next tick tries again, and a
+  restart or a second process that finds the week already stamped sends
+  nothing. A site that has never sent
+  one gets its first shortly after an install or an upgrade, not on the next
+  Monday.
+- **What it says.** Plain lines under four headings, at most 2,000
+  characters: **Audit** (first), then **Health**, **Capacity** and **Usage**.
+  - Audit is a fixed list of counts, each shown only when it is not zero:
+    denied requests; destructive operations done through an API key or the
+    assistant; root shells opened; accounts linked (linking acts as the other
+    person, so it counts as impersonation); API keys made or rotated;
+    administrator or instructor roles granted; and password or second-factor
+    resets. If none happened it says nothing odd was found. It shows counts
+    only, never a name or a value.
+  - Health is the share of sampled minutes the workspace controller
+    answered, peak server CPU, API requests and server errors and the usage
+    guard's throttles, memory flags and idle stops.
+  - Capacity is the most workspaces that ran at once against how many
+    students the server's memory holds with the ticked code-help languages.
+    The estimate is in `docs/CAPACITY.md` and lives in the contracts package
+    as `capacity.ts`, so the web app and the digest share it.
+  - Usage is people who signed in, workspace starts, coding-agent sessions
+    and the built-in AI's tokens, with the dollar estimate above: "under
+    $0.01" for a tiny amount, and marked partial when some models have no
+    price.
+- **Tone.** It is an information notification, not a warning, so the alert
+  forwarder never sends it to email or Pushover. Instructors do not get it.
+
+**Guided setup on the hard pages.** Added by Epic 70. The LTI platforms
+group and the single sign-on group of the Sign-in page each have a **Help me
+set this up** button, shown to administrators only, that opens a conversation
+of kind `setup` with id `lms` or `signin`. Like the other contexts it is
+read-only (its tools are the read operations a read-scope key has) and the
+server refuses a `setup` context from anyone but an administrator, or with
+an id that does not fit. A fixed list of reads runs first, as the person: for
+`lms`, `lms.get`, `proxy_hosts.get` and the recent error logs; for `signin`,
+`signin.get`, `address.get` and the recent error logs. Neither read carries a
+secret: the sign-in view only says whether a secret is set. The system prompt
+adds one line: explain the page, check what is set against the guide, and
+never ask for a secret. Secrets are still typed into the form and never into
+the conversation, and a message that looks like one is refused (What is
+sent). The assistant changes nothing: a person makes every change in the
+form.
 
 ## 21. Infrastructure as cattle
 
@@ -4991,6 +5171,18 @@ Added by Epic 69 (ADRs 0080 and 0081, section 20.5): the AI provider an administ
 - Text from tools is data. A student can write a project name, a file name or a log line that tries to steer the model. The barriers are the cards, the rule that a conversation which can read Portikus data never has web search or web fetch, and that the price check, which does fetch pages, has no Portikus tools and picks no address. Accepted risk: a steered model may read what the person may read and send it to the provider already configured; it cannot change anything without a person approving the exact call.
 - Conversations are stored as data in PostgreSQL, filtered by owner on every query, for 30 days after last use, and never logged (section 20.5, STACK.md section 15, ADR 0081). No administrator route reads another person's conversation.
 
+Added by Epic 70 (ADR 0082, section 20.5): one model call is made with no person asking, the alert explanation. The rules:
+
+- It is off by default, behind the **Explain alerts** switch, and runs only while the assistant is available, which needs the privacy notice accepted at its current version. The notice is version 2 and says so plainly: after an upgrade an administrator who accepted version 1 must accept it again before the assistant or the explanations run.
+- What leaves the site in that call: the alert's own title and text, the newest health sample and up to 20 recent error log lines, chosen by code, with secrets redacted by the log reader. Error lines can still name workspaces, paths and people. Never sent: file contents, terminal bytes, students' chat prompts, secrets, and anything the assistant's tools could read. The call has no tools and picks no address.
+- It is a fixed pipeline in the API, not an agent. The worker and the alert forwarder get no AI key; with **Add explanations to email and Pushover alerts** on, the forwarder only appends text already stored, and waits at most 60 seconds for it. That switch is also off by default, and it widens where an explanation goes: email and Pushover leave the site, so the explanation, which was written from the alert and the lines above, goes to those recipients too.
+- The answer is stored and shown as plain text, never as Markdown, so a log line that steers the model cannot make the page draw a link or an image. It is capped near 400 characters and labelled as written by an AI.
+- It is bounded in cost and rate (one for each alert title each hour, an administrator-set daily maximum of 0 to 100 counted per UTC day, about 5,000 input and 300 output tokens a call, and the shared monthly cap), so an alert storm cannot spend the budget or send the provider an unbounded stream of log lines. Only alerts raised in the last 15 minutes are explained. The hourly limit is for each title, so one busy source with changing titles can use up the day's explanations, but never more than the daily maximum.
+- A message pasted into the assistant that looks like a secret is refused and neither stored nor sent (section 20.5, What is sent).
+- Accepted risk: a student can influence a log line that is sent, and so can try to steer the explanation. The explanation can only mislead a reader, who still has the alert and the real logs; it can change nothing, because the call has no tools.
+- A guard alert's title no longer names a student, so a person's name is not in what is sent.
+- The guided setup button and the weekly digest add no new data path. The setup conversation is an administrator's own read-only conversation under the rules above, and the digest is built by code and sends nothing outside the site.
+
 ### 24.2 Student code is untrusted
 
 All code in a student workspace must be considered untrusted, including code generated by a coding agent.
@@ -5712,6 +5904,8 @@ workspace's network address, or a name a workspace looked up.
   proxy box ticked also writes the site job rows of the proxy host change
   (`site.job_requested` and `site.job_finished`). A call the assistant runs writes the route's own rows as the person,
   with `via` `assistant`, and one `assistant.used` row.
+
+- The unasked model call (Epic 70, ADR 0082): `alert.triaged`, actor `system`, target the notifications, one row for each attempt. The row is written as started before the model is called and then updated to `ok` or `failed`, so a crash mid-call still counts against the limits, which count started rows (one for each alert title each hour, and the daily maximum for each UTC day). It holds the alert's title and tone, which the per-title limit reads, and never the alert's text, the log lines sent or the answer, which is stored on the notification and not in the audit trail. Turning **Explain alerts** or the forwarding switch on or off, and changing the daily maximum, are `ai_settings.updated` rows with the names of the fields that changed. Accepting notice version 2 is an `ai.notice_accepted` row with the version. The weekly digest makes no model call and writes no audit row.
 
 A test checks that every event this section lists writes an audit row
 (#1138).
@@ -8098,6 +8292,28 @@ Acceptance:
 - each operation, run through the assistant, gets the same answer as its HTTP route for each role;
 - the key is never in a log, an audit row, a view or an error, and no conversation is ever logged;
 - CI never calls a real model.
+
+### Epic 70 — Built-in AI extras
+
+Built on `epic/70-ai-extras`, issues #2069 and #2090. Migrations 0065 to 0067 (the output price on model prices and proposals, the alert explanation columns and settings, `settings.digest_sent_at`). See ADRs 0079 (amended) and 0082 and sections 20.4, 20.5, 24.1 and 24.11.
+
+Includes:
+
+- an output price per million tokens in the price table, the price check and the Pricing tab, and a dollar estimate on the Agents tab's built-in assistant usage and in the weekly digest;
+- MCP resources (the guides a role may read, and a health snapshot for administrators) and prompts (`diagnose_workspace` and `diagnose_health` for administrators, `who_is_stuck` for instructors);
+- a **Help me set this up** button on the LTI and sign-in pages that opens a read-only setup conversation for administrators;
+- alert explanations: an off-by-default fixed pipeline in the API that adds a short plain-text explanation to administrator alerts, bounded by an hourly and a daily limit, with a second off-by-default switch that adds it to email and Pushover alerts, and the privacy notice at version 2;
+- a weekly digest notification for administrators, built by code with no model call;
+- the assistant refusing a message that looks like a secret, and the usage guard's alert no longer naming a student;
+- an Instructor Guide section on asking a coding agent in the instructor's own workspace to draft a project's checks and starter files.
+
+Acceptance:
+
+- the unasked model call has no tools, never runs while its switch is off or the notice is not accepted at the current version, and stays inside its limits and the monthly cap;
+- the worker holds no AI key, and the forwarder only appends stored text;
+- a resource or prompt a role may not use is neither listed nor readable, and reading one changes nothing;
+- the setup conversation is refused for anyone but an administrator and asks for no secret, and a pasted secret is neither stored nor sent;
+- dollars are shown as an estimate from an exact price row, never used as a limit, and cached tokens are not charged twice.
 
 ### Estimated total
 
