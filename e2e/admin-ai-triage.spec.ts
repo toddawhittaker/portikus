@@ -157,7 +157,7 @@ test("a notice accepted at version 1 must be read and accepted again", async ({
 			providerKind: "openai-compatible",
 			baseUrl: "https://api.openai.com/v1",
 			model: "fake-model-1",
-			key: "sk-e2e-triage-LMNO",
+			key: "sk-e2e-not-a-secret-triage",
 		},
 	});
 	expect(put.ok(), await put.text()).toBe(true);
