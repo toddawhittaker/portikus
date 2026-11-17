@@ -11,7 +11,7 @@ import {
 
 /**
  * Alert explanations on the AI tab and in the notifications dialog (SPEC.md
- * sections 20.4 and 20.5, Epic 70 ruling D1 to D3): both switches start off and
+ * sections 20.4 and 20.5): both switches start off and
  * save, the daily limit takes 0 to 100, the privacy notice is at version 2 and
  * must be read again, an explanation shows as plain text under its alert, and a
  * digest-style notice keeps its line breaks.
