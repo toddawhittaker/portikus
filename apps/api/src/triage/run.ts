@@ -1,5 +1,5 @@
 import type { ApiConfig } from "@portikus/config";
-import { adminAlertGroups, type Database, recordAudit } from "@portikus/db";
+import { adminAlertGroups, type Database, recordAuditReturningId } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { collectStep } from "../ai/collect.js";
@@ -35,6 +35,7 @@ export type TriageDeps = {
 		"SECOND_FACTOR_KEY" | "OUTBOUND_PROXY_URL" | "AI_TEST_BASE_URL"
 	>;
 	readErrorLines: ReadErrorLines;
+	logger: Logger;
 	/** Opens the model client; tests swap the client, never the checks. */
 	open?: typeof openModelClient;
 };
@@ -45,7 +46,7 @@ export type TickOutcome =
 	| {
 			triaged: number;
 			failed: number;
-			stopped: "none" | "daily-limit" | OpenedFailure;
+			stopped: "none" | "daily-limit" | "triage-off" | OpenedFailure;
 	  };
 
 type OpenedFailure = Extract<OpenedModel, { unavailable: unknown }>["unavailable"];
@@ -92,12 +93,14 @@ async function attemptsSince(
 	return Number((await query.executeTakeFirstOrThrow()).n);
 }
 
+type Explained = { text: string } | { failure: { error: string; code?: string } };
+
 async function explain(
 	deps: TriageDeps,
 	opened: Exclude<OpenedModel, { unavailable: unknown }>,
 	alert: TriageAlert,
 	now: Date,
-): Promise<string | null> {
+): Promise<Explained> {
 	const { db } = deps;
 	const snapshot = await collectSnapshot(db, deps.readErrorLines, alert, now);
 	const answer = await collectStep(opened.client, {
@@ -115,8 +118,12 @@ async function explain(
 			usage: answer.usage,
 		});
 	}
-	if (answer.error || answer.calls.length > 0) return null;
-	return trimTriage(answer.text);
+	if (answer.error)
+		return { failure: { error: answer.error.message, code: answer.error.code } };
+	if (answer.calls.length > 0)
+		return { failure: { error: "the answer called a tool" } };
+	const text = trimTriage(answer.text);
+	return text === null ? { failure: { error: "the answer was empty" } } : { text };
 }
 
 async function triageOne(
@@ -126,12 +133,24 @@ async function triageOne(
 	now: Date,
 ): Promise<boolean> {
 	const { db } = deps;
-	let text: string | null = null;
+	// Counted before the call and in its own statement, so a crash or restart mid-call cannot bring a second call.
+	const auditId = await recordAuditReturningId(db, {
+		actor: "system",
+		target: "notifications",
+		action: TRIAGE_AUDIT_ACTION,
+		result: "started",
+		metadata: { title: alert.title, tone: alert.tone },
+	});
+	let explained: Explained;
 	try {
-		text = await explain(deps, opened, alert, now);
-	} catch {
-		text = null;
+		explained = await explain(deps, opened, alert, now);
+	} catch (error) {
+		explained = { failure: { error: errorMessage(error) } };
 	}
+	// Only the message and code: the prompt and the alert text never reach the log.
+	if ("failure" in explained)
+		deps.logger.warn(explained.failure, "alert explanation failed");
+	const text = "text" in explained ? explained.text : null;
 	await db.transaction().execute(async (trx) => {
 		if (text !== null) {
 			await trx
@@ -146,20 +165,17 @@ async function triageOne(
 				.execute();
 		}
 		// The failed row also holds the title for an hour, so a failure is not retried in a loop.
-		await recordAudit(trx, {
-			actor: "system",
-			target: "notifications",
-			action: TRIAGE_AUDIT_ACTION,
-			result: text === null ? "failed" : "ok",
-			metadata: { title: alert.title, tone: alert.tone },
-		});
+		await trx
+			.updateTable("audit_events")
+			.set({ result: text === null ? "failed" : "ok" })
+			.where("id", "=", auditId)
+			.execute();
 	});
 	return text !== null;
 }
 
 async function triageAlerts(
 	deps: TriageDeps,
-	dailyLimit: number,
 	now: Date,
 ): Promise<Exclude<TickOutcome, "off" | "busy">> {
 	const { db } = deps;
@@ -174,12 +190,15 @@ async function triageAlerts(
 		};
 		const hourAgo = new Date(now.getTime() - TRIAGE_TITLE_MS);
 		if ((await attemptsSince(db, hourAgo, alert.title)) > 0) continue;
-		if ((await attemptsSince(db, utcMidnight(now))) >= dailyLimit) {
-			return { ...outcome, stopped: "daily-limit" };
-		}
-		// Checked before each call, so the shared monthly cap also stops a burst.
+		// Read before each call, so the monthly cap, the switch and the daily limit stop a long tick.
 		const opened = await (deps.open ?? openModelClient)(db, deps.config);
 		if ("unavailable" in opened) return { ...outcome, stopped: opened.unavailable };
+		if (!opened.settings.triageEnabled) return { ...outcome, stopped: "triage-off" };
+		if (
+			(await attemptsSince(db, utcMidnight(now))) >= opened.settings.triageDailyLimit
+		) {
+			return { ...outcome, stopped: "daily-limit" };
+		}
 		if (await triageOne(deps, opened, alert, now)) outcome.triaged++;
 		else outcome.failed++;
 	}
@@ -204,7 +223,7 @@ export async function triageTick(
 		}>`select pg_try_advisory_lock(hashtext('alert_triage')) as got`.execute(conn);
 		if (!lock.rows[0]?.got) return "busy";
 		try {
-			return await triageAlerts({ ...deps, db: conn }, settings.triageDailyLimit, now);
+			return await triageAlerts({ ...deps, db: conn }, now);
 		} finally {
 			await sql`select pg_advisory_unlock(hashtext('alert_triage'))`.execute(conn);
 		}
@@ -212,12 +231,15 @@ export async function triageTick(
 }
 
 /** The timer for alert explanations; returns the stop function. */
-export function startTriageTimer(deps: TriageDeps, logger: Logger): () => void {
+export function startTriageTimer(
+	deps: Omit<TriageDeps, "logger">,
+	logger: Logger,
+): () => void {
 	let busy = false;
 	const timer = setInterval(() => {
 		if (busy) return;
 		busy = true;
-		triageTick(deps)
+		triageTick({ ...deps, logger })
 			.then((outcome) => {
 				if (typeof outcome === "object" && (outcome.triaged || outcome.failed))
 					logger.info(outcome, "alerts explained");

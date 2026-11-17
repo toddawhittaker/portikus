@@ -867,9 +867,14 @@ test.skipIf(skip)(
 		expect(notes.map((n) => n.user_id).sort()).toEqual([admin, other].sort());
 		expect(notes[0]).toMatchObject({
 			tone: "warning",
-			title: "Test User's workspace stays slowed after a restart",
+			title: "A student's workspace stays slowed after a restart",
 			body: expect.stringContaining("slowed 3 times in the last 24 hours"),
 		});
+		// The alert text goes to the model for an explanation, so it names no person.
+		for (const note of notes) {
+			expect(`${note.title} ${note.body}`).not.toContain("Test User");
+			expect(note.body).toContain("Health tab");
+		}
 		const recent = await tdb.db
 			.selectFrom("workspaces")
 			.select("cpu_throttle_recent")

@@ -17,6 +17,8 @@ import {
 	anyAlertChannel,
 	captureMail,
 	type MailTransportFactory,
+	PUSHOVER_MESSAGE_MAX,
+	pushoverMessage,
 	readAlertChannels,
 	readNotifyFile,
 	sendAlert,
@@ -126,6 +128,32 @@ describe("senders", () => {
 		expect(form.get("title")).toBe("A backup failed");
 		expect(form.get("message")).toContain("The Backups tab shows why.");
 		expect(form.get("priority")).toBe("1");
+	});
+
+	test("pushover gets the explanation under the text and the site last", () => {
+		expect(
+			pushoverMessage({ ...alert, explanation: "Check the disk." }, "site-a"),
+		).toBe("The Backups tab shows why.\n\nAI explanation: Check the disk.\n(site-a)");
+		expect(pushoverMessage(alert, "site-a")).toBe(
+			"The Backups tab shows why.\n(site-a)",
+		);
+	});
+
+	test("a long pushover message is cut to the limit, the explanation before the text", () => {
+		const text = "t".repeat(600);
+		const explanation = "e".repeat(600);
+		const both = pushoverMessage({ ...alert, text, explanation }, "site-a");
+		expect(both.length).toBeLessThanOrEqual(PUSHOVER_MESSAGE_MAX);
+		expect(both).toContain(text);
+		expect(both).toMatch(/AI explanation: e+…\n\(site-a\)$/);
+
+		const long = pushoverMessage(
+			{ ...alert, text: "t".repeat(2000), explanation },
+			"site-a",
+		);
+		expect(long.length).toBeLessThanOrEqual(PUSHOVER_MESSAGE_MAX);
+		expect(long).not.toContain("AI explanation");
+		expect(long).toMatch(/^t+…\n\(site-a\)$/);
 	});
 
 	test("a refused or unreachable send reports an error without the URL", async () => {
@@ -257,6 +285,19 @@ describe("email", () => {
 		});
 		expect(String(seen.mail[0]?.text)).toContain("site-a");
 		expect(seen.closed).toBe(1);
+	});
+
+	test("an explanation follows the text", async () => {
+		const { factory, seen } = fakeTransport();
+		await sendEmail(
+			channels,
+			{ ...alert, explanation: "Check the disk." },
+			"s",
+			factory,
+		);
+		expect(String(seen.mail[0]?.text)).toMatch(
+			/^The Backups tab shows why\.\n\nAI explanation: Check the disk\.\n\n\(s, /,
+		);
 	});
 
 	test("port 465 starts in TLS", async () => {

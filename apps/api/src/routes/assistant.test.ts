@@ -39,6 +39,7 @@ import {
 import { sealAiKey, unavailableMessage } from "../ai/settings.js";
 import { LIMIT_TEXT } from "../assistant/budget.js";
 import { REFUSED_TEXT } from "../assistant/cards.js";
+import { SECRET_TEXT } from "../assistant/loop.js";
 import { systemPrompt } from "../assistant/tools.js";
 import {
 	buildTestServer,
@@ -837,6 +838,32 @@ describe.skipIf(skip)("the loop", () => {
 			expect(again.frames.some((f) => f.type === "error")).toBe(false);
 			expect(client.requests).toHaveLength(2);
 			for (const one of [socket, other, again]) one.socket.close();
+		}));
+
+	test("a message that looks like a secret is refused to that tab, never stored or sent, and the next message runs", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol);
+			const client = fake([reply("Fine.")]);
+			const socket = await connect(app, carol, conv.id);
+			const pasted =
+				'is this right? {"type": "service_account", "private_key": "-----BEGIN PRIVATE KEY-----\\nMIIEv"}';
+			socket.send({ type: "send", text: pasted, attachments: [] });
+			const refused = await socket.waitFor((f) => f.type === "error");
+			expect(refused).toMatchObject({ message: SECRET_TEXT });
+			expect(client.requests).toHaveLength(0);
+			expect(await storedTypes(conv.id)).toEqual([]);
+			const row = await testDb.db
+				.selectFrom("assistant_conversations")
+				.select("title")
+				.where("id", "=", conv.id)
+				.executeTakeFirstOrThrow();
+			expect(row.title ?? "").not.toContain("private_key");
+			socket.send({ type: "send", text: "hello", attachments: [] });
+			await turnsFinished(socket, 1);
+			expect(client.requests).toHaveLength(1);
+			expect(JSON.stringify(client.requests)).not.toContain("private_key");
+			socket.socket.close();
 		}));
 
 	test("a step's reads run before its cards are drawn", () =>
