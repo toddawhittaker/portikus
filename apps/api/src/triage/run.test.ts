@@ -162,6 +162,11 @@ beforeEach(async () => {
 	];
 });
 
+// SPEC.md section 24.11 lists this action; the audit-coverage test looks for it by name.
+test("each explanation attempt is audited as alert.triaged", () => {
+	expect(TRIAGE_AUDIT_ACTION).toBe("alert.triaged");
+});
+
 describe("trimTriage", () => {
 	test("collapses whitespace and control characters", () => {
 		expect(trimTriage("  The pool\n\tis\u0007 full.  ")).toBe("The pool is full.");
