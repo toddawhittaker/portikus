@@ -19,7 +19,7 @@ const CACHE_HELP =
 const ESTIMATE_HELP =
 	"Tokens priced from the Pricing tab's table: new input, cache reads and writes, and output. A rough figure, not an invoice. Models with no price row, or no output price, show a dash.";
 
-const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[60rem]";
+const TABLE_CLASS = "pk-table pk-usage-table table-fixed min-w-[54rem]";
 
 /**
  * The built-in assistant's tokens this month against the site's cap, and
@@ -73,12 +73,12 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 									</caption>
 									<colgroup>
 										<col />
-										<col className="w-28" />
-										<col className="w-44" />
-										<col className="w-28" />
-										<col className="w-32" />
+										<col className="w-24" />
 										<col className="w-36" />
-										<col className="w-32" />
+										<col className="w-28" />
+										<col className="w-28" />
+										<col className="w-28" />
+										<col className="w-28" />
 									</colgroup>
 									<thead>
 										<tr>
