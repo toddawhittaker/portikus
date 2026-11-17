@@ -376,7 +376,7 @@ describe.skipIf(skip)("the worker's role", () => {
 			.execute();
 		const { logger, lines } = collectingLogger("debug");
 		// The earlier test's alert is also in the table; only this one has an explanation.
-		const sent: string[] = [];
+		const sent: [string, string | undefined][] = [];
 		let clock = Date.now() - 60_000;
 		await createAlertForwarder({
 			db: worker,
@@ -391,12 +391,12 @@ describe.skipIf(skip)("the worker's role", () => {
 				clock += ms;
 			},
 			send: async (alert) => {
-				if (alert.title === "Down") sent.push(alert.text);
+				if (alert.title === "Down") sent.push([alert.text, alert.explanation]);
 				return [];
 			},
 		})();
 		expect(JSON.stringify(lines)).not.toMatch(/permission denied|could not be read/i);
-		expect(sent).toEqual(["b\n\nAI explanation: The controller stopped."]);
+		expect(sent).toEqual([["b", "The controller stopped."]]);
 	});
 
 	test("an alert tick saves its raised flag as the restricted role", async () => {
