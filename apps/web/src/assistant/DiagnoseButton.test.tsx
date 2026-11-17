@@ -105,3 +105,24 @@ test("it is absent while the assistant is off, for an instructor, and on a page 
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	expect(screen.queryByTestId("diagnose-health")).toBeNull();
 });
+
+test("a setup button shows its own words and test id, and opens a setup conversation", async () => {
+	const created: unknown[] = [];
+	stubServer({ enabled: true, reason: null }, ADMIN, created);
+	renderWithQuery(
+		<AssistantProvider>
+			<DiagnoseButton
+				context={{ kind: "setup", id: "lms" }}
+				name="Help me set this up with LMS platforms"
+				label="Help me set this up"
+			/>
+			<AssistantPanel />
+		</AssistantProvider>,
+	);
+	const button = await screen.findByTestId("diagnose-setup-lms");
+	expect(button.textContent).toBe("Help me set this up");
+	fireEvent.click(button);
+	await waitFor(() =>
+		expect(created).toEqual([{ context: { kind: "setup", id: "lms" } }]),
+	);
+});
