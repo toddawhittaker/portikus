@@ -1056,8 +1056,8 @@ tasks on a real site with each of them:
   Portikus version from after 16 November 2026; earlier versions cannot use
   current OpenAI models. It passed 29 of 31, counting one retry of each
   failure. The two it missed were guide questions it answered without naming
-  the guide section it used. The larger `gpt-6.1-terra` passed both, and the
-  one other task Luna missed at first, but has not run the full set.
+  the guide section it used. The larger `gpt-6.1-terra` passed both of those,
+  but it has not run the full set.
 
 These are the smallest and cheapest models of each company, so their larger
 models should work as well, though they were not run. Other hosted models
