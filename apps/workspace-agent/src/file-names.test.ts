@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { MAX_FILE_NAME_MATCHES } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { AgentFailure } from "./errors.js";
 import {
 	type Candidate,
@@ -237,12 +237,18 @@ test.skipIf(!haveRg)("a search whose caller goes away stops", async () => {
 
 test.skipIf(!haveRg)("only a few searches run at once", async () => {
 	const controller = new AbortController();
-	const stop = (child: { kill: (signal: string) => void }) => child.kill("SIGSTOP");
+	let spawned = 0;
+	const stop = (child: { kill: (signal: string) => void }) => {
+		child.kill("SIGSTOP");
+		spawned += 1;
+	};
 	const running = Array.from({ length: MAX_RUNNING_FILE_NAME_SEARCHES }, () =>
 		find("", 20, { timeoutMs: 10_000, signal: controller.signal, onChild: stop }),
 	);
-	// Let every one of them reach its spawn.
-	await new Promise((resolve) => setTimeout(resolve, 200));
+	// Every one of them holds a slot once it has spawned.
+	await vi.waitFor(() => expect(spawned).toBe(MAX_RUNNING_FILE_NAME_SEARCHES), {
+		timeout: 4000,
+	});
 	await expect(find("README")).rejects.toMatchObject({ code: "BUSY" });
 	controller.abort();
 	await Promise.all(running);

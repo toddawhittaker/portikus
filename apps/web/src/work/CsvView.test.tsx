@@ -44,7 +44,9 @@ test("only the first 1,000 rows are drawn, and the note says how many there are"
 	expect(screen.getByTestId("csv-row-cap").textContent).toBe(
 		"Showing the first 1,000 of 1,234 rows.",
 	);
-});
+	// Drawing 1,000 rows in jsdom takes seconds on a busy machine; fewer rows
+	// could not show the cap.
+}, 30_000);
 
 test("markup in a cell is text", () => {
 	const { container } = render(
