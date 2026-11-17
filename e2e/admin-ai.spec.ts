@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Browser, expect, type Page, test } from "@playwright/test";
+import { AI_NOTICE_VERSION } from "../packages/contracts/dist/ai.js";
 import {
 	createSignedInUser,
 	expectNoViolations,
@@ -34,9 +35,6 @@ async function script(steps: unknown[]): Promise<void> {
 	if (!response.ok)
 		throw new Error(`the fake model refused the script: ${response.status}`);
 }
-
-/** The privacy notice's current version (AI_NOTICE_VERSION in the contracts). */
-const AI_NOTICE_VERSION = 2;
 
 const ROW_COLUMNS =
 	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at, triage_enabled, triage_daily_limit, triage_forward";

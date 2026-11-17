@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
+import { AI_NOTICE_VERSION } from "../packages/contracts/dist/ai.js";
 import {
 	expectNoViolations,
 	lockSharedState,
@@ -16,8 +17,6 @@ import {
  * digest-style notice keeps its line breaks.
  */
 
-/** The privacy notice's current version (AI_NOTICE_VERSION in the contracts). */
-const AI_NOTICE_VERSION = 2;
 /** Held alone: these tests change the site's one AI settings row. */
 const AI_SETTINGS_LOCK = "e2e-ai-settings";
 const COLUMNS =
