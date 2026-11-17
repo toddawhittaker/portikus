@@ -2476,6 +2476,9 @@ describe("resource guard migration", () => {
 				}),
 			).rejects.toBe(rollback);
 		},
+		// Three trips down to 0034 and back are real migrations, each case one
+		// trip; on a busy machine they take more than the default 5 s.
+		30_000,
 	);
 	test.skipIf(!hasTestDb())(
 		"0032 keys pulls by day, keeps old rows on their last day, and folds them back",

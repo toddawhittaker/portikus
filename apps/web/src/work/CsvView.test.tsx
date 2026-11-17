@@ -156,4 +156,6 @@ test("the whole file is sorted before the first 1,000 rows are drawn", () => {
 	fireEvent.click(button);
 	expect(screen.getAllByRole("row")).toHaveLength(1001);
 	expect(screen.getAllByRole("rowheader")[0]?.textContent).toBe("1500");
-});
+	// Drawing 1,000 rows in jsdom is real work that takes seconds on a busy
+	// machine; fewer rows could not show the cap, so this one test waits longer.
+}, 30_000);

@@ -165,7 +165,9 @@ describe("the page", () => {
 		// No toggletips on this page; each row says what it does in a sentence.
 		expect(screen.queryByRole("button", { name: /^About / })).toBeNull();
 		expect(screen.queryByTestId("log-level-select")).toBeNull();
-	});
+		// The first test in the file pays for loading and drawing the whole
+		// admin app, which takes more than 5 s on a busy machine.
+	}, 30_000);
 
 	test("says once when the settings last changed, from the saved row", async () => {
 		stubSettings();

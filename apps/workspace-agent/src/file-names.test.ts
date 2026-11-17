@@ -225,8 +225,11 @@ test.skipIf(!haveRg)("a search whose caller goes away stops", async () => {
 		timeoutMs: 10_000,
 		signal: controller.signal,
 		onChild: (child: { kill: (signal: string) => void }) => {
+			// Stopped, the search can only end through the abort; a stopped rg
+			// never closes on its own before the 10 s timeout. The abort waits a
+			// microtask so it lands after the search starts listening for it.
 			child.kill("SIGSTOP");
-			setTimeout(() => controller.abort(), 20);
+			queueMicrotask(() => controller.abort());
 		},
 	});
 	await expect(pending).resolves.toEqual({ paths: [], truncated: false });
