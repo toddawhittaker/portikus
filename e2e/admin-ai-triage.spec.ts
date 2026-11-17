@@ -28,6 +28,8 @@ const seeded: string[] = [];
 
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
+	// Other specs hold the lock for minutes; waiting for it is not a failure.
+	test.setTimeout(600_000);
 	release = await lockSharedState(AI_SETTINGS_LOCK);
 	[saved] = await query(`select ${COLUMNS} from ai_settings where id = 1`);
 });
