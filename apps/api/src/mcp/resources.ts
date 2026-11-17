@@ -18,9 +18,9 @@ export type Run = (
 	input: OperationInputValues,
 ) => Promise<CallToolResult>;
 
-export const HEALTH_URI = "portikus://health";
+const HEALTH_URI = "portikus://health";
 
-export function guideUri(file: string): string {
+function guideUri(file: string): string {
 	return `portikus://guides/${file}`;
 }
 

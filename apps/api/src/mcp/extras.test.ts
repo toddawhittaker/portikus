@@ -169,6 +169,32 @@ describe.skipIf(skip)("resources", () => {
 		});
 	});
 
+	test("reading a guide adds no audit row of its own", async () => {
+		const secret = await keyFor("carol");
+		const last = await testDb.db
+			.selectFrom("audit_events")
+			.select((eb) => eb.fn.max("id").as("id"))
+			.executeTakeFirst();
+		await withClient(secret, (client) =>
+			client.readResource({ uri: "portikus://guides/ADMIN-GUIDE.md" }),
+		);
+		// The gate's per-request row can land just after the answer, so let it settle.
+		await new Promise((done) => setTimeout(done, 300));
+		const added = await testDb.db
+			.selectFrom("audit_events")
+			.select(["action", "metadata"])
+			.where("id", ">", last?.id ?? 0)
+			.execute();
+		expect(added.length).toBeGreaterThan(0);
+		// Only the gate's row for each /mcp request; a guide read runs no operation, so none is named.
+		expect(added.map((row) => row.action)).toEqual(added.map(() => "api_key.used"));
+		for (const row of added) {
+			expect((row.metadata as { operation?: string }).operation).toMatch(
+				/^(GET|POST|DELETE) \/mcp$/,
+			);
+		}
+	});
+
 	test("reading health is audited as the key's own request", async () => {
 		const secret = await keyFor("carol");
 		await withClient(secret, (client) =>
