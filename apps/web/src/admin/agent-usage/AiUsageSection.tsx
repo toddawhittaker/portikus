@@ -10,6 +10,7 @@ import "./usage.css";
 const PURPOSE_NAME: Record<AiPurpose, string> = {
 	assistant: "Assistant",
 	pricing: "Price check",
+	triage: "Alert explanations",
 };
 
 const CACHE_HELP =

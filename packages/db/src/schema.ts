@@ -372,6 +372,8 @@ interface SettingsTable {
 	alert_reboot_raised: Generated<boolean>;
 	alert_signin_raised: Generated<boolean>;
 	alert_root_fs_raised: Generated<boolean>;
+	/** When the weekly administrator digest last went out; null until the first. */
+	digest_sent_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** When the worker last found the workspace controller answering. */
 	controller_checked_at: ColumnType<
 		Date | null,
@@ -582,6 +584,9 @@ export interface NotificationsTable {
 	read_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	site_alert: ColumnType<boolean, boolean | undefined, never>;
 	kept: ColumnType<boolean, boolean | undefined, never>;
+	/** A model's short explanation of an administrator alert, once written. */
+	triage: ColumnType<string | null, string | null | undefined, string | null>;
+	triaged_at: ColumnType<Date | null, string | null | undefined, string | null>;
 }
 
 /**

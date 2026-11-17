@@ -25,6 +25,9 @@ const VIEW: AiSettingsView = {
 	noticeAcceptedBy: null,
 	usedThisMonth: 0,
 	priceSources: [],
+	triageEnabled: false,
+	triageDailyLimit: 5,
+	triageForward: false,
 	hostListed: false,
 };
 

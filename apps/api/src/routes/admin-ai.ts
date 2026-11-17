@@ -77,6 +77,9 @@ export function registerAdminAiRoutes(
 			noticeAcceptedBy: settings.noticeAcceptedBy,
 			usedThisMonth: await usedThisMonth(db),
 			priceSources: settings.priceSources,
+			triageEnabled: settings.triageEnabled,
+			triageDailyLimit: settings.triageDailyLimit,
+			triageForward: settings.triageForward,
 			hostListed: settings.baseUrl !== null && listed.has(hostOf(settings.baseUrl)),
 		};
 	}

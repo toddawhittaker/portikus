@@ -110,6 +110,7 @@ export function planDiagnose(context: AssistantContext): DiagnosePlan | null {
 		};
 	}
 	if (kind === "job") return jobPlan(id);
+	if (kind === "setup") return null;
 	// An alert is one of the person's notifications; it carries no pointer, so the
 	// site's current health and errors are the evidence to set beside it.
 	if (!UuidText.safeParse(id).success) return null;

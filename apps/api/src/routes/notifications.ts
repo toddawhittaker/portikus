@@ -33,6 +33,7 @@ function toNotification(row: Selectable<NotificationsTable>): Notification {
 		body: row.body,
 		createdAt: row.created_at.toISOString(),
 		readAt: row.read_at ? row.read_at.toISOString() : null,
+		...(row.triage !== null ? { triage: row.triage } : {}),
 	};
 }
 

@@ -20,6 +20,7 @@ import {
 	latestRun,
 	listPrices,
 	pendingProposals,
+	type StoredFigures,
 	sameFigures,
 } from "./store.js";
 import { checkRows, providerOfSource, SUBMIT_ROWS_TOOL } from "./validate.js";
@@ -164,7 +165,7 @@ async function storeRows(
 	rows: PriceRowInput[],
 ): Promise<number> {
 	const current = await listPrices(db);
-	const pending: { id: string; row: PriceRowInput }[] = (
+	const pending: { id: string; row: StoredFigures }[] = (
 		await pendingProposals(db)
 	).map((p) => ({ id: p.id, row: p }));
 	let proposals = 0;

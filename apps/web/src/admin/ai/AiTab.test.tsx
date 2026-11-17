@@ -23,6 +23,9 @@ const BASE: AiSettingsView = {
 	noticeAcceptedBy: null,
 	usedThisMonth: 1_000_000,
 	priceSources: [],
+	triageEnabled: false,
+	triageDailyLimit: 5,
+	triageForward: false,
 	hostListed: false,
 };
 

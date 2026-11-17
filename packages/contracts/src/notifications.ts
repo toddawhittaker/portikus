@@ -31,6 +31,8 @@ export const Notification = z.object({
 	body: z.string(),
 	createdAt: z.string().datetime(),
 	readAt: z.string().datetime().nullable(),
+	/** A model's short explanation of an administrator alert, once written. */
+	triage: z.string().optional(),
 });
 export type Notification = z.infer<typeof Notification>;
 

@@ -28,6 +28,9 @@ export type AiSettings = {
 	noticeAcceptedBy: string | null;
 	noticeAcceptedAt: Date | null;
 	priceSources: string[];
+	triageEnabled: boolean;
+	triageDailyLimit: number;
+	triageForward: boolean;
 };
 
 /** Settings with everything a model call needs. */
@@ -99,6 +102,9 @@ export async function loadAiSettings(db: Kysely<Database>): Promise<AiSettings> 
 			"s.notice_version",
 			"s.notice_accepted_at",
 			"s.price_sources",
+			"s.triage_enabled",
+			"s.triage_daily_limit",
+			"s.triage_forward",
 			"u.display_name as accepted_by_name",
 		])
 		.where("s.id", "=", 1)
@@ -116,6 +122,9 @@ export async function loadAiSettings(db: Kysely<Database>): Promise<AiSettings> 
 		noticeAcceptedBy: row.accepted_by_name,
 		noticeAcceptedAt: row.notice_accepted_at,
 		priceSources: row.price_sources,
+		triageEnabled: row.triage_enabled,
+		triageDailyLimit: row.triage_daily_limit,
+		triageForward: row.triage_forward,
 	};
 }
 
@@ -341,6 +350,14 @@ export function planSettingsUpdate(
 		current.conversationTokenBudget,
 	);
 	set("priceSources", "price_sources", body.priceSources, current.priceSources);
+	set("triageEnabled", "triage_enabled", body.triageEnabled, current.triageEnabled);
+	set(
+		"triageDailyLimit",
+		"triage_daily_limit",
+		body.triageDailyLimit,
+		current.triageDailyLimit,
+	);
+	set("triageForward", "triage_forward", body.triageForward, current.triageForward);
 
 	let keyChange: SettingsPlan["keyChange"];
 	if (body.key !== undefined) {

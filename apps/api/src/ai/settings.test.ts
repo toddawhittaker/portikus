@@ -115,6 +115,9 @@ describe.skipIf(skip)("loadAiSettings", () => {
 			noticeAcceptedBy: null,
 			noticeAcceptedAt: null,
 			priceSources: [],
+			triageEnabled: false,
+			triageDailyLimit: 5,
+			triageForward: false,
 		});
 	});
 });
@@ -307,6 +310,9 @@ describe("planSettingsUpdate", () => {
 		noticeAcceptedBy: null,
 		noticeAcceptedAt: null,
 		priceSources: [],
+		triageEnabled: false,
+		triageDailyLimit: 5,
+		triageForward: false,
 	};
 
 	test("a new base address host or provider kind without a new key is refused", () => {

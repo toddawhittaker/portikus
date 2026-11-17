@@ -29,6 +29,9 @@ const AI: AiSettingsView = {
 	noticeAcceptedBy: "Carol Admin",
 	usedThisMonth: 0,
 	priceSources: [],
+	triageEnabled: false,
+	triageDailyLimit: 5,
+	triageForward: false,
 	hostListed: true,
 };
 
