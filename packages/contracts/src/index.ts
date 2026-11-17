@@ -23,6 +23,7 @@ export * from "./assistant.js";
 export * from "./auth.js";
 export * from "./backups.js";
 export * from "./browser.js";
+export * from "./capacity.js";
 export * from "./certificate.js";
 export * from "./chat.js";
 export * from "./check-history.js";
