@@ -20,6 +20,13 @@ function NoticeText() {
 					provider you set below. Those results can include people's real names, course
 					names, workspace and process details, and log lines.
 				</p>
+				<p className="m-0" data-testid="ai-notice-alerts">
+					When Explain alerts is on, a new warning or error alert can also be explained
+					without anyone asking. Then the alert, the latest health figures and a few
+					recent error lines, with secrets redacted, go to the provider. Nothing else is
+					sent. The explanation is kept with the alert and is also added to its email
+					and Pushover messages if you turn that on.
+				</p>
 			</section>
 			<section aria-labelledby="ai-notice-kept" className="grid gap-1">
 				<h4 id="ai-notice-kept" className="pk-group-label m-0">
