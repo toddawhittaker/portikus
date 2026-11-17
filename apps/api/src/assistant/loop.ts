@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "@fastify/websocket";
 import { type AssistantBatchInput, CloseCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Logger, looksLikeSecret } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { accountEmailEnabled } from "../account-email/send.js";
@@ -71,6 +71,8 @@ const BUSY_TEXT =
 	"The assistant is still working on the last message. Wait for it, or stop it, before sending another.";
 const ANSWER_FIRST_TEXT = "Answer the approval card first, then send your message.";
 const FAILED_TEXT = "Something went wrong, and the assistant stopped.";
+export const SECRET_TEXT =
+	"That looks like a secret. Type it into the form on the page; it was not sent.";
 const NOT_FINISHED_TEXT = JSON.stringify({
 	code: "INTERRUPTED",
 	message: "This call did not finish.",
@@ -515,6 +517,8 @@ export function createAssistantLoop(deps: LoopDeps) {
 	return {
 		/** A person's message: store it and run the model on it. */
 		send(caller: TurnCaller, text: string): Promise<void> {
+			// Refused before anything is stored or reaches the provider (SPEC.md section 24).
+			if (looksLikeSecret(text)) return refuse(caller, SECRET_TEXT);
 			return asTurn(caller, async (signal) => {
 				const id = caller.conversationId;
 				if ((await countPending(db, id)) > 0) {

@@ -89,15 +89,23 @@ export function createAlertForwarder(
 	const gate = new AlertGate();
 	let since = now();
 
-	/** The stored explanation, waiting up to TRIAGE_WAIT_MS from when the alert was raised. */
+	/**
+	 * The stored explanation, waiting up to TRIAGE_WAIT_MS from when the
+	 * alert was raised. A read that fails gives null, so the alert still goes.
+	 */
 	async function awaitTriage(row: AlertRow, at: Date): Promise<string | null> {
 		const deadline = at.getTime() + TRIAGE_WAIT_MS;
-		for (;;) {
-			const found = await triageOf(db, row, at);
-			if (found !== null) return found;
-			const left = deadline - now().getTime();
-			if (left <= 0) return null;
-			await sleep(Math.min(TRIAGE_POLL_MS, left));
+		try {
+			for (;;) {
+				const found = await triageOf(db, row, at);
+				if (found !== null) return found;
+				const left = deadline - now().getTime();
+				if (left <= 0) return null;
+				await sleep(Math.min(TRIAGE_POLL_MS, left));
+			}
+		} catch (e) {
+			logger.warn({ error: errorMessage(e) }, "alert explanation could not be read");
+			return null;
 		}
 	}
 
@@ -114,11 +122,12 @@ export function createAlertForwarder(
 		const rows = await adminAlertsSince(db, since);
 		// Rows read while no channel is set are passed over, never sent later.
 		const live = anyAlertChannel(channels) ? channels : null;
-		const explain =
-			live !== null &&
-			rows.length > 0 &&
-			explanationChannels(live) !== null &&
-			(await forwardsTriage(db, logger));
+		const explained = live === null ? null : explanationChannels(live);
+		const waitFor =
+			explained !== null && rows.length > 0 && (await forwardsTriage(db, logger))
+				? explained
+				: null;
+		const waiting: [AlertRow, Alert][] = [];
 		for (const row of rows) {
 			const at = new Date(row.at);
 			if (at > since) since = at;
@@ -127,19 +136,34 @@ export function createAlertForwarder(
 				logger.info({ title: row.title }, "alert held back by flood control");
 				continue;
 			}
-			const alert: Alert = {
-				title: row.title,
-				text: row.body,
-				tone: row.tone === "danger" ? "danger" : "warning",
-				at,
-			};
-			const triage = explain ? await awaitTriage(row, at) : null;
-			await forward(send, alert, live, logger, triage);
+			const alert = alertOf(row, at);
+			if (waitFor === null) {
+				await sendOnce(send, alert, live, logger);
+				continue;
+			}
+			// The channels that never carry an explanation are not held for one.
+			await sendOnce(send, alert, plainChannels(live), logger);
+			waiting.push([row, alert]);
+		}
+		if (waitFor === null) return;
+		for (const [row, alert] of waiting) {
+			const triage = await awaitTriage(row, alert.at);
+			const explained = triage === null ? alert : { ...alert, explanation: triage };
+			await sendOnce(send, explained, waitFor, logger);
 		}
 	};
 }
 
 type AlertRow = Awaited<ReturnType<typeof adminAlertsSince>>[number];
+
+function alertOf(row: AlertRow, at: Date): Alert {
+	return {
+		title: row.title,
+		text: row.body,
+		tone: row.tone === "danger" ? "danger" : "warning",
+		at,
+	};
+}
 
 /**
  * Whether administrators asked for explanations on email and Pushover
@@ -218,37 +242,14 @@ function adminAlertsSince(db: Kysely<Database>, since: Date) {
 	);
 }
 
-/**
- * Send one alert and log each channel's outcome; a failed send is logged,
- * never thrown. With an explanation, email and Pushover get it appended.
- */
-async function forward(
-	send: Send,
-	alert: Alert,
-	channels: AlertChannels,
-	logger: Logger,
-	triage: string | null,
-): Promise<void> {
-	const explained = triage === null ? null : explanationChannels(channels);
-	const sends: [Alert, AlertChannels][] =
-		explained === null
-			? [[alert, channels]]
-			: [
-					[{ ...alert, text: `${alert.text}\n\nAI explanation: ${triage}` }, explained],
-					[alert, plainChannels(channels)],
-				];
-	for (const [message, to] of sends) {
-		if (!anyAlertChannel(to)) continue;
-		await sendOnce(send, message, to, logger);
-	}
-}
-
+/** Send one alert and log each channel's outcome; a failed send is logged, never thrown. */
 async function sendOnce(
 	send: Send,
 	alert: Alert,
 	channels: AlertChannels,
 	logger: Logger,
 ): Promise<void> {
+	if (!anyAlertChannel(channels)) return;
 	try {
 		for (const result of await send(alert, channels)) {
 			if (result.ok) logger.info({ channel: result.channel }, "alert sent");

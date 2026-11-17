@@ -7,3 +7,4 @@ export * from "./logger.js";
 export * from "./outbound-fetch.js";
 export * from "./readable-to-web.js";
 export * from "./redact.js";
+export * from "./secret-shape.js";
