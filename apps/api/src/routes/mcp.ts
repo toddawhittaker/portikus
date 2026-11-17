@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ServerDeps } from "../deps.js";
 import { serveMcp } from "../mcp/bridge.js";
 import { toAuthInfo } from "../mcp/caller.js";
-import { mcpServerFactory } from "../mcp/server.js";
+import { mcpServerFactory } from "../mcp/factory.js";
 
 const NO_BATCH = {
 	jsonrpc: "2.0",
