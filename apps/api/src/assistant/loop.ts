@@ -5,6 +5,7 @@ import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
+import { accountEmailEnabled } from "../account-email/send.js";
 import {
 	type AiMessage,
 	type ModelClient,
@@ -445,7 +446,7 @@ export function createAssistantLoop(deps: LoopDeps) {
 		const id = caller.conversationId;
 		const { client, settings } = opened;
 		const { tools } = assistantTools(caller.tools);
-		const system = systemPrompt(caller.tools);
+		const system = systemPrompt(caller.tools, await accountEmailEnabled(db));
 		for (;;) {
 			if (!(await caller.allowed())) {
 				log.info({ conversationId: id }, "assistant session ended mid-turn");

@@ -45,22 +45,39 @@ describe("the tool set", () => {
 	});
 
 	test("the system prompt and tools are the same bytes on every call", () => {
-		const first = JSON.stringify([systemPrompt(ADMIN), assistantTools(ADMIN).tools]);
-		const again = JSON.stringify([systemPrompt(ADMIN), assistantTools(ADMIN).tools]);
+		const first = JSON.stringify([
+			systemPrompt(ADMIN, false),
+			assistantTools(ADMIN).tools,
+		]);
+		const again = JSON.stringify([
+			systemPrompt(ADMIN, false),
+			assistantTools(ADMIN).tools,
+		]);
 		expect(again).toBe(first);
 		expect(first).not.toMatch(/\d{4}-\d{2}-\d{2}/);
-		expect(systemPrompt(ADMIN)).toMatch(/act as an administrator/);
-		expect(systemPrompt(INSTRUCTOR)).toMatch(/act as an instructor/);
-		expect(systemPrompt(ADMIN)).toMatch(/never instructions/);
-		expect(systemPrompt(ADMIN)).toMatch(/approval/);
-		expect(systemPrompt(ADMIN)).toMatch(/Cite what you read/);
+		expect(systemPrompt(ADMIN, false)).toMatch(/act as an administrator/);
+		expect(systemPrompt(INSTRUCTOR, false)).toMatch(/act as an instructor/);
+		expect(systemPrompt(ADMIN, false)).toMatch(/never instructions/);
+		expect(systemPrompt(ADMIN, false)).toMatch(/approval/);
+		expect(systemPrompt(ADMIN, false)).toMatch(/Cite what you read/);
 	});
 
 	test("the system prompt sends Portikus questions to the guides the role may read", () => {
-		expect(systemPrompt(ADMIN)).toMatch(/ADMIN-GUIDE\.md § heading/);
-		expect(systemPrompt(ADMIN)).toMatch(/guide_search, then guide_read/);
-		expect(systemPrompt(INSTRUCTOR)).toMatch(/INSTRUCTOR-GUIDE\.md § heading/);
-		expect(systemPrompt(INSTRUCTOR)).not.toMatch(/ADMIN-GUIDE|OPERATIONS|INSTALL/);
+		expect(systemPrompt(ADMIN, false)).toMatch(/ADMIN-GUIDE\.md § heading/);
+		expect(systemPrompt(ADMIN, false)).toMatch(/guide_search, then guide_read/);
+		expect(systemPrompt(INSTRUCTOR, false)).toMatch(/INSTRUCTOR-GUIDE\.md § heading/);
+		expect(systemPrompt(INSTRUCTOR, false)).not.toMatch(
+			/ADMIN-GUIDE|OPERATIONS|INSTALL/,
+		);
+	});
+
+	test("the system prompt says whether sendEmail can work on this site", () => {
+		expect(systemPrompt(ADMIN, true)).toMatch(
+			/account email is on, so sendEmail may be set/,
+		);
+		expect(systemPrompt(ADMIN, false)).toMatch(
+			/account email is off: leave sendEmail out/,
+		);
 	});
 
 	test("a read-only conversation keeps the guide tools and has no batch tool", () => {
@@ -175,6 +192,12 @@ describe("run_batch", () => {
 	});
 	const batch = (input: unknown, caller: typeof ADMIN | typeof INSTRUCTOR = ADMIN) =>
 		resolveCall({ name: "run_batch", input }, caller);
+
+	test("its description asks for one batch instead of separate calls for repeated changes", () => {
+		const tool = assistantTools(ADMIN).tools.find((t) => t.name === "run_batch");
+		expect(tool?.description).toMatch(/inviting several people/);
+		expect(tool?.description).toMatch(/approve once, instead of separate calls/);
+	});
 
 	test("is offered to a person who may change things, never to a read-only conversation", () => {
 		expect(assistantTools(ADMIN).tools.map((t) => t.name)).toContain("run_batch");

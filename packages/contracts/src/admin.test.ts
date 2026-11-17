@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
 import {
+	AccountImportRequest,
 	AdminUsersQuery,
 	AdminWorkspaceDetail,
 	AdminWorkspaceSummary,
 	AuditPage,
 	AuditQuery,
+	CreateInvitationRequest,
 	EffectiveGuard,
 	GuardConfig,
 	HealthReport,
@@ -502,4 +504,14 @@ test("sortRows keeps ties in order and puts blanks last either way", () => {
 		sortRows(rows, (row) => row.v, direction).map((row) => row.n);
 	expect(names("ascending")).toEqual(["c", "a", "d", "b"]);
 	expect(names("descending")).toEqual(["a", "d", "c", "b"]);
+});
+
+describe("sendEmail descriptions", () => {
+	test("tell a model the field needs the site's account email on", () => {
+		for (const schema of [CreateInvitationRequest, AccountImportRequest]) {
+			expect(schema.shape.sendEmail.description).toMatch(
+				/only when the site's account email is on; leave it out otherwise/,
+			);
+		}
+	});
 });
