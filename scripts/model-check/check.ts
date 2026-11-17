@@ -26,6 +26,8 @@ export type Facts = {
 	audit: { operation: string; result: string }[];
 	/** The assistant's replies, used only to look for a guide citation. */
 	replyText: string;
+	/** The last assistant message, for the results and the second pass path. */
+	finalReply: string;
 	target: { disabled: boolean; role: string } | null;
 	invitations: number | null;
 };
@@ -48,6 +50,13 @@ export function callFact(
 
 /** The first expectation that does not hold, as a short reason; null when all hold. */
 export function judge(expect: Expect, facts: Facts): string | null {
+	const reason = judgeAll(expect, facts);
+	if (reason === null || !expect.orReplyNames) return reason;
+	if (facts.invitations !== 0) return reason;
+	return facts.finalReply.includes(expect.orReplyNames) ? null : reason;
+}
+
+function judgeAll(expect: Expect, facts: Facts): string | null {
 	return (
 		judgeCalls(expect, facts) ??
 		judgeCards(expect, facts) ??

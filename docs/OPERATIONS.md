@@ -2129,7 +2129,11 @@ The models are small on purpose: if they pass, larger ones will. A task
 passes on facts, never on the model's wording: which operations it called,
 which approval cards appeared, what ran (from the `assistant.used` audit
 rows), and the state of the site afterwards. The tasks are in
-`scripts/model-check/tasks.ts`.
+`scripts/model-check/tasks.ts`. Each task's final reply, cut to 2,000
+characters, is kept in the `reply` field of the results and shown in the
+`.md` file. The batch-invalid-row task also passes when the model refuses
+the bad row itself: no invitation was created and its final reply names the
+bad address.
 
 **When to run it.** Run it when the assistant's loop, tools, cards or model
 client change, or when a model the administrator guide lists is retired.

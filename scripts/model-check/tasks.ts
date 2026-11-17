@@ -55,6 +55,12 @@ export type Expect = {
 	state?: StateCheck[];
 	/** guide_read was called on this file with a heading containing this text, and the reply cites `<file> §`. */
 	guide?: { file: string; heading: string };
+	/**
+	 * A second way to pass: no task invitation exists and the final reply
+	 * contains this text. `{tag}` is filled in. Used when a model may rightly
+	 * catch the problem itself instead of calling the tool and being refused.
+	 */
+	orReplyNames?: string;
 };
 
 /** One model turn of the fake model, as e2e/fake-model-server.mjs takes it (dry run only). */
@@ -300,6 +306,7 @@ export const TASKS: Task[] = [
 			refused: ["run_batch"],
 			notRan: ["invitations.create"],
 			state: [{ invitations: 0 }],
+			orReplyNames: "modelcheck-{tag}-not-an-address",
 		},
 		fake: [
 			call("run_batch", {

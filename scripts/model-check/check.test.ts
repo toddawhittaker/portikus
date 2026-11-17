@@ -14,6 +14,7 @@ function facts(over: Partial<Facts> = {}): Facts {
 		cards: [],
 		audit: [],
 		replyText: "",
+		finalReply: "",
 		target: null,
 		invitations: null,
 		...over,
@@ -137,6 +138,44 @@ describe("judge", () => {
 		expect(
 			judge(expectGuide, facts({ calls: [other], replyText: "ADMIN-GUIDE.md §" })),
 		).toMatch(/never read/);
+	});
+});
+
+describe("batch-invalid-row", () => {
+	const task = TASKS.find((t) => t.id === "batch-invalid-row");
+	if (!task) throw new Error("batch-invalid-row is missing");
+	const expectation = {
+		...task.expect,
+		orReplyNames: "modelcheck-t1-not-an-address",
+	};
+
+	it("passes when the batch is called and refused", () => {
+		const refused = facts({
+			calls: [{ name: "run_batch", isError: true, input: {} }],
+			invitations: 0,
+		});
+		expect(judge(expectation, refused)).toBeNull();
+	});
+
+	it("passes when no batch ran and the final reply names the bad address", () => {
+		const caught = facts({
+			invitations: 0,
+			finalReply: "modelcheck-t1-not-an-address is not valid, so I invited nobody.",
+		});
+		expect(judge(expectation, caught)).toBeNull();
+	});
+
+	it("fails when an invitation was created, even if the reply names the address", () => {
+		const invited = facts({
+			invitations: 4,
+			finalReply: "modelcheck-t1-not-an-address was skipped.",
+		});
+		expect(judge(expectation, invited)).not.toBeNull();
+	});
+
+	it("fails with no batch and no mention of the bad address", () => {
+		const vague = facts({ invitations: 0, finalReply: "Done, nobody was invited." });
+		expect(judge(expectation, vague)).not.toBeNull();
 	});
 });
 

@@ -19,8 +19,8 @@
  *   MODEL_CHECK_FAKE_MODEL_URL, TEST_DATABASE_URL   the dry run's fake model and database
  *
  * Results go to scripts/model-check/results/: task ids, pass or fail, short
- * reasons made by this script, and token counts. Never a prompt's answer,
- * the model's words or a key.
+ * reasons made by this script, token counts, and each task's last reply
+ * (test data only, cut short). Never a header, a sign-in file or a key.
  */
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -46,6 +46,8 @@ import {
 import { type CardAction, TASKS, type Task } from "./tasks.ts";
 
 const PILOT_URL = "https://pilot.portikus.thewhittakers.org:8443";
+/** Longest reply kept per task in the results. */
+const REPLY_LIMIT = 2_000;
 const RESULTS_DIR = join(import.meta.dirname, "results");
 /** Answers to cards past the task's own list; enough for any sane task. */
 const MAX_CARDS = 6;
@@ -99,6 +101,8 @@ type TaskResult = {
 	result: "pass" | "fail" | "skipped";
 	reason: string;
 	tokens: number;
+	/** The model's last text answer, cut to REPLY_LIMIT; test data only. */
+	reply: string;
 };
 
 type ProviderResult = {
@@ -238,7 +242,9 @@ async function auditSince(
 	}
 }
 
-function factsFrom(events: WireEvent[]): Pick<Facts, "calls" | "cards" | "replyText"> {
+function factsFrom(
+	events: WireEvent[],
+): Pick<Facts, "calls" | "cards" | "replyText" | "finalReply"> {
 	const finished = new Map<string, boolean>();
 	for (const event of events) {
 		if (event.type === "tool.finished" && event.id)
@@ -265,11 +271,15 @@ function factsFrom(events: WireEvent[]): Pick<Facts, "calls" | "cards" | "replyT
 				rows: batch?.rows?.length ?? null,
 			};
 		});
-	const replyText = events
+	const replies = events
 		.filter((e) => e.type === "message" && e.role === "assistant")
-		.map((e) => e.markdown ?? "")
-		.join("\n");
-	return { calls, cards, replyText };
+		.map((e) => e.markdown ?? "");
+	return {
+		calls,
+		cards,
+		replyText: replies.join("\n"),
+		finalReply: replies.at(-1) ?? "",
+	};
 }
 
 function answerFor(action: CardAction, card: WireEvent): unknown {
@@ -412,12 +422,14 @@ async function runTask(task: Task, index: number, ctx: Context): Promise<TaskRes
 		result: TaskResult["result"],
 		reason: string,
 		tokens = 0,
+		reply = "",
 	): TaskResult => ({
 		id: task.id,
 		role: task.role,
 		result,
 		reason,
 		tokens,
+		reply: reply.slice(0, REPLY_LIMIT),
 	});
 	const tag = `${ctx.fixtures.run}-${ctx.provider[0]}${index}`;
 	let person: { session: Session; id: string };
@@ -459,8 +471,11 @@ async function runTask(task: Task, index: number, ctx: Context): Promise<TaskRes
 		audit: await auditSince(ctx.admin, person.id, since),
 		...(await stateFacts(ctx.admin, made, tag)),
 	};
-	const reason = judge(task.expect, facts);
-	return reason === null ? out("pass", "", tokens) : out("fail", reason, tokens);
+	const expect = fillDeep(task.expect, vars) as Task["expect"];
+	const reason = judge(expect, facts);
+	return reason === null
+		? out("pass", "", tokens, facts.finalReply)
+		: out("fail", reason, tokens, facts.finalReply);
 }
 
 /** One model's tokens over the last week, summed over everyone, for a before-and-after difference. */
@@ -632,6 +647,13 @@ function markdown(results: ProviderResult[], started: string): string {
 		}
 	}
 	lines.push("");
+	for (const r of results) {
+		for (const t of r.tasks.filter((x) => x.reply !== "")) {
+			// Two backticks keep a reply from closing its own fence.
+			const safe = t.reply.replaceAll("```", "``");
+			lines.push(`**${t.id}** (${r.provider}):`, "", "```text", safe, "```", "");
+		}
+	}
 	for (const r of results) {
 		const passed = r.tasks.filter((t) => t.result === "pass").length;
 		const cost =
