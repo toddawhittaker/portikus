@@ -109,7 +109,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 					reply,
 					403,
 					"FORBIDDEN",
-					"Only administrators can diagnose an item.",
+					"Only administrators can diagnose an item or ask for setup help.",
 				);
 			}
 			if (!planDiagnose(body.context)) {
@@ -208,6 +208,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 				return;
 			}
 			const id = conversation.id;
+			const context = AssistantContext.safeParse(conversation.context);
 			const token: string = sessionToken;
 			const userAgent = request.headers["user-agent"];
 
@@ -222,6 +223,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 					tools: {
 						role: now.role,
 						readOnly: conversation.read_only,
+						setup: context.data?.kind === "setup",
 						courseId: conversation.course_id,
 					},
 					run: {
@@ -286,7 +288,6 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps):
 				return;
 			}
 			// A Diagnose conversation reads its item first; a conversation already begun is left alone.
-			const context = AssistantContext.safeParse(conversation.context);
 			const first = context.success ? await callerNow() : null;
 			if (context.success && first) {
 				// startDiagnose and the loop catch and log their own failures.

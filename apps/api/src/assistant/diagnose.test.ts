@@ -1,5 +1,6 @@
-import type { AssistantContext } from "@portikus/contracts";
+import { type AssistantContext, SigninView } from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 import { operationByName } from "../catalog/index.js";
 import { mayRun } from "../mcp/caller.js";
 import { planDiagnose } from "./diagnose.js";
@@ -63,6 +64,25 @@ describe("what each kind of Diagnose reads", () => {
 		]);
 	});
 
+	test("setup help reads what the page shows, then recent errors", () => {
+		expect(reads({ kind: "setup", id: "lms" })).toEqual([
+			"lms.get",
+			"proxy_hosts.get",
+			"logs.list",
+		]);
+		expect(reads({ kind: "setup", id: "signin" })).toEqual([
+			"signin.get",
+			"address.get",
+			"logs.list",
+		]);
+		expect(planDiagnose({ kind: "setup", id: "lms" })?.request).toBe(
+			"Help me set up the LMS platforms",
+		);
+		expect(planDiagnose({ kind: "setup", id: "signin" })?.request).toBe(
+			"Help me set up single sign-on",
+		);
+	});
+
 	test("an item the kind cannot name has no plan", () => {
 		for (const context of [
 			{ kind: "workspace" },
@@ -73,6 +93,8 @@ describe("what each kind of Diagnose reads", () => {
 			{ kind: "job", id: "site:unknown" },
 			{ kind: "job", id: "image:not-a-uuid" },
 			{ kind: "job", id: `image:${ID}:more` },
+			{ kind: "setup" },
+			{ kind: "setup", id: "network" },
 		] satisfies AssistantContext[]) {
 			expect(planDiagnose(context), JSON.stringify(context)).toBeNull();
 		}
@@ -84,6 +106,8 @@ describe("Diagnose only reads", () => {
 		{ kind: "health" },
 		{ kind: "workspace", id: ID },
 		{ kind: "alert", id: ID },
+		{ kind: "setup", id: "lms" },
+		{ kind: "setup", id: "signin" },
 		{ kind: "job", id: `certificate:${ID}` },
 		{ kind: "job", id: `image:${ID}` },
 		...["proxy-hosts", "lti-platforms", "address", "signin", "keep", "rollback"].map(
@@ -126,5 +150,60 @@ describe("Diagnose only reads", () => {
 		expect(
 			systemPrompt({ role: "administrator", readOnly: false }, false),
 		).not.toContain("most likely cause");
+	});
+
+	test("a setup conversation's prompt explains, checks the guide and refuses secrets", () => {
+		const prompt = systemPrompt(
+			{ role: "administrator", readOnly: true, setup: true },
+			false,
+		);
+		expect(prompt).toContain("check the saved values against the guide");
+		expect(prompt).toContain("Never ask for, accept or repeat a secret");
+		expect(prompt).not.toContain("most likely cause");
+	});
+});
+
+/** The names of every property in a JSON schema, with the type of each. */
+function properties(schema: unknown, found: Map<string, unknown[]> = new Map()) {
+	if (Array.isArray(schema)) {
+		for (const item of schema) properties(item, found);
+	} else if (schema && typeof schema === "object") {
+		for (const [key, value] of Object.entries(schema)) {
+			if (key === "properties" && value && typeof value === "object") {
+				for (const [name, sub] of Object.entries(value)) {
+					const types = found.get(name) ?? [];
+					types.push((sub as { type?: unknown }).type);
+					found.set(name, types);
+				}
+			}
+			properties(value, found);
+		}
+	}
+	return found;
+}
+
+describe("setup reads carry no secret", () => {
+	// A secret's value must never reach the model; a flag that one is set may.
+	const SECRET_WORDS = /secret|password|private|apikey|serviceaccount/i;
+
+	test.each(["lms.get", "proxy_hosts.get", "signin.get", "address.get"])(
+		"%s has no field that could hold a secret value",
+		(name) => {
+			const output = operationByName(name)?.operation.output;
+			expect(output, name).toBeDefined();
+			const found = properties(z.toJSONSchema(output as z.ZodType, { io: "output" }));
+			for (const [field, types] of found) {
+				if (!SECRET_WORDS.test(field)) continue;
+				expect(field, `${name} field ${field}`).toMatch(/Set$/);
+				expect(types, `${name} field ${field}`).toEqual(["boolean"]);
+			}
+		},
+	);
+
+	test("sign-in's view says a secret is set, never what it is", () => {
+		const found = properties(z.toJSONSchema(SigninView, { io: "output" }));
+		expect(found.get("clientSecretSet")).toEqual(["boolean"]);
+		expect(found.has("clientSecret")).toBe(false);
+		expect(found.has("googleServiceAccountKey")).toBe(false);
 	});
 });
