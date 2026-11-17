@@ -172,6 +172,15 @@ test("a check proposes rows from the source pages; one is accepted and one rejec
 	await expect(
 		page.getByTestId(`price-row-${FAKE_PRICE_ROWS.openai.model}`),
 	).toContainText("$8.00");
+	// With a price row and its Quote disclosure on the page, in both themes.
+	const quote = page
+		.getByTestId(`price-row-${FAKE_PRICE_ROWS.openai.model}`)
+		.getByText("Quote");
+	expect((await quote.boundingBox())?.height).toBeGreaterThanOrEqual(24);
+	await expectNoViolations(page, "main");
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, "main");
+	await page.emulateMedia({ colorScheme: "dark" });
 	await anthropic.getByTestId("proposal-reject").click();
 	await expect(page.getByTestId("pricing-proposals")).toHaveCount(0);
 	// After the last proposal, the Prices group takes the keyboard.
@@ -260,6 +269,21 @@ test("a proposal saved before output prices needs one entered before it can be a
 	await page.emulateMedia({ colorScheme: "light" });
 	await expectNoViolations(page, "main");
 	await page.emulateMedia({ colorScheme: "dark" });
+
+	// The field is named for its model, and the source comes first in Tab order.
+	await expect(
+		proposal.getByLabel("Output price per million tokens for e2e-old-model"),
+	).toBeVisible();
+	const sourceFirst = await proposal.evaluate((el) => {
+		const link = el.querySelector("a[href]");
+		const input = el.querySelector("input");
+		return (
+			!!link &&
+			!!input &&
+			!!(link.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING)
+		);
+	});
+	expect(sourceFirst).toBe(true);
 
 	// Accepting with no price is refused on the page and by the server.
 	await proposal.getByTestId("proposal-accept").click();

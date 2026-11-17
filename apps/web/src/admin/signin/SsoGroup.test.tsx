@@ -4,6 +4,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { SsoGroup } from "./SsoGroup.js";
 
+vi.mock("../../assistant/DiagnoseButton.js", () => ({
+	DiagnoseButton: ({ label }: { label: string }) => (
+		<button type="button">{label}</button>
+	),
+}));
+
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
@@ -258,4 +264,15 @@ test("Google group checks show the write-only key and groups, and send the key o
 			(screen.getByLabelText("Service account key") as HTMLTextAreaElement).value,
 		).toBe(""),
 	);
+});
+
+test("the setup help button shows before the sign-in settings load and when they cannot", async () => {
+	stubFetch(() => new Promise(() => {}));
+	renderWithQuery(<SsoGroup />);
+	expect(screen.getByRole("button", { name: "Help me set this up" })).toBeTruthy();
+	cleanup();
+	stubFetch(() => json(404, { code: "NOT_FOUND", message: "No site job." }));
+	renderWithQuery(<SsoGroup />);
+	await screen.findByTestId("sso-off");
+	expect(screen.getByRole("button", { name: "Help me set this up" })).toBeTruthy();
 });

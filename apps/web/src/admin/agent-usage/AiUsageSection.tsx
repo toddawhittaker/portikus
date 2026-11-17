@@ -2,7 +2,7 @@ import type { AgentUsageWindow, AiPurpose } from "@portikus/contracts";
 import { Meter, Toggletip } from "@portikus/ui";
 import { ApiError } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
-import { count, estimate } from "./format.js";
+import { count, estimate, estimateText } from "./format.js";
 import { useAiUsage } from "./queries.js";
 import { LEAD_CELL_CLASS } from "./UsageTables.js";
 import "./usage.css";
@@ -135,9 +135,9 @@ export function AiUsageSection({ days }: { days: AgentUsageWindow }) {
 							<p className="pk-text-body pk-muted" data-testid="ai-usage-estimate">
 								{data.dollars === null
 									? "No estimate: none of the models used has a price row with an output price."
-									: `Estimated cost in this period: ${estimate(data.dollars)}.`}
+									: `Estimated cost in this period: ${estimateText(data.dollars)}.`}
 								{data.dollars !== null && data.dollarsPartial
-									? " Rows with a dash are not included, so the real cost is higher."
+									? " Rows with no estimate (shown as a dash) are not included, so the real cost is higher."
 									: null}
 							</p>
 						</div>

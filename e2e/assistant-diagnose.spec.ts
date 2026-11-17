@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import {
+	afterReads,
 	ask,
 	holdAiSettings,
 	openPanel,
+	panelOf,
 	script,
 	setAssistant,
+	toolBlocks,
 } from "./assistant-helpers";
 import {
 	createStudent,
@@ -44,21 +47,6 @@ test.beforeEach(async ({ page }) => {
 	await openAdmin(page);
 	await setAssistant(page, true);
 });
-
-const panelOf = (page: Page) =>
-	page.getByRole("complementary", { name: "Assistant", exact: true });
-
-/** The reads a Diagnose conversation ran, each a tool block, kept in the folded "Worked for" lines. */
-const toolBlocks = (page: Page) => panelOf(page).locator("details.pk-chat-tool");
-
-/**
- * A Diagnose's reads are stored as the model's first step after the
- * person's message, so the fake model counts them as a step it took: its
- * first scripted step is never asked for.
- */
-function afterReads(steps: Parameters<typeof script>[1]): Parameters<typeof script>[1] {
-	return [{ text: "The reads, already run." }, ...steps];
-}
 
 /** Open the folds around the reads: "Worked for" and the group of tool calls inside it. */
 async function openReads(page: Page): Promise<void> {

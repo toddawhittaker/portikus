@@ -1,6 +1,8 @@
 import {
 	CODE_HELP_LANGUAGE_IDS,
 	type CodeHelpLanguage,
+	estimate,
+	LANGUAGE_MIB,
 	type PlatformSettings,
 	type UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
@@ -11,7 +13,6 @@ import { usePlatformSettings } from "../queries.js";
 import { TableBox } from "../TableBox.js";
 import { COMING_LATER_LANGUAGES, SHIPPED_LANGUAGES } from "./codeHelpLanguages.js";
 import { useDraft } from "./draft.js";
-import { estimate, LANGUAGE_MIB } from "./estimate.js";
 import { footerState, SaveFooter } from "./SaveFooter.js";
 import { SectionCard, SectionGroup, SectionNotLoaded } from "./SectionCard.js";
 import { MoreAbout, NotSaved } from "./SettingRow.js";
