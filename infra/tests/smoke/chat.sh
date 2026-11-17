@@ -25,6 +25,24 @@ new_chat() {
           -d '{\"kind\":\"chat\",\"agent\":\"${1:-claude}\"}'"
 }
 
+# chat_socket_ready TERMINAL_ID -- waits up to 30 s for the host's socket;
+# tmux starts the host asynchronously, so it listens a moment after the create.
+chat_socket_ready() {
+  local i
+  for ((i = 0; i < 30; i++)); do
+    ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- test -S /run/portikus-terminals/chat/pk-$1.sock" && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# show_probe_failure LINES -- a probe that got no snapshot prints what it saw
+# and the workspace state, so a stopped workspace is told from a slow host.
+show_probe_failure() {
+  [ "$(head -n 1 <<<"$1")" = snapshot ] && return 0
+  printf '      probe output: %s; workspace state: %s\n' "$(tr '\n' ' ' <<<"$1")" "$(workspace_state)"
+}
+
 # chat_probe TERMINAL_ID [AGENT] -- prints the probe's lines; the shell checks them.
 chat_probe() {
   printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
@@ -41,14 +59,7 @@ else
   expect_eq "the new tab is a chat" "chat" "$(echo "$chat_response" | json_field kind)"
   check "tmux session pk-<id> runs the chat host" tmux_has_session "$chat_id"
 
-  # tmux starts the host asynchronously; it makes the directory and listens a moment later.
-  chat_socket_ready() {
-    ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- test -S /run/portikus-terminals/chat/pk-${chat_id}.sock"
-  }
-  for _ in $(seq 1 30); do
-    chat_socket_ready && break
-    sleep 1
-  done
+  check "the chat host listens on its socket within 30 s" chat_socket_ready "$chat_id"
 
   # The host's socket lives under the terminals unit's kept directory, so it
   # survives an agent restart; only the student may enter it.
@@ -57,6 +68,7 @@ else
 
   chat_lines=$(chat_probe "$chat_id") || true
   expect_eq "the chat socket sends the snapshot first" "snapshot" "$(head -n 1 <<<"$chat_lines")"
+  show_probe_failure "$chat_lines"
   expect_eq "set {mode: plan} comes back as a settings event" "settings-plan" \
     "$(grep -x settings-plan <<<"$chat_lines")"
 
@@ -84,16 +96,11 @@ else
     expect_eq "the new tab is a Codex chat" "codex" "$(echo "$codex_response" | json_field agent)"
     check "tmux session pk-<id> runs the Codex chat host" tmux_has_session "$codex_id"
 
-    codex_socket_ready() {
-      ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- test -S /run/portikus-terminals/chat/pk-${codex_id}.sock"
-    }
-    for _ in $(seq 1 30); do
-      codex_socket_ready && break
-      sleep 1
-    done
+    check "the Codex chat host listens on its socket within 30 s" chat_socket_ready "$codex_id"
 
     codex_lines=$(chat_probe "$codex_id" codex) || true
     expect_eq "the Codex chat socket sends the snapshot first" "snapshot" "$(head -n 1 <<<"$codex_lines")"
+    show_probe_failure "$codex_lines"
     expect_eq "the Codex chat sends its models" "models" "$(grep -x models <<<"$codex_lines")"
     expect_eq "the Codex chat sends its five modes" "modes-5" "$(grep -x modes-5 <<<"$codex_lines")"
     expect_eq "the Codex chat's settings name codex" "settings-codex" \
