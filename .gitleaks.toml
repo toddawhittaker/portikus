@@ -17,6 +17,8 @@ paths = [
 # squash-merged, so the commit never reaches main.
 commits = [
   '''0bb15c34fdb4139c4eb612fc2537fbd2f3fe25bf''',
+  # Epic 70 FR2's commit 78a0f294 wrote a sample key header in secret-shape.test.ts.
+  '''78a0f29415a86350ee7335c735623ddbd5a809d8''',
 ]
 regexes = [
   '''dGhlIHNhbXBsZSBub25jZQ''',
