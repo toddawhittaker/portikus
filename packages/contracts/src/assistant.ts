@@ -44,16 +44,31 @@ export const AssistantClientMessage = z.discriminatedUnion("type", [
 ]);
 export type AssistantClientMessage = z.infer<typeof AssistantClientMessage>;
 
-export const AssistantContextKind = z.enum(["health", "workspace", "job", "alert"]);
+export const AssistantContextKind = z.enum([
+	"health",
+	"workspace",
+	"job",
+	"alert",
+	"setup",
+]);
 export type AssistantContextKind = z.infer<typeof AssistantContextKind>;
 
-/** The item a Diagnose button opens the conversation about. */
+/** Which setup page a setup conversation helps with. */
+export const AssistantSetupId = z.enum(["lms", "signin"]);
+export type AssistantSetupId = z.infer<typeof AssistantSetupId>;
+
+/** The item a Diagnose button opens the conversation about; a setup context names its page. */
 export const AssistantContext = z
 	.object({
 		kind: AssistantContextKind,
 		id: z.string().min(1).max(200).optional(),
 	})
-	.strict();
+	.strict()
+	.refine(
+		(context) =>
+			context.kind !== "setup" || AssistantSetupId.safeParse(context.id).success,
+		{ message: "A setup context names lms or signin", path: ["id"] },
+	);
 export type AssistantContext = z.infer<typeof AssistantContext>;
 
 export const CreateConversationRequest = z

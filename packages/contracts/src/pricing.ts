@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AiBaseUrl } from "./ai.js";
+import { AiBaseUrl, type AiUsageCounts } from "./ai.js";
 
 /** Whose API price list a row comes from; prices are API prices only. */
 export const PriceProvider = z.enum(["anthropic", "openai"]);
@@ -24,6 +24,8 @@ const PriceFigures = z.object({
 	model: z.string().trim().min(1).max(200),
 	/** US dollars per million input tokens. */
 	inputPricePerMillion: z.number().positive().max(10_000),
+	/** US dollars per million output tokens; null on rows saved before it was asked for. */
+	outputPricePerMillion: z.number().positive().max(10_000).nullable().optional(),
 	cacheReadRatio: z.number().positive().max(1),
 	cacheWriteRatio: Ratio,
 	/** Write ratio for a one-hour cache, where the provider offers one. */
@@ -36,12 +38,18 @@ const PriceFigures = z.object({
 	sourceQuote: z.string().trim().min(1).max(2000),
 });
 
-const surchargeBoth = (row: z.infer<typeof PriceFigures>) =>
-	(row.surchargeAboveTokens === null) === (row.surchargeFactor === null);
+const surchargeBoth = (row: {
+	surchargeAboveTokens: number | null;
+	surchargeFactor: number | null;
+}) => (row.surchargeAboveTokens === null) === (row.surchargeFactor === null);
 const surchargeRule = { message: "Give both surcharge figures or neither" };
 
 /** What the price check model submits, and what a manual edit sends. */
-export const PriceRowInput = PriceFigures.strict().refine(surchargeBoth, surchargeRule);
+export const PriceRowInput = PriceFigures.extend({
+	outputPricePerMillion: z.number().positive().max(10_000),
+})
+	.strict()
+	.refine(surchargeBoth, surchargeRule);
 export type PriceRowInput = z.infer<typeof PriceRowInput>;
 
 /**
@@ -105,3 +113,52 @@ export type PriceProposalDecision = z.infer<typeof PriceProposalDecision>;
 /** The public `GET /pricing` answer; the built-in table is the fallback. */
 export const PricingTable = z.object({ prices: z.array(ModelPrice) });
 export type PricingTable = z.infer<typeof PricingTable>;
+
+/** The figures `usageDollars` reads from a price row. */
+export type PriceRowFigures = Pick<
+	ModelPrice,
+	| "model"
+	| "inputPricePerMillion"
+	| "outputPricePerMillion"
+	| "cacheReadRatio"
+	| "cacheWriteRatio"
+>;
+
+/**
+ * The row whose model name equals `model` once both are normalised for the
+ * row's provider (SPEC.md section 20.5); undefined when none does.
+ */
+export function priceRowFor<T extends { provider: PriceProvider; model: string }>(
+	model: string,
+	rows: readonly T[],
+): T | undefined {
+	return rows.find(
+		(row) =>
+			normalizePriceModel(row.provider, row.model) ===
+			normalizePriceModel(row.provider, model),
+	);
+}
+
+/**
+ * Estimated US dollars for token counts at a row's prices, or null when the
+ * row has no output price. The counted input tokens already include cache
+ * reads and writes, so those are taken out before the input price applies.
+ * Cache writes use the default-lifetime ratio; surcharges are left out.
+ */
+export function usageDollars(
+	counts: AiUsageCounts,
+	row: PriceRowFigures,
+): number | null {
+	if (row.outputPricePerMillion == null) return null;
+	const uncached = Math.max(
+		0,
+		counts.inputTokens - counts.cacheReadTokens - counts.cacheWriteTokens,
+	);
+	const input = row.inputPricePerMillion;
+	const total =
+		uncached * input +
+		counts.cacheReadTokens * input * row.cacheReadRatio +
+		counts.cacheWriteTokens * input * row.cacheWriteRatio +
+		counts.outputTokens * row.outputPricePerMillion;
+	return total / 1_000_000;
+}

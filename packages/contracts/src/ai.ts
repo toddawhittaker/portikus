@@ -14,6 +14,7 @@ export const MAX_AI_CONVERSATION_TOKEN_BUDGET = 100_000_000;
 export const MAX_AI_KEY_CHARS = 1000;
 export const MAX_AI_MODEL_CHARS = 200;
 export const MAX_AI_PRICE_SOURCES = 20;
+export const MAX_AI_TRIAGE_DAILY_LIMIT = 100;
 
 function isIpLiteral(host: string): boolean {
 	return host.startsWith("[") || /^[\d.]+$/.test(host);
@@ -51,6 +52,12 @@ export const AiSettingsView = z.object({
 	noticeAcceptedBy: z.string().nullable(),
 	usedThisMonth: z.number().int().nonnegative(),
 	priceSources: z.array(z.string()),
+	/** Whether new warning and danger administrator alerts get a model's explanation. */
+	triageEnabled: z.boolean(),
+	/** The most explanations written in one UTC day. */
+	triageDailyLimit: z.number().int().nonnegative().max(MAX_AI_TRIAGE_DAILY_LIMIT),
+	/** Whether forwarded email and Pushover alerts carry the explanation. */
+	triageForward: z.boolean(),
 	/** Whether the base address host is on the server proxy host list. */
 	hostListed: z.boolean(),
 });
@@ -78,6 +85,14 @@ export const UpdateAiSettingsRequest = z
 			.max(MAX_AI_CONVERSATION_TOKEN_BUDGET)
 			.optional(),
 		priceSources: z.array(AiBaseUrl).max(MAX_AI_PRICE_SOURCES).optional(),
+		triageEnabled: z.boolean().optional(),
+		triageDailyLimit: z
+			.number()
+			.int()
+			.nonnegative()
+			.max(MAX_AI_TRIAGE_DAILY_LIMIT)
+			.optional(),
+		triageForward: z.boolean().optional(),
 		/** Also add the base address host to the server proxy host list. */
 		addProxyHost: z.boolean().optional(),
 	})
@@ -119,7 +134,7 @@ export type ModelListResponse = z.infer<typeof ModelListResponse>;
 export const AiUsageQuery = AgentUsageQuery;
 export type AiUsageQuery = z.infer<typeof AiUsageQuery>;
 
-export const AiPurpose = z.enum(["assistant", "pricing"]);
+export const AiPurpose = z.enum(["assistant", "pricing", "triage"]);
 export type AiPurpose = z.infer<typeof AiPurpose>;
 
 const TokenCount = z.number().int().nonnegative();
@@ -158,6 +173,8 @@ export const AiUsageResponse = z.object({
 	users: z.array(AiUsagePerson),
 	daily: z.array(AiUsageDay),
 	totals: AiUsageCounts,
+	/** Estimated US dollars for the window; null when a model used has no full price row. */
+	dollars: z.number().nonnegative().nullable(),
 	/** Input plus output tokens used this calendar month (UTC) against the site's cap. */
 	month: z.object({
 		usedTokens: TokenCount,

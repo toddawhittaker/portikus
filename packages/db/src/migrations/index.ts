@@ -64,6 +64,9 @@ import { down as down0061, up as up0061 } from "./0061_ai_settings.js";
 import { down as down0062, up as up0062 } from "./0062_assistant_conversations.js";
 import { down as down0063, up as up0063 } from "./0063_ai_usage_days.js";
 import { down as down0064, up as up0064 } from "./0064_model_prices.js";
+import { down as down0065, up as up0065 } from "./0065_model_output_price.js";
+import { down as down0066, up as up0066 } from "./0066_alert_triage.js";
+import { down as down0067, up as up0067 } from "./0067_weekly_digest.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -132,4 +135,7 @@ export const migrations: Record<string, Migration> = {
 	"0062_assistant_conversations": { up: up0062, down: down0062 },
 	"0063_ai_usage_days": { up: up0063, down: down0063 },
 	"0064_model_prices": { up: up0064, down: down0064 },
+	"0065_model_output_price": { up: up0065, down: down0065 },
+	"0066_alert_triage": { up: up0066, down: down0066 },
+	"0067_weekly_digest": { up: up0067, down: down0067 },
 };

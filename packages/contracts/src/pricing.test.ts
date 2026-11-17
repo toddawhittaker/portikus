@@ -4,12 +4,15 @@ import {
 	normalizePriceRow,
 	PriceRowInput,
 	PricingTable,
+	priceRowFor,
+	usageDollars,
 } from "./pricing.js";
 
 const row = {
 	provider: "anthropic",
 	model: "opus-5-5",
 	inputPricePerMillion: 5,
+	outputPricePerMillion: 25,
 	cacheReadRatio: 0.05,
 	cacheWriteRatio: 1.25,
 	cacheWriteOneHourRatio: 2,
@@ -82,5 +85,85 @@ describe("normalizePriceModel", () => {
 			...row,
 			model: "claude-opus-5-5",
 		});
+	});
+});
+
+test("every save names an output price, and a stored row may lack one", () => {
+	const { outputPricePerMillion: _, ...noOutput } = row;
+	expect(PriceRowInput.safeParse(noOutput).success).toBe(false);
+	expect(PriceRowInput.safeParse({ ...row, outputPricePerMillion: null }).success).toBe(
+		false,
+	);
+	expect(PriceRowInput.safeParse({ ...row, outputPricePerMillion: 0 }).success).toBe(
+		false,
+	);
+	const at = "2026-11-15T00:00:00.000Z";
+	expect(
+		PricingTable.safeParse({ prices: [{ ...noOutput, checkedAt: at, updatedAt: at }] })
+			.success,
+	).toBe(true);
+	expect(
+		PricingTable.safeParse({
+			prices: [{ ...row, outputPricePerMillion: null, checkedAt: at, updatedAt: at }],
+		}).success,
+	).toBe(true);
+});
+
+describe("priceRowFor", () => {
+	const rows = [
+		{ provider: "anthropic" as const, model: "claude-opus-5-5" },
+		{ provider: "openai" as const, model: "gpt-6.1" },
+	];
+
+	test("finds the row whose normalised name equals the model's", () => {
+		expect(priceRowFor("Claude Opus 5.5", rows)).toBe(rows[0]);
+		expect(priceRowFor(" GPT-6.1 ", rows)).toBe(rows[1]);
+	});
+
+	test("a name that only contains a row's name matches nothing", () => {
+		expect(priceRowFor("claude-opus-5-5-20261101", rows)).toBeUndefined();
+		expect(priceRowFor("gpt-6.1-mini", rows)).toBeUndefined();
+		expect(priceRowFor("gpt-6", rows)).toBeUndefined();
+	});
+});
+
+describe("usageDollars", () => {
+	const none = {
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+	};
+
+	test("prices plain input and output per million", () => {
+		expect(
+			usageDollars({ ...none, inputTokens: 1_000_000, outputTokens: 1_000_000 }, row),
+		).toBeCloseTo(30);
+	});
+
+	test("cache reads and writes are taken out of input and priced by their ratios", () => {
+		// 1,000,000 input of which 600,000 read and 200,000 written: 200,000 plain.
+		const dollars = usageDollars(
+			{
+				inputTokens: 1_000_000,
+				outputTokens: 0,
+				cacheReadTokens: 600_000,
+				cacheWriteTokens: 200_000,
+			},
+			row,
+		);
+		expect(dollars).toBeCloseTo(0.2 * 5 + 0.6 * 5 * 0.05 + 0.2 * 5 * 1.25);
+	});
+
+	test("cached counts above the input total never price below zero", () => {
+		expect(
+			usageDollars({ ...none, inputTokens: 10, cacheReadTokens: 20 }, row),
+		).toBeCloseTo((20 * 5 * 0.05) / 1_000_000);
+	});
+
+	test("no output price means no estimate", () => {
+		expect(usageDollars(none, { ...row, outputPricePerMillion: null })).toBeNull();
+		const { outputPricePerMillion: _, ...noOutput } = row;
+		expect(usageDollars(none, noOutput)).toBeNull();
 	});
 });

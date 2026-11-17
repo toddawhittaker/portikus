@@ -112,6 +112,7 @@ export function registerAdminAiUsageRoutes(
 				users,
 				daily: dayRows.map((r) => ({ day: r.day, purpose: r.purpose, ...counts(r) })),
 				totals,
+				dollars: null,
 				month: {
 					usedTokens: await usedThisMonth(db, now),
 					capTokens: (await loadAiSettings(db)).monthlyTokenCap,

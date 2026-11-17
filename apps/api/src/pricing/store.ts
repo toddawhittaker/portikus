@@ -13,6 +13,7 @@ type PriceColumns = Pick<
 	| "provider"
 	| "model"
 	| "input_price_per_million"
+	| "output_price_per_million"
 	| "cache_read_ratio"
 	| "cache_write_ratio"
 	| "cache_write_one_hour_ratio"
@@ -25,11 +26,15 @@ type PriceColumns = Pick<
 
 const num = (v: string | null) => (v === null ? null : Number(v));
 
-function rowFigures(row: PriceColumns): PriceRowInput {
+/** A stored row's figures; rows saved before the output price have none. */
+export type StoredFigures = Omit<ModelPrice, "checkedAt" | "updatedAt">;
+
+function rowFigures(row: PriceColumns): StoredFigures {
 	return {
 		provider: row.provider,
 		model: row.model,
 		inputPricePerMillion: Number(row.input_price_per_million),
+		outputPricePerMillion: num(row.output_price_per_million),
 		cacheReadRatio: Number(row.cache_read_ratio),
 		cacheWriteRatio: Number(row.cache_write_ratio),
 		cacheWriteOneHourRatio: num(row.cache_write_one_hour_ratio),
@@ -46,6 +51,7 @@ export function figureColumns(row: PriceRowInput) {
 		provider: row.provider,
 		model: row.model,
 		input_price_per_million: row.inputPricePerMillion,
+		output_price_per_million: row.outputPricePerMillion,
 		cache_read_ratio: row.cacheReadRatio,
 		cache_write_ratio: row.cacheWriteRatio,
 		cache_write_one_hour_ratio: row.cacheWriteOneHourRatio,
@@ -58,9 +64,10 @@ export function figureColumns(row: PriceRowInput) {
 }
 
 /** Whether two rows charge the same; the address and quote do not count. */
-export function sameFigures(a: PriceRowInput, b: PriceRowInput): boolean {
+export function sameFigures(a: StoredFigures, b: StoredFigures): boolean {
 	return (
 		a.inputPricePerMillion === b.inputPricePerMillion &&
+		(a.outputPricePerMillion ?? null) === (b.outputPricePerMillion ?? null) &&
 		a.cacheReadRatio === b.cacheReadRatio &&
 		a.cacheWriteRatio === b.cacheWriteRatio &&
 		a.cacheWriteOneHourRatio === b.cacheWriteOneHourRatio &&

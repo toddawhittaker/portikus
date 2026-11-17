@@ -44,6 +44,7 @@ const ROW = {
 	provider: "openai",
 	model: "model-a",
 	inputPricePerMillion: 2,
+	outputPricePerMillion: 10,
 	cacheReadRatio: 0.1,
 	cacheWriteRatio: 1.25,
 	cacheWriteOneHourRatio: null,

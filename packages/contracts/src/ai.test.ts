@@ -112,11 +112,38 @@ test("an AI usage response round-trips and refuses a negative count", () => {
 		],
 		daily: [{ day: "2026-11-10", purpose: "pricing", ...counts }],
 		totals: counts,
+		dollars: null,
 		month: { usedTokens: 3, capTokens: 100 },
 	};
 	expect(AiUsageResponse.parse(body)).toEqual(body);
+	expect(AiUsageResponse.parse({ ...body, dollars: 1.5 }).dollars).toBe(1.5);
+	expect(AiUsageResponse.safeParse({ ...body, dollars: -1 }).success).toBe(false);
+	const triage = {
+		...body,
+		daily: [{ day: "2026-11-10", purpose: "triage", ...counts }],
+	};
+	expect(AiUsageResponse.safeParse(triage).success).toBe(true);
 	expect(
 		AiUsageResponse.safeParse({ ...body, totals: { ...counts, inputTokens: -1 } })
 			.success,
 	).toBe(false);
+});
+
+test("the triage switches and daily limit are optional, and the limit stays within 0 to 100", () => {
+	expect(UpdateAiSettingsRequest.safeParse({}).success).toBe(true);
+	expect(
+		UpdateAiSettingsRequest.safeParse({
+			triageEnabled: true,
+			triageForward: true,
+			triageDailyLimit: 0,
+		}).success,
+	).toBe(true);
+	expect(UpdateAiSettingsRequest.safeParse({ triageDailyLimit: 100 }).success).toBe(
+		true,
+	);
+	for (const bad of [-1, 101, 2.5]) {
+		expect(UpdateAiSettingsRequest.safeParse({ triageDailyLimit: bad }).success).toBe(
+			false,
+		);
+	}
 });

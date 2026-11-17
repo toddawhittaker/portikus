@@ -12,6 +12,7 @@ const ROW = {
 	provider: "openai",
 	model: "gpt-test",
 	inputPricePerMillion: 2,
+	outputPricePerMillion: 10,
 	cacheReadRatio: 0.1,
 	cacheWriteRatio: 1.25,
 	cacheWriteOneHourRatio: null,
