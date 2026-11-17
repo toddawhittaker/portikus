@@ -155,6 +155,8 @@ export const AiUsagePerson = AiUsageCounts.extend({
 	displayName: z.string().min(1),
 	purpose: AiPurpose,
 	model: z.string().min(1),
+	/** Estimated US dollars; null when no price row names the model or the row has no output price. */
+	dollars: z.number().nonnegative().nullable(),
 });
 export type AiUsagePerson = z.infer<typeof AiUsagePerson>;
 
@@ -173,8 +175,10 @@ export const AiUsageResponse = z.object({
 	users: z.array(AiUsagePerson),
 	daily: z.array(AiUsageDay),
 	totals: AiUsageCounts,
-	/** Estimated US dollars for the window; null when a model used has no full price row. */
+	/** Estimated US dollars over the priced rows; null when no row is priced. */
 	dollars: z.number().nonnegative().nullable(),
+	/** True when some rows could not be priced, so `dollars` undercounts. */
+	dollarsPartial: z.boolean(),
 	/** Input plus output tokens used this calendar month (UTC) against the site's cap. */
 	month: z.object({
 		usedTokens: TokenCount,

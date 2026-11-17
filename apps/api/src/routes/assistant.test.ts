@@ -1535,6 +1535,26 @@ describe.skipIf(skip)("Diagnose", () => {
 			socket.socket.close();
 		}));
 
+	test("setup help reads the page's values and the model gets the setup prompt", () =>
+		withApp(async (app) => {
+			const carol = await signIn(app, "carol");
+			const conv = await newConversation(app, carol, {
+				context: { kind: "setup", id: "signin" },
+			});
+			const client = fake([reply("Check the issuer address.")]);
+			const socket = await connect(app, carol, conv.id);
+			await turnsFinished(socket, 2);
+			const operations = (await auditOf("assistant.used")).map(
+				(r) => (r.metadata as { operation: string }).operation,
+			);
+			expect(operations.sort()).toEqual(["address.get", "logs.list", "signin.get"]);
+			expect(client.requests[0]?.system).toBe(
+				systemPrompt({ role: "administrator", readOnly: true, setup: true }, false),
+			);
+			expect(socket.frames.some((f) => f.type === "permission.requested")).toBe(false);
+			socket.socket.close();
+		}));
+
 	test("a job and an alert open too; an item that cannot be named, or a non-administrator, is refused", () =>
 		withApp(async (app) => {
 			const carol = await signIn(app, "carol");
@@ -1544,6 +1564,8 @@ describe.skipIf(skip)("Diagnose", () => {
 				{ kind: "job", id: "site:address" },
 				{ kind: "job", id: `certificate:${id}` },
 				{ kind: "alert", id },
+				{ kind: "setup", id: "lms" },
+				{ kind: "setup", id: "signin" },
 			]) {
 				const made = await newConversation(app, carol, { context });
 				expect(made).toMatchObject({ readOnly: true, context });
@@ -1552,6 +1574,8 @@ describe.skipIf(skip)("Diagnose", () => {
 				{ kind: "workspace" },
 				{ kind: "workspace", id: "x" },
 				{ kind: "job", id: "site:nope" },
+				{ kind: "setup" },
+				{ kind: "setup", id: "network" },
 			]) {
 				const res = await call(app, carol, "POST", "/assistant/conversations", {
 					context,
@@ -1562,6 +1586,10 @@ describe.skipIf(skip)("Diagnose", () => {
 				context: { kind: "health" },
 			});
 			expect(instructor.statusCode).toBe(403);
+			const setup = await call(app, ivy, "POST", "/assistant/conversations", {
+				context: { kind: "setup", id: "lms" },
+			});
+			expect(setup.statusCode).toBe(403);
 		}));
 
 	test("a read that fails still reaches the model, as an error result", () =>

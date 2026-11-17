@@ -14,26 +14,31 @@ import "./assistant.css";
 export function DiagnoseButton({
 	context,
 	name,
+	label = "Diagnose",
 	onOpen,
 }: {
 	context: AssistantTarget;
-	/** What the button's name says it diagnoses, for a screen reader; it starts with "Diagnose". */
+	/** What the button's name says it does, for a screen reader; it starts with the visible label. */
 	name: string;
+	/** The visible words; Diagnose unless the button helps with setup. */
+	label?: string;
 	/** After the panel opens, such as closing a dialog the button sat in. */
 	onOpen?: () => void;
 }) {
 	// A page without the assistant has nothing to open.
 	if (!useOptionalAssistant()) return null;
-	return <Available context={context} name={name} onOpen={onOpen} />;
+	return <Available context={context} name={name} label={label} onOpen={onOpen} />;
 }
 
 function Available({
 	context,
 	name,
+	label,
 	onOpen,
 }: {
 	context: AssistantTarget;
 	name: string;
+	label: string;
 	onOpen: (() => void) | undefined;
 }) {
 	const assistant = useAssistant();
@@ -47,14 +52,18 @@ function Available({
 			size="sm"
 			className="pk-diagnose"
 			aria-label={name}
-			data-testid={`diagnose-${context.kind}`}
+			data-testid={
+				context.kind === "setup"
+					? `diagnose-setup-${context.id}`
+					: `diagnose-${context.kind}`
+			}
 			onClick={() => {
 				assistant.open({ context });
 				onOpen?.();
 			}}
 		>
 			<Icon name="agent" size="sm" />
-			Diagnose
+			{label}
 		</Button>
 	);
 }
