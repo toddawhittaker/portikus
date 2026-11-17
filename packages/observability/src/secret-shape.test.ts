@@ -8,11 +8,11 @@ const modelKey = "sk" + "-" + "a".repeat(24);
 const anthropicKey = "sk" + "-ant-" + "a".repeat(24);
 const portikusKey = "portikus" + "_" + "A1b2".repeat(11).slice(0, 43);
 
-/** A message is refused before it is stored or sent to a provider (SPEC.md section 24). */
 // Key headers are built at run time so the repository's secret scan does not flag this file.
 const BEGIN = (kind: string) => `-----BEGIN ${kind}KEY-----`;
 const END = (kind: string) => `-----END ${kind}KEY-----`;
 
+/** A message is refused before it is stored or sent to a provider (SPEC.md section 24). */
 describe("a message that looks like a secret", () => {
 	test.each([
 		[
