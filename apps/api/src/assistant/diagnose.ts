@@ -35,7 +35,7 @@ const DIAGNOSE_RESULT_CHARS = 6000;
 
 const FAILED_TEXT = "Something went wrong, and the assistant stopped.";
 
-const UuidText = z.string().uuid();
+export const UuidText = z.string().uuid();
 
 const ERROR_LOGS: Read = {
 	operation: "logs.list",
@@ -81,6 +81,36 @@ function jobPlan(id: string): DiagnosePlan | null {
 }
 
 /**
+ * Setup help reads what the page shows, so the model can check the saved
+ * values against the guide. Neither read carries a secret: the sign-in view
+ * only says whether a secret is set.
+ */
+function setupPlan(id: string): DiagnosePlan | null {
+	if (id === "lms") {
+		return {
+			request: "Help me set up the LMS platforms",
+			reads: [
+				{ operation: "lms.get", input: {} },
+				// The LMS key-set host must be on the proxy list for launches to verify.
+				{ operation: "proxy_hosts.get", input: {} },
+				ERROR_LOGS,
+			],
+		};
+	}
+	if (id === "signin") {
+		return {
+			request: "Help me set up single sign-on",
+			reads: [
+				{ operation: "signin.get", input: {} },
+				{ operation: "address.get", input: {} },
+				ERROR_LOGS,
+			],
+		};
+	}
+	return null;
+}
+
+/**
  * The reads for a context, or null when its id is not one this kind can
  * name. The route refuses such a context before a conversation exists.
  */
@@ -110,6 +140,7 @@ export function planDiagnose(context: AssistantContext): DiagnosePlan | null {
 		};
 	}
 	if (kind === "job") return jobPlan(id);
+	if (kind === "setup") return setupPlan(id);
 	// An alert is one of the person's notifications; it carries no pointer, so the
 	// site's current health and errors are the evidence to set beside it.
 	if (!UuidText.safeParse(id).success) return null;

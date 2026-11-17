@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { AI_NOTICE_VERSION } from "../packages/contracts/dist/ai.js";
 import { lockSharedState, query, WEB_ORIGIN } from "./helpers";
 import { FAKE_MODEL_PORT } from "./ports";
 
@@ -12,9 +13,6 @@ const MODEL = `http://127.0.0.1:${FAKE_MODEL_PORT}`;
 
 /** Held alone: these specs turn the site's one AI settings row on and off. */
 const AI_SETTINGS_LOCK = "e2e-ai-settings";
-
-/** Bumped with the privacy notice text (packages/contracts ai.ts; e2e cannot import the contracts). */
-const AI_NOTICE_VERSION = 1;
 
 const ROW_COLUMNS =
 	"enabled, provider_kind, base_url, model, key_sealed, key_hint, monthly_token_cap, conversation_token_budget, notice_version, notice_accepted_by, notice_accepted_at";
@@ -75,7 +73,7 @@ export async function setAssistant(page: Page, enabled: boolean): Promise<void> 
 	expect(toggle.ok(), await toggle.text()).toBe(true);
 }
 
-function panelOf(page: Page): Locator {
+export function panelOf(page: Page): Locator {
 	return page.getByRole("complementary", { name: "Assistant", exact: true });
 }
 
@@ -93,4 +91,17 @@ export async function ask(panel: Locator, text: string): Promise<void> {
 	).toBeVisible();
 	await box.fill(text);
 	await box.press("Enter");
+}
+
+/** The reads a Diagnose or setup conversation ran, each a tool block, kept in the folded "Worked for" lines. */
+export const toolBlocks = (page: Page): Locator =>
+	panelOf(page).locator("details.pk-chat-tool");
+
+/**
+ * A Diagnose or setup conversation's reads are stored as the model's first
+ * step after the person's message, so the fake model counts them as a step
+ * it took: its first scripted step is never asked for.
+ */
+export function afterReads(steps: unknown[]): unknown[] {
+	return [{ text: "The reads, already run." }, ...steps];
 }

@@ -5,6 +5,7 @@ import {
 	baseUrlForKind,
 	keyText,
 	parseCount,
+	parseDailyLimit,
 	proxyOffer,
 	stageStates,
 	switchBlocked,
@@ -25,6 +26,9 @@ const VIEW: AiSettingsView = {
 	noticeAcceptedBy: null,
 	usedThisMonth: 0,
 	priceSources: [],
+	triageEnabled: false,
+	triageDailyLimit: 5,
+	triageForward: false,
 	hostListed: false,
 };
 
@@ -118,4 +122,11 @@ test("a count is a whole number above zero and within the limit", () => {
 	expect(parseCount("1.5", 10)).toBe(null);
 	expect(parseCount("11", 10)).toBe(null);
 	expect(parseCount("", 10)).toBe(null);
+});
+
+test("the daily limit is a whole number from 0 to 100", () => {
+	expect(parseDailyLimit("0")).toBe(0);
+	expect(parseDailyLimit(" 100 ")).toBe(100);
+	for (const bad of ["101", "-1", "2.5", "five", "", "1e1"])
+		expect(parseDailyLimit(bad)).toBe(null);
 });

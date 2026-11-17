@@ -73,6 +73,7 @@ export function registerAdminPricingRoutes(
 			const body = parseOr400(PriceProposalDecision, request.body ?? {}, reply);
 			if (!body) return reply;
 			const decided = await db.transaction().execute(async (trx) => {
+				type Outcome = "decided" | "missing" | "needs-output-price";
 				const proposal = await trx
 					.selectFrom("price_proposals")
 					.selectAll()
@@ -80,9 +81,14 @@ export function registerAdminPricingRoutes(
 					.where("status", "=", "pending")
 					.forUpdate()
 					.executeTakeFirst();
-				if (!proposal) return false;
-				const now = new Date().toISOString();
+				if (!proposal) return "missing" satisfies Outcome;
 				const accepted = body.decision === "accept";
+				// A proposal from before output prices existed has none; the admin must supply it.
+				const outputPrice =
+					proposal.output_price_per_million ?? body.outputPricePerMillion ?? null;
+				if (accepted && outputPrice === null)
+					return "needs-output-price" satisfies Outcome;
+				const now = new Date().toISOString();
 				await trx
 					.updateTable("price_proposals")
 					.set({
@@ -99,8 +105,9 @@ export function registerAdminPricingRoutes(
 						status,
 						decided_by,
 						decided_at,
-						...figures
+						...proposed
 					} = proposal;
+					const figures = { ...proposed, output_price_per_million: outputPrice };
 					await trx
 						.insertInto("model_prices")
 						.values({
@@ -130,10 +137,17 @@ export function registerAdminPricingRoutes(
 						model: proposal.model,
 					},
 				});
-				return true;
+				return "decided" satisfies Outcome;
 			});
-			if (!decided)
+			if (decided === "missing")
 				return sendError(reply, 404, "NOT_FOUND", "No pending proposal with that id.");
+			if (decided === "needs-output-price")
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"This proposal has no output price. Enter one to accept it.",
+				);
 			return reply.header("cache-control", "no-store").send({
 				prices: await listPrices(db),
 				proposals: await pendingProposals(db),

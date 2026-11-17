@@ -12,6 +12,7 @@ const ROW = {
 	provider: "openai",
 	model: "gpt-test",
 	inputPricePerMillion: 2,
+	outputPricePerMillion: 10,
 	cacheReadRatio: 0.1,
 	cacheWriteRatio: 1.25,
 	cacheWriteOneHourRatio: null,
@@ -55,6 +56,19 @@ describe("checkRows", () => {
 		expect(out.errors).toEqual([]);
 		expect(out.rows[0]?.sourceUrl).toBe(SOURCE.url);
 		expect(out.rows[0]?.sourceQuote).toBe("GPT Test: input $2.00 per million tokens");
+	});
+
+	test("refuses a row with no output price, or a zero one", () => {
+		const { outputPricePerMillion: _omit, ...without } = ROW;
+		const out = checkRows(
+			{ rows: [without, { ...ROW, outputPricePerMillion: 0 }, ROW] },
+			SOURCE,
+		);
+		expect(out.rows).toHaveLength(1);
+		expect(out.errors).toEqual([
+			"Row 1: check outputPricePerMillion.",
+			"Row 2: check outputPricePerMillion.",
+		]);
 	});
 
 	test("refuses a quote that is not on the page", () => {

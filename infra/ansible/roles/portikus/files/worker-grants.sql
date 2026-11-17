@@ -40,6 +40,9 @@ GRANT SELECT (action, result, at) ON audit_events TO "portikus-worker";
 -- Seeds the first row; after that it changes only the egress apply outcome,
 -- the controller check time and the alert flags (SPEC.md sections 24.4, 24.13).
 GRANT SELECT ON settings TO "portikus-worker";
+-- The two alert explanation switches, so the forwarder knows whether to wait
+-- for the stored text (SPEC.md section 20.4); never the key or the model.
+GRANT SELECT (triage_enabled, triage_forward) ON ai_settings TO "portikus-worker";
 GRANT INSERT (id, shutdown_grace_seconds) ON settings TO "portikus-worker";
 GRANT UPDATE (egress_applied_version, egress_applied_at, egress_apply_error,
 	controller_checked_at, alert_reboot_raised, alert_signin_raised,

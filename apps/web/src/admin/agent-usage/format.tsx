@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 const NUMBER = new Intl.NumberFormat("en-US");
 const COMPACT = new Intl.NumberFormat("en-US", {
 	notation: "compact",
@@ -17,9 +19,30 @@ export function compact(value: number): string {
 	return COMPACT.format(value);
 }
 
-/** Codex reports no cost, so a missing one reads as a dash. */
-export function cost(value: number | null): string {
-	return value === null ? "—" : MONEY.format(value);
+/** A dash for sighted readers, with the words a screen reader skips a bare dash without. */
+function dash(meaning: string): ReactNode {
+	return (
+		<>
+			<span aria-hidden="true">—</span>
+			<span className="sr-only">{meaning}</span>
+		</>
+	);
+}
+
+/** Codex reports no cost, so a missing one reads as a dash that a screen reader announces as "no cost". */
+export function cost(value: number | null): ReactNode {
+	return value === null ? dash("no cost") : MONEY.format(value);
+}
+
+/** A priced estimate as text: "under $0.01" rather than a false zero. */
+export function estimateText(value: number): string {
+	if (value > 0 && value < 0.005) return "under $0.01";
+	return MONEY.format(value);
+}
+
+/** An estimated dollar figure for a table cell: a dash announced as "no estimate" when it could not be priced. */
+export function estimate(value: number | null): ReactNode {
+	return value === null ? dash("no estimate") : estimateText(value);
 }
 
 /** "Thu, Nov 6" for a usage day (YYYY-MM-DD, UTC); `short` gives "Thu 6" for a chart axis. */

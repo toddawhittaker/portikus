@@ -7,6 +7,7 @@ import { Button, ConfirmDialog, ConfirmDialogRoot, Skeleton } from "@portikus/ui
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError, errorText, sendJson } from "../../api/request.js";
+import { DiagnoseButton } from "../../assistant/DiagnoseButton.js";
 import { AdminGroup } from "../AdminSection.js";
 import { SiteJobLine, useSiteList } from "../site-job.js";
 import { TableBox } from "../TableBox.js";
@@ -83,19 +84,26 @@ export function LmsGroup() {
 			description="Platforms that may launch Portikus. Register Portikus in the LMS with the addresses below, then add the platform here."
 			testId="admin-signin-lms"
 			actions={
-				data ? (
-					<Button
-						iconStart="plus"
-						data-testid="lms-add"
-						aria-disabled={busy ? true : undefined}
-						aria-describedby={busy ? BUSY_NOTE_ID : undefined}
-						onClick={() => {
-							if (!busy) setEditing({ index: null, platform: null });
-						}}
-					>
-						Add platform…
-					</Button>
-				) : undefined
+				<>
+					<DiagnoseButton
+						context={{ kind: "setup", id: "lms" }}
+						name="Help me set this up with LMS platforms"
+						label="Help me set this up"
+					/>
+					{data ? (
+						<Button
+							iconStart="plus"
+							data-testid="lms-add"
+							aria-disabled={busy ? true : undefined}
+							aria-describedby={busy ? BUSY_NOTE_ID : undefined}
+							onClick={() => {
+								if (!busy) setEditing({ index: null, platform: null });
+							}}
+						>
+							Add platform…
+						</Button>
+					) : undefined}
+				</>
 			}
 		>
 			{data ? (
