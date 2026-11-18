@@ -180,6 +180,23 @@ async function failCommitFor(email: string): Promise<() => Promise<void>> {
 	};
 }
 
+/** Make the commit that disables a users row with this email fail, as a lost database would. */
+async function failDisableCommitFor(email: string): Promise<() => Promise<void>> {
+	await sql`create function doom_disable() returns trigger language plpgsql as $$
+		begin raise exception 'commit refused'; end $$`.execute(testDb.db);
+	await sql
+		.raw(
+			`create constraint trigger doom_disable after update on users deferrable initially deferred
+			for each row when (lower(new.email) = lower('${email}') and new.disabled_at is not null)
+			execute function doom_disable()`,
+		)
+		.execute(testDb.db);
+	return async () => {
+		await sql`drop trigger doom_disable on users`.execute(testDb.db);
+		await sql`drop function doom_disable()`.execute(testDb.db);
+	};
+}
+
 describe.skipIf(skip)("Add user", () => {
 	test("creates the Dex password and pre-creates the account under Dex's subject", async () => {
 		const carol = await adminJar();
@@ -648,7 +665,36 @@ describe.skipIf(skip)("Remove", () => {
 		expect(await auditRows("dex_user.removed")).toEqual([]);
 	});
 
-	test("Dex being down is 503 and the account stays enabled", async () => {
+	test("a failed commit leaves the Dex password, the account and its sessions alone", async () => {
+		const carol = await adminJar();
+		const { user } = await addUser(carol, {
+			name: "Kim Person",
+			email: "kim@example.edu",
+			username: "kim",
+			role: "student",
+		});
+		await openSessions(user.id);
+		const passwords = [...stub.passwords.values()];
+		const undo = await failDisableCommitFor("kim@example.edu");
+		try {
+			const res = await post(carol, `/admin/dex-users/${user.id}/remove`);
+			expect(res.statusCode).toBe(500);
+		} finally {
+			await undo();
+		}
+		// Dex is touched only after the commit, so nothing was deleted.
+		expect([...stub.passwords.values()]).toEqual(passwords);
+		const row = await testDb.db
+			.selectFrom("users")
+			.select("disabled_at")
+			.where("id", "=", user.id)
+			.executeTakeFirstOrThrow();
+		expect(row.disabled_at).toBeNull();
+		expect(await openPreviewSessions(user.id)).toHaveLength(1);
+		expect(await auditRows("dex_user.removed")).toEqual([]);
+	});
+
+	test("Dex failing after the commit is 503, leaves the account disabled, and a second Remove finishes", async () => {
 		const carol = await adminJar();
 		const { user } = await addUser(carol, {
 			name: "Lee Person",
@@ -656,21 +702,35 @@ describe.skipIf(skip)("Remove", () => {
 			username: "lee",
 			role: "student",
 		});
+		await openSessions(user.id);
 		const passwords = [...stub.passwords.values()];
+		const realDelete = stub.dex.deletePassword;
 		// The list answers, the delete does not.
 		stub.dex.deletePassword = async () => {
 			throw Object.assign(new Error("unavailable"), { code: 14 });
 		};
 		const res = await post(carol, `/admin/dex-users/${user.id}/remove`);
 		expect(res.statusCode).toBe(503);
+		expect(res.json().code).toBe("DEX_UNAVAILABLE");
 		const row = await testDb.db
 			.selectFrom("users")
 			.select("disabled_at")
 			.where("id", "=", user.id)
 			.executeTakeFirstOrThrow();
-		expect(row.disabled_at).toBeNull();
+		// Access has ended: disabled, no sessions, no preview sessions.
+		expect(row.disabled_at).not.toBeNull();
+		expect(await openPreviewSessions(user.id)).toEqual([]);
+		expect(await auditRows("user.disabled")).toHaveLength(1);
+		// The removal is not recorded as done while the password is still there.
 		expect(await auditRows("dex_user.removed")).toEqual([]);
 		expect([...stub.passwords.values()]).toEqual(passwords);
+
+		stub.dex.deletePassword = realDelete;
+		const again = await post(carol, `/admin/dex-users/${user.id}/remove`);
+		expect(again.statusCode).toBe(200);
+		expect(stub.passwords.has("lee@example.edu")).toBe(false);
+		expect((again.json() as AdminUser).disabledAt).not.toBeNull();
+		expect(await auditRows("dex_user.removed")).toHaveLength(1);
 	});
 
 	test("refuses an account with no Dex password", async () => {

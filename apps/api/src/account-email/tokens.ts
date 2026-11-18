@@ -66,8 +66,10 @@ export async function issueAccountEmailToken(
 /**
  * Revoke the older live links a newly sent one replaces: a reset link
  * replaces older reset and invitation links, an invitation older invitations.
- * Only links created before the kept one go, so two overlapping sends cannot
- * revoke each other's links and leave none working.
+ * Only links created before the kept one go, and of links created in the
+ * same instant only the one with the lower id, so two overlapping sends
+ * cannot revoke each other's links and leave none working, and exactly one
+ * of any tied links stays.
  */
 export async function supersedeAccountEmailTokens(
 	db: Kysely<Database>,
@@ -81,12 +83,20 @@ export async function supersedeAccountEmailTokens(
 		.where("user_id", "=", input.userId)
 		.where("purpose", "in", purposes)
 		.where("id", "<>", input.keepId)
-		.where("created_at", "<", (eb) =>
-			eb
-				.selectFrom("account_email_tokens as kept")
-				.select("kept.created_at")
-				.where("kept.id", "=", input.keepId),
-		)
+		.where((eb) => {
+			const keptRow = () =>
+				eb
+					.selectFrom("account_email_tokens as kept")
+					.where("kept.id", "=", input.keepId);
+			// A tie on created_at (a Date is whole milliseconds) goes to the higher id.
+			return eb.or([
+				eb("created_at", "<", keptRow().select("kept.created_at")),
+				eb.and([
+					eb("created_at", "=", keptRow().select("kept.created_at")),
+					eb("id", "<", keptRow().select("kept.id")),
+				]),
+			]);
+		})
 		.where("used_at", "is", null)
 		.where("revoked_at", "is", null)
 		.execute();

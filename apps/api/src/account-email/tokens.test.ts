@@ -138,6 +138,32 @@ describe.skipIf(skip)("account email tokens", () => {
 		).not.toBeNull();
 	});
 
+	test.each([
+		["the higher id supersedes first", true],
+		["the lower id supersedes first", false],
+	])(
+		"of two links made in the same instant exactly one works when %s",
+		async (_name, highFirst) => {
+			const a = await issue("reset");
+			const b = await issue("reset");
+			const [low, high] = a.id < b.id ? [a, b] : [b, a];
+			const order = highFirst ? [high, low] : [low, high];
+			for (const kept of order) {
+				await supersedeAccountEmailTokens(t.db, {
+					userId,
+					purpose: "reset",
+					keepId: kept.id,
+					now,
+				});
+			}
+			// The highest id is the one that stays, whichever supersede ran first.
+			expect(await consumeAccountEmailToken(t.db, low.token, "reset", now)).toBeNull();
+			expect(
+				await consumeAccountEmailToken(t.db, high.token, "reset", now),
+			).not.toBeNull();
+		},
+	);
+
 	test("superseding an invitation leaves reset links alone", async () => {
 		const reset = await issue("reset");
 		const first = await issue("invite", later(1));
