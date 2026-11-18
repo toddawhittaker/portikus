@@ -28,3 +28,11 @@ export const TestAlertRequest = z
 	.object({ channel: AlertChannelKind.optional() })
 	.strict();
 export type TestAlertRequest = z.infer<typeof TestAlertRequest>;
+
+/** `POST /admin/alerts/test-site-alert` takes no fields (SPEC.md section 20.5). */
+export const TestSiteAlertRequest = z.object({}).strict();
+export type TestSiteAlertRequest = z.infer<typeof TestSiteAlertRequest>;
+
+/** The title of the test alert written to every administrator's notifications. */
+export const TestSiteAlertResponse = z.object({ title: z.string() });
+export type TestSiteAlertResponse = z.infer<typeof TestSiteAlertResponse>;

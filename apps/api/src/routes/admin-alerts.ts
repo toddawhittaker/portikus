@@ -11,6 +11,8 @@ import {
 	notificationSettingsView,
 	TestAlertRequest,
 	type TestAlertResponse,
+	TestSiteAlertRequest,
+	type TestSiteAlertResponse,
 } from "@portikus/contracts";
 import { notifyAdministrators, recordAudit } from "@portikus/db";
 import {
@@ -229,6 +231,37 @@ export function registerAdminAlertRoutes(
 				metadata: { results: results.map((r) => ({ channel: r.channel, ok: r.ok })) },
 			});
 			const out: TestAlertResponse = { results };
+			return reply.header("cache-control", "no-store").send(out);
+		},
+	);
+	/**
+	 * Write one test alert as a real site alert (SPEC.md section 20.5), so
+	 * the worker forwards it to the channels and triage explains it when
+	 * Explain alerts is on. It shares the channel test's limit.
+	 */
+	app.post(
+		"/admin/alerts/test-site-alert",
+		{ preHandler: [requireRole("administrator"), testLimit] },
+		async (request, reply) => {
+			const admin = requireUser(request);
+			const body = parseOr400(TestSiteAlertRequest, request.body ?? {}, reply);
+			if (!body) return reply;
+			// To the second, so neither the forwarder's flood control nor triage's
+			// per-title limit hides a second test; both key on the title.
+			const title = `Test site alert sent at ${new Date().toISOString().slice(11, 19)} UTC`;
+			await notifyAdministrators(db, {
+				tone: "warning",
+				title,
+				body: "An administrator sent this from the AI settings page to try alert explanations. Nothing is wrong.",
+			});
+			await recordAudit(db, {
+				actor: `user:${admin.id}`,
+				target: "site_alert",
+				action: "settings.alert_tested",
+				result: "ok",
+				metadata: { kind: "site_alert", title },
+			});
+			const out: TestSiteAlertResponse = { title };
 			return reply.header("cache-control", "no-store").send(out);
 		},
 	);

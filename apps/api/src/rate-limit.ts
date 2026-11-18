@@ -180,7 +180,7 @@ export function fileWriteLimit(config: ApiConfig): UserLimit {
 /** Test alerts reach outside services; a handful a minute is plenty for checking a channel. */
 export const TEST_ALERTS_PER_MINUTE = 5;
 
-/** The per-user limit on `POST /admin/alerts/test`. */
+/** The per-user limit shared by `POST /admin/alerts/test` and `POST /admin/alerts/test-site-alert`. */
 export function testAlertLimit(): UserLimit {
 	return createUserLimit(
 		"test-alert",
