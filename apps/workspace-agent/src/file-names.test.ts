@@ -208,14 +208,18 @@ test.skipIf(!haveRg)("a cap on files scanned stops the scan and says so", async 
 });
 
 /**
- * Runs `body` with a stand-in `rg` first on PATH that never finishes, so a
- * search ends only when the code under test kills it. Sending SIGSTOP to a
- * real rg right after spawn did not hold it on a busy machine.
+ * Runs `body` with a stand-in `rg` first on PATH. By default it never
+ * finishes, so a search ends only when the code under test kills it.
+ * Sending SIGSTOP to a real rg right after spawn did not hold it on a busy
+ * machine. Pass a shell command to stand in for a different rg.
  */
-async function withEndlessRg(body: () => Promise<void>): Promise<void> {
+async function withEndlessRg(
+	body: () => Promise<void>,
+	command = "exec sleep 60",
+): Promise<void> {
 	const bin = join(homeDir, "endless-bin");
 	await mkdir(bin, { recursive: true });
-	await writeFile(join(bin, "rg"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+	await writeFile(join(bin, "rg"), `#!/bin/sh\n${command}\n`, { mode: 0o755 });
 	const path = process.env.PATH;
 	process.env.PATH = `${bin}:${path}`;
 	try {
@@ -225,18 +229,15 @@ async function withEndlessRg(body: () => Promise<void>): Promise<void> {
 	}
 }
 
-test.skipIf(!haveRg)(
-	"a search that runs out of time answers with what it has",
-	async () => {
-		await withEndlessRg(async () => {
-			// The stand-in never answers, so only the time limit can end this.
-			const result = await find("", 20, { timeoutMs: 100 });
-			expect(result).toEqual({ paths: [], truncated: true });
-		});
-	},
-);
+test("a search that runs out of time answers with what it has", async () => {
+	await withEndlessRg(async () => {
+		// The stand-in never answers, so only the time limit can end this.
+		const result = await find("", 20, { timeoutMs: 100 });
+		expect(result).toEqual({ paths: [], truncated: true });
+	});
+});
 
-test.skipIf(!haveRg)("a search whose caller goes away stops", async () => {
+test("a search whose caller goes away stops", async () => {
 	await withEndlessRg(async () => {
 		const controller = new AbortController();
 		const pending = find("", 20, {
@@ -251,7 +252,7 @@ test.skipIf(!haveRg)("a search whose caller goes away stops", async () => {
 	});
 });
 
-test.skipIf(!haveRg)("only a few searches run at once", async () => {
+test("only a few searches run at once", async () => {
 	const controller = new AbortController();
 	let spawned = 0;
 	let running: Promise<unknown>[] = [];
@@ -273,8 +274,11 @@ test.skipIf(!haveRg)("only a few searches run at once", async () => {
 	await expect(find("README")).rejects.toMatchObject({ code: "BUSY" });
 	controller.abort();
 	await Promise.all(running);
-	// The slots come back.
-	expect((await find("README")).paths).toEqual(["README.md"]);
+	// The slots come back: a search no longer answers BUSY. A stand-in that
+	// ends at once keeps this step independent of a real rg.
+	await withEndlessRg(async () => {
+		await expect(find("README")).resolves.toEqual({ paths: [], truncated: false });
+	}, "exit 0");
 });
 
 test.skipIf(!haveRg)("an unknown project is not found", async () => {
