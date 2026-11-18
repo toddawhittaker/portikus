@@ -2091,33 +2091,72 @@ class SlowStartController extends FakeControllerClient {
 	}
 }
 
+/** Starts that finish only when the test lets them, so no clock decides the result. */
+class GatedStartController extends FakeControllerClient {
+	inFlight = 0;
+	maxInFlight = 0;
+	private waiting: (() => void)[] = [];
+	private onStart: (() => void) | null = null;
+	override async start(
+		name: string,
+		req: Parameters<FakeControllerClient["start"]>[1],
+	): Promise<{ ipv4: string }> {
+		this.calls.push({ method: "start", args: [name, req] });
+		this.inFlight++;
+		this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
+		this.onStart?.();
+		await new Promise<void>((resolve) => this.waiting.push(resolve));
+		this.inFlight--;
+		return { ipv4: "10.0.0.2" };
+	}
+	/** Resolves once `count` starts have begun. */
+	async untilStarted(count: number): Promise<void> {
+		while (this.starts() < count) {
+			await new Promise<void>((resolve) => {
+				this.onStart = resolve;
+			});
+		}
+		this.onStart = null;
+	}
+	/** Lets every start now in flight finish. */
+	finishAll(): void {
+		for (const resolve of this.waiting.splice(0)) resolve();
+	}
+	starts(): number {
+		return this.calls.filter((c) => c.method === "start").length;
+	}
+}
+
 test.skipIf(skip)(
 	"12 queued starts run six at a time and finish in about two start times",
 	async () => {
-		const startMs = 400;
-		const slow = new SlowStartController(startMs);
+		const gated = new GatedStartController();
 		const ids: string[] = [];
 		for (let i = 0; i < 12; i++) {
 			ids.push(await insertWorkspace({ state: "stopped", desired_state: "running" }));
 		}
 		const now = new Date();
 
-		const began = Date.now();
-		const result = await sweep(tdb.db, slow, cfg, now, { lastRefreshAt: now });
-		const took = Date.now() - began;
+		const sweeping = sweep(tdb.db, gated, cfg, now, { lastRefreshAt: now });
+
+		// The first wave: six start together and no seventh begins while they run.
+		await gated.untilStarted(6);
+		expect(gated.inFlight).toBe(6);
+		// When the first wave finishes, the other six start together: two start times in all.
+		gated.finishAll();
+		await gated.untilStarted(12);
+		expect(gated.inFlight).toBe(6);
+		gated.finishAll();
+		const result = await sweeping;
 
 		// The sweep counts each move into starting; the move to running happens in the background.
 		expect(result.transitions).toBe(12);
-
-		expect(slow.maxInFlight).toBe(6);
-		expect(took).toBeGreaterThanOrEqual(2 * startMs);
-		// Half of the 12-in-series time; database work on a slow runner adds a few hundred ms.
-		expect(took).toBeLessThan(6 * startMs);
+		expect(gated.maxInFlight).toBe(6);
 		for (const id of ids) {
 			expect((await getWorkspace(id)).state).toBe("running");
 		}
 		// No workspace was started twice.
-		const names = slow.calls.filter((c) => c.method === "start").map((c) => c.args[0]);
+		const names = gated.calls.filter((c) => c.method === "start").map((c) => c.args[0]);
 		expect(new Set(names).size).toBe(12);
 		expect(names).toHaveLength(12);
 	},

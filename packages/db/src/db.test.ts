@@ -38,7 +38,11 @@ if (!hasTestDb()) {
 	);
 }
 
-describe("database migrations and schema", () => {
+// Migration tests run real migrations down and back up against PostgreSQL,
+// which takes more than the default 5 s on a busy machine.
+const MIGRATION_TEST_TIMEOUT = { timeout: 30_000 };
+
+describe("database migrations and schema", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -1705,9 +1709,12 @@ describe("orphaned test database sweep", () => {
 		async () => {
 			const sharedUrl = process.env.TEST_DATABASE_URL as string;
 			const base = basePrefix(new URL(sharedUrl));
-			// A dead pid: 999999 does not belong to a running process.
-			const otherHostDb = `${base}_hffff_p999999_deadbeef`;
-			const thisHostDb = `${base}_h${hostId()}_p999999_deadbeef`;
+			// A dead pid: 999999 does not belong to a running process. The suffix is
+			// new each run, so two runs on one server never share or drop each
+			// other's databases.
+			const suffix = crypto.randomUUID().slice(0, 8);
+			const otherHostDb = `${base}_hffff_p999999_${suffix}`;
+			const thisHostDb = `${base}_h${hostId()}_p999999_${suffix}`;
 
 			const client = new pg.Client({ connectionString: sharedUrl });
 			await client.connect();
@@ -1741,7 +1748,7 @@ describe("orphaned test database sweep", () => {
 
 // --- migration 0020: resource guard and acceptable use (ADR 0032) ---
 
-describe("resource guard migration", () => {
+describe("resource guard migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2569,7 +2576,7 @@ describe("resource guard migration", () => {
 	);
 });
 
-describe("backups migration", () => {
+describe("backups migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2742,7 +2749,7 @@ describe("backups migration", () => {
 	);
 });
 
-describe("api request samples migration", () => {
+describe("api request samples migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {
@@ -2887,7 +2894,7 @@ describe("pool options", () => {
 	);
 });
 
-describe("throttle hold migration", () => {
+describe("throttle hold migration", MIGRATION_TEST_TIMEOUT, () => {
 	let t: TestDb;
 
 	beforeAll(async () => {

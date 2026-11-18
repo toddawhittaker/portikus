@@ -2,6 +2,7 @@ import { createMcpHandler } from "@modelcontextprotocol/server";
 import { bearerApiKey } from "@portikus/auth";
 import type { ApiError } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { markOperationRan } from "../api-keys/gate.js";
 import type { ServerDeps } from "../deps.js";
 import { serveMcp } from "../mcp/bridge.js";
 import { toAuthInfo } from "../mcp/caller.js";
@@ -63,6 +64,7 @@ export function registerMcpRoutes(
 				scope: key.scope,
 				role: user.role,
 				ip: request.ip,
+				markOperation: () => markOperationRan(request),
 				...(userAgent === undefined ? {} : { userAgent }),
 			}),
 		});

@@ -1,5 +1,5 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { createApiKey } from "@portikus/auth";
+import { createApiKey, revokeApiKeys } from "@portikus/auth";
 import {
 	CookieJar,
 	loginAs,
@@ -590,4 +590,154 @@ describe.skipIf(skip)("a JSON-RPC batch", () => {
 		expect(result.isError).toBe(false);
 		expect(innerSince(before)).toEqual(["/admin/users"]);
 	});
+});
+
+describe.skipIf(skip)("one audit row for each MCP request", () => {
+	const HEADERS = {
+		"content-type": "application/json",
+		accept: "application/json, text/event-stream",
+	};
+
+	/** One bare JSON-RPC request, so the handshake's own requests add no rows to count. */
+	async function rpc(secret: string, method: string, params: object = {}) {
+		return app.inject({
+			method: "POST",
+			url: "/mcp",
+			headers: { authorization: `Bearer ${secret}`, ...HEADERS },
+			payload: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+		});
+	}
+
+	/**
+	 * Every `api_key.used` row, oldest first, once `count` have landed and no
+	 * more arrive in the moment after. The gate writes when the response is
+	 * done, so a second row could trail the first.
+	 */
+	async function usedAfter(count: number) {
+		const read = () =>
+			testDb.db
+				.selectFrom("audit_events")
+				.select(["result", "metadata"])
+				.where("action", "=", "api_key.used")
+				.orderBy("id")
+				.execute();
+		await vi.waitFor(
+			async () => {
+				const rows = await read();
+				if (rows.length < count) throw new Error(`${rows.length} of ${count} rows`);
+			},
+			{ timeout: 5000, interval: 25 },
+		);
+		await new Promise((done) => setTimeout(done, 200));
+		return (await read()).map((row) => ({
+			result: row.result,
+			...(row.metadata as { operation: string; code?: string }),
+		}));
+	}
+
+	test("a named tool call writes one row, naming the operation and not POST /mcp", async () => {
+		const admin = await signIn("carol");
+		const key = await keyFor(admin.id, "read");
+		const res = await rpc(key.secret, "tools/call", {
+			name: "users_list",
+			arguments: {},
+		});
+		expect(res.statusCode).toBe(200);
+		const rows = await usedAfter(1);
+		expect(rows).toEqual([
+			expect.objectContaining({ operation: "users.list", result: "ok", status: 200 }),
+		]);
+	});
+
+	test("run_operation writes one row, and a route's own refusal is that one row", async () => {
+		const ivy = await signIn("ivy");
+		const key = await keyFor(ivy.id, "destructive");
+		await rpc(key.secret, "tools/call", {
+			name: "run_operation",
+			arguments: { operation: "users.list" },
+		});
+		expect(await usedAfter(1)).toEqual([
+			expect.objectContaining({
+				operation: "users.list",
+				result: "denied",
+				status: 403,
+			}),
+		]);
+	});
+
+	test("a call the runner refuses before any route writes one denied row", async () => {
+		const admin = await signIn("carol");
+		const key = await keyFor(admin.id, "destructive");
+		await rpc(key.secret, "tools/call", {
+			name: "run_operation",
+			arguments: { operation: "no_such.operation" },
+		});
+		expect(await usedAfter(1)).toEqual([
+			{
+				result: "denied",
+				operation: "no_such.operation",
+				code: "NOT_AVAILABLE_TO_API_KEYS",
+				ip: expect.any(String),
+				userAgent: "lightMyRequest",
+			},
+		]);
+	});
+
+	test("a key revoked after the outer sign-in still gets one denied row for the call", async () => {
+		const admin = await signIn("carol");
+		const key = await keyFor(admin.id, "read");
+		// The outer request has signed the key in; the key goes before the inner request does.
+		const realInject = app.inject.bind(app) as (...args: unknown[]) => Promise<unknown>;
+		vi.spyOn(app, "inject").mockImplementation((async (...args: unknown[]) => {
+			if ((args[0] as { url?: string }).url !== "/mcp") {
+				await revokeApiKeys(testDb.db, { keyId: key.id }, admin.id);
+			}
+			return realInject(...args);
+		}) as never);
+		const res = await rpc(key.secret, "tools/call", {
+			name: "users_list",
+			arguments: {},
+		});
+		expect(res.statusCode).toBe(200);
+		expect(await usedAfter(1)).toEqual([
+			expect.objectContaining({
+				operation: "users.list",
+				result: "denied",
+				status: 401,
+			}),
+		]);
+	});
+
+	test("reading health writes one row, naming the operation", async () => {
+		const admin = await signIn("carol");
+		const key = await keyFor(admin.id, "read");
+		await rpc(key.secret, "resources/read", { uri: "portikus://health" });
+		expect(await usedAfter(1)).toEqual([
+			expect.objectContaining({ operation: "health.get", result: "ok" }),
+		]);
+	});
+
+	test.each([
+		["tools/list", {}],
+		[
+			"initialize",
+			{
+				protocolVersion: "2025-06-18",
+				capabilities: {},
+				clientInfo: { name: "t", version: "1" },
+			},
+		],
+		["resources/read", { uri: "portikus://guides/ADMIN-GUIDE.md" }],
+		["tools/call", { name: "find_operation", arguments: { query: "users" } }],
+	])(
+		"%s runs no operation, so it keeps its one POST /mcp row",
+		async (method, params) => {
+			const admin = await signIn("carol");
+			const key = await keyFor(admin.id, "read");
+			await rpc(key.secret, method, params);
+			expect(await usedAfter(1)).toEqual([
+				expect.objectContaining({ operation: "POST /mcp", result: "ok", status: 200 }),
+			]);
+		},
+	);
 });

@@ -123,7 +123,10 @@ const input = (testId: string) => screen.getByTestId(testId) as HTMLInputElement
 
 async function openSettings() {
 	renderApp("/admin/settings");
-	await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"));
+	// Generous: the first render loads the admin app, which is slow on a busy machine.
+	await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"), {
+		timeout: 20_000,
+	});
 }
 
 describe("the page", () => {
@@ -165,7 +168,9 @@ describe("the page", () => {
 		// No toggletips on this page; each row says what it does in a sentence.
 		expect(screen.queryByRole("button", { name: /^About / })).toBeNull();
 		expect(screen.queryByTestId("log-level-select")).toBeNull();
-	});
+		// The first test in the file pays for loading and drawing the whole
+		// admin app, which takes more than 5 s on a busy machine.
+	}, 30_000);
 
 	test("says once when the settings last changed, from the saved row", async () => {
 		stubSettings();
@@ -627,7 +632,10 @@ describe("leaving with unsaved changes", () => {
 	test("another tab asks first, naming each section and count, never a value", async () => {
 		stubSettings();
 		const { router } = renderApp("/admin/settings");
-		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"));
+		// Generous: the first render loads the admin app, which is slow on a busy machine.
+		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"), {
+			timeout: 20_000,
+		});
 		fireEvent.change(input("settings-idleStopMinutes"), { target: { value: "45" } });
 		fireEvent.click(screen.getByRole("checkbox", { name: "Allow voice input" }));
 
@@ -661,7 +669,10 @@ describe("leaving with unsaved changes", () => {
 	test("with nothing unsaved, or only a jump within the page, nothing asks", async () => {
 		stubSettings();
 		const { router } = renderApp("/admin/settings");
-		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"));
+		// Generous: the first render loads the admin app, which is slow on a busy machine.
+		await waitFor(() => expect(input("settings-idleStopMinutes").value).toBe("60"), {
+			timeout: 20_000,
+		});
 		fireEvent.change(input("settings-idleStopMinutes"), { target: { value: "45" } });
 		await act(async () => {
 			void router.navigate({

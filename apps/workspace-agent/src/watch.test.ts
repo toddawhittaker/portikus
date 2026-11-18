@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FsEvent } from "@portikus/contracts";
+import { FS_EVENT_BATCH_MS, type FsEvent } from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FSWatcher } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
@@ -75,23 +75,50 @@ test("a written file arrives as one frame with its relative path", async () => {
 });
 
 test("many files at once produce a truncated frame of at most 200 paths", async () => {
-	const frames = await listen();
-	await Promise.all(
-		Array.from({ length: 300 }, (_, index) =>
-			writeFile(join(project, `file-${index}.txt`), "x"),
-		),
+	// The batch timer is held until the watcher has seen more than 200 paths,
+	// so a busy machine spreading the writes over several windows cannot split
+	// the batch below the cap.
+	const realSetTimeout = globalThis.setTimeout;
+	const held: (() => void)[] = [];
+	const timers = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+		callback: () => void,
+		ms?: number,
+		...rest: unknown[]
+	) => {
+		if (ms !== FS_EVENT_BATCH_MS) return realSetTimeout(callback, ms, ...(rest as []));
+		held.push(callback);
+		return { unref() {} };
+	}) as unknown as typeof setTimeout);
+	const recorded = vi.spyOn(
+		watchers as unknown as { record: (...args: unknown[]) => void },
+		"record",
 	);
-	await vi.waitFor(
-		() => expect(events(frames).some((frame) => frame.truncated)).toBe(true),
-		{
-			timeout: 5000,
-		},
-	);
-	const truncated = events(frames).find((frame) => frame.truncated);
-	expect(truncated).toBeDefined();
-	for (const frame of events(frames))
-		expect(frame.paths.length).toBeLessThanOrEqual(200);
-});
+	try {
+		const frames = await listen();
+		await Promise.all(
+			Array.from({ length: 300 }, (_, index) =>
+				writeFile(join(project, `file-${index}.txt`), "x"),
+			),
+		);
+		// Count distinct paths: one file can raise several events.
+		await vi.waitFor(
+			() =>
+				expect(
+					new Set(recorded.mock.calls.map((call) => call[1])).size,
+				).toBeGreaterThan(200),
+			{ timeout: 20_000 },
+		);
+		for (const flush of held.splice(0)) flush();
+		const truncated = events(frames).find((frame) => frame.truncated);
+		expect(truncated).toBeDefined();
+		for (const frame of events(frames))
+			expect(frame.paths.length).toBeLessThanOrEqual(200);
+	} finally {
+		timers.mockRestore();
+		recorded.mockRestore();
+	}
+	// Writing and watching 300 files is real work; the wait above can take more than 5 s.
+}, 30_000);
 
 test("a change under .git sets git and lists no .git path", async () => {
 	await mkdir(join(project, ".git"), { recursive: true });

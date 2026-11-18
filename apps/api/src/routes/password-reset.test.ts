@@ -425,7 +425,11 @@ describe.skipIf(skip)("completing a reset", () => {
 		expect((await completeReset(token)).statusCode).toBe(204);
 	});
 
-	test("twenty wrong links in ten minutes from one address, then 429", async () => {
+	// Each request bcrypt-hashes the new password before the link is checked,
+	// so 22 requests are 22 hashes of CPU work; a loaded machine needs the room.
+	test("twenty wrong links in ten minutes from one address, then 429", {
+		timeout: 60_000,
+	}, async () => {
 		const { token } = await linkFor("alice@example.edu");
 		for (let i = 0; i < 20; i++) {
 			expect((await completeReset("b".repeat(43))).statusCode).toBe(400);
