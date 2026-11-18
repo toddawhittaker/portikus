@@ -1,5 +1,5 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { createApiKey } from "@portikus/auth";
+import { createApiKey, revokeApiKeys } from "@portikus/auth";
 import {
 	CookieJar,
 	loginAs,
@@ -680,6 +680,31 @@ describe.skipIf(skip)("one audit row for each MCP request", () => {
 				ip: expect.any(String),
 				userAgent: "lightMyRequest",
 			},
+		]);
+	});
+
+	test("a key revoked after the outer sign-in still gets one denied row for the call", async () => {
+		const admin = await signIn("carol");
+		const key = await keyFor(admin.id, "read");
+		// The outer request has signed the key in; the key goes before the inner request does.
+		const realInject = app.inject.bind(app) as (...args: unknown[]) => Promise<unknown>;
+		vi.spyOn(app, "inject").mockImplementation((async (...args: unknown[]) => {
+			if ((args[0] as { url?: string }).url !== "/mcp") {
+				await revokeApiKeys(testDb.db, { keyId: key.id }, admin.id);
+			}
+			return realInject(...args);
+		}) as never);
+		const res = await rpc(key.secret, "tools/call", {
+			name: "users_list",
+			arguments: {},
+		});
+		expect(res.statusCode).toBe(200);
+		expect(await usedAfter(1)).toEqual([
+			expect.objectContaining({
+				operation: "users.list",
+				result: "denied",
+				status: 401,
+			}),
 		]);
 	});
 
