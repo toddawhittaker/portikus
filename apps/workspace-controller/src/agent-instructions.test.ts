@@ -414,6 +414,34 @@ describe("the shipped template", () => {
 		expect(text).toContain("![Home page screenshot](.portikus/images/home.png)");
 		expect(text).not.toMatch(/#\d{3}|SPEC|ADR/);
 	});
+
+	// Browser test runs are the bursty part of a class's load: agents are told
+	// to keep them small, in the file both Claude Code and Codex are given.
+	test("tells both agents to run only the changed Playwright specs, with two workers", async () => {
+		const written = new FakeFiles();
+		written.files.set("/etc/claude-code", { type: "directory", content: "" });
+		written.files.set("/etc/codex", { type: "directory", content: "" });
+		const templateFile = join(
+			import.meta.dirname,
+			"../../workspace-agent/agent-instructions.md",
+		);
+		await writeAgentInstructions(written, "ws-a", templateFile);
+		const codex = parse(written.files.get(CODEX_MANAGED_PATH)?.content ?? "") as {
+			developer_instructions: string;
+		};
+		for (const body of [
+			written.files.get(CLAUDE_SYSTEM_PATH)?.content ?? "",
+			codex.developer_instructions,
+		]) {
+			const flat = body.replace(/\s+/g, " ");
+			expect(flat).toContain(
+				"only the specs for the code you changed, with `--workers=2`",
+			);
+			expect(flat).toContain(
+				"Run the full suite only when the student asks, or before they submit",
+			);
+		}
+	});
 });
 
 describe("the shipped managed settings", () => {

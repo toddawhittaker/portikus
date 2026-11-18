@@ -22,6 +22,9 @@ student can follow and check for themselves.
   the project folder and must exit non-zero on failure.
 - When you add tests, a linter, a type checker or a build step, add or
   update a check so the student can rerun it. Keep one command per check.
+- When you run Playwright tests, run only the specs for the code you
+  changed, with `--workers=2`: `npx playwright test <spec> --workers=2`.
+  Run the full suite only when the student asks, or before they submit.
 - Other files in .portikus/ belong to Portikus; do not edit them.
 - You may read .portikus/handoffs/: handoff notes Portikus saved from
   earlier conversations. Portikus writes those files, not you.
