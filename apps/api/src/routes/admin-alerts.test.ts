@@ -44,7 +44,7 @@ import {
 	test,
 	vi,
 } from "vitest";
-import { TEST_ALERTS_PER_MINUTE } from "../rate-limit.js";
+import { TEST_ALERTS_PER_MINUTE, TEST_SITE_ALERTS_PER_HOUR } from "../rate-limit.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 const skip = !hasTestDb();
@@ -860,7 +860,7 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 			expect(res.statusCode).toBe(200);
 			expect(res.headers["cache-control"]).toBe("no-store");
 			const { title } = TestSiteAlertResponse.parse(res.json());
-			expect(title).toMatch(/^Test site alert sent at \d{2}:\d{2}:\d{2} UTC$/);
+			expect(title).toMatch(/^Test site alert sent at \d{2}:\d{2}:\d{2}\.\d{3} UTC$/);
 
 			const rows = await testDb.db
 				.selectFrom("notifications")
@@ -906,7 +906,7 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 		}
 	});
 
-	test("two test site alerts a second apart carry different titles", async () => {
+	test("two test site alerts in the same second carry different titles", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		const app = server();
 		try {
@@ -914,13 +914,13 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 			await app.ready();
 			const call = await as(app, "carol");
 			const first = await call("POST", "/admin/alerts/test-site-alert");
-			vi.setSystemTime(new Date("2026-11-18T14:03:28.100Z"));
+			vi.setSystemTime(new Date("2026-11-18T14:03:27.900Z"));
 			const second = await call("POST", "/admin/alerts/test-site-alert");
 			expect(TestSiteAlertResponse.parse(first.json()).title).toBe(
-				"Test site alert sent at 14:03:27 UTC",
+				"Test site alert sent at 14:03:27.400 UTC",
 			);
 			expect(TestSiteAlertResponse.parse(second.json()).title).toBe(
-				"Test site alert sent at 14:03:28 UTC",
+				"Test site alert sent at 14:03:27.900 UTC",
 			);
 			const titles = await testDb.db
 				.selectFrom("notifications")
@@ -928,8 +928,8 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 				.orderBy("title")
 				.execute();
 			expect(titles.map((r) => r.title)).toEqual([
-				"Test site alert sent at 14:03:27 UTC",
-				"Test site alert sent at 14:03:28 UTC",
+				"Test site alert sent at 14:03:27.400 UTC",
+				"Test site alert sent at 14:03:27.900 UTC",
 			]);
 		} finally {
 			vi.useRealTimers();
@@ -937,24 +937,41 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 		}
 	});
 
-	test("test site alerts share the channel test's limit for each administrator", async () => {
+	test("test site alerts have their own hourly limit for each administrator", async () => {
 		const app = server();
 		await app.ready();
 		try {
 			const call = await as(app, "carol");
-			for (let i = 0; i < TEST_ALERTS_PER_MINUTE - 1; i++) {
-				expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(200);
+			for (let i = 0; i < TEST_SITE_ALERTS_PER_HOUR; i++) {
+				expect((await call("POST", "/admin/alerts/test-site-alert")).statusCode).toBe(
+					200,
+				);
 			}
-			expect((await call("POST", "/admin/alerts/test-site-alert")).statusCode).toBe(
-				200,
-			);
 			const refused = await call("POST", "/admin/alerts/test-site-alert");
 			expect(refused.statusCode).toBe(429);
 			expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
-			expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(429);
 			expect(
 				await testDb.db.selectFrom("notifications").select("id").execute(),
-			).toHaveLength(1);
+			).toHaveLength(TEST_SITE_ALERTS_PER_HOUR);
+			// The channel test's limit is untouched by the site alert tests.
+			expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(200);
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("the channel test's limit does not use up test site alerts", async () => {
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			for (let i = 0; i < TEST_ALERTS_PER_MINUTE; i++) {
+				expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(200);
+			}
+			expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(429);
+			expect((await call("POST", "/admin/alerts/test-site-alert")).statusCode).toBe(
+				200,
+			);
 		} finally {
 			await app.close();
 		}

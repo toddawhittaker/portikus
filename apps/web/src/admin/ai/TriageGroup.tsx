@@ -44,11 +44,11 @@ function SwitchRow({
 	);
 }
 
-/** The API allows a few test alerts a minute per administrator, shared with the channel tests. */
+/** The API allows a few test site alerts an hour per administrator. */
 function testAlertErrorText(error: unknown): string {
 	if (error instanceof ApiError && error.status === 429)
-		return "Not sent: too many test alerts just now. Try again in a minute.";
-	return errorText(error);
+		return "Not sent: up to 3 test site alerts an hour. Try again later.";
+	return `Not sent: ${errorText(error)}`;
 }
 
 /** Writes a test warning as a real site alert, so the whole path can be tried (SPEC.md section 20.5). */
@@ -59,7 +59,8 @@ function TestSiteAlert() {
 		<div className="grid gap-2" data-testid="ai-triage-test">
 			<p id={hintId} className="pk-muted m-0 max-w-[40rem] text-[13px]">
 				Adds a test warning to the notifications list. It is explained if Explain alerts
-				is on, and forwarded to the alert channels like a real alert.
+				is on, and forwarded to the alert channels like a real alert. Each test counts
+				toward the day's explanation maximum.
 			</p>
 			<div className="flex flex-wrap gap-2">
 				<Button

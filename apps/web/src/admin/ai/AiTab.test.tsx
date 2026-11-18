@@ -437,7 +437,7 @@ test("a refused alert setting shows the API's reason", async () => {
 test("a test site alert reports its title in the group's live status", async () => {
 	const sent = serve(READY, (url) =>
 		url === "/admin/alerts/test-site-alert"
-			? json(200, { title: "Test site alert sent at 14:03:27 UTC" })
+			? json(200, { title: "Test site alert sent at 14:03:27.400 UTC" })
 			: null,
 	);
 	renderWithQuery(<AiTab />);
@@ -446,14 +446,16 @@ test("a test site alert reports its title in the group's live status", async () 
 	expect(button.getAttribute("aria-describedby")).toBeTruthy();
 	expect(
 		document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent,
-	).toMatch(/notifications list.*explained if Explain alerts is on.*alert channels/s);
+	).toMatch(
+		/notifications list.*explained if Explain alerts is on.*alert channels.*explanation maximum/s,
+	);
 	const status = within(group).getByTestId("ai-triage-test-result");
 	expect(status.getAttribute("role")).toBe("status");
 	expect(status.textContent).toBe("");
 	fireEvent.click(button);
 	await waitFor(() =>
 		expect(status.textContent).toBe(
-			"Sent. Look for “Test site alert sent at 14:03:27 UTC” in the notifications list.",
+			"Sent. Look for “Test site alert sent at 14:03:27.400 UTC” in the notifications list.",
 		),
 	);
 	expect(sent.filter((r) => r.url === "/admin/alerts/test-site-alert")).toEqual([
@@ -471,10 +473,12 @@ test("a refused test site alert says to wait, and another failure gives the API'
 	fireEvent.click(button);
 	await waitFor(() =>
 		expect(status.textContent).toBe(
-			"Not sent: too many test alerts just now. Try again in a minute.",
+			"Not sent: up to 3 test site alerts an hour. Try again later.",
 		),
 	);
 	answer = json(403, { code: "FORBIDDEN", message: "Administrators only." });
 	fireEvent.click(button);
-	await waitFor(() => expect(status.textContent).toBe("Administrators only."));
+	await waitFor(() =>
+		expect(status.textContent).toBe("Not sent: Administrators only."),
+	);
 });

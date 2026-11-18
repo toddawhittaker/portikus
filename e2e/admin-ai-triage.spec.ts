@@ -322,7 +322,7 @@ test("a test site alert says what it does, then lands in the notifications list"
 	const group = page.getByTestId("ai-triage");
 	const button = group.getByRole("button", { name: SEND_TEST });
 	await expect(button).toHaveAccessibleDescription(
-		/notifications list.*explained if Explain alerts is on.*alert channels like a real alert/,
+		/notifications list.*explained if Explain alerts is on.*alert channels like a real alert.*explanation maximum/,
 	);
 	const status = group.getByRole("status");
 	await expect(status).toHaveText("");
@@ -333,7 +333,7 @@ test("a test site alert says what it does, then lands in the notifications list"
 	await button.click();
 	const { title } = await (await answer).json();
 	seeded.push(title);
-	expect(title).toMatch(/^Test site alert sent at \d{2}:\d{2}:\d{2} UTC$/);
+	expect(title).toMatch(/^Test site alert sent at \d{2}:\d{2}:\d{2}\.\d{3} UTC$/);
 	await expect(status).toHaveText(
 		`Sent. Look for “${title}” in the notifications list.`,
 	);
@@ -356,7 +356,7 @@ test("a test site alert says what it does, then lands in the notifications list"
 	await expect(item).toContainText("AI settings page");
 });
 
-test("more than five test alerts a minute are refused in the group's status", async ({
+test("a fourth test site alert in an hour is refused in the group's status", async ({
 	page,
 	context,
 }) => {
@@ -365,7 +365,7 @@ test("more than five test alerts a minute are refused in the group's status", as
 	const group = page.getByTestId("ai-triage");
 	const button = group.getByRole("button", { name: SEND_TEST });
 	const status = group.getByRole("status");
-	for (let sent = 0; sent < 5; sent++) {
+	for (let sent = 0; sent < 3; sent++) {
 		const answer = page.waitForResponse((r) =>
 			r.url().endsWith("/admin/alerts/test-site-alert"),
 		);
@@ -381,6 +381,10 @@ test("more than five test alerts a minute are refused in the group's status", as
 	await button.click();
 	expect((await refused).status()).toBe(429);
 	await expect(status).toHaveText(
-		"Not sent: too many test alerts just now. Try again in a minute.",
+		"Not sent: up to 3 test site alerts an hour. Try again later.",
 	);
+	await expectNoViolations(page, '[data-testid="ai-triage"]');
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, '[data-testid="ai-triage"]');
+	await page.emulateMedia({ colorScheme: "dark" });
 });
