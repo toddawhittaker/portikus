@@ -110,6 +110,7 @@ export function check(counter: Counter, key: string): LimitDecision {
 }
 
 const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
 
 /**
  * Answer 429 when `id` is over `counter`'s limit and return false; return
@@ -180,11 +181,26 @@ export function fileWriteLimit(config: ApiConfig): UserLimit {
 /** Test alerts reach outside services; a handful a minute is plenty for checking a channel. */
 export const TEST_ALERTS_PER_MINUTE = 5;
 
-/** The per-user limit shared by `POST /admin/alerts/test` and `POST /admin/alerts/test-site-alert`. */
+/** The per-user limit on `POST /admin/alerts/test`. */
 export function testAlertLimit(): UserLimit {
 	return createUserLimit(
 		"test-alert",
 		createCounter(TEST_ALERTS_PER_MINUTE, MINUTE_MS),
+	);
+}
+
+/**
+ * Each test site alert uses one of the worker's site-wide forwarding slots
+ * for the hour and one of the day's explanation attempts, so a few an hour
+ * is enough and more could crowd out real alerts.
+ */
+export const TEST_SITE_ALERTS_PER_HOUR = 3;
+
+/** The per-user limit on `POST /admin/alerts/test-site-alert`. */
+export function testSiteAlertLimit(): UserLimit {
+	return createUserLimit(
+		"test-site-alert",
+		createCounter(TEST_SITE_ALERTS_PER_HOUR, HOUR_MS),
 	);
 }
 
