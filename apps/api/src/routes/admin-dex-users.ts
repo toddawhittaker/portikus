@@ -281,7 +281,9 @@ export function registerAdminDexUserRoutes(
 			if (!result.ok) return sendDisableRefusal(reply, result.reason);
 			for (const email of found.emails) await viaDex(dex.deletePassword(email));
 			// Written once the password is gone, so a row never says removed while
-			// Dex still holds it; pressing Remove again after a Dex failure writes it.
+			// Dex still holds it. Pressing Remove again writes it only after a Dex
+			// failure; if this write itself fails after Dex succeeded, a retry finds
+			// no password and the row is never written.
 			await recordAudit(db, {
 				actor: `user:${actor.id}`,
 				target: id,

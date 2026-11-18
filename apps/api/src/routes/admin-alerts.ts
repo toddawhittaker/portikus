@@ -32,7 +32,7 @@ import {
 	sweepTempRequests,
 	writeRequestFile,
 } from "../job-files.js";
-import { testAlertLimit } from "../rate-limit.js";
+import { testAlertLimit, testSiteAlertLimit } from "../rate-limit.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const BUSY_MESSAGE = "A notification settings change is already waiting or running.";
@@ -67,6 +67,7 @@ export function registerAdminAlertRoutes(
 ): void {
 	const jobsDir = config.ALERTS_JOBS_DIR;
 	const testLimit = testAlertLimit();
+	const siteTestLimit = testSiteAlertLimit();
 	// One API process: this closes the gap between checking and writing.
 	let writing = false;
 
@@ -237,18 +238,20 @@ export function registerAdminAlertRoutes(
 	/**
 	 * Write one test alert as a real site alert (SPEC.md section 20.5), so
 	 * the worker forwards it to the channels and triage explains it when
-	 * Explain alerts is on. It shares the channel test's limit.
+	 * Explain alerts is on. It has its own, lower limit, because each test uses
+	 * one of the worker's hourly forwarding slots and one of the day's
+	 * explanation attempts.
 	 */
 	app.post(
 		"/admin/alerts/test-site-alert",
-		{ preHandler: [requireRole("administrator"), testLimit] },
+		{ preHandler: [requireRole("administrator"), siteTestLimit] },
 		async (request, reply) => {
 			const admin = requireUser(request);
 			const body = parseOr400(TestSiteAlertRequest, request.body ?? {}, reply);
 			if (!body) return reply;
-			// To the second, so neither the forwarder's flood control nor triage's
+			// To the millisecond, so neither the forwarder's flood control nor triage's
 			// per-title limit hides a second test; both key on the title.
-			const title = `Test site alert sent at ${new Date().toISOString().slice(11, 19)} UTC`;
+			const title = `Test site alert sent at ${new Date().toISOString().slice(11, 23)} UTC`;
 			await notifyAdministrators(db, {
 				tone: "warning",
 				title,
