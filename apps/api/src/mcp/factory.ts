@@ -41,33 +41,38 @@ function annotationsOf(operation: Operation) {
  * Run an operation as the caller. A refusal the runner makes itself never
  * reaches a route, so no route or gate row names it; this writes the one
  * `api_key.used` row every key request gets (SPEC.md section 24.11). A call
- * that does reach a route gets its row from the gate. Either way the row
- * names the operation, so the outer `POST /mcp` request is told to write none.
+ * that does reach a route gets its row from the gate, except when the key was
+ * revoked or its owner disabled after the outer request signed in: the route
+ * answers 401 without a key, so the gate writes nothing and this writes the
+ * row. Either way the row names the operation, so the outer `POST /mcp`
+ * request is told to write none.
  */
 function runner(app: FastifyInstance, db: Kysely<Database>, caller: McpCaller): Run {
+	const audit = async (name: string, metadata: Record<string, unknown>) => {
+		try {
+			await auditArrival.run({ via: "api_key", apiKeyId: caller.keyId }, () =>
+				recordAudit(db, {
+					actor: `user:${caller.userId}`,
+					target: caller.userId,
+					action: "api_key.used",
+					result: "denied",
+					metadata: {
+						operation: name,
+						...metadata,
+						ip: caller.ip,
+						userAgent: caller.userAgent ?? null,
+					},
+				}),
+			);
+		} catch (error) {
+			app.log.error({ err: error }, "could not audit a refused MCP tool call");
+		}
+	};
 	return async (name, input) => {
 		caller.markOperation();
 		const result = await runOperation(app, db, caller, name, input);
-		if (!result.ok) {
-			try {
-				await auditArrival.run({ via: "api_key", apiKeyId: caller.keyId }, () =>
-					recordAudit(db, {
-						actor: `user:${caller.userId}`,
-						target: caller.userId,
-						action: "api_key.used",
-						result: "denied",
-						metadata: {
-							operation: name,
-							code: result.error.code,
-							ip: caller.ip,
-							userAgent: caller.userAgent ?? null,
-						},
-					}),
-				);
-			} catch (error) {
-				app.log.error({ err: error }, "could not audit a refused MCP tool call");
-			}
-		}
+		if (!result.ok) await audit(name, { code: result.error.code });
+		else if (result.status === 401) await audit(name, { status: 401 });
 		return toolResult(result);
 	};
 }

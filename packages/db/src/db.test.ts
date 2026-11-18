@@ -1709,9 +1709,12 @@ describe("orphaned test database sweep", () => {
 		async () => {
 			const sharedUrl = process.env.TEST_DATABASE_URL as string;
 			const base = basePrefix(new URL(sharedUrl));
-			// A dead pid: 999999 does not belong to a running process.
-			const otherHostDb = `${base}_hffff_p999999_deadbeef`;
-			const thisHostDb = `${base}_h${hostId()}_p999999_deadbeef`;
+			// A dead pid: 999999 does not belong to a running process. The suffix is
+			// new each run, so two runs on one server never share or drop each
+			// other's databases.
+			const suffix = crypto.randomUUID().slice(0, 8);
+			const otherHostDb = `${base}_hffff_p999999_${suffix}`;
+			const thisHostDb = `${base}_h${hostId()}_p999999_${suffix}`;
 
 			const client = new pg.Client({ connectionString: sharedUrl });
 			await client.connect();
