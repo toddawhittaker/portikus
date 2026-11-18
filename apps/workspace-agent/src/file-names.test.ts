@@ -372,10 +372,16 @@ test.skipIf(!haveRg)(
 		);
 		await writeFile(join(big, "d399", "app.ts"), "x");
 
-		const result = await searchFileNames(homeDir, "big", "app", 5);
-		expect(result.paths[0]).toBe("d399/app.ts");
-		expect(result.paths).toHaveLength(5);
-		expect(result.truncated).toBe(true);
+		try {
+			const result = await searchFileNames(homeDir, "big", "app", 5);
+			expect(result.paths[0]).toBe("d399/app.ts");
+			expect(result.paths).toHaveLength(5);
+			expect(result.truncated).toBe(true);
+		} finally {
+			// Deleting 40,000 files takes seconds on a busy machine. Do it here,
+			// under this test's 60 s limit, not in afterAll's 10 s hook limit.
+			await rm(big, { recursive: true, force: true });
+		}
 	},
 	60_000,
 );
