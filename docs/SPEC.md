@@ -274,7 +274,7 @@ A deliberate workspace rebuild may replace the root filesystem while retaining t
 
 Added by Epic 15.2, changed by Epic 28 (issue #933): the coding agents' platform instructions are system files the student does not own.
 
-- One template, `agent-instructions.md`, ships in the Portikus package with the workspace agent (`/usr/lib/portikus/workspace-agent/`, bind-mounted read-only into every workspace), written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, opening a URL with `/usr/local/bin/portikus-open` (because `BROWSER` is empty inside Claude Code), preferring the seed's preloaded Docker images, never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
+- One template, `agent-instructions.md`, ships in the Portikus package with the workspace agent (`/usr/lib/portikus/workspace-agent/`, bind-mounted read-only into every workspace), written for the agents in plain English: what the workspace is, projects and checks, running browser tests on only the changed specs with two workers, previews and the host suffix, opening a URL with `/usr/local/bin/portikus-open` (because `BROWSER` is empty inside Claude Code), preferring the seed's preloaded Docker images, never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
 - Before every start the workspace controller writes it, as root with mode 0644, to `/etc/claude-code/CLAUDE.md` (Claude Code's system memory) and as `developer_instructions` in `/etc/codex/managed_config.toml` (Codex's managed config, which wins over the student's own; Epic 66, ADR 0076). `/etc/codex/config.toml` holds `check_for_update_on_startup = false` and a `[features.multi_agent_v2]` table that turns on Codex's newer multi-agent toolset with `min_wait_timeout_ms` and `default_wait_timeout_ms` both at 1200000. Each `wait_agent` timeout re-reads the parent's whole conversation. The older toolset fixes it at 30 seconds. The model passes its own short timeouts, so the floor is what stops the polling, and a wait still ends when a subagent finishes. 20 minutes stays inside GPT-5.6's 30-minute prompt cache. A student may switch it back in `~/.codex/config.toml`. The controller rewrites the file at each start, and the controller rewrites it at each start so instructions an older start left there are not read twice. The controller, not the agent, writes them because the agent runs as the student and cannot write `/etc`. An edit or deletion lasts until the next start. The controller never opens what is at those paths: it deletes the path (a file, named pipe or link alike) and pushes the new file, so a pipe cannot block a start; a directory there is refused and logged. A failure is logged and never stops the start, and a host without the template writes nothing. A student's own `~/.codex/config.toml` cannot replace the platform's Codex instructions or turn off its hooks, because the managed layer wins over a student's own config (checked on Codex 0.167.1). The controller also rewrites `/etc/claude-code/managed-settings.json` at every start from a template in the package, by the same rules, so a student who deletes `/etc/claude-code` gets Claude Code's `BROWSER` setting back at the next start.
 - Added by Epic 67 (issue #2021): by the same rules the controller writes `/etc/claude-code/.claude/agents/Explore.md`, Claude Code's managed agents folder, at every start. It replaces Claude Code's built-in Explore subagent (a read-only file search, which otherwise runs on the session's model) with a short copy that runs on Haiku. Claude Code 2.1.311 merges agents built-in, plugin, user, project, flag, then managed, the last of a name winning, so a managed agent beats every other. A student's own Explore must still win, so after the container is running the controller checks as the student whether `~/.claude/agents/Explore.md` exists and, if it does, deletes the managed copy; a check that fails keeps the managed copy, the cheaper default. A project-level `.claude/agents/Explore.md` still loses to the managed one; a student who wants their own Explore puts it at `~/.claude/agents/Explore.md`, and it takes effect at the next workspace start. The copy's prompt is rechecked against the built-in whenever the shared Claude Code version changes.
 - `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` belong to the student. The workspace agent only removes what older versions wrote there: a `~/.codex/AGENTS.md` that is an unchanged copy of an old template (checked by SHA-256), and the exact line `@~/.codex/AGENTS.md` in `~/.claude/CLAUDE.md` once that file is gone (the file too if nothing else is left). It never follows a symbolic link.
@@ -4106,6 +4106,19 @@ happens.
   and makes no model call (ADR 0080).
 - **Audit.** `alert.triaged`, actor `system`, one row for each attempt
   (section 24.11).
+- **Test site alert.** Added by Epic 72 (issue #2129). A **Send a test site
+  alert** button in the Alert explanations group calls
+  `POST /admin/alerts/test-site-alert` (administrator only), which writes a
+  warning titled "Test site alert sent at HH:MM:SS.mmm UTC" to every enabled
+  administrator's notifications as a site alert. It sends nothing to a channel
+  itself: the worker forwards it like a real alert, and triage explains it when
+  **Explain alerts** is on. The title carries the time to the millisecond so
+  the per-title hourly limit and the forwarder's flood control do not hide a
+  second test. Each administrator may send 3 an hour. Each test counts toward
+  the daily explanation maximum and the forwarder's hourly limit, as a real
+  alert does. The per-channel **Send test** buttons on the Notifications page
+  are unchanged and keep their own limit. The route writes
+  `settings.alert_tested` with `kind` `site_alert` (section 24.11).
 
 **Alerts that name no student.** The usage guard's alert for a workspace that
 stays slowed after a restart (section 19.4, Throttle hold) no longer puts the
@@ -5828,7 +5841,7 @@ workspace's network address, or a name a workspace looked up.
   shown is recorded.
 - Notifications (Epic 35, ADR 0052): `settings.notifications_updated`
   (the changed channel kinds and hosts, never a secret) and
-  `settings.alert_tested` (each channel and whether it sent).
+  `settings.alert_tested` (each channel and whether it sent, or `kind` `site_alert` and the title for the test site alert of section 20.5).
 - Site settings (Epic 43, ADR 0059): `site.job_requested` (actor the
   administrator; the kind and a secret-free summary) and
   `site.job_finished` (actor `site-job`; kind, state and code), once per
@@ -8328,6 +8341,23 @@ Includes:
 - a CI package install that falls back to a second Ubuntu mirror when the first fails;
 - a smoke check that holds presence through its late terminal and chat checks, so the grace period cannot stop the workspace part-way through;
 - one `api_key.used` row for each MCP tool call, and a workspace detail whose recent activity leaves out `api_key.used` rows.
+
+### Epic 72 — Small fixes batch
+
+Built on `epic/72-small-fixes`, issues #2129, #2109, #2140 and #2141. No migration. See sections 4, 5.3, 20.5 and 24.11.
+
+Includes:
+
+- a **Send a test site alert** button in the Alert explanations group of the AI page, limited to 3 an hour for each administrator;
+- a line in the agent instructions telling coding agents to run only the changed Playwright specs, with two workers;
+- set-password links created in the same millisecond leaving exactly one valid, the one with the highest id;
+- Remove on a Dex user committing the disable, the audit row and key revocation first and deleting the Dex password after, so a failed Dex step leaves the account disabled and a second Remove finishes the job. The `dex_user.removed` row is written after the password is deleted.
+
+Acceptance:
+
+- a test site alert is explained and forwarded exactly as a real one, and a second test is never hidden by the title limits;
+- of any tied set-password links, exactly one works, whichever supersede runs first;
+- a failed Dex call or commit never leaves an enabled account with no password.
 
 Acceptance:
 
