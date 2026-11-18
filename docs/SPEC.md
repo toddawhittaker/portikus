@@ -8342,6 +8342,12 @@ Includes:
 - a smoke check that holds presence through its late terminal and chat checks, so the grace period cannot stop the workspace part-way through;
 - one `api_key.used` row for each MCP tool call, and a workspace detail whose recent activity leaves out `api_key.used` rows.
 
+Acceptance:
+
+- the changed unit tests pass repeatedly under heavy CPU load;
+- an MCP tool call, run or refused, writes exactly one `api_key.used` row naming its operation, and a request that runs no operation keeps its own row;
+- the full smoke check passes three times in a row on a fresh rehearsal host.
+
 ### Epic 72 — Small fixes batch
 
 Built on `epic/72-small-fixes`, issues #2129, #2109, #2140 and #2141. No migration. See sections 4, 5.3, 20.5 and 24.11.
@@ -8358,12 +8364,6 @@ Acceptance:
 - a test site alert is explained and forwarded exactly as a real one, and a second test is never hidden by the title limits;
 - of any tied set-password links, exactly one works, whichever supersede runs first;
 - a failed Dex call or commit never leaves an enabled account with no password.
-
-Acceptance:
-
-- the changed unit tests pass repeatedly under heavy CPU load;
-- an MCP tool call, run or refused, writes exactly one `api_key.used` row naming its operation, and a request that runs no operation keeps its own row;
-- the full smoke check passes three times in a row on a fresh rehearsal host.
 
 ### Estimated total
 

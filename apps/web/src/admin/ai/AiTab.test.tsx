@@ -447,7 +447,7 @@ test("a test site alert reports its title in the group's live status", async () 
 	expect(
 		document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent,
 	).toMatch(
-		/notifications list.*explained if Explain alerts is on.*alert channels.*explanation maximum/s,
+		/notifications list.*explained if Explain alerts is on.*alert channels.*Most explanations a day/s,
 	);
 	const status = within(group).getByTestId("ai-triage-test-result");
 	expect(status.getAttribute("role")).toBe("status");
