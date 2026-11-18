@@ -28,6 +28,8 @@ import {
 	SetCourseProfileRequest,
 	TestAlertRequest,
 	TestAlertResponse,
+	TestSiteAlertRequest,
+	TestSiteAlertResponse,
 	UpdateAdminUserSettingsRequest,
 	UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
@@ -260,6 +262,16 @@ export const operations: OperationRecords = {
 		tool: false,
 		input: { body: TestAlertRequest },
 		output: TestAlertResponse,
+	},
+	"POST /admin/alerts/test-site-alert": {
+		name: "alerts.send_test_site_alert",
+		description:
+			"Writes a test warning to every administrator's notifications as a real site alert, so it is explained when alert explanations are on and forwarded to the alert channels.",
+		risk: "change",
+		audience: "administrator",
+		tool: false,
+		input: { body: TestSiteAlertRequest },
+		output: TestSiteAlertResponse,
 	},
 	"GET /admin/notifications": {
 		name: "alerts.get_settings",

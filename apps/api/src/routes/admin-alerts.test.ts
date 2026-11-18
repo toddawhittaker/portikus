@@ -30,6 +30,7 @@ import {
 	NotifyJobView,
 	notificationSettingsView,
 	TestAlertResponse,
+	TestSiteAlertResponse,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
@@ -41,6 +42,7 @@ import {
 	describe,
 	expect,
 	test,
+	vi,
 } from "vitest";
 import { TEST_ALERTS_PER_MINUTE } from "../rate-limit.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
@@ -224,6 +226,7 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 			const origin = { origin: new URL(PUBLIC_URL).origin };
 			for (const [method, url] of [
 				["POST", "/admin/alerts/test"],
+				["POST", "/admin/alerts/test-site-alert"],
 				["GET", "/admin/notifications"],
 				["PUT", "/admin/notifications"],
 			] as const) {
@@ -822,6 +825,136 @@ describe.skipIf(skip)("admin alert and notification routes (ADR 0052)", () => {
 					.where("action", "=", "settings.notifications_updated")
 					.execute(),
 			).toEqual([]);
+		} finally {
+			await app.close();
+		}
+	});
+	test("a test site alert becomes one site-alert notification for each administrator, and is audited", async () => {
+		const app = server();
+		await app.ready();
+		try {
+			// A second, enabled administrator; a disabled one hears nothing.
+			const second = await as(app, "carol");
+			await testDb.db
+				.insertInto("users")
+				.values([
+					{
+						oidc_issuer: "urn:portikus:dex",
+						oidc_subject: "admin-two",
+						email: "two@example.edu",
+						display_name: "Admin Two",
+						role: "administrator",
+						disabled_at: null,
+					},
+					{
+						oidc_issuer: "urn:portikus:dex",
+						oidc_subject: "admin-gone",
+						email: "gone@example.edu",
+						display_name: "Admin Gone",
+						role: "administrator",
+						disabled_at: new Date().toISOString(),
+					},
+				])
+				.execute();
+			const res = await second("POST", "/admin/alerts/test-site-alert", {});
+			expect(res.statusCode).toBe(200);
+			expect(res.headers["cache-control"]).toBe("no-store");
+			const { title } = TestSiteAlertResponse.parse(res.json());
+			expect(title).toMatch(/^Test site alert sent at \d{2}:\d{2}:\d{2} UTC$/);
+
+			const rows = await testDb.db
+				.selectFrom("notifications")
+				.innerJoin("users", "users.id", "notifications.user_id")
+				.select([
+					"users.email",
+					"notifications.tone",
+					"notifications.title",
+					"notifications.body",
+					"notifications.site_alert",
+				])
+				.orderBy("users.email")
+				.execute();
+			expect(rows.map((r) => r.email)).toEqual([
+				"carol@example.edu",
+				"two@example.edu",
+			]);
+			for (const row of rows) {
+				expect(row).toMatchObject({ tone: "warning", title, site_alert: true });
+				expect(row.body).toContain("AI settings page");
+			}
+
+			const audit = await testDb.db
+				.selectFrom("audit_events")
+				.select(["actor", "target", "result", "metadata"])
+				.where("action", "=", "settings.alert_tested")
+				.execute();
+			expect(audit).toHaveLength(1);
+			expect(audit[0]).toMatchObject({
+				target: "site_alert",
+				result: "ok",
+				metadata: { kind: "site_alert", title },
+			});
+			expect(audit[0]?.actor).toMatch(/^user:/);
+			// Nothing goes straight to a channel; the worker forwards the rows.
+			expect(tunnels).toEqual([]);
+			expect(
+				(await second("POST", "/admin/alerts/test-site-alert", { extra: 1 }))
+					.statusCode,
+			).toBe(400);
+		} finally {
+			await app.close();
+		}
+	});
+
+	test("two test site alerts a second apart carry different titles", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const app = server();
+		try {
+			vi.setSystemTime(new Date("2026-11-18T14:03:27.400Z"));
+			await app.ready();
+			const call = await as(app, "carol");
+			const first = await call("POST", "/admin/alerts/test-site-alert");
+			vi.setSystemTime(new Date("2026-11-18T14:03:28.100Z"));
+			const second = await call("POST", "/admin/alerts/test-site-alert");
+			expect(TestSiteAlertResponse.parse(first.json()).title).toBe(
+				"Test site alert sent at 14:03:27 UTC",
+			);
+			expect(TestSiteAlertResponse.parse(second.json()).title).toBe(
+				"Test site alert sent at 14:03:28 UTC",
+			);
+			const titles = await testDb.db
+				.selectFrom("notifications")
+				.select("title")
+				.orderBy("title")
+				.execute();
+			expect(titles.map((r) => r.title)).toEqual([
+				"Test site alert sent at 14:03:27 UTC",
+				"Test site alert sent at 14:03:28 UTC",
+			]);
+		} finally {
+			vi.useRealTimers();
+			await app.close();
+		}
+	});
+
+	test("test site alerts share the channel test's limit for each administrator", async () => {
+		const app = server();
+		await app.ready();
+		try {
+			const call = await as(app, "carol");
+			for (let i = 0; i < TEST_ALERTS_PER_MINUTE - 1; i++) {
+				expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(200);
+			}
+			expect((await call("POST", "/admin/alerts/test-site-alert")).statusCode).toBe(
+				200,
+			);
+			const refused = await call("POST", "/admin/alerts/test-site-alert");
+			expect(refused.statusCode).toBe(429);
+			expect(refused.json()).toMatchObject({ code: "RATE_LIMITED" });
+			expect((await call("POST", "/admin/alerts/test")).statusCode).toBe(429);
+			expect(
+				await testDb.db.selectFrom("notifications").select("id").execute(),
+			).toHaveLength(1);
 		} finally {
 			await app.close();
 		}

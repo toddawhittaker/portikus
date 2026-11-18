@@ -422,6 +422,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /admin/logs/counts": { access: "admin" },
 	"HEAD /admin/logs/counts": { access: "admin" },
 	"POST /admin/alerts/test": { access: "admin" },
+	"POST /admin/alerts/test-site-alert": { access: "admin" },
 	"GET /admin/notifications": { access: "admin" },
 	"HEAD /admin/notifications": { access: "admin" },
 	"PUT /admin/notifications": { access: "admin" },
