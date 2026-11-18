@@ -169,9 +169,10 @@ else
   }
   check "a student can change the workspace timezone" set_zone
 
-  zone_term_id=$(new_terminal | json_field id)
+  zone_response=$(new_terminal)
+  zone_term_id=$(echo "$zone_response" | json_field id)
   if [ -z "$zone_term_id" ]; then
-    bad "POST /terminals for the zone check returned no id"
+    bad "POST /terminals for the zone check returned no id: ${zone_response}"
   else
     check "a terminal opened after the change runs in the chosen zone" \
       term_probe "$zone_term_id" "date +%Z" "$chosen_abbrev" - 30000
@@ -224,9 +225,10 @@ else
   # terminal open; the shell skips the .bashrc and says so.
   in_ws su -l student -c "'cp ~/.bashrc ~/.bashrc.smoke && echo exit >> ~/.bashrc \
         && echo \"set -g default-command exit\" > ~/.tmux.conf'" >/dev/null 2>&1
-  broken_id=$(new_terminal | json_field id)
+  broken_response=$(new_terminal)
+  broken_id=$(echo "$broken_response" | json_field id)
   if [ -z "$broken_id" ]; then
-    bad "POST /terminals with a broken ~/.bashrc returned no id"
+    bad "POST /terminals with a broken ~/.bashrc returned no id: ${broken_response}"
   else
     broken_a="BASHRC-${RANDOM}"
     broken_b="${RANDOM}"
@@ -252,6 +254,10 @@ else
   check_output "terminal socket keeps the deadline clear" "null" workspace_deadline
   sleep 25
   check_output "still running 25s on the terminal socket alone" "running" workspace_state
+  # The checks below leave gaps between their sockets longer than the 20 s
+  # grace period, which would stop the workspace part-way through, so
+  # presence comes back before the terminal socket goes.
+  open_socket
   ssh_cmd "touch ${TERM_STOP}"
   wait "$term_hold_pid" || true
   sleep 2
@@ -309,13 +315,15 @@ else
 
   # A terminal still open when the workspace stops is marked ended by
   # the worker (SPEC.md 9.7).
-  second_id=$(new_terminal | json_field id)
+  second_response=$(new_terminal)
+  second_id=$(echo "$second_response" | json_field id)
+  close_socket
   http_status alice "${API}/workspaces/${ws_id}/stop" "-X POST -H 'Origin: ${API}'" >/dev/null
   wait_for_state stopped 60 >/dev/null
   if [ -n "$second_id" ]; then
     check "open terminal is marked ended when the workspace stops" \
       ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT ended_at IS NOT NULL FROM terminals WHERE id = '${second_id}'\" | grep -qx t"
   else
-    bad "second POST /terminals returned no id"
+    bad "second POST /terminals returned no id: ${second_response}"
   fi
 fi
