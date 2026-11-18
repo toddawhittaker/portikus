@@ -322,7 +322,7 @@ test("a test site alert says what it does, then lands in the notifications list"
 	const group = page.getByTestId("ai-triage");
 	const button = group.getByRole("button", { name: SEND_TEST });
 	await expect(button).toHaveAccessibleDescription(
-		/notifications list.*explained if Explain alerts is on.*alert channels like a real alert.*explanation maximum/,
+		/notifications list.*explained if Explain alerts is on.*alert channels like a real alert.*Most explanations a day/,
 	);
 	const status = group.getByRole("status");
 	await expect(status).toHaveText("");

@@ -60,7 +60,7 @@ function TestSiteAlert() {
 			<p id={hintId} className="pk-muted m-0 max-w-[40rem] text-[13px]">
 				Adds a test warning to the notifications list. It is explained if Explain alerts
 				is on, and forwarded to the alert channels like a real alert. Each test counts
-				toward the day's explanation maximum.
+				toward Most explanations a day.
 			</p>
 			<div className="flex flex-wrap gap-2">
 				<Button
