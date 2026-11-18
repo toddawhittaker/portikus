@@ -3440,7 +3440,7 @@ Added by Epic 64: the admin and course pages share one page frame.
   guard and Workspace (with **Restore from backup…** and Rebuild); a
   workspace with a problem shows its guard part first and marks the
   Overview tab. **Activity** holds Processes, Ports and connections, the
-  Agent log and Recent audit. **Account** holds, in order: View this user's logs, Promote, Make
+  Agent log and Recent audit (which leaves out `api_key.used` rows; they stay in the Audit list). **Account** holds, in order: View this user's logs, Promote, Make
   instructor, Link a course account…, **Disable account**, then the
   Destructive group of **Reset Docker** and **Archive workspace**, the
   group hidden when neither applies. Each of Promote, Make instructor,
@@ -5884,7 +5884,10 @@ workspace's network address, or a name a workspace looked up.
   code. A request refused by the per-key rate limit (section 24.13)
   writes no `api_key.used` row; only the first refusal for each key in
   each minute is a warning log line, so this bends the rule that every
-  key request is audited. `assistant.used`, one row for each operation
+  key request is audited. An MCP tool call writes exactly one `api_key.used` row, naming the
+  operation it ran (including a `denied` row when the runner refuses it or the key is revoked
+  mid-call), not a second row for `POST /mcp`; MCP requests that run no operation keep their own
+  row. `assistant.used`, one row for each operation
   the built-in assistant runs as the signed-in person (section 20.4),
   with the operation name, the status, the refusal code if any and the
   result, never the inputs or the conversation. Every audit row also carries `via`
@@ -8314,6 +8317,23 @@ Acceptance:
 - a resource or prompt a role may not use is neither listed nor readable, and reading one changes nothing;
 - the setup conversation is refused for anyone but an administrator and asks for no secret, and a pasted secret is neither stored nor sent;
 - dollars are shown as an estimate from an exact price row, never used as a limit, and cached tokens are not charged twice.
+
+### Epic 71 — Test reliability fix batch
+
+Built on `epic/71-test-reliability`, issues #2098, #2125, #2126, #2045 and #2074. No migration. See sections 24.11 and 30 and STACK.md section 13.
+
+Includes:
+
+- unit tests that wait on gates, held timers and stand-ins instead of wall-clock bounds, with a longer timeout only where the work is real;
+- a CI package install that falls back to a second Ubuntu mirror when the first fails;
+- a smoke check that holds presence through its late terminal and chat checks, so the grace period cannot stop the workspace part-way through;
+- one `api_key.used` row for each MCP tool call, and a workspace detail whose recent activity leaves out `api_key.used` rows.
+
+Acceptance:
+
+- the changed unit tests pass repeatedly under heavy CPU load;
+- an MCP tool call, run or refused, writes exactly one `api_key.used` row naming its operation, and a request that runs no operation keeps its own row;
+- the full smoke check passes three times in a row on a fresh rehearsal host.
 
 ### Estimated total
 

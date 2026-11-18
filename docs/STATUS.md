@@ -92,6 +92,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 68, operation catalog, API keys and the MCP server.** A catalog of every API operation with a risk level, an OpenAPI document at `/openapi.json` built from it, API keys for administrators and instructors with read, write and destructive scopes and a renewable expiry, and an MCP server at `/mcp` so tools such as Claude Code can run the operations a key allows (ADRs 0077 to 0079, SPEC.md section 20.4).
 - **Epic 69, built-in AI.** An AI tab for an administrator's own provider key (sealed and write-only, with a privacy notice to accept and token limits), a table of model prices that a weekly check proposes changes to, and an assistant panel for administrators, and for instructors on the course page, that acts as the signed-in person with approval cards, one preview for bulk work, Diagnose buttons that read and explain, answers from the guides, and "Who is stuck?" for a course (ADRs 0080 and 0081, SPEC.md section 20.5).
 - **Epic 70, built-in AI extras.** Alert explanations (one tool-less model call per new administrator alert, behind its own switch, a daily limit and privacy notice version 2, optionally added to email and Pushover), a weekly summary notification for administrators, "Help me set this up" on the LMS and sign-in pages, MCP resources and prompts, an output price with a dollar estimate on the Agents tab, and refusal of assistant messages that look like secrets (ADR 0082, SPEC.md sections 20.4 and 20.5).
+- **Epic 71, test reliability fix batch.** Timing-sensitive unit tests that no longer fail under machine load, a fallback CI package mirror, a smoke check that no longer lets the workspace stop part-way through a run, and one audit row for each MCP tool call, which the workspace detail's recent activity leaves out (SPEC.md section 24.11).
 
 ## Open items
 
@@ -218,9 +219,9 @@ list was made and may already be fixed.
 
 ### Tests and docs
 
-- Some timing-dependent unit tests are flaky (#2098), and four more time out at 5 seconds on a busy machine (#2126).
-- A CI job fails when the Ubuntu package mirror cannot be reached; rerunning it passes (#2125).
-- Under heavy machine load some unit tests and chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
+- Under heavy machine load some chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
 - Two browser tests, `e2e/editor-schemes.spec.ts` (line 193) and `e2e/guard-settings.spec.ts` (line 125), failed even on retry in one run and passed when CI was rerun.
+- An MCP tool call whose inner request is refused by the key's rate limit (429) writes no audit row, matching direct rate-limited requests (accepted).
+- The rehearsal smoke still skips two checks: a packaged host has no `workspace.sh`, and the 2026.10.6 workspace image predates the Codex wait setting.
 - Nothing checks that the guides and the in-app Help agree, and the documentation images show scripted data.
 - The build script for `design/mockups/portikus-console.css` is not committed, so the file cannot be rebuilt from the repository (`design/README.md`).
