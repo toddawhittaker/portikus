@@ -75,7 +75,7 @@ goes away at the fold.
 
 | Task | Agent, model | Machine | Files it owns | Issues | Starts after | Playwright |
 |---|---|---|---|---|---|---|
-| T1 test site alert | builder, Opus medium | local | `apps/api/src/routes/admin-alerts.ts`, `apps/api/src/route-policy.ts`, `apps/api/src/rate-limit.ts` if needed, `apps/api/src/catalog/families/people.ts`, the matching contract in `packages/contracts`, `apps/web/src/admin/ai/TriageGroup.tsx`, `apps/web/src/admin/ai/queries.ts` (or the notifications queries file), their unit tests, `e2e/admin-ai.spec.ts` (or the AI settings spec that exists) | #2129 | none | yes |
+| T1 test site alert | builder, Opus medium | local | `apps/api/src/routes/admin-alerts.ts`, `apps/api/src/route-policy.ts`, `apps/api/src/rate-limit.ts` if needed, `apps/api/src/catalog/families/people.ts`, `packages/contracts/src/alerts.ts`, `apps/web/src/admin/ai/TriageGroup.tsx`, `apps/web/src/admin/ai/queries.ts`, their unit tests, `e2e/admin-ai-triage.spec.ts` | #2129 | none | yes |
 | T2 Playwright lines | builder, Sonnet high | desk | `apps/workspace-agent/agent-instructions.md`, `apps/workspace-controller/src/agent-instructions.test.ts` | #2109 | none | no |
 | T3 sign-in fixes | builder, Sonnet high | pve | `apps/api/src/account-email/tokens.ts`, `apps/api/src/routes/admin-dex-users.ts`, `apps/api/src/admin/users.ts` only if needed, their unit tests | #2140, #2141 | none | no (no visible change) |
 | T4 fold | builder, Sonnet high | local | `docs/STATUS.md`, `docs/SPEC.md` (section 29 entry; section 20.5 note on the test site alert; the agent-instructions note in section 4 if it lists their content), delete this plan | all four | T1 to T3 | no |
