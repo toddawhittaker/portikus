@@ -42,10 +42,10 @@ download_from() {
   # match the image and Signed-By still checks the Ubuntu archive key. Both
   # mirrors also carry the security pocket. A previous attempt's lists and
   # partial downloads are cleared so the retry starts clean.
-  sudo rm -rf "$work/sources" "$work/lists" "$work/archives"
-  mkdir -p "$work/sources" "$work/lists" "$work/archives"
+  sudo rm -rf "$work/sources" "$work/lists" "$work/archives" || return 1
+  mkdir -p "$work/sources" "$work/lists" "$work/archives" || return 1
   sed -E "s#^URIs:.*#URIs: $uri#" \
-    /etc/apt/sources.list.d/ubuntu.sources >"$work/sources/mirror.sources"
+    /etc/apt/sources.list.d/ubuntu.sources >"$work/sources/mirror.sources" || return 1
   # apt asks one host for its index files one after another, so a hung mirror
   # costs up to four files times (retries + 1) times the timeout; the timeout
   # keeps that bounded. Error-Mode=any makes update exit non-zero when any

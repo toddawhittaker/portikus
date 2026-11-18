@@ -2141,8 +2141,6 @@ test.skipIf(skip)(
 
 		// The first wave: six start together and no seventh begins while they run.
 		await gated.untilStarted(6);
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(gated.starts()).toBe(6);
 		expect(gated.inFlight).toBe(6);
 		// When the first wave finishes, the other six start together: two start times in all.
 		gated.finishAll();

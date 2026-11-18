@@ -100,9 +100,14 @@ test("many files at once produce a truncated frame of at most 200 paths", async 
 				writeFile(join(project, `file-${index}.txt`), "x"),
 			),
 		);
-		await vi.waitFor(() => expect(recorded.mock.calls.length).toBeGreaterThan(200), {
-			timeout: 20_000,
-		});
+		// Count distinct paths: one file can raise several events.
+		await vi.waitFor(
+			() =>
+				expect(
+					new Set(recorded.mock.calls.map((call) => call[1])).size,
+				).toBeGreaterThan(200),
+			{ timeout: 20_000 },
+		);
 		for (const flush of held.splice(0)) flush();
 		const truncated = events(frames).find((frame) => frame.truncated);
 		expect(truncated).toBeDefined();
