@@ -44,8 +44,6 @@ export const realSdk: ChatSdk = {
 /** A side question's answer, as Claude Code gives it. */
 interface SideAnswer {
 	response: string;
-	/** Claude Code made the answer itself rather than asking the model. */
-	synthetic: boolean;
 }
 
 /**
@@ -68,12 +66,9 @@ export function sideQuestionOf(session: Query): SideQuestion | null {
 	return async (question, options) => {
 		const answer: unknown = await ask.call(session, question, options);
 		if (answer === null || answer === undefined) return null;
-		const { response, synthetic } = answer as {
-			response?: unknown;
-			synthetic?: unknown;
-		};
+		const { response } = answer as { response?: unknown };
 		if (typeof response !== "string")
 			throw new Error("Claude Code gave no side answer.");
-		return { response, synthetic: synthetic === true };
+		return { response };
 	};
 }

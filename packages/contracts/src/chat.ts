@@ -597,11 +597,15 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 	}),
 	/**
 	 * The side conversation's events (SPEC.md §10.2), sent to every attachment.
-	 * Like a subagent frame it carries no `seq` of the chat's own.
+	 * Like a subagent frame it carries no `seq` of the chat's own. `ended`
+	 * marks the end of the conversation (closed, /clear, an agent swap, the
+	 * host stopping), whose event is an empty snapshot; the browser closes
+	 * the pane only on it. A replay or a first ask never sets it.
 	 */
 	z.object({
 		type: z.literal("side"),
 		sessionId: TerminalId,
+		ended: z.literal(true).optional(),
 		event: ChatSubagentEvent,
 	}),
 	z.object({ type: z.literal("error"), ...Envelope, message: z.string() }),

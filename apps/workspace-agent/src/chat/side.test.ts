@@ -1,7 +1,7 @@
 import type { ChatSubagentEvent, SideExchange } from "@portikus/contracts";
 import { MAX_CHAT_SIDE_TEXT_CHARS } from "@portikus/contracts";
 import { describe, expect, test, vi } from "vitest";
-import type { ChatAgent } from "./agent.js";
+import type { ChatAgent, SideEventBody } from "./agent.js";
 import {
 	SIDE_BUSY_MESSAGE,
 	SIDE_TOO_LONG_MESSAGE,
@@ -15,13 +15,13 @@ const ID = "00000000-0000-4000-8000-000000000001";
 interface Call {
 	text: string;
 	earlier: SideExchange[];
-	emit: (e: ChatSubagentEvent) => void;
+	emit: (e: SideEventBody) => void;
 	signal: AbortSignal;
 	finish: () => void;
 	fail: (error: Error) => void;
 }
 
-function setup(withSide = true, opensTurn = true) {
+function setup(withSide = true) {
 	const calls: Call[] = [];
 	const ended: number[] = [];
 	const agent = {
@@ -34,8 +34,6 @@ function setup(withSide = true, opensTurn = true) {
 						signal: AbortSignal,
 					) =>
 						new Promise<void>((resolve, reject) => {
-							if (opensTurn)
-								emit({ type: "turn.started", sessionId: "x", seq: 0, at: 1 });
 							calls.push({
 								text,
 								earlier,
@@ -59,14 +57,14 @@ function setup(withSide = true, opensTurn = true) {
 	});
 	const events = () =>
 		lines.map((line) => (JSON.parse(line) as { event: ChatSubagentEvent }).event);
-	return { side, calls, ended, lines, events };
+	const settled = () =>
+		vi.waitFor(() => expect(events().at(-1)?.type).toBe("turn.finished"));
+	return { side, calls, ended, lines, events, settled };
 }
 
 function answer(call: Call, markdown: string) {
 	call.emit({
 		type: "message",
-		sessionId: "x",
-		seq: 99,
 		id: "a",
 		role: "assistant",
 		markdown,
@@ -78,6 +76,9 @@ describe("sideCommand", () => {
 		expect(sideCommand("/btw")).toBe("open");
 		expect(sideCommand("  /btw   ")).toBe("open");
 		expect(sideCommand("/btw what is x?")).toEqual({ question: "what is x?" });
+		expect(sideCommand("/btw\nwhat is x?")).toEqual({ question: "what is x?" });
+		expect(sideCommand("/btw\twhat is\nx?")).toEqual({ question: "what is\nx?" });
+		expect(sideCommand("/btw\n")).toBe("open");
 		expect(sideCommand("/btwx")).toBeNull();
 		expect(sideCommand("hello /btw")).toBeNull();
 		expect(sideCommand("/clear")).toBeNull();
@@ -112,23 +113,29 @@ describe("a side conversation", () => {
 	});
 
 	test("one question at a time: a second ask is refused, not queued", async () => {
-		const { side, calls } = setup();
+		const { side, calls, events, settled } = setup();
 		side.ask("q1");
-		expect(() => side.ask("q2")).toThrow(SIDE_BUSY_MESSAGE);
+		side.ask("q2");
+		// The refusal is a side message, not a throw the core would put in the main chat.
+		expect(events().at(-1)).toMatchObject({
+			type: "message",
+			role: "assistant",
+			markdown: SIDE_BUSY_MESSAGE,
+		});
 		await vi.waitFor(() => expect(calls).toHaveLength(1));
 		calls[0]?.finish();
-		await vi.waitFor(() => expect(side.busy).toBe(false));
+		await settled();
 		expect(calls).toHaveLength(1);
 		side.ask("q3");
 		await vi.waitFor(() => expect(calls).toHaveLength(2));
 	});
 
 	test("the next question gets the earlier exchanges", async () => {
-		const { side, calls } = setup();
+		const { side, calls, settled } = setup();
 		side.ask("q1");
 		answer(calls[0] as Call, "a1");
 		calls[0]?.finish();
-		await vi.waitFor(() => expect(side.busy).toBe(false));
+		await settled();
 		side.ask("q2");
 		expect(calls[1]?.earlier).toEqual([{ question: "q1", answer: "a1" }]);
 	});
@@ -151,67 +158,50 @@ describe("a side conversation", () => {
 		expect(calls[1]?.earlier).toEqual([]);
 	});
 
-	test("a driver error shows as the answer and a failed turn", async () => {
-		const { side, calls, events } = setup();
+	test("a driver error shows as the answer, before the failed turn closes", async () => {
+		const { side, calls, events, settled } = setup();
 		side.ask("q1");
+		answer(calls[0] as Call, "part");
 		calls[0]?.fail(new Error("Claude Code is too old."));
-		await vi.waitFor(() =>
-			expect(events().at(-1)).toMatchObject({ type: "turn.finished", status: "error" }),
-		);
-		expect(events().at(-2)).toMatchObject({
-			role: "assistant",
-			markdown: "Claude Code is too old.",
-		});
-	});
-
-	test("relays the driver's turn events, with the question just inside the turn", async () => {
-		const { side, calls, events } = setup();
-		side.ask("q1");
-		answer(calls[0] as Call, "a1");
-		calls[0]?.emit({
-			type: "turn.finished",
-			sessionId: ID,
-			seq: 7,
-			status: "done",
-			at: 1,
-		});
-		calls[0]?.finish();
-		await vi.waitFor(() => expect(side.busy).toBe(false));
+		await settled();
 		expect(events().map((e) => e.type)).toEqual([
 			"snapshot",
 			"turn.started",
 			"message",
 			"message",
-			"turn.finished",
-		]);
-	});
-
-	test("a driver that rejects after closing its turn gets no second close", async () => {
-		const { side, calls, events } = setup();
-		side.ask("q1");
-		calls[0]?.emit({
-			type: "turn.finished",
-			sessionId: ID,
-			seq: 1,
-			status: "error",
-			at: 1,
-		});
-		calls[0]?.fail(new Error("broke"));
-		await vi.waitFor(() => expect(side.busy).toBe(false));
-		expect(events().filter((e) => e.type === "turn.finished")).toHaveLength(1);
-		expect(events().at(-1)).toMatchObject({ role: "assistant", markdown: "broke" });
-	});
-
-	test("a driver that never opened a turn still shows the question and a closed turn", async () => {
-		const { side, calls, events } = setup(true, false);
-		side.ask("q1");
-		calls[0]?.finish();
-		await vi.waitFor(() => expect(side.busy).toBe(false));
-		expect(events().map((e) => e.type)).toEqual([
-			"snapshot",
 			"message",
 			"turn.finished",
 		]);
+		expect(events().at(-2)).toMatchObject({
+			role: "assistant",
+			markdown: "Claude Code is too old.",
+		});
+		expect(events().at(-1)).toMatchObject({ status: "error" });
+	});
+
+	test("an error without a message shows the general failure", async () => {
+		const { side, calls, events, settled } = setup();
+		side.ask("q1");
+		calls[0]?.fail(new Error(""));
+		await settled();
+		expect(events().at(-2)).toMatchObject({
+			markdown: expect.stringMatching(/did not get an answer/),
+		});
+		// A failed question is not an exchange to carry on from.
+		side.ask("q2");
+		expect(calls[1]?.earlier).toEqual([]);
+	});
+
+	test("the core opens the turn and shows the question before the driver answers", () => {
+		const { side, calls, events } = setup();
+		side.ask("q1");
+		expect(calls).toHaveLength(1);
+		expect(events().map((e) => e.type)).toEqual([
+			"snapshot",
+			"turn.started",
+			"message",
+		]);
+		expect(events()[2]).toMatchObject({ role: "user", markdown: "q1" });
 	});
 
 	test("end forgets everything, calls endSide, tells attachments, and drops a late answer", async () => {
@@ -237,6 +227,18 @@ describe("a side conversation", () => {
 		expect(events()).toHaveLength(count);
 	});
 
+	test("an end while the question is still starting sends the empty snapshot and calls endSide", async () => {
+		const { side, calls, ended, events } = setup();
+		side.ask("q1");
+		expect(calls).toHaveLength(1);
+		await side.end();
+		expect(ended).toHaveLength(1);
+		expect(events().at(-1)).toMatchObject({ type: "snapshot", turnRunning: false });
+		calls[0]?.fail(new Error("late"));
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(events().at(-1)).toMatchObject({ type: "snapshot" });
+	});
+
 	test("replay is a snapshot showing whether a question runs, then every event", async () => {
 		const { side, calls } = setup();
 		expect(side.replay()).toEqual([]);
@@ -252,10 +254,38 @@ describe("a side conversation", () => {
 		expect(replayed[0]).toMatchObject({ turnRunning: true });
 	});
 
-	test("refuses without a driver that answers, and over-long text", () => {
-		expect(() => setup(false).side.ask("q")).toThrow(SIDE_UNAVAILABLE_MESSAGE);
-		expect(() => setup().side.ask("x".repeat(MAX_CHAT_SIDE_TEXT_CHARS + 1))).toThrow(
-			SIDE_TOO_LONG_MESSAGE,
-		);
+	test("refuses without a driver that answers, and over-long text, in side frames outside any turn", () => {
+		const none = setup(false);
+		none.side.ask("q");
+		expect(none.events().map((e) => e.type)).toEqual(["snapshot", "message"]);
+		expect(none.events()[1]).toMatchObject({ markdown: SIDE_UNAVAILABLE_MESSAGE });
+		const long = setup();
+		long.side.ask("x".repeat(MAX_CHAT_SIDE_TEXT_CHARS + 1));
+		expect(long.calls).toEqual([]);
+		expect(long.events().map((e) => e.type)).toEqual(["snapshot", "message"]);
+		expect(long.events()[1]).toMatchObject({ markdown: SIDE_TOO_LONG_MESSAGE });
+		// A refusal is not a question to carry on from.
+		long.side.ask("short");
+		expect(long.calls[0]?.earlier).toEqual([]);
+	});
+
+	test("only the end of the conversation is marked ended", async () => {
+		const { side, calls, lines } = setup();
+		side.ask("q1");
+		answer(calls[0] as Call, "a1");
+		const frames = () => lines.map((line) => JSON.parse(line));
+		expect(frames().some((frame) => "ended" in frame)).toBe(false);
+		expect(side.replay().some((line) => "ended" in JSON.parse(line))).toBe(false);
+		await side.end();
+		expect(frames().at(-1)).toMatchObject({
+			type: "side",
+			sessionId: ID,
+			ended: true,
+			event: { type: "snapshot", seq: 0, turnRunning: false, cards: [] },
+		});
+		expect(frames().filter((frame) => frame.ended)).toHaveLength(1);
+		// The next conversation's first ask is not an end.
+		side.ask("q2");
+		expect(frames().at(-1)).not.toHaveProperty("ended");
 	});
 });

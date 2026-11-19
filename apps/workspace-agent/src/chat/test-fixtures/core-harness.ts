@@ -3,11 +3,16 @@ import type {
 	ChatClientMessage,
 	ChatOpenCard,
 	ChatServerEvent,
-	ChatSubagentEvent,
 	SideExchange,
 } from "@portikus/contracts";
 import { expect, vi } from "vitest";
-import type { ChatAgent, ChatEventBody, ChatSink, ContextFigures } from "../agent.js";
+import type {
+	ChatAgent,
+	ChatEventBody,
+	ChatSink,
+	ContextFigures,
+	SideEventBody,
+} from "../agent.js";
 import type { Handoff } from "../handoff.js";
 import { readLines } from "../wire.js";
 
@@ -36,7 +41,7 @@ export class FakeAgent implements ChatAgent {
 	sideCalls: {
 		text: string;
 		earlier: SideExchange[];
-		emit: (e: ChatSubagentEvent) => void;
+		emit: (e: SideEventBody) => void;
 		signal: AbortSignal;
 		finish: () => void;
 	}[] = [];
@@ -46,7 +51,6 @@ export class FakeAgent implements ChatAgent {
 		return (text, earlier, emit, signal) =>
 			new Promise<void>((finish) => {
 				this.calls.push(["askSide", text]);
-				emit({ type: "turn.started", sessionId: "x", seq: 0, at: Date.now() });
 				this.sideCalls.push({ text, earlier, emit, signal, finish });
 			});
 	}
