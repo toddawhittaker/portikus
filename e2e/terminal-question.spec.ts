@@ -188,11 +188,12 @@ test("Answer in the terminal hands the question back; Escape does not", async ({
 	await expect(shell(page, terminalId)).toBeFocused();
 });
 
-test("an answer that comes too late says so and clears the card", async ({
-	page,
-	context,
-}) => {
-	const { workspaceId, terminalId } = await openTerminal(page, context);
+/** Answer a question after Claude Code stopped waiting for it, so the notice shows. */
+async function answerTooLate(
+	page: Page,
+	workspaceId: string,
+	terminalId: string,
+): Promise<void> {
 	await setQuestion(workspaceId, terminalId, QUESTION);
 	await expect(card(page)).toBeVisible();
 	// Claude Code stops waiting before the page hears of it.
@@ -200,14 +201,71 @@ test("an answer that comes too late says so and clears the card", async ({
 	await setQuestion(workspaceId, terminalId, null);
 	await page.getByRole("radio", { name: "PostgreSQL" }).check();
 	await page.getByRole("button", { name: /Submit/ }).click();
+}
+
+test("an answer that comes too late says so, clears the card, and the notice stays", async ({
+	page,
+	context,
+}) => {
+	const { workspaceId, terminalId } = await openTerminal(page, context);
+	await answerTooLate(page, workspaceId, terminalId);
 
 	const gone = page.getByTestId(`terminal-question-gone-${terminalId}`);
-	await expect(gone).toHaveText("Answered in the terminal or timed out");
+	await expect(gone).toContainText("Answered in the terminal or timed out");
+	// The notice sits inside the pane's polite status region, so it is spoken.
+	await expect(page.getByRole("status").filter({ has: gone })).toHaveCount(1);
 	await expect(card(page)).toHaveCount(0);
 	await expect(shell(page, terminalId)).toBeFocused();
 	expect(await forwarded(workspaceId)).toEqual([]);
-	await expect(gone).toHaveCount(0, { timeout: 10_000 });
+	// Well past the old four-second timer.
+	await page.waitForTimeout(6000);
+	await expect(gone).toBeVisible();
 });
+
+test("the close button removes the notice and the keyboard goes back to the terminal", async ({
+	page,
+	context,
+}) => {
+	const { workspaceId, terminalId } = await openTerminal(page, context);
+	await answerTooLate(page, workspaceId, terminalId);
+	const gone = page.getByTestId(`terminal-question-gone-${terminalId}`);
+	await expect(gone).toBeVisible();
+
+	await gone.getByRole("button", { name: "Dismiss notice" }).focus();
+	await page.keyboard.press("Enter");
+	await expect(gone).toHaveCount(0);
+	await expect(shell(page, terminalId)).toBeFocused();
+});
+
+test("a new question replaces the notice", async ({ page, context }) => {
+	const { workspaceId, terminalId } = await openTerminal(page, context);
+	await answerTooLate(page, workspaceId, terminalId);
+	const gone = page.getByTestId(`terminal-question-gone-${terminalId}`);
+	await expect(gone).toBeVisible();
+
+	await holdStates(workspaceId, false);
+	await setQuestion(workspaceId, terminalId, { ...QUESTION, id: "toolu_e2e_second" });
+	await expect(card(page)).toBeVisible();
+	await expect(gone).toHaveCount(0);
+});
+
+for (const colorScheme of ["dark", "light"] as const) {
+	test(`the notice has no axe violations (${colorScheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		const { workspaceId, terminalId } = await openTerminal(page, context);
+		await answerTooLate(page, workspaceId, terminalId);
+		await expect(
+			page.getByTestId(`terminal-question-gone-${terminalId}`),
+		).toBeVisible();
+		await expectNoViolations(
+			page,
+			`[data-testid="terminal-question-gone-${terminalId}"]`,
+		);
+	});
+}
 
 test("an answer that cannot be sent says so and keeps the question", async ({
 	page,

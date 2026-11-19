@@ -9,7 +9,7 @@ import type {
 	TerminalQuestionAnswer,
 	TerminalQuestion as WaitingQuestion,
 } from "@portikus/contracts";
-import { Button, useToast } from "@portikus/ui";
+import { Button, IconButton, useToast } from "@portikus/ui";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../api/request.js";
 import { answerTerminalQuestion } from "../api/workspace.js";
@@ -25,7 +25,16 @@ const QuestionCard = lazy(() =>
 
 /** Shown when the answer arrives after Claude Code stopped waiting for it. */
 export const QUESTION_GONE = "Answered in the terminal or timed out";
-const GONE_MS = 4000;
+
+/** Hands the keyboard to the terminal that holds the node, when the node holds it. */
+function returnFocusToTerminal(node: HTMLElement | null) {
+	if (!node?.contains(document.activeElement)) return;
+	// xterm.js takes the keyboard through this hidden field.
+	node
+		.closest(".pk-term")
+		?.querySelector<HTMLElement>(".xterm-helper-textarea")
+		?.focus({ preventScroll: true });
+}
 
 /**
  * What a new question does about the keyboard: the card takes it from this
@@ -75,6 +84,8 @@ export function TerminalQuestion({
 	const agentKind = agent?.agent;
 	const agentName = agent?.name;
 	useEffect(() => {
+		// The notice is about the last question, so the next one replaces it.
+		if (shownId !== null) setGone(false);
 		if (shownId === null) {
 			decided.current = null;
 			setAnnouncement("");
@@ -93,12 +104,6 @@ export function TerminalQuestion({
 				: "",
 		);
 	}, [shownId, visible, agentKind, agentName]);
-
-	useEffect(() => {
-		if (!gone) return;
-		const timer = setTimeout(() => setGone(false), GONE_MS);
-		return () => clearTimeout(timer);
-	}, [gone]);
 
 	async function send(answer: TerminalQuestionAnswer) {
 		if (sending) return;
@@ -150,15 +155,31 @@ export function TerminalQuestion({
 					</span>
 				) : null}
 				{gone ? (
-					<p
-						className="pk-term-flag pk-term-question-gone"
-						data-testid={`terminal-question-gone-${terminalId}`}
-					>
-						{QUESTION_GONE}
-					</p>
+					<GoneNotice
+						testId={`terminal-question-gone-${terminalId}`}
+						onClose={() => setGone(false)}
+					/>
 				) : null}
 			</div>
 		</>
+	);
+}
+
+/** Stays until the student closes it or the next question arrives. */
+function GoneNotice({ testId, onClose }: { testId: string; onClose: () => void }) {
+	const box = useRef<HTMLParagraphElement | null>(null);
+
+	// Runs before the notice leaves the page, so a closed notice never strands focus.
+	useLayoutEffect(() => {
+		const node = box.current;
+		return () => returnFocusToTerminal(node);
+	}, []);
+
+	return (
+		<p ref={box} className="pk-term-flag pk-term-question-gone" data-testid={testId}>
+			{QUESTION_GONE}
+			<IconButton icon="x" size="sm" label="Dismiss notice" onClick={onClose} />
+		</p>
 	);
 }
 
@@ -180,14 +201,7 @@ function QuestionOverlay({
 	// Runs before the card leaves the page, while it still holds focus.
 	useLayoutEffect(() => {
 		const node = box.current;
-		return () => {
-			if (!node?.contains(document.activeElement)) return;
-			// xterm.js takes the keyboard through this hidden field.
-			node
-				.closest(".pk-term")
-				?.querySelector<HTMLElement>(".xterm-helper-textarea")
-				?.focus({ preventScroll: true });
-		};
+		return () => returnFocusToTerminal(node);
 	}, []);
 
 	/** Take the keyboard only from this pane's terminal or from nowhere. */
