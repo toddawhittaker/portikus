@@ -9,11 +9,12 @@
  * polite status says how many matched. A command only the agent's terminal
  * can run is shown dimmed and never sent. `/model`, `/effort`,
  * `/permissions` and `/mcp` open their place in Chat options for either
- * agent instead of being sent.
+ * agent instead of being sent, and `/btw`, when the host lists it, opens
+ * the side pane (SPEC.md §10.2).
  */
 import type { ChatCommand } from "@portikus/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChatState } from "./chatStore.js";
+import { type ChatState, SIDE_COMMAND } from "./chatStore.js";
 import type { ComposerMenu } from "./composerEditor.js";
 import { searchFileNames } from "./fileNameSearch.js";
 
@@ -34,6 +35,15 @@ export function controlFor(text: string): string | undefined {
 	return Object.hasOwn(CONTROLS, text.slice(1))
 		? CONTROLS[text.slice(1)]?.testId
 		: undefined;
+}
+
+/**
+ * The question in a typed `/btw`: "" for the bare command, null when the
+ * text is not one (SPEC.md §10.2).
+ */
+export function sideQuestion(text: string): string | null {
+	const match = new RegExp(`^/${SIDE_COMMAND}(?:\\s+([\\s\\S]*))?$`).exec(text.trim());
+	return match ? (match[1] ?? "").trim() : null;
 }
 
 /** The slash commands the host listed in its `commands` event. */
@@ -57,6 +67,8 @@ export interface MenuOption {
 	note?: string;
 	/** The picker that does a terminal-only command's job. */
 	control?: string;
+	/** `/btw`, which opens the side pane instead of going in the box. */
+	side?: true;
 }
 
 /** Commands whose name starts with the query first, then those that contain it. */
@@ -86,6 +98,8 @@ export function matchCommands(
 		};
 		if (control)
 			return { ...base, insert: null, note: control.note, control: control.testId };
+		if (prefix === "/" && one.name === SIDE_COMMAND)
+			return { ...base, insert: null, side: true as const };
 		if (one.terminalOnly) return { ...base, insert: null, note: "Use the terminal" };
 		return { ...base, insert: named };
 	});
@@ -270,47 +284,48 @@ export function ComposerCommandMenu({
 						className="pk-composer-menu-list"
 						hidden={empty}
 					>
-						{model.options.map((option, index) => (
-							// The editor is the combobox and keeps focus; it moves through these
-							// by aria-activedescendant, so they take no focus or keys (SPEC.md §25.8).
-							// biome-ignore lint/a11y/useFocusableInteractive: the editor holds focus for the list
-							// biome-ignore lint/a11y/useKeyWithClickEvents: keys reach the list through the editor
-							<div
-								key={option.key}
-								id={optionId(listId, index)}
-								role="option"
-								aria-selected={index === model.active}
-								aria-disabled={
-									option.insert === null && !option.control ? true : undefined
-								}
-								aria-label={option.name}
-								className={`pk-composer-option${option.insert === null && !option.control ? " is-blocked" : ""}`}
-								data-testid="composer-menu-option"
-								// The editor keeps focus, so the list never takes the keyboard.
-								onMouseDown={(event) => event.preventDefault()}
-								onMouseMove={() => {
-									if (index !== model.active) model.setActive(index);
-								}}
-								onClick={() => onChoose(index)}
-							>
-								<span className="pk-composer-option-head">
-									<span className="pk-composer-option-label">{option.label}</span>
-									{option.hint ? (
-										<span className="pk-composer-option-hint">{option.hint}</span>
-									) : null}
-								</span>
-								{option.detail || option.note ? (
-									<span className="pk-composer-option-detail">
-										{option.detail}
-										{/* Where the command works instead, read with what it does. */}
-										{option.detail && option.note ? " · " : null}
-										{option.note ? (
-											<span className="pk-composer-option-note">{option.note}</span>
+						{model.options.map((option, index) => {
+							const blocked = option.insert === null && !option.control && !option.side;
+							return (
+								// The editor is the combobox and keeps focus; it moves through these
+								// by aria-activedescendant, so they take no focus or keys (SPEC.md §25.8).
+								// biome-ignore lint/a11y/useFocusableInteractive: the editor holds focus for the list
+								// biome-ignore lint/a11y/useKeyWithClickEvents: keys reach the list through the editor
+								<div
+									key={option.key}
+									id={optionId(listId, index)}
+									role="option"
+									aria-selected={index === model.active}
+									aria-disabled={blocked ? true : undefined}
+									aria-label={option.name}
+									className={`pk-composer-option${blocked ? " is-blocked" : ""}`}
+									data-testid="composer-menu-option"
+									// The editor keeps focus, so the list never takes the keyboard.
+									onMouseDown={(event) => event.preventDefault()}
+									onMouseMove={() => {
+										if (index !== model.active) model.setActive(index);
+									}}
+									onClick={() => onChoose(index)}
+								>
+									<span className="pk-composer-option-head">
+										<span className="pk-composer-option-label">{option.label}</span>
+										{option.hint ? (
+											<span className="pk-composer-option-hint">{option.hint}</span>
 										) : null}
 									</span>
-								) : null}
-							</div>
-						))}
+									{option.detail || option.note ? (
+										<span className="pk-composer-option-detail">
+											{option.detail}
+											{/* Where the command works instead, read with what it does. */}
+											{option.detail && option.note ? " · " : null}
+											{option.note ? (
+												<span className="pk-composer-option-note">{option.note}</span>
+											) : null}
+										</span>
+									) : null}
+								</div>
+							);
+						})}
 					</div>
 					{empty || model.truncated ? (
 						<p className="pk-composer-menu-note" data-testid="composer-menu-note">

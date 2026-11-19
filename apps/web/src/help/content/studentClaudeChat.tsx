@@ -193,6 +193,17 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					as "Started in the background", with its state, on its card.
 				</li>
 				<li>
+					To ask a quick question without disturbing the chat, type{" "}
+					<code className="pk-mono-body">/btw</code>, alone or followed by your
+					question. A side conversation opens beside the chat (under it when the pane is
+					narrow), titled "Side:" and the chat's name. Claude answers from what the chat
+					already knows, even while it is working, without tools, so it changes no
+					files, and nothing you ask there joins the chat. Ask one question at a time;
+					Stop ends the one running. A reload keeps the side conversation. Closing it
+					forgets it, and so do <code className="pk-mono-body">/clear</code>, switching
+					agents and stopping your workspace. Drag the line between them to resize.
+				</li>
+				<li>
 					A chat zooms on its own, from 50% to 300%: hold{" "}
 					<kbd className="pk-mono-body">Ctrl</kbd> (
 					<kbd className="pk-mono-body">Cmd</kbd> on a Mac) and turn the wheel over it,

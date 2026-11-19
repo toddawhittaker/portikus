@@ -4,15 +4,17 @@
  * and the composer at the bottom. Cards and the turn's state are announced
  * politely (SPEC.md §25.8); no ticking time is. A card never takes the
  * keyboard from where the student is typing: an Enter meant for a message
- * must not grant a permission.
+ * must not grant a permission. `/btw` opens the side conversation in a
+ * split beside it (SPEC.md §10.2), which the saved layout never holds.
  */
 import {
 	type ChatOpenCard,
 	CODING_AGENT_LABEL,
 	type CodingAgent,
+	MAX_CHAT_SIDE_TEXT_CHARS,
 	Terminal,
 } from "@portikus/contracts";
-import { IconButton, Skeleton } from "@portikus/ui";
+import { IconButton, PaneHandle, Skeleton } from "@portikus/ui";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import {
 	useCallback,
@@ -23,14 +25,17 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
+import { Group, Panel } from "react-resizable-panels";
 import { useStore } from "zustand";
-import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
+import { agentTabName, CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { sendJson } from "../api/request.js";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { LayoutStoreContext } from "../layout/store.js";
 import { layoutTerminalIds, tabOfPane } from "../layout/tree.js";
 import { useProjects } from "../projects/queries.js";
+import { useAgentStatusStore } from "../terminal/codingAgentStatus.js";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { useTerminals } from "../terminal/useTerminals.js";
 import { speakingId, stop as stopReading } from "../voice/speak.js";
@@ -53,6 +58,13 @@ import {
 } from "./readAloud.js";
 import { useToolReveal } from "./revealTool.js";
 import { SessionRules } from "./SessionRules.js";
+import {
+	SIDE_BUSY,
+	SIDE_NOT_SENT,
+	SidePanel,
+	type SidePanelHandle,
+	sideTooLong,
+} from "./SidePanel.js";
 import { SignInBanner } from "./SignInBanner.js";
 import { SubagentPanel } from "./SubagentPanel.js";
 import {
@@ -128,6 +140,37 @@ const CONNECTION_TEXT: Partial<Record<ChatState["connection"], string>> = {
 };
 
 const COMPOSER_BOX = '.pk-chat-composer [role="combobox"]';
+
+/** Below this width the side conversation sits under the chat, not beside it. */
+const SIDE_BESIDE_PX = 640;
+
+const NO_SUBSCRIBE = () => () => {};
+
+/** The chat's name as the project list shows it: its title, or its agent's tab name. */
+function useChatName(terminalId: string, agent: CodingAgent): string {
+	const status = useAgentStatusStore();
+	return useSyncExternalStore(status ? status.subscribe : NO_SUBSCRIBE, () => {
+		const row = status
+			?.getSnapshot()
+			.terminals.find((one) => one.terminalId === terminalId);
+		return row?.title ?? agentTabName(agent, "chat");
+	});
+}
+
+/** Whether the chat is wide enough to put the side conversation beside it. */
+function useWide(element: React.RefObject<HTMLElement | null>): boolean {
+	const [wide, setWide] = useState(true);
+	useLayoutEffect(() => {
+		const box = element.current;
+		if (!box || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(([entry]) => {
+			if (entry) setWide(entry.contentRect.width >= SIDE_BESIDE_PX);
+		});
+		observer.observe(box);
+		return () => observer.disconnect();
+	}, [element]);
+	return wide;
+}
 
 /** Ways into a new chat; a click puts one in the message box to edit, never sends it. */
 const STARTERS = [
@@ -426,6 +469,35 @@ function ChatViewBody({
 		[state.cards],
 	);
 
+	const chatName = useChatName(terminalId, agentOf(state));
+	const wide = useWide(root);
+	const side = useRef<SidePanelHandle | null>(null);
+	/** Times the student opened the side pane, so its box takes the keyboard; a replay on reload does not. */
+	const [sideAsked, setSideAsked] = useState(0);
+	const sideFocused = useRef(0);
+	useLayoutEffect(() => {
+		if (!state.sideOpen || sideAsked === sideFocused.current) return;
+		sideFocused.current = sideAsked;
+		side.current?.focus();
+	}, [state.sideOpen, sideAsked]);
+
+	/** `/btw` from the composer: open the side pane, asking its question if there is one. */
+	function openSide(question: string): string | null {
+		const now = store.getState();
+		if (question.length > MAX_CHAT_SIDE_TEXT_CHARS) return sideTooLong(question.length);
+		const busy = now.sideWaiting || (now.side?.currentTurnId ?? null) !== null;
+		if (question !== "" && busy) return SIDE_BUSY;
+		if (question !== "" && !now.askSide(question)) return SIDE_NOT_SENT;
+		if (!now.openSide()) return SIDE_NOT_SENT;
+		setSideAsked((times) => times + 1);
+		return null;
+	}
+
+	function closeSide() {
+		store.getState().endSide();
+		focusComposer();
+	}
+
 	// Opening a chat from the launcher puts the keyboard in its message box.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only as the chat first appears
 	useEffect(() => {
@@ -534,131 +606,164 @@ function ChatViewBody({
 					onLeave();
 				}}
 			>
-				<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
-					<div
-						ref={log}
-						className="pk-chat-scroll"
-						data-testid="chat-scroll"
-						onScroll={follow.onScroll}
-						// The subagent card floats over the log; the keyboard stays out from behind it.
-						inert={subagent !== null}
-					>
-						<div ref={content} className="pk-chat-column">
-							{!state.loaded ? (
-								<div className="pk-chat-loading" data-testid="chat-loading">
-									<span className="sr-only">Loading the conversation…</span>
-									<Skeleton lines={3} width="60%" />
-								</div>
-							) : state.items.length === 0 && state.currentTurnId === null ? (
-								<div className="pk-chat-empty" data-testid="chat-empty">
-									<p className="pk-chat-empty-title">No messages yet</p>
-									<p className="pk-chat-muted">
-										Ask {program} about this project below, or start from one of these.
-										The conversation is kept in your workspace, not by Portikus.
-									</p>
-									<ul className="pk-chat-starters">
-										{STARTERS.map((starter) => (
-											<li key={starter}>
-												<button
-													type="button"
-													className="pk-chat-starter pk-focus-ring"
-													onClick={() => fillComposer(starter)}
-												>
-													{starter}
-												</button>
-											</li>
-										))}
-									</ul>
-								</div>
-							) : (
-								<SubagentOpenerContext.Provider value={openSubagent}>
-									<FreshStartContext.Provider value={freshStart}>
-										<MessageList
-											items={state.items}
-											turns={state.turns}
-											currentTurnId={state.currentTurnId}
-											truncated={state.truncated}
-											asking={asking}
-											opener={opener}
-										/>
-									</FreshStartContext.Provider>
-								</SubagentOpenerContext.Provider>
-							)}
-						</div>
-					</div>
-					{subagent ? (
-						<SubagentPanel
-							chat={store}
-							target={subagent}
-							opener={opener}
-							onClose={() => setSubagent(null)}
-						/>
-					) : null}
-					{follow.away && !subagent ? (
-						<div className="pk-chat-jump">
-							<IconButton
-								icon="chevron-down"
-								label="Jump to latest"
-								variant="secondary"
-								className="pk-chat-jump-button"
-								data-testid="chat-jump"
-								data-fresh={follow.fresh || undefined}
-								aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
-								onClick={jumpToLatest}
-							/>
-							{follow.fresh ? (
-								<>
-									<span className="pk-chat-jump-dot" aria-hidden={true} />
-									<span id={`${ids}-fresh`} className="sr-only">
-										Something new arrived below
-									</span>
-								</>
-							) : null}
-						</div>
-					) : null}
-				</div>
-				<p
-					className="pk-chat-notice"
-					role="status"
-					aria-live="polite"
-					data-testid="chat-connection"
+				<Group
+					className={`pk-split pk-chat-split${wide ? "" : " is-stacked"}`}
+					orientation={wide ? "horizontal" : "vertical"}
 				>
-					{notice}
-				</p>
-				<CardDock
-					store={store}
-					state={state}
-					takeFocus={takeFocus}
-					takeReviewFocus={takeReviewFocus}
-					onFocus={() => {
-						cardsHadFocus.current = true;
-					}}
-				/>
-				<SessionRules store={store} />
-				<div className="pk-chat-composer">
-					{state.signIn === "signedOut" && state.settings ? (
-						<SignInBanner
-							store={store}
-							agent={state.settings.agent}
-							onOpenTerminal={
-								openAgentTerminal
-									? () => {
-											const agent = state.settings?.agent;
-											if (agent) void openAgentTerminal(agent);
+					<Panel id={`chat-${terminalId}`} className="pk-split-panel" minSize="30%">
+						<div className="pk-chat-body">
+							<div className="pk-chat-main" data-subagent={subagent ? "" : undefined}>
+								<div
+									ref={log}
+									className="pk-chat-scroll"
+									data-testid="chat-scroll"
+									onScroll={follow.onScroll}
+									// The subagent card floats over the log; the keyboard stays out from behind it.
+									inert={subagent !== null}
+								>
+									<div ref={content} className="pk-chat-column">
+										{!state.loaded ? (
+											<div className="pk-chat-loading" data-testid="chat-loading">
+												<span className="sr-only">Loading the conversation…</span>
+												<Skeleton lines={3} width="60%" />
+											</div>
+										) : state.items.length === 0 && state.currentTurnId === null ? (
+											<div className="pk-chat-empty" data-testid="chat-empty">
+												<p className="pk-chat-empty-title">No messages yet</p>
+												<p className="pk-chat-muted">
+													Ask {program} about this project below, or start from one of
+													these. The conversation is kept in your workspace, not by
+													Portikus.
+												</p>
+												<ul className="pk-chat-starters">
+													{STARTERS.map((starter) => (
+														<li key={starter}>
+															<button
+																type="button"
+																className="pk-chat-starter pk-focus-ring"
+																onClick={() => fillComposer(starter)}
+															>
+																{starter}
+															</button>
+														</li>
+													))}
+												</ul>
+											</div>
+										) : (
+											<SubagentOpenerContext.Provider value={openSubagent}>
+												<FreshStartContext.Provider value={freshStart}>
+													<MessageList
+														items={state.items}
+														turns={state.turns}
+														currentTurnId={state.currentTurnId}
+														truncated={state.truncated}
+														asking={asking}
+														opener={opener}
+													/>
+												</FreshStartContext.Provider>
+											</SubagentOpenerContext.Provider>
+										)}
+									</div>
+								</div>
+								{subagent ? (
+									<SubagentPanel
+										chat={store}
+										target={subagent}
+										opener={opener}
+										onClose={() => setSubagent(null)}
+									/>
+								) : null}
+								{follow.away && !subagent ? (
+									<div className="pk-chat-jump">
+										<IconButton
+											icon="chevron-down"
+											label="Jump to latest"
+											variant="secondary"
+											className="pk-chat-jump-button"
+											data-testid="chat-jump"
+											data-fresh={follow.fresh || undefined}
+											aria-describedby={follow.fresh ? `${ids}-fresh` : undefined}
+											onClick={jumpToLatest}
+										/>
+										{follow.fresh ? (
+											<>
+												<span className="pk-chat-jump-dot" aria-hidden={true} />
+												<span id={`${ids}-fresh`} className="sr-only">
+													Something new arrived below
+												</span>
+											</>
+										) : null}
+									</div>
+								) : null}
+							</div>
+							<p
+								className="pk-chat-notice"
+								role="status"
+								aria-live="polite"
+								data-testid="chat-connection"
+							>
+								{notice}
+							</p>
+							<CardDock
+								store={store}
+								state={state}
+								takeFocus={takeFocus}
+								takeReviewFocus={takeReviewFocus}
+								onFocus={() => {
+									cardsHadFocus.current = true;
+								}}
+							/>
+							<SessionRules store={store} />
+							<div className="pk-chat-composer">
+								{state.signIn === "signedOut" && state.settings ? (
+									<SignInBanner
+										store={store}
+										agent={state.settings.agent}
+										onOpenTerminal={
+											openAgentTerminal
+												? () => {
+														const agent = state.settings?.agent;
+														if (agent) void openAgentTerminal(agent);
+													}
+												: undefined
 										}
-									: undefined
-							}
-						/>
+									/>
+								) : null}
+								<Composer
+									store={store}
+									readAloud={readAloud}
+									workspaceId={workspaceId}
+									projectId={projectId}
+									terminalId={terminalId}
+									onSwitchAgent={switchAgent ?? undefined}
+									onSide={openSide}
+								/>
+							</div>
+						</div>
+					</Panel>
+					{state.sideOpen ? (
+						<>
+							<PaneHandle
+								orientation={wide ? "vertical" : "horizontal"}
+								label="Resize the side conversation"
+							/>
+							<Panel
+								id={`side-${terminalId}`}
+								className="pk-split-panel"
+								defaultSize="40%"
+								minSize="20%"
+							>
+								<SidePanel
+									store={store}
+									chatName={chatName}
+									opener={opener}
+									handle={side}
+									onClose={closeSide}
+								/>
+							</Panel>
+						</>
 					) : null}
-					<Composer
-						store={store}
-						readAloud={readAloud}
-						workspaceId={workspaceId}
-						projectId={projectId}
-						terminalId={terminalId}
-						onSwitchAgent={switchAgent ?? undefined}
-					/>
-				</div>
+				</Group>
 				<p className="sr-only" aria-live="polite" data-testid="chat-announcer">
 					{announcement(state)}
 				</p>
