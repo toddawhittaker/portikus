@@ -104,7 +104,15 @@ awk -v out="${work}" '
 app="${work}/app"
 preview="${work}/preview"
 
-for f in "${app}" "${preview}"; do
+# The element picker's wrapper page (ADR 0084) is Portikus's own
+# page with its own framing policy; everything else on the preview host is
+# the student application's and must carry none.
+frame="${work}/frame"
+preview_app="${work}/preview-app"
+awk '/^\thandle \/__portikus\/frame\/\* \{$/ { f = 1 } f { print } f && /^\t\}$/ { f = 0 }' "${preview}" > "${frame}"
+awk '/^\thandle \/__portikus\/frame\/\* \{$/ { f = 1 } !f { print } f && /^\t\}$/ { f = 0 }' "${preview}" > "${preview_app}"
+
+for f in "${app}" "${preview}" "${frame}" "${preview_app}"; do
   [ -s "${f}" ] || { echo "error: no $(basename "${f}") virtual host in the rendered file" >&2; exit 1; }
 done
 
@@ -154,7 +162,7 @@ lacks "the preview host has no certificate of Ansible's own" '^[[:space:]]+tls [
 has "the pre-flight nonce is answered by the API before any authorization" \
   'handle /\.well-known/portikus-preflight/\* \{' "${preview}"
 lacks "no compression on preview responses" 'encode gzip' "${preview}"
-lacks "no frame-ancestors policy of our own on preview" 'frame-ancestors' "${preview}"
+lacks "no frame-ancestors policy of our own on preview" 'frame-ancestors' "${preview_app}"
 has "Caddy's Server banner is removed" '^[[:space:]]+-Server$' "${preview}"
 
 has "bootstrap is answered by the API" \
@@ -540,7 +548,26 @@ count_is "X-Frame-Options is only ever sent through the /lti/* exception" 1 'X-F
 lacks "the header policy holds only frame-ancestors; the page's meta policy has the rest" \
   'Content-Security-Policy "[^"]*(script-src|default-src)' "${app}"
 has "preview responses are never content-sniffed" '^[[:space:]]+X-Content-Type-Options nosniff$' "${preview}"
-lacks "previews carry no frame-ancestors, so the Preview tab can embed them" 'frame-ancestors' "${preview}"
+lacks "previews carry no frame-ancestors, so the Preview tab can embed them" 'frame-ancestors' "${preview_app}"
+
+echo ""
+echo "--- The element picker's wrapper page (ADR 0084, SPEC 24) ---"
+has "the wrapper is answered before the reserved-prefix 404" \
+  '__portikus/frame/\*' <(sed -n '1,/handle \/__portikus\/\* {/p' "${preview}")
+has "the wrapper without its slash redirects to it" '^[[:space:]]+redir /__portikus/frame/ 308$' "${preview}"
+has "the wrapper allows GET and HEAD only" '^[[:space:]]+@portikus_frame_method not method GET HEAD$' "${frame}"
+has "a request that is not for a frame is refused" '^[[:space:]]+not header Sec-Fetch-Dest iframe$' "${frame}"
+has "the wrapper passes the preview login check as /" \
+  "$(printf '%s' '^[[:space:]]+rewrite \* /$')" "${frame}"
+has "the wrapper runs the preview login check" '^[[:space:]]+import portikus_preview_authorize$' "${frame}"
+lacks "the wrapper never reaches the student application" 'portikus_preview_proxy|reverse_proxy' "${frame}"
+has "the wrapper is served from the package" '^[[:space:]]+root \* /usr/lib/portikus/web/preview-frame$' "${frame}"
+lacks "the wrapper lists no directories" 'browse' "${frame}"
+has "only the Portikus origin may frame the wrapper" \
+  "frame-ancestors https://${PUBLIC_HOST}:${PUBLIC_PORT}\"\$" "${frame}"
+has "the wrapper's policy allows nothing by default" "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self'; base-uri 'none'; form-action 'none';" "${frame}"
+has "the hashed assets are cached for good" 'Cache-Control "public, max-age=31536000, immutable"' "${frame}"
+has "the page itself is never cached stale" '^[[:space:]]+header @portikus_frame_page Cache-Control no-cache$' "${frame}"
 lacks "previews carry no X-Frame-Options of Portikus's own" 'X-Frame-Options' "${preview}"
 
 echo ""
