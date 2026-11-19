@@ -37,7 +37,6 @@ import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import type { SpeechInput } from "../voice/useSpeechInput.js";
 import { VoiceButton } from "../voice/VoiceButton.js";
 import { usePaneMenuFocus } from "../work/pointerDismiss.js";
-import { PaneBarSlot } from "./paneBarSlot.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
 function paneDragId(terminalId: string): string {
@@ -117,7 +116,6 @@ export function PaneFrame({
 	children,
 }: PaneFrameProps) {
 	const [renaming, setRenaming] = useState(false);
-	const [slot, setSlot] = useState<HTMLSpanElement | null>(null);
 	const [draft, setDraft] = useState(name);
 	const field = useRef<HTMLInputElement | null>(null);
 	const mountId = useRef(crypto.randomUUID());
@@ -253,7 +251,6 @@ export function PaneFrame({
 						{title}
 					</span>
 				)}
-				{chat ? <span ref={setSlot} className="pk-term-bar-slot" /> : null}
 				{voice ? (
 					<VoiceButton
 						testId={`terminal-voice-${terminalId}`}
@@ -409,9 +406,7 @@ export function PaneFrame({
 					{announcement}
 				</span>
 			) : null}
-			<PaneZoomContext.Provider value={zoom}>
-				<PaneBarSlot.Provider value={slot}>{children}</PaneBarSlot.Provider>
-			</PaneZoomContext.Provider>
+			<PaneZoomContext.Provider value={zoom}>{children}</PaneZoomContext.Provider>
 			{voice && voice.state !== "listening" && voice.message !== "" ? (
 				// The error seen as well as heard; the status region reads it.
 				<p

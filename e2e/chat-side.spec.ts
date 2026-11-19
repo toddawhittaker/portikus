@@ -386,16 +386,16 @@ for (const { agent, name } of AGENTS) {
 			await inBothThemes(page, async () => {
 				await expectNoViolations(page, `[data-testid="terminal-leaf-${id}"]`);
 			});
-			// In a narrower bar the button folds to its icon, and keeps its name.
-			const button = page
-				.getByTestId(`terminal-leaf-${id}`)
-				.getByRole("button", { name: "Side question" });
-			await expect(button).toContainText("Side question");
+			// The composer still fits a narrower pane, the Side question button with it.
 			await page.setViewportSize({ width: 400, height: 900 });
-			await expect
-				.poll(async () => (await button.boundingBox())?.width ?? 99)
-				.toBeLessThan(40);
-			await expect(button).toBeVisible();
+			const button = view.getByRole("button", { name: "Side question" });
+			await expect(button).toBeInViewport({ ratio: 1 });
+			const bar = view.locator(".pk-composer-bar");
+			await inBothThemes(page, async () => {
+				expect(await bar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(
+					true,
+				);
+			});
 		});
 
 		test("the divider resizes the pane with the arrow keys", async ({
@@ -465,23 +465,23 @@ for (const { agent, name } of AGENTS) {
 			expect(await receivedFrames(id, "send")).toEqual([]);
 		});
 
-		test("the title bar's Side question button opens the pane, by mouse or keyboard, and sends nothing", async ({
+		test("the composer's Side question button opens the pane, by mouse or keyboard, and sends nothing", async ({
 			page,
 			context,
 		}) => {
 			const { id, view } = await openSideChat(page, context, agent);
-			const leaf = page.getByTestId(`terminal-leaf-${id}`);
-			const button = leaf.getByRole("button", { name: "Side question" });
+			const button = view.getByRole("button", { name: "Side question" });
 			await expect(button).toBeVisible();
-			await expect(button).toContainText("Side question");
+			await button.hover();
+			await expect(page.getByRole("tooltip")).toHaveText("Side question");
 			await button.click();
 			const pane = view.getByTestId("side-panel");
 			await expect(pane).toBeVisible();
 			await expect(pane.getByTestId("side-composer")).toBeFocused();
 			// Open already: the keyboard goes back to the side box, by Tab and Enter alone.
 			await view.getByTestId("chat-composer-input").click();
-			// It sits in the bar just before the zoom controls.
-			await leaf.getByTestId(`pane-zoom-out-${id}`).focus();
+			// It sits just before the microphone.
+			await view.getByTestId(`chat-voice-${id}`).focus();
 			await page.keyboard.press("Shift+Tab");
 			await expect(button).toBeFocused();
 			await page.keyboard.press("Enter");
