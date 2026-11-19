@@ -282,8 +282,12 @@ describe.skipIf(skip)("Send reset link", () => {
 		const jar2 = await adminJar();
 		const res = await send(jar2, "POST", `/admin/dex-users/${user.id}/send-reset-link`);
 		expect(res.statusCode).toBe(503);
+		// The older link works as before; the one issued for the failed send does not.
 		const rows = await tokenRows(user.id);
-		expect(rows[0]?.revoked_at).toBeNull();
+		expect(rows.map((row) => row.revoked_at !== null)).toEqual([false, true]);
+		const sent = await audit("dex_user.reset_link_sent");
+		expect(sent.map((row) => row.result)).toEqual(["ok", "failed"]);
+		expect(sent[1]?.metadata).toEqual({ tokenId: rows[1]?.id });
 	});
 
 	test("is refused with account email off", async () => {

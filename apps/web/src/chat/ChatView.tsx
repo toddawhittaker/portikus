@@ -29,6 +29,7 @@ import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { sendJson } from "../api/request.js";
 import { useGitStatus } from "../files/useGitStatus.js";
 import { LayoutStoreContext } from "../layout/store.js";
+import { layoutTerminalIds, tabOfPane } from "../layout/tree.js";
 import { useProjects } from "../projects/queries.js";
 import { isLeaveShortcut } from "../terminal/leaveShortcut.js";
 import { useTerminals } from "../terminal/useTerminals.js";
@@ -60,6 +61,7 @@ import {
 	takeSubagentRequest,
 	useSubagentRequest,
 } from "./subagentView.js";
+import { requestedTitle } from "./toolView.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -291,8 +293,9 @@ function useAgentSwitch(
 }
 
 /**
- * Open the agent's own terminal in a new tab with the keyboard in it, where
- * the student signs in (SPEC.md §10.2). Null outside a work area.
+ * Put the keyboard in the agent's own terminal, where the student signs in
+ * (SPEC.md §10.2): its open tab if there is one, else a new tab. Null
+ * outside a work area.
  */
 function useAgentTerminal(
 	workspaceId: string,
@@ -302,6 +305,21 @@ function useAgentTerminal(
 	const terminals = useTerminals(workspaceId, projectId, false);
 	if (layout === null) return null;
 	return async (agent) => {
+		const state = layout.getState();
+		const shown = layoutTerminalIds(state.layout);
+		const open = terminals.terminals.find(
+			(terminal) =>
+				terminal.kind === "terminal" &&
+				terminal.agent === agent &&
+				terminal.endedAt === null &&
+				shown.includes(terminal.id),
+		);
+		const tab = open ? tabOfPane(state.layout, open.id) : null;
+		if (open && tab) {
+			state.setActive(tab);
+			state.setFocused(open.id);
+			return;
+		}
 		// A failed create is the hook's toast.
 		const created = await terminals.create({ agent }).catch(() => null);
 		if (!created) return;
@@ -348,10 +366,17 @@ function ChatViewBody({
 		element: HTMLElement | null;
 		toolUseId: string;
 	} | null>(null);
+	// Read through a ref so the opener keeps its identity as items arrive.
+	const items = useRef(state.items);
+	items.current = state.items;
 	const showSubagent = useCallback(
 		(target: SubagentTarget, element: HTMLElement | null) => {
 			beforeSubagent.current = { element, toolUseId: target.toolUseId };
-			setSubagent(target);
+			// A Codex child is titled by its starting row however it is opened.
+			setSubagent({
+				...target,
+				title: requestedTitle(items.current, target.toolUseId, target.title),
+			});
 		},
 		[],
 	);

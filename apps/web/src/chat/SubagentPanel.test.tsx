@@ -8,12 +8,35 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
+import { memo, useContext } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ChatView } from "./ChatView";
 import { ChatAgentContext } from "./chatAgent";
 import { createChatStore, receiveChatEvent } from "./chatStore";
 import { SubagentPanel } from "./SubagentPanel";
-import { requestSubagentClose, requestSubagentView } from "./subagentView.js";
+import type { SubagentTarget } from "./subagentView.js";
+import {
+	requestSubagentClose,
+	requestSubagentView,
+	SubagentOpenerContext,
+} from "./subagentView.js";
+
+/** Every opener a tool row has been given, so a test can tell if it changed. */
+const openersSeen: ((target: SubagentTarget) => void)[] = [];
+
+// A row re-renders when its opener changes, so recording there shows the change.
+vi.mock("./ToolBlock.js", async (importOriginal) => {
+	const real = await importOriginal<typeof import("./ToolBlock.js")>();
+	const Real = real.ToolBlock;
+	return {
+		...real,
+		ToolBlock: memo(function Recorded(props: React.ComponentProps<typeof Real>) {
+			const opener = useContext(SubagentOpenerContext);
+			if (opener) openersSeen.push(opener);
+			return <Real {...props} />;
+		}),
+	};
+});
 
 /**
  * The read-only subagent view (SPEC.md §8.3, §10.8, §25.8): opened from a
@@ -80,6 +103,7 @@ function watches() {
 }
 
 beforeEach(() => {
+	openersSeen.length = 0;
 	seq = 0;
 	FakeSocket.all = [];
 	vi.stubGlobal("WebSocket", FakeSocket);
@@ -401,4 +425,31 @@ test("a Codex subagent is watched by its child thread id, and its panel says wha
 	expect(panel.querySelector(".pk-chat-author")?.textContent).toBe("Codex");
 	cleanup();
 	expect(sent.at(-1)).toEqual({ type: "subagent.unwatch", toolUseId: CHILD });
+});
+
+test("a Codex child opened from a row with no prompt is titled by the row that started it", () => {
+	draw();
+	const collab = (id: string, input: object) => {
+		emit("tool.started", { id, name: "collabAgentToolCall", title: "", input });
+		emit("tool.finished", { id, isError: false });
+	};
+	collab("spawn", {
+		tool: "spawnAgent",
+		receivers: [CHILD],
+		prompt: "Check the tests",
+	});
+	collab("wait", { tool: "wait", receivers: [CHILD] });
+	const row = screen.getByTestId("chat-tool-wait") as HTMLDetailsElement;
+	row.open = true;
+	fireEvent.click(within(row).getByRole("button", { name: "Show its conversation" }));
+	expect(screen.getByRole("region", { name: "Subagent Check the tests" })).toBeTruthy();
+});
+
+test("the opener handed to tool rows keeps its identity as chat items arrive", () => {
+	draw();
+	expect(openersSeen.length).toBeGreaterThan(0);
+	emit("turn.started", { at: 3000 });
+	emit("tool.started", { id: "later", name: "Bash", title: "ls", input: {} });
+	emit("tool.finished", { id: "later", isError: false });
+	expect(new Set(openersSeen).size).toBe(1);
 });

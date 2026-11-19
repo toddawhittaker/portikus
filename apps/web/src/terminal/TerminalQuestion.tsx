@@ -9,7 +9,7 @@ import type {
 	TerminalQuestionAnswer,
 	TerminalQuestion as WaitingQuestion,
 } from "@portikus/contracts";
-import { Button, useToast } from "@portikus/ui";
+import { Button, IconButton, useToast } from "@portikus/ui";
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../api/request.js";
 import { answerTerminalQuestion } from "../api/workspace.js";
@@ -25,7 +25,16 @@ const QuestionCard = lazy(() =>
 
 /** Shown when the answer arrives after Claude Code stopped waiting for it. */
 export const QUESTION_GONE = "Answered in the terminal or timed out";
-const GONE_MS = 4000;
+
+/** Hands the keyboard to the terminal that holds the node, when the node holds it. */
+function returnFocusToTerminal(node: HTMLElement | null) {
+	if (!node?.contains(document.activeElement)) return;
+	// xterm.js takes the keyboard through this hidden field.
+	node
+		.closest(".pk-term")
+		?.querySelector<HTMLElement>(".xterm-helper-textarea")
+		?.focus({ preventScroll: true });
+}
 
 /**
  * What a new question does about the keyboard: the card takes it from this
@@ -80,6 +89,8 @@ export function TerminalQuestion({
 			setAnnouncement("");
 			return;
 		}
+		// The notice is about the last question, so the next one replaces it.
+		setGone(false);
 		// Decided once on arrival, before the lazy card tries for the keyboard.
 		if (decided.current === shownId) return;
 		decided.current = shownId;
@@ -93,12 +104,6 @@ export function TerminalQuestion({
 				: "",
 		);
 	}, [shownId, visible, agentKind, agentName]);
-
-	useEffect(() => {
-		if (!gone) return;
-		const timer = setTimeout(() => setGone(false), GONE_MS);
-		return () => clearTimeout(timer);
-	}, [gone]);
 
 	async function send(answer: TerminalQuestionAnswer) {
 		if (sending) return;
@@ -136,29 +141,45 @@ export function TerminalQuestion({
 					onSend={(answer) => void send(answer)}
 				/>
 			) : null}
+			{/* The box only draws while the notice shows; the status region stays put. */}
 			<div
-				ref={region}
-				role="status"
-				aria-live="polite"
-				data-testid={`terminal-question-live-${terminalId}`}
+				className={gone ? "pk-term-flag pk-term-question-gone" : undefined}
+				data-testid={gone ? `terminal-question-gone-${terminalId}` : undefined}
 			>
-				{announcement ? (
-					// Keyed by question, so a swap from one question to the next is a new
-					// node a screen reader speaks even when the words are the same.
-					<span key={shownId} className="pk-visually-hidden">
-						{announcement}
-					</span>
-				) : null}
-				{gone ? (
-					<p
-						className="pk-term-flag pk-term-question-gone"
-						data-testid={`terminal-question-gone-${terminalId}`}
-					>
-						{QUESTION_GONE}
-					</p>
-				) : null}
+				<div
+					ref={region}
+					role="status"
+					aria-live="polite"
+					data-testid={`terminal-question-live-${terminalId}`}
+				>
+					{announcement ? (
+						// Keyed by question, so a swap from one question to the next is a new
+						// node a screen reader speaks even when the words are the same.
+						<span key={shownId} className="pk-visually-hidden">
+							{announcement}
+						</span>
+					) : null}
+					{gone ? QUESTION_GONE : null}
+				</div>
+				{/* Outside the status region, so a screen reader reads only the message. */}
+				{gone ? <DismissNotice onClose={() => setGone(false)} /> : null}
 			</div>
 		</>
+	);
+}
+
+/** Stays until the student closes it or the next question arrives. */
+function DismissNotice({ onClose }: { onClose: () => void }) {
+	const box = useRef<HTMLButtonElement | null>(null);
+
+	// Runs before the notice leaves the page, so a closed notice never strands focus.
+	useLayoutEffect(() => {
+		const node = box.current;
+		return () => returnFocusToTerminal(node);
+	}, []);
+
+	return (
+		<IconButton ref={box} icon="x" size="sm" label="Dismiss notice" onClick={onClose} />
 	);
 }
 
@@ -180,14 +201,7 @@ function QuestionOverlay({
 	// Runs before the card leaves the page, while it still holds focus.
 	useLayoutEffect(() => {
 		const node = box.current;
-		return () => {
-			if (!node?.contains(document.activeElement)) return;
-			// xterm.js takes the keyboard through this hidden field.
-			node
-				.closest(".pk-term")
-				?.querySelector<HTMLElement>(".xterm-helper-textarea")
-				?.focus({ preventScroll: true });
-		};
+		return () => returnFocusToTerminal(node);
 	}, []);
 
 	/** Take the keyboard only from this pane's terminal or from nowhere. */

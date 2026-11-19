@@ -5,6 +5,7 @@ import {
 	hashAccountEmailToken,
 	issueAccountEmailToken,
 	pruneEndedAccountEmailTokens,
+	revokeAccountEmailToken,
 	revokeAccountEmailTokens,
 	supersedeAccountEmailTokens,
 	TOKEN_LIFETIME_MS,
@@ -115,6 +116,27 @@ describe.skipIf(skip)("account email tokens", () => {
 		expect(
 			await consumeAccountEmailToken(t.db, secondReset.token, "reset", now),
 		).not.toBeNull();
+	});
+
+	test("revoking an issued link ends that one only, and leaves older and used links as they were", async () => {
+		const older = await issue("reset");
+		const used = await issue("reset", later(1));
+		expect(
+			await consumeAccountEmailToken(t.db, used.token, "reset", now),
+		).not.toBeNull();
+		const failed = await issue("reset", later(2));
+		await revokeAccountEmailToken(t.db, failed.id, later(3));
+		expect(await consumeAccountEmailToken(t.db, failed.token, "reset", now)).toBeNull();
+		expect(
+			await consumeAccountEmailToken(t.db, older.token, "reset", now),
+		).not.toBeNull();
+		const rows = await t.db
+			.selectFrom("account_email_tokens")
+			.select(["id", "revoked_at", "used_at"])
+			.execute();
+		// The used link keeps no revocation mark: only a live link is revoked.
+		expect(rows.find((r) => r.id === used.id)?.revoked_at).toBeNull();
+		expect(rows.find((r) => r.id === failed.id)?.revoked_at).toEqual(later(3));
 	});
 
 	test("an older send's supersede leaves a newer link working", async () => {

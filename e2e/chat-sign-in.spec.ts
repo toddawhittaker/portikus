@@ -1,6 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
 import { type ChatAgent, inBothThemes, openChat, receivedFrames } from "./chat-helpers";
-import { createStudent, expectNoViolations, query, terminalIds } from "./helpers";
+import {
+	createStudent,
+	expectNoViolations,
+	query,
+	terminalIds,
+	workTabs,
+} from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
@@ -141,9 +147,22 @@ test.describe("the sign-in warning", () => {
 				[created],
 			);
 			expect(rows[0]).toEqual({ kind: "terminal", agent });
-			await expect(
-				page.getByRole("tab", { name: new RegExp(`${NAME[agent]} \\(TUI\\)`) }),
-			).toHaveAttribute("aria-selected", "true");
+			const terminalTab = page.getByRole("tab", {
+				name: new RegExp(`${NAME[agent]} \\(TUI\\)`),
+			});
+			await expect(terminalTab).toHaveAttribute("aria-selected", "true");
+
+			// Back in the chat, the button goes to that tab rather than opening another.
+			await workTabs(page).getByRole("tab").first().click();
+			await view
+				.getByTestId("chat-sign-in")
+				.getByRole("button", { name: `Open ${NAME[agent]} (TUI)` })
+				.click();
+			await expect(terminalTab).toHaveAttribute("aria-selected", "true");
+			await expect(terminalTab).toHaveCount(1);
+			expect(await terminalIds(student.workspaceId, project.id)).toHaveLength(
+				before.length + 1,
+			);
 		});
 	}
 });

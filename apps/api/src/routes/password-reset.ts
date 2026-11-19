@@ -20,6 +20,7 @@ import {
 	type AccountEmailPurpose,
 	consumeAccountEmailToken,
 	issueAccountEmailToken,
+	revokeAccountEmailToken,
 	revokeAccountEmailTokens,
 	supersedeAccountEmailTokens,
 } from "../account-email/tokens.js";
@@ -156,6 +157,9 @@ export function registerPasswordResetRoutes(
 				purpose: "reset",
 				keepId: issued.id,
 			});
+		} else {
+			// A link nobody received is not left valid; older links stay as they were.
+			await revokeAccountEmailToken(db, issued.id);
 		}
 		await recordAudit(db, {
 			actor: "unknown",

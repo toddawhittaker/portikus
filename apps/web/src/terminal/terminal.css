@@ -71,8 +71,27 @@
 	}
 }
 
-.pk-term-question-gone {
+/* Two classes, so this wins over the flag's own top whatever the load order. */
+.pk-term-flag.pk-term-question-gone {
 	top: auto;
 	inset-block-end: var(--space-2);
 	z-index: calc(var(--z-sticky) + 1);
+}
+
+/* The close button reads on the notice's own background in either terminal theme. */
+.pk-term-question-gone .pk-iconbtn {
+	margin: calc(var(--space-1) * -1) calc(var(--space-2) * -1) calc(var(--space-1) * -1)
+		0;
+	color: var(--terminal-fg);
+}
+
+/* A faint tint: the notice's own colours are the terminal's, so the page's hover would clash. */
+.pk-term-question-gone .pk-iconbtn:hover {
+	background: color-mix(in srgb, var(--terminal-fg) 15%, transparent);
+	color: var(--terminal-fg);
+}
+
+/* The page's focus colour is chosen for the page, not the terminal scheme behind the notice. */
+.pk-term-question-gone .pk-iconbtn:focus-visible {
+	outline-color: var(--terminal-fg);
 }

@@ -83,7 +83,7 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					there. Only you, the workspace's owner, see the card; it is not shown in a
 					chat tab, and Portikus does not keep the question or your answer. If Claude
 					Code stops waiting, or you answered in the terminal first, the card says so
-					and goes away.
+					and stays until you close it or Claude asks a new question.
 				</li>
 				<li>
 					<strong>Deny</strong> and <strong>No, keep planning</strong> open a line,

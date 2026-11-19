@@ -1,5 +1,9 @@
 import type { AddressInfo } from "node:net";
-import { type MockOidcProvider, startMockOidcProvider } from "@portikus/auth/testing";
+import {
+	csrfHeaders,
+	type MockOidcProvider,
+	startMockOidcProvider,
+} from "@portikus/auth/testing";
 import {
 	CloseCode,
 	LANGUAGE_SERVER_CLOSE_REASONS,
@@ -381,6 +385,136 @@ test.skipIf(skip)(
 		typescript.ws.send(INITIALIZE);
 		expect(JSON.parse(await typescript.next()).id).toBe(1);
 		typescript.ws.close();
+	},
+);
+
+/** The administrator turns code help off or on through the settings route. */
+async function putLanguages(codeHelpLanguages: string[]) {
+	const res = await app.inject({
+		method: "PUT",
+		url: "/admin/settings",
+		headers: csrfHeaders(world.admin, PUBLIC_URL),
+		payload: { codeHelpLanguages },
+	});
+	expect(res.statusCode).toBe(200);
+}
+
+test.skipIf(skip)(
+	"turning a language off closes its open sockets with 4416 and leaves the others open (SPEC.md §13.6)",
+	async () => {
+		const python = await open(path("python"));
+		const ruff = await open(path("ruff"));
+		const typescript = await open(path("typescript"));
+		for (const socket of [python, ruff, typescript]) {
+			socket.ws.send(INITIALIZE);
+			expect(JSON.parse(await socket.next()).id).toBe(1);
+		}
+
+		await putLanguages(["typescript"]);
+		const expected = {
+			code: CloseCode.LANGUAGE_SERVER_DISABLED,
+			reason: "code help is off",
+		};
+		expect(await python.closed).toEqual(expected);
+		expect(await ruff.closed).toEqual(expected);
+		// The agent side of each pipe ended too.
+		await expect.poll(() => agent.languageServers.closes.length).toBe(2);
+		expect(typescript.ws.readyState).toBe(WebSocket.OPEN);
+		typescript.ws.send(INITIALIZE);
+		expect(JSON.parse(await typescript.next()).id).toBe(1);
+		typescript.ws.close();
+	},
+);
+
+test.skipIf(skip)(
+	"a settings write that keeps a language on closes none of its sockets",
+	async () => {
+		const python = await open(path("python"));
+		python.ws.send(INITIALIZE);
+		await python.next();
+		// Turning typescript off, and a write that changes nothing about languages.
+		await putLanguages(["python"]);
+		await putLanguages(["python"]);
+		python.ws.send(INITIALIZE);
+		expect(JSON.parse(await python.next()).id).toBe(1);
+		expect(python.ws.readyState).toBe(WebSocket.OPEN);
+		python.ws.close();
+	},
+);
+
+test.skipIf(skip)(
+	"sockets closed by the switch give their slots back, so the language fills its cap again",
+	async () => {
+		const full: Socket[] = [];
+		for (let i = 0; i < MAX_LANGUAGE_SERVER_SOCKETS; i += 1) {
+			const socket = await open(path("python"));
+			socket.ws.send(INITIALIZE);
+			await socket.next();
+			full.push(socket);
+		}
+		await putLanguages(["typescript"]);
+		for (const socket of full) {
+			expect((await socket.closed).code).toBe(CloseCode.LANGUAGE_SERVER_DISABLED);
+		}
+		await putLanguages(["python", "typescript"]);
+		const again: Socket[] = [];
+		for (let i = 0; i < MAX_LANGUAGE_SERVER_SOCKETS; i += 1) {
+			const socket = await open(path("python"));
+			socket.ws.send(INITIALIZE);
+			expect(JSON.parse(await socket.next()).id).toBe(1);
+			again.push(socket);
+		}
+		for (const socket of again) socket.ws.close();
+	},
+);
+
+test.skipIf(skip)(
+	"a socket whose language switch is read before the write but opens after it is still closed",
+	async () => {
+		// Hold the first read of the switch until the administrator's write has committed.
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const real = testDb.db.selectFrom.bind(testDb.db);
+		let once = true;
+		/** The same query, but its answer (the old row) arrives only after `held`. */
+		const late = <T extends object>(builder: T): T =>
+			new Proxy(builder, {
+				get(target, prop) {
+					const value = Reflect.get(target, prop, target);
+					if (prop === "executeTakeFirst") {
+						return async () => {
+							const row = await (value as () => Promise<unknown>).call(target);
+							await held;
+							return row;
+						};
+					}
+					if (typeof value !== "function") return value;
+					return (...args: unknown[]) => late(value.apply(target, args));
+				},
+			});
+		const spy = vi.spyOn(testDb.db, "selectFrom").mockImplementation(((
+			table: Parameters<typeof real>[0],
+		) => {
+			if (table === "settings" && once) {
+				once = false;
+				return late(real(table));
+			}
+			return real(table);
+		}) as typeof real);
+		try {
+			const pending = open(path("python"));
+			await expect.poll(() => once).toBe(false);
+			spy.mockRestore();
+			await putLanguages(["typescript"]);
+			release();
+			const socket = await pending;
+			expect((await socket.closed).code).toBe(CloseCode.LANGUAGE_SERVER_DISABLED);
+			expect(languageServerCalls()).toEqual([]);
+		} finally {
+			spy.mockRestore();
+		}
 	},
 );
 
