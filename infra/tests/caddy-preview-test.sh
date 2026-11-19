@@ -554,18 +554,19 @@ echo ""
 echo "--- The element picker's wrapper page (ADR 0084, SPEC 24) ---"
 has "the wrapper is answered before the reserved-prefix 404" \
   '__portikus/frame/\*' <(sed -n '1,/handle \/__portikus\/\* {/p' "${preview}")
-has "the wrapper without its slash redirects to it" '^[[:space:]]+redir /__portikus/frame/ 308$' "${preview}"
+has "the wrapper without its slash redirects to it" '^[[:space:]]+redir \* /__portikus/frame/ 308$' "${preview}"
 has "the wrapper allows GET and HEAD only" '^[[:space:]]+@portikus_frame_method not method GET HEAD$' "${frame}"
 has "a request that is not for a frame is refused" '^[[:space:]]+not header Sec-Fetch-Dest iframe$' "${frame}"
-has "the wrapper passes the preview login check as /" \
-  "$(printf '%s' '^[[:space:]]+rewrite \* /$')" "${frame}"
+has "the wrapper is asked about as / in the login check" '^[[:space:]]+~\(\?i\)\^/__portikus/frame/ "/"$' "${preview}"
+lacks "the wrapper's request is never rewritten" 'rewrite' "${frame}"
+has "an unclean reserved path never reaches the application" '^[[:space:]]+respond @portikus_reserved_unclean 404$' "${preview}"
 has "the wrapper runs the preview login check" '^[[:space:]]+import portikus_preview_authorize$' "${frame}"
 lacks "the wrapper never reaches the student application" 'portikus_preview_proxy|reverse_proxy' "${frame}"
-has "the wrapper is served from the package" '^[[:space:]]+root \* /usr/lib/portikus/web/preview-frame$' "${frame}"
+has "the wrapper is served from the package" '^[[:space:]]+root \* /usr/lib/portikus/preview-frame$' "${frame}"
 lacks "the wrapper lists no directories" 'browse' "${frame}"
 has "only the Portikus origin may frame the wrapper" \
   "frame-ancestors https://${PUBLIC_HOST}:${PUBLIC_PORT}\"\$" "${frame}"
-has "the wrapper's policy allows nothing by default" "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self'; base-uri 'none'; form-action 'none';" "${frame}"
+has "the wrapper's policy allows nothing by default" "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';" "${frame}"
 has "the hashed assets are cached for good" 'Cache-Control "public, max-age=31536000, immutable"' "${frame}"
 has "the page itself is never cached stale" '^[[:space:]]+header @portikus_frame_page Cache-Control no-cache$' "${frame}"
 lacks "previews carry no X-Frame-Options of Portikus's own" 'X-Frame-Options' "${preview}"
@@ -619,7 +620,13 @@ class Api(http.server.BaseHTTPRequestHandler):
         # Every path the API is sent, for the /edge checks.
         with open(seen, "a") as f:
             f.write(self.path + "\n")
+        with open(seen + ".uri", "a") as f:
+            f.write(self.headers.get("X-Forwarded-Uri", "") + "\n")
         label = self.headers.get("X-Forwarded-Host", "").split("-")[0]
+        if label == "deny":
+            body = b"api-refused"
+            self.send_response(403); self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body); return
         port, scheme = UPSTREAMS.get(label, (None, None))
         if not self.path.startswith("/preview/authorize") or port is None:
             self.send_response(403); self.send_header("Content-Length", "0"); self.end_headers(); return
@@ -633,7 +640,12 @@ class Api(http.server.BaseHTTPRequestHandler):
 def upstream(name, port):
     class Up(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        def do_POST(self):
+            self.do_GET()
         def do_GET(self):
+            # Every request the application is sent, for the wrapper checks.
+            with open(seen + ".app", "a") as f:
+                f.write(self.path + "\n")
             if self.headers.get("Upgrade", "").lower() == "websocket":
                 return self.websocket()
             if self.path == "/redirect":
@@ -719,9 +731,16 @@ print(*(s.getsockname()[1] for s in held))')
     -e "caddy_challenge_port=${live_challenge}" >"${work}/render.log" 2>&1
   # Keep the test Caddy's admin, certificates and ports out of the host's
   # own, in the template's one global block.
-  awk -v data="${work}/caddy-data" -v port="${live_http}" '
+  mkdir -p "${work}/preview-frame/assets"
+  echo "<!doctype html><title>wrapper-index</title>" >"${work}/preview-frame/index.html"
+  echo "console.log('wrapper-asset')" >"${work}/preview-frame/assets/app-1234.js"
+  awk -v data="${work}/caddy-data" -v port="${live_http}" -v frame_dir="${work}" '
     /^[[:space:]]*admin unix\// {
       printf "\tadmin off\n\tskip_install_trust\n\tstorage file_system %s\n\thttp_port %s\n", data, port
+      next
+    }
+    /^[[:space:]]*root \* \/usr\/lib\/portikus\/preview-frame$/ {
+      printf "\t\t\troot * %s/preview-frame\n", frame_dir
       next
     }
     { print }
@@ -785,6 +804,80 @@ print(*(s.getsockname()[1] for s in held))')
     "tls:ping" "$(python3 "${work}/ws.py" "tls-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
   expect "a WebSocket still works over the plain hop" \
     "plain:ping" "$(python3 "${work}/ws.py" "plain-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
+
+  echo ""
+  echo "--- Live: the element picker's wrapper page (ADR 0084, SPEC 24) ---"
+
+  # frame_case LABEL WANT-STATUS... -- PREVIEW-LABEL PATH [CURL ARGS...]
+  # The status must be one of those wanted, and the application must not
+  # have been sent anything.
+  frame_case() {
+    local label="$1" wants="" got
+    shift
+    while [ "$1" != "--" ]; do wants="${wants} $1"; shift; done
+    shift
+    : >"${work}/api-paths.app"
+    got="$(get "$@" -o "${work}/frame-body" -w '%{http_code}')"
+    case " ${wants} " in
+      *" ${got} "*) ok "${label} (${got})" ;;
+      *) bad "${label} (got ${got}, wanted${wants})" ;;
+    esac
+    if [ -s "${work}/api-paths.app" ]; then
+      bad "${label}: the application was sent nothing (got: $(tr '\n' ' ' <"${work}/api-paths.app"))"
+    else
+      ok "${label}: the application was sent nothing"
+    fi
+  }
+
+  frame_case "a document request for the wrapper is refused" 403 -- \
+    plain /__portikus/frame/ -H 'Sec-Fetch-Dest: document'
+  frame_case "a POST to the wrapper is refused" 405 -- \
+    plain /__portikus/frame/ -X POST -H 'Sec-Fetch-Dest: iframe'
+  frame_case "an authorize refusal stops the wrapper" 403 -- \
+    deny /__portikus/frame/ -H 'Sec-Fetch-Dest: iframe'
+  expect "the refusal carries the API's own page" "api-refused" "$(cat "${work}/frame-body")"
+  case "$(cat "${work}/frame-body")" in
+    *wrapper-index*) bad "a refusal carries no wrapper page" ;;
+    *) ok "a refusal carries no wrapper page" ;;
+  esac
+
+  : >"${work}/api-paths.uri"
+  frame_case "the wrapper page is served inside a frame" 200 -- \
+    plain /__portikus/frame/ -H 'Sec-Fetch-Dest: iframe' -H 'Sec-Fetch-User: ?1'
+  expect "the wrapper page is index.html" "wrapper-index" "$(cat "${work}/frame-body")"
+  if [ "$(head -1 "${work}/api-paths.uri")" = "/" ]; then ok "the login check sees exactly /"; else bad "the login check sees exactly / (got: $(head -1 "${work}/api-paths.uri"))"; fi
+  frame_headers="$(get plain /__portikus/frame/ -D - -o /dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  expect "the wrapper page carries its policy" \
+    "content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors https://${PUBLIC_HOST}:${live_public}" \
+    "${frame_headers}"
+  expect "the wrapper page is never cached stale" "cache-control: no-cache" "${frame_headers}"
+  frame_case "a wrapper asset is served" 200 -- plain /__portikus/frame/assets/app-1234.js
+  expect "the asset is the file on disk" "wrapper-asset" "$(cat "${work}/frame-body")"
+  expect "a wrapper asset is cached for good" "cache-control: public, max-age=31536000, immutable" \
+    "$(get plain /__portikus/frame/assets/app-1234.js -D - -o /dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  for dest in script style document; do
+    frame_case "a wrapper asset fetched as ${dest} is served" 200 -- \
+      plain /__portikus/frame/assets/app-1234.js -H "Sec-Fetch-Dest: ${dest}"
+    expect "a wrapper asset fetched as ${dest} is cached for good" "cache-control: public, max-age=31536000, immutable" \
+      "$(get plain /__portikus/frame/assets/app-1234.js -H "Sec-Fetch-Dest: ${dest}" -D - -o /dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  done
+  frame_case "the wrapper page fetched as a script is refused" 403 -- \
+    plain /__portikus/frame/index.html -H 'Sec-Fetch-Dest: script'
+  expect "the wrapper without its slash redirects to it" "location: /__portikus/frame/" \
+    "$(get plain /__portikus/frame -D - -o /dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+
+  for p in /__portikus/frame/../../etc/passwd /__portikus/frame/%2e%2e%2f%2e%2e%2fetc%2fpasswd \
+    /__portikus/frame/%252e%252e%252f%252e%252e%252fetc%252fpasswd /__portikus/frame/assets/%2e%2e/%2e%2e/%2e%2e/etc/passwd; do
+    frame_case "${p} stays inside the wrapper's files" 404 200 -- plain "${p}" --path-as-is
+    case "$(cat "${work}/frame-body")" in
+      *root:* | *upstream=*) bad "${p} does not read a file outside the wrapper" ;;
+      *) ok "${p} does not read a file outside the wrapper" ;;
+    esac
+  done
+  # Caddy's path matchers ignore case, so the upper-case spelling is the
+  # wrapper route too; either way it is never the application.
+  frame_case "an upper-case spelling never reaches the application" 200 404 -- \
+    plain /__PORTIKUS/FRAME/ -H 'Sec-Fetch-Dest: iframe'
 
   # The API trusts any /edge request from loopback, and everything Caddy
   # proxies comes from loopback, so no outside request may reach /edge.
