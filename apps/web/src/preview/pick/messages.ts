@@ -12,7 +12,7 @@
 import { MAX_CHAT_IMAGE_BYTES } from "@portikus/contracts";
 import { z } from "zod";
 
-const PICK_MESSAGE_VERSION = 1;
+export const PICK_MESSAGE_VERSION = 1;
 
 /** The most outer HTML the wrapper may send, not counting the marker. */
 export const PICK_HTML_MAX_CHARS = 20_000;
@@ -25,10 +25,10 @@ export const PICK_SELECTOR_MAX_CHARS = 1_000;
 export const PICK_TAG_MAX_CHARS = 64;
 export const PICK_COMPUTED_VALUE_MAX_CHARS = 200;
 export const PICK_HOVER_LABEL_MAX_CHARS = 200;
-const PICK_MEDIA_MAX_CHARS = 500;
-const PICK_SHEET_ADDRESS_MAX_CHARS = 2_048;
+export const PICK_MEDIA_MAX_CHARS = 500;
+export const PICK_SHEET_ADDRESS_MAX_CHARS = 2_048;
 /** The schema's ceiling; the file builder applies the stricter 2,048 rule. */
-const PICK_PAGE_PATH_MAX_CHARS = 4_096;
+export const PICK_PAGE_PATH_MAX_CHARS = 4_096;
 export const PICK_PNG_MAX_BYTES = MAX_CHAT_IMAGE_BYTES;
 
 /** The only computed style properties a pick may carry. */
@@ -85,7 +85,7 @@ const unreadableSheet = z.strictObject({
 
 export type PickRule = z.infer<typeof cssRule> | z.infer<typeof unreadableSheet>;
 
-function ruleChars(rule: PickRule): number {
+export function ruleChars(rule: PickRule): number {
 	return rule.kind === "unreadable"
 		? (rule.sheet?.length ?? 0)
 		: rule.selector.length +
