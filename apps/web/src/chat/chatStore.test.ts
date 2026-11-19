@@ -8,6 +8,7 @@ import {
 	receiveChatEvent,
 	receiveChatFrame,
 	selectSessionRulesActive,
+	sideOffered,
 } from "./chatStore";
 import { changeToward, lastSettingsOf } from "./useChatSession";
 
@@ -806,6 +807,150 @@ test("watching a subagent sends the watch and the unwatch", () => {
 		{ type: "subagent.watch", toolUseId: "toolu_a" },
 		{ type: "subagent.unwatch", toolUseId: "toolu_a" },
 	]);
+});
+
+/** One frame of the side conversation, numbered on its own sequence (SPEC.md §10.2). */
+function sideFrame(
+	seq: number,
+	type: string,
+	body: Record<string, unknown> = {},
+): string {
+	return JSON.stringify({
+		type: "side",
+		sessionId: SESSION,
+		event: { type, sessionId: SESSION, seq, ...body },
+	});
+}
+
+const BTW = frame("commands", 1, {
+	commands: [
+		{
+			name: "btw",
+			description: "Ask a side question",
+			argumentHint: "<question>",
+			terminalOnly: false,
+		},
+	],
+});
+
+test("side frames fold into a conversation of their own and never move the chat's sequence", () => {
+	const state = feed([
+		snapshot(0),
+		frame("message", 1, { id: "u", role: "user", markdown: "Main question" }),
+		sideFrame(0, "turn.started", { at: 2000 }),
+		sideFrame(1, "message", { id: "q", role: "user", markdown: "Why?" }),
+		sideFrame(2, "text.delta", { messageId: "a", text: "Because" }),
+	]);
+	expect(texts(state)).toEqual(["Main question"]);
+	expect(state.lastSeq).toBe(1);
+	expect(state.sideOpen).toBe(true);
+	expect(state.side?.currentTurnId).not.toBeNull();
+	expect(state.side ? texts(state.side) : []).toEqual(["Why?", "Because"]);
+	const done = feed(
+		[sideFrame(3, "turn.finished", { at: 3000, status: "done" })],
+		state,
+	);
+	expect(done.side?.currentTurnId).toBeNull();
+	expect(Object.values(done.side?.turns ?? {}).map((turn) => turn.status)).toEqual([
+		"done",
+	]);
+	// A side frame repeated on its own sequence is not applied twice.
+	const again = feed(
+		[sideFrame(2, "text.delta", { messageId: "a", text: "Because" })],
+		done,
+	);
+	expect(again.side ? texts(again.side) : []).toEqual(["Why?", "Because"]);
+});
+
+test("a side frame before the snapshot is stale, and a snapshot ends the side conversation until the host replays it", () => {
+	const early = feed([
+		sideFrame(0, "message", { id: "q", role: "user", markdown: "Old" }),
+		snapshot(0),
+	]);
+	expect(early.side).toBeNull();
+	expect(early.sideOpen).toBe(false);
+	const open = feed(
+		[sideFrame(0, "message", { id: "q", role: "user", markdown: "Why?" })],
+		early,
+	);
+	expect(open.sideOpen).toBe(true);
+	// /clear, an agent swap or a new socket each bring a snapshot.
+	const cleared = feed([snapshot(5)], open);
+	expect(cleared.side).toBeNull();
+	expect(cleared.sideOpen).toBe(false);
+	// The host's replay after it reopens the pane with the conversation.
+	const replayed = feed(
+		[
+			sideFrame(0, "message", { id: "q", role: "user", markdown: "Why?" }),
+			sideFrame(1, "message", { id: "a", role: "assistant", markdown: "Because" }),
+		],
+		cleared,
+	);
+	expect(replayed.sideOpen).toBe(true);
+	expect(replayed.side ? texts(replayed.side) : []).toEqual(["Why?", "Because"]);
+});
+
+test("no side message goes to a host that does not list btw", () => {
+	const sent: ChatClientMessage[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	store.getState().receive(snapshot(0));
+	expect(sideOffered(store.getState())).toBe(false);
+	expect(store.getState().openSide()).toBe(false);
+	expect(store.getState().askSide("Why?")).toBe(false);
+	expect(store.getState().stopSide()).toBe(false);
+	store.getState().endSide();
+	expect(store.getState().sideOpen).toBe(false);
+	expect(sent).toEqual([]);
+	// A skill named btw is not the command.
+	store.getState().receive(
+		frame("commands", 1, {
+			commands: [{ name: "btw", description: "", prefix: "$", terminalOnly: false }],
+		}),
+	);
+	expect(sideOffered(store.getState())).toBe(false);
+});
+
+test("a host that lists btw gets side.ask, side.stop and side.end, and closing forgets the conversation", () => {
+	const sent: ChatClientMessage[] = [];
+	const store = createChatStore((message) => {
+		sent.push(message);
+		return true;
+	});
+	store.getState().receive(snapshot(0));
+	store.getState().receive(BTW);
+	expect(store.getState().openSide()).toBe(true);
+	expect(store.getState().sideOpen).toBe(true);
+	expect(store.getState().askSide("Why?")).toBe(true);
+	expect(store.getState().sideWaiting).toBe(true);
+	// Any frame of the side conversation is the host's answer.
+	store.getState().receive(sideFrame(0, "turn.started", { at: 1 }));
+	expect(store.getState().sideWaiting).toBe(false);
+	expect(store.getState().stopSide()).toBe(true);
+	// Blank or too long never leaves the browser.
+	expect(store.getState().askSide("  ")).toBe(false);
+	expect(store.getState().askSide("x".repeat(4001))).toBe(false);
+	store.getState().endSide();
+	expect(store.getState().side).toBeNull();
+	expect(store.getState().sideOpen).toBe(false);
+	expect(sent).toEqual([
+		{ type: "side.ask", text: "Why?" },
+		{ type: "side.stop" },
+		{ type: "side.end" },
+	]);
+});
+
+test("an error from the host ends the wait for a side answer", () => {
+	const store = createChatStore(() => true);
+	store.getState().receive(snapshot(0));
+	store.getState().receive(BTW);
+	store.getState().askSide("Why?");
+	store
+		.getState()
+		.receive(frame("error", 2, { message: "One side question at a time." }));
+	expect(store.getState().sideWaiting).toBe(false);
 });
 
 const BASH_CALL = {

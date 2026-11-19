@@ -13,7 +13,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Composer } from "./Composer.js";
-import { controlFor, matchCommands, mention } from "./ComposerCommandMenu.js";
+import {
+	controlFor,
+	matchCommands,
+	mention,
+	sideQuestion,
+} from "./ComposerCommandMenu.js";
 import { type ChatStore, createChatStore } from "./chatStore.js";
 import { boxText, typeInto } from "./composerTesting.js";
 
@@ -467,6 +472,123 @@ test("controlFor knows only the four bare commands", () => {
 	expect(controlFor("/model gpt-5.5")).toBeUndefined();
 	expect(controlFor("$mcp")).toBeUndefined();
 	expect(controlFor("/toString")).toBeUndefined();
+});
+
+test("sideQuestion reads a typed /btw, bare or with its question, and nothing else", () => {
+	expect(sideQuestion("/btw")).toBe("");
+	expect(sideQuestion("  /btw  ")).toBe("");
+	expect(sideQuestion("/btw why is it slow?")).toBe("why is it slow?");
+	expect(sideQuestion("/btw line one\nline two")).toBe("line one\nline two");
+	expect(sideQuestion("/btwx")).toBeNull();
+	expect(sideQuestion("$btw why")).toBeNull();
+	expect(sideQuestion("ask /btw why")).toBeNull();
+});
+
+const BTW: ChatCommand = {
+	name: "btw",
+	description: "Ask a quick side question",
+	argumentHint: "<question>",
+	terminalOnly: false,
+};
+
+/** The composer with the host's `btw` listed, and the chat's side opener recorded. */
+function drawWithSide(refusal: string | null = null) {
+	act(() => store.setState({ commands: [...COMMANDS, BTW] }));
+	const asked: string[] = [];
+	render(
+		<QueryClientProvider client={new QueryClient()}>
+			<ToastProvider>
+				<Composer
+					store={store}
+					readAloud={{ on: false, set: () => {} }}
+					workspaceId="w"
+					projectId="p"
+					terminalId={TERMINAL}
+					onSide={(question) => {
+						asked.push(question);
+						return refusal;
+					}}
+				/>
+			</ToastProvider>
+		</QueryClientProvider>,
+	);
+	const box = screen.getByTestId("chat-composer-input");
+	act(() => box.focus());
+	return { box, asked };
+}
+
+test("/btw chosen from the list opens the side pane, and nothing is sent or left in the box", async () => {
+	const { box, asked } = drawWithSide();
+	typeInto(box, "/bt");
+	await screen.findByRole("listbox");
+	const option = options()[0] as HTMLElement;
+	expect(option.textContent).toContain("/btw");
+	expect(option.getAttribute("aria-disabled")).toBeNull();
+	key(box, "Enter");
+	expect(asked).toEqual([""]);
+	expect(boxText(box)).toBe("");
+	expect(sent).toEqual([]);
+});
+
+test("/btw with a question, sent as typed, goes to the side pane and never to the agent", () => {
+	const { box, asked } = drawWithSide();
+	typeInto(box, "/btw why is the build slow?");
+	key(box, "Escape");
+	key(box, "Enter");
+	expect(asked).toEqual(["why is the build slow?"]);
+	expect(boxText(box)).toBe("");
+	expect(sent).toEqual([]);
+});
+
+test("a side question the chat refuses stays in the box with the reason", () => {
+	const { box, asked } = drawWithSide("A side question is still running.");
+	typeInto(box, "/btw and another?");
+	key(box, "Escape");
+	key(box, "Enter");
+	expect(asked).toEqual(["and another?"]);
+	expect(boxText(box)).toBe("/btw and another?");
+	expect(screen.getByRole("alert").textContent).toContain(
+		"A side question is still running.",
+	);
+	expect(sent).toEqual([]);
+});
+
+test("a host that does not list btw offers no /btw, and the typed text is a message", () => {
+	act(() => store.setState({ commands: COMMANDS }));
+	const asked: string[] = [];
+	render(
+		<QueryClientProvider client={new QueryClient()}>
+			<ToastProvider>
+				<Composer
+					store={store}
+					readAloud={{ on: false, set: () => {} }}
+					workspaceId="w"
+					projectId="p"
+					terminalId={TERMINAL}
+					onSide={(question) => {
+						asked.push(question);
+						return null;
+					}}
+				/>
+			</ToastProvider>
+		</QueryClientProvider>,
+	);
+	const box = screen.getByTestId("chat-composer-input");
+	act(() => box.focus());
+	typeInto(box, "/bt");
+	expect(screen.queryByText("/btw")).toBeNull();
+	typeInto(box, "w hi");
+	key(box, "Escape");
+	key(box, "Enter");
+	expect(asked).toEqual([]);
+	expect(sent).toEqual([{ type: "send", text: "/btw hi", attachments: [] }]);
+});
+
+test("matchCommands marks /btw as the side pane's, and a $btw skill as an ordinary one", () => {
+	expect(matchCommands([BTW], "bt")[0]).toMatchObject({ insert: null, side: true });
+	expect(matchCommands([{ ...BTW, prefix: "$" }], "bt")[0]).toMatchObject({
+		insert: "$btw",
+	});
 });
 
 const SKILLS: ChatCommand[] = [

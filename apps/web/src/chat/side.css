@@ -1,0 +1,107 @@
+/* The side conversation, split beside the chat or under it when the chat
+   is narrow (SPEC.md §10.2). Divided from the chat by the pane handle's
+   line, never a shadow, and drawn on the chrome surface so it reads as
+   apart from the work it is about. */
+.pk-chat-split {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+
+.pk-side {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	/* The chat's column and gutter, sized by this pane. */
+	--pk-chat-gutter: var(--space-4);
+	background: var(--surface-chrome);
+	border-inline-start: 1px solid var(--line);
+}
+
+.pk-chat-split.is-stacked .pk-side {
+	border-inline-start: 0;
+	border-block-start: 1px solid var(--line);
+}
+
+.pk-side-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-2) var(--pk-chat-gutter);
+	border-block-end: 1px solid var(--line);
+}
+
+.pk-side-title {
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+	font-size: var(--text-md);
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pk-side-kind {
+	color: var(--ink-muted);
+	font-weight: 400;
+}
+
+.pk-side-note {
+	margin: 0;
+	padding: var(--space-2) var(--pk-chat-gutter);
+	color: var(--ink-muted);
+	font-size: var(--text-sm);
+	border-block-end: 1px solid var(--line);
+}
+
+.pk-side-scroll {
+	padding-block: var(--space-4);
+}
+
+.pk-side-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1\.5);
+	padding: var(--space-2) var(--pk-chat-gutter);
+}
+
+.pk-side-composer {
+	flex-direction: row;
+	align-items: flex-end;
+}
+
+.pk-side-text {
+	flex: 1;
+	min-width: 0;
+	/* As tall as what is typed, up to a few lines. */
+	field-sizing: content;
+	max-block-size: 12rem;
+	resize: none;
+	border: 0;
+	background: transparent;
+	font: inherit;
+	white-space: pre-wrap;
+}
+
+.pk-side-text::placeholder {
+	color: var(--ink-faint);
+}
+
+.pk-side-text:disabled {
+	color: var(--ink-muted);
+	cursor: not-allowed;
+}
+
+.pk-side-actions {
+	display: flex;
+	gap: var(--space-1);
+}
+
+.pk-side-error {
+	margin: 0;
+	color: var(--status-error);
+	font-size: var(--text-sm);
+}
