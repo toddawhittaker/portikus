@@ -14,6 +14,7 @@ import {
 	AgentStatusContext,
 	createAgentStatusStore,
 } from "../terminal/codingAgentStatus.js";
+import { PaneBarSlot } from "../terminal/paneBarSlot.js";
 import { ChatView } from "./ChatView";
 import { boxText, typeInto } from "./composerTesting.js";
 
@@ -88,6 +89,9 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
+/** The title bar's slot, outside the chat as the pane frame's is. */
+const bar = document.body.appendChild(document.createElement("div"));
+
 function draw({
 	agent = "claude",
 	btw = true,
@@ -98,6 +102,7 @@ function draw({
 	title?: string;
 } = {}) {
 	const status = createAgentStatusStore(() => true);
+	bar.replaceChildren();
 	if (title) {
 		status.update(
 			[{ terminalId: TERMINAL, title } as unknown as CodingAgentTerminal],
@@ -108,14 +113,17 @@ function draw({
 		<QueryClientProvider client={new QueryClient()}>
 			<ToastProvider>
 				<AgentStatusContext.Provider value={status}>
-					<ChatView
-						workspaceId={WORKSPACE}
-						projectId={PROJECT}
-						terminalId={TERMINAL}
-						visible={true}
-						focused={false}
-						onLeave={() => {}}
-					/>
+					{/* The pane's title bar, which the chat draws its Side question button into. */}
+					<PaneBarSlot.Provider value={bar}>
+						<ChatView
+							workspaceId={WORKSPACE}
+							projectId={PROJECT}
+							terminalId={TERMINAL}
+							visible={true}
+							focused={false}
+							onLeave={() => {}}
+						/>
+					</PaneBarSlot.Provider>
 				</AgentStatusContext.Provider>
 			</ToastProvider>
 		</QueryClientProvider>,
@@ -174,6 +182,35 @@ test("/btw opens a labelled side pane named for the chat, with the keyboard in i
 	expect(why?.textContent).toBe("Type a side question first.");
 	fireEvent.change(sideBox(), { target: { value: "why?" } });
 	expect(ask.getAttribute("aria-disabled")).toBeNull();
+});
+
+test("the title bar's Side question button opens the pane with the keyboard in its box, and sends nothing", () => {
+	draw();
+	const button = within(bar).getByRole("button", { name: "Side question" });
+	expect(screen.queryByTestId("side-panel")).toBeNull();
+	act(() => button.click());
+	expect(screen.getByTestId("side-panel")).toBeTruthy();
+	expect(document.activeElement).toBe(sideBox());
+	// Already open, it gives the keyboard back to the side box.
+	act(() => composer().focus());
+	act(() => button.click());
+	expect(document.activeElement).toBe(sideBox());
+	const asked = latest().sent.filter(
+		(message) => message.type === "send" || message.type.startsWith("side."),
+	);
+	expect(asked).toEqual([]);
+});
+
+test("no Side question button without btw", () => {
+	draw({ btw: false });
+	expect(within(bar).queryByRole("button", { name: "Side question" })).toBeNull();
+	// It comes once the host lists the command.
+	emit("commands", {
+		commands: [
+			{ name: "btw", description: "Ask a side question", terminalOnly: false },
+		],
+	});
+	expect(within(bar).getByRole("button", { name: "Side question" })).toBeTruthy();
 });
 
 test("an untitled chat is named for its agent's tab", () => {
