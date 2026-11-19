@@ -176,7 +176,7 @@ test("two agents of one kind are told apart by number in the menu", async () => 
 		"Claude Code (TUI) 2",
 	]);
 	fireEvent.click(item);
-	expect(pick.start).toHaveBeenCalledWith(second);
+	await vi.waitFor(() => expect(pick.start).toHaveBeenCalledWith(second));
 });
 
 test("while picking it reads as pressed and a press stops", () => {
