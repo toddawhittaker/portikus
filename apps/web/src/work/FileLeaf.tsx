@@ -223,6 +223,19 @@ function FileTab({
 	}, [pendingView?.seq]);
 
 	const data = file.data;
+	// A folder past one page lists the rest on request, so the lookup asks
+	// for the next page until the file turns up or the pages run out. Only a
+	// file with no etag needs its listing entry.
+	const lookingUp =
+		!listed && listing.hasNextPage && data !== undefined && !data.etag && kind !== null;
+	const { hasNextPage, isFetchingNextPage, fetchNextPage } = listing;
+	const pages = listing.data;
+	// Each page that arrives is new data, so the next page is asked for even
+	// when no render saw the fetch in flight.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new page is the trigger
+	useEffect(() => {
+		if (lookingUp && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+	}, [lookingUp, hasNextPage, isFetchingNextPage, fetchNextPage, pages]);
 
 	const { viewer, svgModes, csvModes, viewModes, viewOnly } = fileModes(
 		data,
@@ -373,7 +386,13 @@ function FileTab({
 		}
 		// Without an etag the viewer's address is versioned from the listing,
 		// so showing it sooner would load the file twice.
-		if (viewer && data && !data.etag && kind !== null && listing.isPending) {
+		if (
+			viewer &&
+			data &&
+			!data.etag &&
+			kind !== null &&
+			(listing.isPending || lookingUp)
+		) {
 			return <p className="pk-file-note">Loading…</p>;
 		}
 		if (viewer && data) return viewerBody(data);
