@@ -265,7 +265,10 @@ export async function frameAnswerFor(
 		pathname: url.pathname,
 		cookie,
 		fetchDest: navigationDest(request),
-		fetchUser: null,
+		// A route handler cannot read the browser's own Fetch Metadata, so a
+		// user-started load is marked by `sendFetchMetadata`, whose header
+		// override this request carries; Caddy forwards the real one.
+		fetchUser: request.headers()["sec-fetch-user"] ?? null,
 	});
 }
 

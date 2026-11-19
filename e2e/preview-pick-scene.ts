@@ -142,9 +142,14 @@ export async function clickOn(page: Page, selector: string): Promise<void> {
 /** Wait for exactly `count` drop folders, and return them. */
 export async function folders(scene: Scene, count: number): Promise<PickFolder[]> {
 	await expect
-		.poll(async () => (await pickFolders(scene.workspaceId, scene.slug)).length, {
-			timeout: 20_000,
-		})
+		.poll(
+			async () => {
+				const found = await pickFolders(scene.workspaceId, scene.slug);
+				// A folder appears before its files are saved into it.
+				return found.filter((folder) => "picked-element.md" in folder.files).length;
+			},
+			{ timeout: 20_000 },
+		)
 		.toBe(count);
 	return pickFolders(scene.workspaceId, scene.slug);
 }
