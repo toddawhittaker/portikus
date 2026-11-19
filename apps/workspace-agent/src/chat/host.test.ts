@@ -2834,16 +2834,16 @@ describe("side questions (SPEC.md section 10.2, ADR 0083)", () => {
 		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
 		a.send({ type: "side.ask", text: "q" });
 		await vi.waitFor(() =>
-			expect(ofType(a, "side").map((f) => f.event)).toContainEqual(
-				expect.objectContaining({ type: "turn.finished", status: "error" }),
-			),
-		);
-		await vi.waitFor(() =>
 			expect(ofType(a, "side").at(-1)?.event).toMatchObject({
-				role: "assistant",
-				markdown: "Claude gave no answer to that side question.",
+				type: "turn.finished",
+				status: "error",
 			}),
 		);
+		// The error is the answer, shown before the turn closes.
+		expect(ofType(a, "side").at(-2)?.event).toMatchObject({
+			role: "assistant",
+			markdown: "Claude gave no answer to that side question.",
+		});
 	});
 
 	test("Stop aborts the SDK call's signal", async () => {

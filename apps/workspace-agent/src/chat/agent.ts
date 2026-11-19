@@ -30,6 +30,18 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 /** An event before the core stamps its session id and sequence number. */
 export type ChatEventBody = DistributiveOmit<ChatServerEvent, "sessionId" | "seq">;
 
+/** A side-pane event before the core stamps its session id and sequence number. */
+export type SideBody = DistributiveOmit<ChatSubagentEvent, "sessionId" | "seq">;
+
+/**
+ * What a driver emits for a side answer: its content only. The core opens
+ * and closes the side turn and shows the question itself.
+ */
+export type SideEventBody = Exclude<
+	SideBody,
+	{ type: "snapshot" | "turn.started" | "turn.finished" }
+>;
+
 type EventOf<T extends ChatEventBody["type"]> = Extract<ChatEventBody, { type: T }>;
 
 export type ChatSettings = Omit<EventOf<"settings">, "type">;
@@ -112,15 +124,17 @@ export interface ChatAgent {
 	checkSignIn(): Promise<void>;
 	/**
 	 * Answer a side question beside the main conversation (SPEC.md §10.2,
-	 * ADR 0083), with the side conversation's earlier exchanges. It emits the
-	 * answer's events and resolves when the answer is done; the core opens
-	 * and closes the side turn. It must open no card, touch nothing the main
-	 * conversation shows, and log nothing. Absent when the agent cannot.
+	 * ADR 0083), with the side conversation's earlier exchanges. It emits
+	 * only the answer's content and resolves when the answer is done, or
+	 * rejects with a message for the student. The core owns the side turn:
+	 * it opens it, shows the question, numbers the events and closes it. It
+	 * must open no card, touch nothing the main conversation shows, and log
+	 * nothing. Absent when the agent cannot.
 	 */
 	askSide?(
 		text: string,
 		earlier: SideExchange[],
-		emit: (e: ChatSubagentEvent) => void,
+		emit: (e: SideEventBody) => void,
 		signal: AbortSignal,
 	): Promise<void>;
 	/** The side conversation ended; forget anything held for it. */

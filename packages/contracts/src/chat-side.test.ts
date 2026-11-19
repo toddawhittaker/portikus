@@ -76,6 +76,22 @@ describe("side host frame", () => {
 		expect(ChatServerEvent.safeParse(frame()).success).toBe(true);
 	});
 
+	test("may mark the end of the conversation, and only with true", () => {
+		const ended = frame({
+			ended: true,
+			event: {
+				type: "snapshot",
+				sessionId: SESSION,
+				seq: 0,
+				cards: [],
+				turnRunning: false,
+				truncated: false,
+			},
+		});
+		expect(ChatServerEvent.safeParse(ended).success).toBe(true);
+		expect(ChatServerEvent.safeParse(frame({ ended: false })).success).toBe(false);
+	});
+
 	test("refuses an event a subagent conversation cannot carry", () => {
 		const bad = frame({
 			event: { type: "permission.requested", sessionId: SESSION, seq: 1 },

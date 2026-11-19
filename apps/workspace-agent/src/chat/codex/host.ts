@@ -3,7 +3,6 @@ import type { Socket } from "node:net";
 import {
 	type ChatAttachment,
 	type ChatModelInfo,
-	type ChatSubagentEvent,
 	CODEX_DEFAULT_MODE,
 	isShellCommand,
 	MAX_CHAT_MODELS,
@@ -18,6 +17,7 @@ import type {
 	ChatSettingsChange,
 	ChatSink,
 	ContextFigures,
+	SideEventBody,
 } from "../agent.js";
 import { ChatCore, type ChatCoreOptions } from "../core.js";
 import type { Handoff } from "../handoff.js";
@@ -176,7 +176,6 @@ export class CodexAgent implements ChatAgent {
 		);
 		this.shell = new CodexShell(() => this.sink);
 		this.side = new CodexSide({
-			terminalId: options.terminalId,
 			projectDir: options.projectDir,
 			client: () => this.ready(),
 			mainThread: () => this.threadId,
@@ -401,6 +400,10 @@ export class CodexAgent implements ChatAgent {
 			case "serverRequest/resolved":
 				this.requests.resolved(params);
 				return;
+			case "thread/started":
+				// A subagent a side fork spawns is a side thread too (SPEC.md §10.2).
+				this.side.threadStarted(params);
+				return;
 			case "account/updated": {
 				const state = codexSignInUpdate(params);
 				if (state) this.sink.signIn(state);
@@ -612,7 +615,7 @@ export class CodexAgent implements ChatAgent {
 	askSide(
 		text: string,
 		earlier: SideExchange[],
-		emit: (event: ChatSubagentEvent) => void,
+		emit: (event: SideEventBody) => void,
 		signal: AbortSignal,
 	): Promise<void> {
 		return this.side.ask(text, earlier, emit, signal);
