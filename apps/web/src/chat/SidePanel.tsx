@@ -12,6 +12,7 @@ import { IconButton } from "@portikus/ui";
 import {
 	type FormEvent,
 	type RefObject,
+	useEffect,
 	useId,
 	useImperativeHandle,
 	useLayoutEffect,
@@ -89,10 +90,38 @@ export function SidePanel({
 	const rebuilding = side !== null && Object.keys(side.turns).length === 0;
 	if (status !== "" || !rebuilding) spoken.current = status;
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation changes
-	useLayoutEffect(() => {
-		follow.arrived();
-	}, [side?.items]);
+	/**
+	 * The keyboard sat on a control inside the log. A replay empties the list
+	 * and may swap it for the empty-state paragraph, and removing the focused
+	 * node reports no new target (a browser may still fire a blur for it), so
+	 * focus is recorded here and the move is made after the items change
+	 * (SPEC.md §25.8). It is forgotten when focus goes to another element or
+	 * the student presses on the page outside the log.
+	 */
+	const inLog = useRef(false);
+	useEffect(() => {
+		const node = log.current;
+		if (!node) return;
+		const onFocusIn = () => {
+			inLog.current = true;
+		};
+		const onFocusOut = (event: FocusEvent) => {
+			const next = event.relatedTarget;
+			if (next instanceof Node && !node.contains(next)) inLog.current = false;
+		};
+		const onPointerDown = (event: PointerEvent) => {
+			if (!(event.target instanceof Node && node.contains(event.target)))
+				inLog.current = false;
+		};
+		node.addEventListener("focusin", onFocusIn);
+		node.addEventListener("focusout", onFocusOut);
+		document.addEventListener("pointerdown", onPointerDown, true);
+		return () => {
+			node.removeEventListener("focusin", onFocusIn);
+			node.removeEventListener("focusout", onFocusOut);
+			document.removeEventListener("pointerdown", onPointerDown, true);
+		};
+	}, []);
 
 	/**
 	 * The box had the keyboard as its question went. It is disabled while the
@@ -100,6 +129,18 @@ export function SidePanel({
 	 */
 	const typing = useRef(false);
 	const box = useRef<HTMLTextAreaElement | null>(null);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation changes
+	useLayoutEffect(() => {
+		follow.arrived();
+		if (!inLog.current) return;
+		const active = document.activeElement;
+		if (active !== null && active !== document.body) return;
+		inLog.current = false;
+		// Where the pane's own handle puts it: Stop while a question runs, else the box.
+		(running ? stop.current : box.current)?.focus({ preventScroll: true });
+	}, [side?.items]);
+
 	// Into the box, or onto Stop while a question runs, to come back to the box after.
 	useImperativeHandle(
 		handle,

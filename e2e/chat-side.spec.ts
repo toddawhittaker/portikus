@@ -368,6 +368,32 @@ for (const { agent, name } of AGENTS) {
 			await expect(pane.getByTestId("side-stop")).toHaveCount(0);
 		});
 
+		test("a replay after a dropped socket keeps the keyboard in the pane when it was on a side answer's Copy button", async ({
+			page,
+			context,
+		}) => {
+			const sockets: WebSocketRoute[] = [];
+			await page.routeWebSocket(/\/chat$/, (ws) => {
+				ws.connectToServer();
+				sockets.push(ws);
+			});
+			const { view } = await openSideChat(page, context, agent);
+			const pane = await openPane(page, view);
+			await ask(pane, QUESTION);
+			await expect(pane).toContainText(ANSWER);
+			// The keyboard on Copy, inside the answer.
+			const copy = pane.getByRole("button", { name: "Copy message" }).last();
+			await copy.focus();
+			await expect(copy).toBeFocused();
+			const before = sockets.length;
+			await sockets.at(-1)?.close();
+			await expect.poll(() => sockets.length).toBeGreaterThan(before);
+			await expect(view.getByTestId("chat-connection")).toHaveText("");
+			await expect(pane).toContainText(ANSWER);
+			// The replay rebuilt the list; the keyboard is in the pane's box, not on the page.
+			await expect(pane.getByTestId("side-composer")).toBeFocused();
+		});
+
 		test("a narrow chat puts the pane under it, readable and without violations", async ({
 			page,
 			context,
