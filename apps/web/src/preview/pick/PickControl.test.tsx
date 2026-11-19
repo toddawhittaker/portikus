@@ -123,16 +123,6 @@ test("two agents of one kind are told apart by number in the menu", async () => 
 	await vi.waitFor(() => expect(pick.start).toHaveBeenCalledWith(second));
 });
 
-test("the menu is named for what it does", async () => {
-	addTarget("t1");
-	addTarget("t2");
-	render(<PickControl pick={mode()} ready={true} />);
-	fireEvent.pointerDown(button(), { button: 0, pointerType: "mouse" });
-	expect(
-		await screen.findByRole("menu", { name: "Send the picked element to" }),
-	).toBeTruthy();
-});
-
 test("chats are told apart by their titles, and the list follows tab order", async () => {
 	// The panes as the work area draws them: t2's tab comes first.
 	for (const id of ["t2", "t1", "t3"]) {

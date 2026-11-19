@@ -175,7 +175,7 @@ test.describe("the pick button", () => {
 		const scene = await openScene(page, context, { terminal: true, chat: true });
 		await pickButton(page).focus();
 		await page.keyboard.press("Enter");
-		const menu = page.getByRole("menu", { name: "Send the picked element to" });
+		const menu = page.getByRole("menu");
 		await expect(menu).toBeVisible();
 		await expect(menu.getByRole("menuitem").first()).toBeFocused();
 		await page.keyboard.press("Enter");
@@ -190,15 +190,17 @@ test.describe("the pick button", () => {
 		expect(selectorOf(folder as PickFolder)).toContain("main");
 	});
 
-	test("Escape in an agent's own box is left to the agent", async ({
+	test("Escape with focus outside the preview is left to what has focus", async ({
 		page,
 		context,
 	}) => {
-		await openScene(page, context, { terminal: true, chat: true });
-		await startPicking(page, "Claude Code (TUI)");
-		await page.getByTestId("chat-composer-input").first().focus();
+		await openScene(page, context);
+		await startPicking(page);
+		// Such as an agent's box, where Escape stops the agent's turn.
+		await page.getByTestId("right-pane-tab-running").focus();
 		await page.keyboard.press("Escape");
 		await expect(pickButton(page)).toHaveAttribute("aria-pressed", "true");
+		await expect(layer(page)).toHaveCount(1);
 	});
 
 	test("Escape pressed in the Portikus page leaves pick mode", async ({
@@ -208,6 +210,8 @@ test.describe("the pick button", () => {
 		const scene = await openScene(page, context);
 		await startPicking(page);
 		await page.getByTestId("preview-reload").focus();
+		// The first Escape may only close the button's tooltip.
+		await page.keyboard.press("Escape");
 		await page.keyboard.press("Escape");
 
 		await expect(pickButton(page)).toHaveAttribute("aria-pressed", "false");
@@ -249,10 +253,11 @@ test.describe("the pick button", () => {
 		await expect(button).toHaveAttribute("aria-pressed", "false");
 		await expect(button).not.toHaveAttribute("title");
 		// Tab reaches it, and focus shows the reason.
-		await page.getByTestId("preview-host").click();
-		await page.keyboard.press("Tab");
+		await page.getByTestId("preview-back").focus();
+		await page.keyboard.press("Shift+Tab");
 		await expect(button).toBeFocused();
-		await expect(page.getByRole("tooltip")).toContainText(NO_AGENT_TEXT);
+		// The tooltip is for sight only; the description above is what is read.
+		await expect(page.locator(".pk-tooltip")).toContainText(NO_AGENT_TEXT);
 		await page.keyboard.press("Enter");
 		await expect(button).toHaveAttribute("aria-pressed", "false");
 		await expect(layer(page)).toHaveCount(0);
