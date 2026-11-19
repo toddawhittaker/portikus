@@ -8,6 +8,7 @@ import {
 	receiveChatEvent,
 	receiveChatFrame,
 	selectSessionRulesActive,
+	sideBusy,
 	sideOffered,
 } from "./chatStore";
 import { changeToward, lastSettingsOf } from "./useChatSession";
@@ -902,20 +903,22 @@ test("a side frame before the snapshot is stale, and a reconnect's snapshot keep
 	expect(replayed.side ? texts(replayed.side) : []).toEqual(["Why?", "Because"]);
 });
 
-test("a snapshot from another host session ends the side conversation", () => {
-	const open = feed([
-		snapshot(0),
-		sideFrame(1, "message", { id: "q", role: "user", markdown: "Why?" }),
-	]);
-	const other = JSON.stringify({
-		type: "snapshot",
-		sessionId: "22222222-2222-4222-8222-222222222222",
-		seq: 0,
-		...SIDE_IDLE,
-	});
-	const restarted = feed([other], open);
-	expect(restarted.side).toBeNull();
-	expect(restarted.sideOpen).toBe(false);
+test("a reconnect's snapshot ends the wait for a side ask lost with the old socket", () => {
+	const store = createChatStore(() => true);
+	store.getState().receive(snapshot(0));
+	store.getState().receive(BTW);
+	store.getState().openSide();
+	store.getState().askSide("Why?");
+	expect(store.getState().sideWaiting).toBe(true);
+	store.getState().receive(snapshot(4));
+	expect(store.getState().sideWaiting).toBe(false);
+	expect(store.getState().sideOpen).toBe(true);
+	// A question the host did take comes back running in the replay.
+	store
+		.getState()
+		.receive(sideFrame(0, "snapshot", { ...SIDE_IDLE, turnRunning: true }));
+	store.getState().receive(sideFrame(1, "turn.started", { at: 1 }));
+	expect(sideBusy(store.getState())).toBe(true);
 });
 
 test("only the host's end closes the pane; an idle side snapshot starts a replay", () => {

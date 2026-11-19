@@ -80,6 +80,14 @@ export function SidePanel({
 	const [draft, setDraft] = useState("");
 	const [error, setError] = useState("");
 	const items = side?.items ?? [];
+	/**
+	 * What the live region says. A replay starts from an empty snapshot, so its
+	 * passing blank is skipped: a finished answer is not spoken again (SPEC.md §25.8).
+	 */
+	const spoken = useRef("");
+	const status = statusText(side, running);
+	const rebuilding = side !== null && Object.keys(side.turns).length === 0;
+	if (status !== "" || !rebuilding) spoken.current = status;
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation changes
 	useLayoutEffect(() => {
@@ -256,7 +264,7 @@ export function SidePanel({
 				) : null}
 			</form>
 			<p className="sr-only" aria-live="polite" data-testid="side-announcer">
-				{statusText(side, running)}
+				{spoken.current}
 			</p>
 		</section>
 	);
