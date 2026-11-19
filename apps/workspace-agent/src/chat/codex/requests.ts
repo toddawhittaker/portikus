@@ -32,6 +32,8 @@ export interface RequestsHost {
 	sink(): ChatSink;
 	/** The item mapper of the thread a request is about. */
 	mapperOf(threadId: string): CodexItemMapper;
+	/** The thread is a side conversation's fork, which may ask nothing (SPEC.md §10.2). */
+	isSide(threadId: string): boolean;
 	/** A deny reason, sent as the student's next message. */
 	deliver(message: string, steerable: boolean): Promise<void>;
 	/** A message a card's answer asks to send. */
@@ -74,6 +76,12 @@ export class CodexRequests {
 	}
 
 	onRequest(client: Client, id: RequestId, method: string, params: unknown): void {
+		// A side fork is read-only with approvals off; anything it asks is refused before a card.
+		const threadId = (params as { threadId?: unknown } | null)?.threadId;
+		if (typeof threadId === "string" && this.host.isSide(threadId)) {
+			client.respondError(id, -32600, "A side conversation is read-only.");
+			return;
+		}
 		switch (method) {
 			case "item/commandExecution/requestApproval":
 				this.approval(client, id, params, "commandExecution");

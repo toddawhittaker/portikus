@@ -141,3 +141,21 @@ export class FakeAppServer implements AppServerProcess {
 		this.exitListeners.push(listener);
 	}
 }
+
+/**
+ * A `thread/fork` handler that answers each fork with the next of these
+ * thread ids, shaped like Codex 0.167.1's answer to an ephemeral fork.
+ */
+export function forkHandler(ids: readonly string[]): Handler {
+	let next = 0;
+	return () => {
+		const id = ids[next] ?? `fork-${next}`;
+		next += 1;
+		return {
+			thread: { id, name: null, ephemeral: true },
+			model: "gpt-6.1-sol",
+			reasoningEffort: "medium",
+			sandbox: { type: "readOnly", networkAccess: false },
+		};
+	};
+}
