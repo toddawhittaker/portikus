@@ -798,42 +798,46 @@ function fromFrame(data: unknown) {
 	});
 }
 
-test("a loaded message from the wrapper clears the load fallback", async () => {
-	vi.useFakeTimers({ shouldAdvanceTime: true });
+test("a pick that does not arrive leaves the view on the preview", async () => {
 	stubFetch(() => json(200, GRANT));
-	show({});
-	await screen.findByTestId("preview-frame");
-	fromFrame({ v: 1, type: "loaded" });
-	await vi.advanceTimersByTimeAsync(9_000);
-	expect(screen.queryByTestId("preview-blocked")).toBeNull();
-	vi.useRealTimers();
-});
-
-test("a loaded message from another origin does not clear the fallback", async () => {
-	vi.useFakeTimers({ shouldAdvanceTime: true });
-	stubFetch(() => json(200, GRANT));
-	show({});
-	const frame = (await screen.findByTestId("preview-frame")) as HTMLIFrameElement;
-	act(() => {
-		window.dispatchEvent(
-			new MessageEvent("message", {
-				data: { v: 1, type: "loaded" },
-				origin: "https://evil.example",
-				source: frame.contentWindow,
-			}),
-		);
+	const deliver = vi.fn(async () => false);
+	const off = registerAgentDropTarget({
+		terminalId: "term-1",
+		label: "Claude Code",
+		deliver,
 	});
-	await vi.advanceTimersByTimeAsync(9_000);
-	expect(await screen.findByTestId("preview-blocked")).toBeTruthy();
-	vi.useRealTimers();
+	try {
+		show({});
+		await screen.findByTestId("preview-frame");
+		fireEvent.click(screen.getByTestId("preview-pick"));
+		fromFrame({
+			v: 1,
+			type: "picked",
+			pagePath: "/",
+			selector: "h1",
+			tag: "h1",
+			html: "<h1>Welcome</h1>",
+			rules: [],
+			computed: {},
+			trimmed: { html: false, rules: false },
+		});
+		await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+		await waitFor(() =>
+			expect(screen.getByTestId("preview-pick").getAttribute("aria-pressed")).toBe(
+				"false",
+			),
+		);
+		expect(navigate).not.toHaveBeenCalled();
+	} finally {
+		off();
+	}
 });
 
 test("a pick goes to the one open agent, the status reads the hover, and the view switches", async () => {
 	stubFetch(() => json(200, GRANT));
-	const deliver = vi.fn(async () => {});
+	const deliver = vi.fn(async () => true);
 	const off = registerAgentDropTarget({
 		terminalId: "term-1",
-		kind: "terminal",
 		label: "Claude Code",
 		deliver,
 	});

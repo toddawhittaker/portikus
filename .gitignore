@@ -5,6 +5,7 @@
 # Node
 node_modules/
 dist/
+dist-frame/
 build/
 *.tsbuildinfo
 .tsbuild/

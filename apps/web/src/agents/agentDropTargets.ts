@@ -8,16 +8,20 @@ import { useSyncExternalStore } from "react";
 
 export interface AgentDropTarget {
 	terminalId: string;
-	kind: "terminal" | "chat";
 	/** The name the left pane shows for this agent. */
 	label: string;
-	/** Hand `files` to the pane exactly as a desktop drop on it would. */
-	deliver: (files: File[]) => Promise<void>;
+	/**
+	 * Hand `files` to the pane exactly as a desktop drop on it would. True
+	 * only when something arrived; on failure the pane has shown its own toast.
+	 */
+	deliver: (files: File[]) => Promise<boolean>;
 }
 
 const NONE: readonly AgentDropTarget[] = [];
 
-// Insertion order is registration order; a replaced id keeps its place.
+// Insertion order is registration order. A registration that replaces a
+// listed id keeps its place; a pane that unregisters and registers again, as
+// a remounting pane does, goes to the end.
 const targets = new Map<string, AgentDropTarget>();
 const listeners = new Set<() => void>();
 let snapshot: readonly AgentDropTarget[] = NONE;
@@ -46,11 +50,12 @@ function subscribe(listener: () => void): () => void {
 	};
 }
 
-function getSnapshot(): readonly AgentDropTarget[] {
+/** The agent panes that can take files right now, read outside React. */
+export function getAgentDropTargets(): readonly AgentDropTarget[] {
 	return snapshot;
 }
 
 /** The agent panes that can take files now, in the order they mounted. */
 export function useAgentDropTargets(): readonly AgentDropTarget[] {
-	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+	return useSyncExternalStore(subscribe, getAgentDropTargets, getAgentDropTargets);
 }

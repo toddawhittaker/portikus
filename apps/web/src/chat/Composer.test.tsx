@@ -859,15 +859,16 @@ test("a mounted chat is listed as a drop target and its files become chips", asy
 	const [target] = targets.result.current;
 	expect(target).toMatchObject({
 		terminalId: TERMINAL,
-		kind: "chat",
 		label: "Claude Code (GUI)",
 	});
+	let arrived: boolean | undefined;
 	await act(async () => {
-		await target?.deliver([
+		arrived = await target?.deliver([
 			file("a.png", "image/png"),
 			file("notes.pdf", "application/pdf"),
 		]);
 	});
+	expect(arrived).toBe(true);
 	expect(saveDroppedFile).toHaveBeenCalledTimes(2);
 	const chips = await screen.findAllByTestId("composer-chip");
 	expect(chips.map((chip) => chip.textContent)).toEqual([
@@ -876,6 +877,18 @@ test("a mounted chat is listed as a drop target and its files become chips", asy
 	]);
 	// Nothing was sent: the files only wait as attachments.
 	expect(sent).toEqual([]);
+});
+
+test("a delivery to a chat that saves nothing resolves to false", async () => {
+	saveDroppedFile.mockRejectedValue(new Error("disk full"));
+	const targets = renderHook(() => useAgentDropTargets());
+	draw();
+	const [target] = targets.result.current;
+	let arrived: boolean | undefined;
+	await act(async () => {
+		arrived = await target?.deliver([file("a.png", "image/png")]);
+	});
+	expect(arrived).toBe(false);
 });
 
 test("a chat that unmounts is no longer a drop target", () => {

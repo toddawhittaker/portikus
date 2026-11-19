@@ -27,9 +27,14 @@ export const PICK_COMPUTED_VALUE_MAX_CHARS = 200;
 export const PICK_HOVER_LABEL_MAX_CHARS = 200;
 export const PICK_MEDIA_MAX_CHARS = 500;
 export const PICK_SHEET_ADDRESS_MAX_CHARS = 2_048;
-/** The schema's ceiling; the file builder applies the stricter 2,048 rule. */
-export const PICK_PAGE_PATH_MAX_CHARS = 4_096;
+export const PICK_PAGE_PATH_MAX_CHARS = 2_048;
+/**
+ * The picture's size limit. The schema does not apply it: an over-size
+ * picture must drop only the picture, so the Portikus page checks it.
+ */
 export const PICK_PNG_MAX_BYTES = MAX_CHAT_IMAGE_BYTES;
+/** A lower-case HTML or custom element name. */
+export const PICK_TAG_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 /** The only computed style properties a pick may carry. */
 export const PICK_COMPUTED_PROPERTIES = [
@@ -94,21 +99,12 @@ export function ruleChars(rule: PickRule): number {
 				(rule.sheet?.length ?? 0);
 }
 
-const pngBuffer = z
-	.instanceof(ArrayBuffer)
-	.refine((buffer) => buffer.byteLength <= PICK_PNG_MAX_BYTES, {
-		message: "screenshot is too large",
-	});
-
 export const PickedMessage = z.strictObject({
 	v: version,
 	type: z.literal("picked"),
 	pagePath: z.string().max(PICK_PAGE_PATH_MAX_CHARS),
 	selector: z.string().max(PICK_SELECTOR_MAX_CHARS),
-	tag: z
-		.string()
-		.max(PICK_TAG_MAX_CHARS)
-		.regex(/^[a-z][a-z0-9-]*$/),
+	tag: z.string().max(PICK_TAG_MAX_CHARS).regex(PICK_TAG_PATTERN),
 	html: z.string().max(PICK_HTML_MAX_CHARS + PICK_HTML_TRIMMED_MARKER.length),
 	rules: z
 		.array(z.union([cssRule, unreadableSheet]))
@@ -125,13 +121,12 @@ export const PickedMessage = z.strictObject({
 		z.string().max(PICK_COMPUTED_VALUE_MAX_CHARS),
 	),
 	trimmed: z.strictObject({ html: z.boolean(), rules: z.boolean() }),
-	png: pngBuffer.optional(),
+	png: z.instanceof(ArrayBuffer).optional(),
 });
 export type PickedMessage = z.infer<typeof PickedMessage>;
 
 const StartMessage = z.strictObject({ v: version, type: z.literal("start") });
 const StopMessage = z.strictObject({ v: version, type: z.literal("stop") });
-const LoadedMessage = z.strictObject({ v: version, type: z.literal("loaded") });
 const HoverMessage = z.strictObject({
 	v: version,
 	type: z.literal("hover"),
@@ -143,7 +138,6 @@ export const ParentMessage = z.discriminatedUnion("type", [StartMessage, StopMes
 export type ParentMessage = z.infer<typeof ParentMessage>;
 
 export const WrapperMessage = z.discriminatedUnion("type", [
-	LoadedMessage,
 	HoverMessage,
 	CancelledMessage,
 	PickedMessage,

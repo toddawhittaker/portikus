@@ -8,16 +8,11 @@ import {
 
 const cleanups: Array<() => void> = [];
 
-function register(
-	terminalId: string,
-	label = "Claude Code (TUI)",
-	kind: AgentDropTarget["kind"] = "terminal",
-) {
+function register(terminalId: string, label = "Claude Code (TUI)") {
 	const target: AgentDropTarget = {
 		terminalId,
-		kind,
 		label,
-		deliver: vi.fn(async () => {}),
+		deliver: vi.fn(async () => true),
 	};
 	cleanups.push(registerAgentDropTarget(target));
 	return target;
@@ -34,7 +29,7 @@ test("a registered pane is listed, in the order it registered", () => {
 	let b: AgentDropTarget | undefined;
 	act(() => {
 		a = register("a");
-		b = register("b", "Codex (GUI)", "chat");
+		b = register("b", "Codex (GUI)");
 	});
 	expect(result.current).toEqual([a, b]);
 });
@@ -58,9 +53,8 @@ test("unregistering removes the pane, and the hook follows", () => {
 		register("a");
 		off = registerAgentDropTarget({
 			terminalId: "b",
-			kind: "chat",
 			label: "x",
-			deliver: async () => {},
+			deliver: async () => true,
 		});
 	});
 	expect(result.current).toHaveLength(2);
@@ -74,9 +68,8 @@ test("a replaced registration's old unregister does not remove the newer one", (
 	act(() => {
 		offOld = registerAgentDropTarget({
 			terminalId: "a",
-			kind: "terminal",
 			label: "old",
-			deliver: async () => {},
+			deliver: async () => true,
 		});
 		register("a", "new");
 	});
@@ -89,9 +82,8 @@ test("unregistering twice is harmless", () => {
 	act(() => {
 		off = registerAgentDropTarget({
 			terminalId: "a",
-			kind: "terminal",
 			label: "x",
-			deliver: async () => {},
+			deliver: async () => true,
 		});
 	});
 	act(() => {

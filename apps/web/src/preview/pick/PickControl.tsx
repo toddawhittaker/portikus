@@ -8,7 +8,10 @@
  */
 import { IconButton, Menu, MenuItem, MenuRoot, MenuTrigger } from "@portikus/ui";
 import { useId, useState } from "react";
-import { useAgentDropTargets } from "../../agents/agentDropTargets.js";
+import {
+	type AgentDropTarget,
+	useAgentDropTargets,
+} from "../../agents/agentDropTargets.js";
 import { useCourseProfile } from "../../editor/settingsQueries.js";
 import type { PickMode } from "./usePickMode.js";
 
@@ -16,6 +19,23 @@ const LABEL = "Pick an element";
 export const NO_AGENT_TEXT =
 	"Open an agent terminal or chat to send it a picked element";
 const NO_PAGE_TEXT = "The preview has to show a page before you can pick from it";
+
+/**
+ * Each target's menu label. Two agents of one kind share a tab name, so
+ * those are numbered in the order they opened.
+ */
+function menuLabels(targets: readonly AgentDropTarget[]): string[] {
+	const total = new Map<string, number>();
+	for (const target of targets)
+		total.set(target.label, (total.get(target.label) ?? 0) + 1);
+	const seen = new Map<string, number>();
+	return targets.map((target) => {
+		if (total.get(target.label) === 1) return target.label;
+		const n = (seen.get(target.label) ?? 0) + 1;
+		seen.set(target.label, n);
+		return `${target.label} ${n}`;
+	});
+}
 
 export interface PickControlProps {
 	pick: PickMode;
@@ -32,6 +52,7 @@ export function PickControl({ pick, ready }: PickControlProps) {
 	if (traditional) return null;
 
 	const active = pick.state !== "idle";
+	const labels = menuLabels(targets);
 	const reason = targets.length === 0 ? NO_AGENT_TEXT : ready ? null : NO_PAGE_TEXT;
 	const disabled = reason !== null && !active;
 
@@ -72,13 +93,13 @@ export function PickControl({ pick, ready }: PickControlProps) {
 				>
 					<MenuTrigger asChild>{button}</MenuTrigger>
 					<Menu label="Send the picked element to">
-						{targets.map((target) => (
+						{targets.map((target, index) => (
 							<MenuItem
 								key={target.terminalId}
 								testId={`preview-pick-target-${target.terminalId}`}
 								onSelect={() => pick.start(target)}
 							>
-								{target.label}
+								{labels[index]}
 							</MenuItem>
 						))}
 					</Menu>
