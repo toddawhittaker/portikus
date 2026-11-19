@@ -61,6 +61,7 @@ import {
 	takeSubagentRequest,
 	useSubagentRequest,
 } from "./subagentView.js";
+import { requestedTitle } from "./toolView.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -368,9 +369,13 @@ function ChatViewBody({
 	const showSubagent = useCallback(
 		(target: SubagentTarget, element: HTMLElement | null) => {
 			beforeSubagent.current = { element, toolUseId: target.toolUseId };
-			setSubagent(target);
+			// A Codex child is titled by its starting row however it is opened.
+			setSubagent({
+				...target,
+				title: requestedTitle(state.items, target.toolUseId, target.title),
+			});
 		},
-		[],
+		[state.items],
 	);
 	// From an Agent card, the keyboard goes back to the button that opened it.
 	const openSubagent = useCallback(

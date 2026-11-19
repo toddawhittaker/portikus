@@ -332,7 +332,7 @@ test.describe("Codex rows the fake host does not send", () => {
 		]);
 		await open.nth(1).click();
 
-		const panel = view.getByRole("region", { name: "Subagent 2" });
+		const panel = view.getByRole("region", { name: "Check the tests (2)" });
 		await expect(panel).toBeVisible();
 		await expect(panel.getByText("Looked at child-2.")).toBeVisible();
 		await expect(panel.getByTestId("subagent-note")).toHaveText(
@@ -348,7 +348,9 @@ test.describe("Codex rows the fake host does not send", () => {
 		// The panel follows the child by its id, so the first child opens its own.
 		await open.nth(0).click();
 		await expect(
-			view.getByRole("region", { name: "Subagent 1" }).getByText("Looked at child-1."),
+			view
+				.getByRole("region", { name: "Check the tests (1)" })
+				.getByText("Looked at child-1."),
 		).toBeVisible();
 	});
 

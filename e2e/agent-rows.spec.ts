@@ -344,7 +344,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 					id: "cx-spawn",
 					name: "collabAgentToolCall",
 					title: "spawnAgent",
-					input: { tool: "spawnAgent", receivers: [child], prompt: "Check" },
+					input: {
+						tool: "spawnAgent",
+						receivers: [child],
+						prompt: "Check the tests in the api package\nReport failures only.",
+					},
 				});
 				send("tool.finished", { id: "cx-spawn", isError: false });
 				send("message", { id: "a1", role: "assistant", markdown: "Started it." });
@@ -403,6 +407,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 			const panel = view.getByTestId("subagent-panel");
 			await expect(panel).toBeVisible();
 			await expect(panel.getByText("The tests pass.")).toBeVisible();
+			// Named by the first line of the prompt its parent sent, not "Subagent".
+			await expect(panel.getByRole("heading", { level: 2 })).toHaveText(
+				"Subagent Check the tests in the api package",
+			);
 			await expect(panel.getByTestId("subagent-note")).toContainText("ask Codex");
 			expect(watched[0]).toEqual({ type: "subagent.watch", toolUseId: child });
 			await expectNoViolations(page);

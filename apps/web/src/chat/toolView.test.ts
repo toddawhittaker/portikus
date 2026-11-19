@@ -1,11 +1,14 @@
 import { expect, test } from "vitest";
+import type { ChatItem } from "./chatStore.js";
 import {
 	collabReceivers,
+	collabTitle,
 	diffLines,
 	isPlanCall,
 	mcpCall,
 	previewText,
 	projectPath,
+	requestedTitle,
 	toolLabel,
 	toolLine,
 	toolView,
@@ -588,4 +591,29 @@ test("a plan decision is told for either agent's plan call", () => {
 	expect(isPlanCall("plan")).toBe(true);
 	expect(isPlanCall("planSteps")).toBe(false);
 	expect(isPlanCall("Bash")).toBe(false);
+});
+
+test("a Codex subagent is titled by its prompt's first line, cut and numbered", () => {
+	expect(
+		collabTitle({ receivers: ["a"], prompt: "  Fix the build\nthen test" }, "a"),
+	).toBe("Fix the build");
+	expect(collabTitle({ receivers: ["a", "b"], prompt: "Look" }, "b")).toBe("Look (2)");
+	const long = collabTitle({ receivers: ["a"], prompt: "x".repeat(100) }, "a");
+	expect(long).toBe(`${"x".repeat(59)}…`);
+	expect(collabTitle({ receivers: ["a"], prompt: "Look" }, "z")).toBeNull();
+	expect(collabTitle({ receivers: ["a"], prompt: "\n" }, "a")).toBeNull();
+	expect(collabTitle({ receivers: ["a"] }, "a")).toBeNull();
+});
+
+test("a subagent opened from the list takes its title from the row that started it", () => {
+	const row = (id: string, name: string, input: unknown) =>
+		({ kind: "tool", id, name, input }) as unknown as ChatItem;
+	const items = [
+		row("a1", "Agent", { receivers: ["c1"], prompt: "Not this" }),
+		row("c0", "collabAgentToolCall", { receivers: ["c1"] }),
+		row("c2", "collabAgentToolCall", { receivers: ["c1"], prompt: "Find dead code" }),
+	];
+	expect(requestedTitle(items, "c1", "explorer")).toBe("Find dead code");
+	expect(requestedTitle(items, "gone", "explorer")).toBe("explorer");
+	expect(requestedTitle(items, "gone", "")).toBe("Subagent");
 });

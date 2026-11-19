@@ -230,7 +230,8 @@ function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string 
 			onOpen={() =>
 				openSubagent({
 					toolUseId: child,
-					// Numbered as the row numbers its buttons, so panels tell apart.
+					// Numbered as the row numbers its buttons, so panels tell apart;
+					// ChatView swaps in the starting row's prompt when it is loaded.
 					title: children.length === 1 ? SUBAGENT_TITLE : `${SUBAGENT_TITLE} ${at + 1}`,
 				})
 			}
@@ -238,7 +239,7 @@ function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string 
 	));
 }
 
-/** A Codex subagent has no description, so its view is named by what it is. */
+/** A Codex subagent with no prompt to name it is named by what it is. */
 const SUBAGENT_TITLE = "Subagent";
 
 function OpenButton({

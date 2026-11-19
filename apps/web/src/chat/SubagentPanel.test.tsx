@@ -402,3 +402,21 @@ test("a Codex subagent is watched by its child thread id, and its panel says wha
 	cleanup();
 	expect(sent.at(-1)).toEqual({ type: "subagent.unwatch", toolUseId: CHILD });
 });
+
+test("a Codex child opened from a row with no prompt is titled by the row that started it", () => {
+	draw();
+	const collab = (id: string, input: object) => {
+		emit("tool.started", { id, name: "collabAgentToolCall", title: "", input });
+		emit("tool.finished", { id, isError: false });
+	};
+	collab("spawn", {
+		tool: "spawnAgent",
+		receivers: [CHILD],
+		prompt: "Check the tests",
+	});
+	collab("wait", { tool: "wait", receivers: [CHILD] });
+	const row = screen.getByTestId("chat-tool-wait") as HTMLDetailsElement;
+	row.open = true;
+	fireEvent.click(within(row).getByRole("button", { name: "Show its conversation" }));
+	expect(screen.getByRole("region", { name: "Subagent Check the tests" })).toBeTruthy();
+});

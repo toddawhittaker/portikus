@@ -7,6 +7,7 @@
  */
 import { ProjectPath } from "@portikus/contracts";
 import { projectRoot } from "../projectRoot.js";
+import type { ChatItem } from "./chatStore.js";
 
 export interface EditChange {
 	before: string;
@@ -282,6 +283,43 @@ export function collabReceivers(input: unknown): string[] {
 	return input.receivers.filter(
 		(receiver): receiver is string => typeof receiver === "string" && receiver !== "",
 	);
+}
+
+/** How long a subagent's title runs before it is cut. */
+const TITLE_LENGTH = 60;
+
+/**
+ * A Codex subagent's title: the first line of the prompt its parent sent it,
+ * cut short, and numbered when one call names several children so their
+ * views tell apart. Null when the call names no such child or carries no prompt.
+ */
+export function collabTitle(input: unknown, child: string): string | null {
+	const receivers = collabReceivers(input);
+	const at = receivers.indexOf(child);
+	if (at === -1 || !isRecord(input) || typeof input.prompt !== "string") return null;
+	const line = input.prompt.trim().split("\n")[0]?.trim() ?? "";
+	if (line === "") return null;
+	const cut =
+		line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…` : line;
+	return receivers.length === 1 ? cut : `${cut} (${at + 1})`;
+}
+
+/**
+ * A subagent picked in the project list: a Codex child is named by the prompt
+ * of the loaded tool row that started it; otherwise by the list's own words,
+ * or plain "Subagent" when the list has none.
+ */
+export function requestedTitle(
+	items: readonly ChatItem[],
+	child: string,
+	listed: string,
+): string {
+	for (const item of items) {
+		if (item.kind !== "tool" || item.name !== "collabAgentToolCall") continue;
+		const title = collabTitle(item.input, child);
+		if (title !== null) return title;
+	}
+	return listed || "Subagent";
 }
 
 /** Codex's subagent tools, told as Claude's Agent rows are. */
