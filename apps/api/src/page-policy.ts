@@ -8,10 +8,14 @@ import type { FastifyInstance } from "fastify";
 export const PAGE_POLICY =
 	"default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
-/** A preview-host page: like PAGE_POLICY, but the Preview tab may frame it. */
+/**
+ * A preview-host page: like PAGE_POLICY, but the Preview tab may frame it.
+ * The tab's frame holds Portikus's wrapper page, and the wrapper holds this
+ * page in a frame of its own on the same preview origin, hence `'self'`.
+ */
 export function previewPagePolicy(publicUrl: string): string {
 	const origin = new URL(publicUrl).origin;
-	return `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors ${origin}`;
+	return `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' ${origin}`;
 }
 
 /**

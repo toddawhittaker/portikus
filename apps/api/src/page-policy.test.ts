@@ -45,8 +45,8 @@ test("JSON, a page with its own policy, and the Dex relay are left alone", async
 	expect(relayed.headers["content-security-policy"]).toBeUndefined();
 });
 
-test("a preview page may be framed only by the control plane", () => {
+test("a preview page may be framed only by the control plane and the wrapper on its own origin", () => {
 	expect(previewPagePolicy("https://portikus.example.edu:8443/")).toBe(
-		"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors https://portikus.example.edu:8443",
+		"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://portikus.example.edu:8443",
 	);
 });

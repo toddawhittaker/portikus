@@ -13,6 +13,13 @@ import {
 	workspacePath,
 } from "./helpers";
 import { API_ORIGIN, WEB_ORIGIN } from "./ports";
+import {
+	appFrame,
+	appFrameLocator,
+	edgeCookieJar,
+	FRAME_PREFIX,
+	frameAnswerFor,
+} from "./preview-gateway";
 
 /**
  * What the browser itself must and must not do with a preview
@@ -59,49 +66,13 @@ interface Seen {
 
 /** Stand in for Caddy for every page in one browser context. */
 async function previewGateway(context: BrowserContext): Promise<Seen> {
-	/**
-	 * The preview session cookie, held here rather than in the browser.
-	 *
-	 * The supported deployment is same-site: Portikus and the preview suffix
-	 * share a registrable domain (BROWSER-HANDLING.md §7.1), so the
-	 * `SameSite=Strict` preview cookie is stored and sent inside the frame.
-	 * This development environment cannot be same-site, because Portikus is
-	 * on 127.0.0.1 and an IP address has no subdomains, so Chromium treats
-	 * every preview request as cross-site and drops the cookie. This jar
-	 * stands in for the browser Portikus is really deployed against. Nothing
-	 * else is faked: every value in it came from the API, and the browser's
-	 * own cookie header is still what the Portikus-cookie test reads.
-	 */
-	const jar = new Map<string, string>();
+	const jar = edgeCookieJar();
 	const seen: Seen = {
 		cookies: [],
 		app: [],
-		session: (host) => jar.get(host),
+		session: jar.held,
 		reserved: [],
 	};
-
-	/** What the edge sends on: the browser's cookies plus the jar's. */
-	function withJar(host: string, browser: string): string {
-		const names = browser
-			.split(";")
-			.map((one) => one.split("=")[0]?.trim() ?? "")
-			.filter(Boolean);
-		const held = jar.get(host);
-		if (held === undefined || names.includes("portikus-preview")) return browser;
-		return [browser, `portikus-preview=${held}`].filter(Boolean).join("; ");
-	}
-
-	/** Record what the API set or cleared for this host. */
-	function remember(host: string, response: Response): void {
-		for (const line of response.headers.getSetCookie()) {
-			const pair = line.split(";")[0] ?? "";
-			const separator = pair.indexOf("=");
-			if (pair.slice(0, separator).trim() !== "portikus-preview") continue;
-			const value = pair.slice(separator + 1).trim();
-			if (value === "") jar.delete(host);
-			else jar.set(host, value);
-		}
-	}
 
 	async function proxy(
 		host: string,
@@ -163,17 +134,28 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 			const host = url.host;
 			const fromBrowser = (await request.headerValue("cookie")) ?? "";
 			seen.cookies.push(fromBrowser);
-			const cookie = withJar(host, fromBrowser);
+			const cookie = jar.withJar(host, fromBrowser);
 			const path = `${url.pathname}${url.search}`;
 			const raw = request.postDataBuffer();
 			const contentType = await request.headerValue("content-type");
+
+			// The wrapper page an embedded preview opens, answered by the same
+			// rules as the shared stand-in (see `frameAnswer`).
+			const frame = (pathname: string, cookies: string) =>
+				frameAnswerFor(request, pathname, cookies);
+			if (
+				url.pathname === FRAME_PREFIX ||
+				url.pathname.startsWith(`${FRAME_PREFIX}/`)
+			) {
+				return route.fulfill(await frame(url.pathname, cookie));
+			}
 
 			if (url.pathname.startsWith("/__portikus/")) {
 				const answer = await fetch(`${API_ORIGIN}${path}`, {
 					headers: { "x-forwarded-host": host, "x-forwarded-proto": "https", cookie },
 					redirect: "manual",
 				});
-				remember(host, answer);
+				jar.remember(host, answer);
 				seen.reserved.push({
 					path: url.pathname,
 					clearSiteData: answer.headers.get("clear-site-data"),
@@ -192,6 +174,16 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 				}
 				// The bootstrap just minted a session: follow the redirect with
 				// that cookie alone, never a stale one the jar still holds.
+				if (location.startsWith(`${FRAME_PREFIX}/`)) {
+					const page = await frame(location, cookiePairs(answer));
+					return route.fulfill({
+						...page,
+						headers: {
+							...page.headers,
+							...(headers["set-cookie"] ? { "set-cookie": headers["set-cookie"] } : {}),
+						},
+					});
+				}
 				const app = await proxy(
 					host,
 					"GET",
@@ -404,20 +396,7 @@ async function openPreviewTab(
 }
 
 function appHeading(page: Page) {
-	return page.frameLocator("[data-testid=preview-frame]").locator("#title");
-}
-
-/** The frame's own document, for scripts that must run as preview code. */
-function previewFrame(page: Page) {
-	const frame = page.frames().find((one) => {
-		try {
-			return new URL(one.url()).hostname.endsWith(PREVIEW_SUFFIX);
-		} catch {
-			return false;
-		}
-	});
-	if (!frame) throw new Error("the preview frame is not there");
-	return frame;
+	return appFrameLocator(page).locator("#title");
 }
 
 /** The origin the preview tab is showing, taken from the toolbar. */
@@ -456,20 +435,22 @@ test.describe("the preview in a real browser", () => {
 		await expect(appHeading(page)).toHaveText("Hostile", { timeout: 20_000 });
 
 		await page.evaluate(() => localStorage.setItem("portikus-secret", "do-not-read"));
-		const reach = await previewFrame(page).evaluate(() => {
+		// The application's parent is Portikus's own wrapper page on the same
+		// origin; the Portikus page is the top window.
+		const reach = await appFrame(page).evaluate(() => {
 			const results: Record<string, string> = {};
 			try {
-				results.dom = String(window.parent.document.title);
+				results.dom = String(window.top.document.title);
 			} catch (error) {
 				results.dom = `refused: ${(error as Error).name}`;
 			}
 			try {
-				results.storage = String(window.parent.localStorage.getItem("portikus-secret"));
+				results.storage = String(window.top.localStorage.getItem("portikus-secret"));
 			} catch (error) {
 				results.storage = `refused: ${(error as Error).name}`;
 			}
 			try {
-				results.cookie = String(window.parent.document.cookie);
+				results.cookie = String(window.top.document.cookie);
 			} catch (error) {
 				results.cookie = `refused: ${(error as Error).name}`;
 			}
@@ -479,7 +460,7 @@ test.describe("the preview in a real browser", () => {
 		expect(reach.storage).toContain("refused");
 		expect(reach.cookie).toContain("refused");
 		// Its own storage is its own, and holds nothing of Portikus.
-		const own = await previewFrame(page).evaluate(() =>
+		const own = await appFrame(page).evaluate(() =>
 			localStorage.getItem("portikus-secret"),
 		);
 		expect(own).toBeNull();
@@ -494,7 +475,7 @@ test.describe("the preview in a real browser", () => {
 		await previewGateway(context);
 		const app = await startPreview(student.workspaceId, "Stateful");
 		await openPreviewTab(page, student.workspaceId, app.port);
-		const frame = page.frameLocator("[data-testid=preview-frame]");
+		const frame = appFrameLocator(page);
 		await expect(frame.locator("#state")).toHaveText("note:none", { timeout: 20_000 });
 
 		await page.getByTestId("preview-reload").click();
@@ -518,7 +499,7 @@ test.describe("the preview in a real browser", () => {
 		await previewGateway(context);
 		const app = await startPreview(student.workspaceId, "Cookies");
 		await openPreviewTab(page, student.workspaceId, app.port);
-		const frame = page.frameLocator("[data-testid=preview-frame]");
+		const frame = appFrameLocator(page);
 		await expect(frame.locator("#cookie")).toHaveText("cookie:app-cookie=chocolate", {
 			timeout: 20_000,
 		});
@@ -540,7 +521,7 @@ test.describe("the preview in a real browser", () => {
 		await openPreviewTab(page, student.workspaceId, app.port);
 		await expect(appHeading(page)).toHaveText("Forms", { timeout: 20_000 });
 
-		await page.frameLocator("[data-testid=preview-frame]").locator("#send").click();
+		await appFrameLocator(page).locator("#send").click();
 		await expect(appHeading(page)).toHaveText("form received hello", {
 			timeout: 20_000,
 		});
@@ -560,7 +541,7 @@ test.describe("the preview in a real browser", () => {
 
 		const [popup] = await Promise.all([
 			page.waitForEvent("popup"),
-			page.frameLocator("[data-testid=preview-frame]").locator("#popup").click(),
+			appFrameLocator(page).locator("#popup").click(),
 		]);
 		await popup.waitForLoadState();
 		const url = new URL(popup.url());
@@ -643,7 +624,7 @@ test.describe("the preview in a real browser", () => {
 
 		// This worker answers every request it is asked about, so if the reset
 		// went through the frame the worker would answer it instead of the edge.
-		const frame = page.frameLocator("[data-testid=preview-frame]");
+		const frame = appFrameLocator(page);
 		await frame.locator("#register").click();
 		await expect(frame.locator("#worker")).toHaveText("worker ready", {
 			timeout: 20_000,
@@ -681,7 +662,7 @@ test.describe("the preview in a real browser", () => {
 		const seen = await previewGateway(context);
 		const app = await startPreview(student.workspaceId, "Reset");
 		await openPreviewTab(page, student.workspaceId, app.port);
-		const state = page.frameLocator("[data-testid=preview-frame]").locator("#state");
+		const state = appFrameLocator(page).locator("#state");
 		await expect(state).toHaveText("note:none", { timeout: 20_000 });
 
 		const host = new URL(await previewOrigin(page)).host;
@@ -771,6 +752,8 @@ test.describe("the preview in a real browser", () => {
 		await expect(appHeading(page)).toHaveText("Framed stop", { timeout: 20_000 });
 		await app.stop();
 
+		// The wrapper request is refused by the login check, so the explanation
+		// is the Preview frame's own page, not a page inside the wrapper.
 		const frame = page.frameLocator("[data-testid=preview-frame]");
 		await expect
 			.poll(
@@ -927,7 +910,7 @@ test.describe("the preview in a real browser", () => {
 		await expect(appHeading(page)).toHaveText("History", { timeout: 20_000 });
 		const portikusUrl = page.url();
 
-		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		const frame = () => appFrameLocator(page);
 		// Two navigations forward first, so stepping back stays on pages the
 		// application served. The entry the frame started on is the bootstrap
 		// URL, whose ticket is single-use; in a real deployment the browser
@@ -1019,7 +1002,7 @@ test.describe("the preview in a real browser", () => {
 		// Three navigations inside the frame, so three entries. The page the
 		// frame started on is the bootstrap URL, whose ticket is single-use,
 		// so it is the entry the student must not be able to go past twice.
-		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		const frame = () => appFrameLocator(page);
 		await frame().locator("#link").click();
 		await expect(appHeading(page)).toHaveText("second page");
 		await frame().locator("#home").click();
@@ -1075,7 +1058,7 @@ test.describe("the preview in a real browser", () => {
 
 		// Two route changes, and no page load at all: every entry here belongs
 		// to the one document the frame already had.
-		const frame = () => page.frameLocator("[data-testid=preview-frame]");
+		const frame = () => appFrameLocator(page);
 		await frame().locator("#push").click();
 		await expect(appHeading(page)).toHaveText("pushed route");
 		await frame().locator("#push").click();
