@@ -84,13 +84,13 @@ export function TerminalQuestion({
 	const agentKind = agent?.agent;
 	const agentName = agent?.name;
 	useEffect(() => {
-		// The notice is about the last question, so the next one replaces it.
-		if (shownId !== null) setGone(false);
 		if (shownId === null) {
 			decided.current = null;
 			setAnnouncement("");
 			return;
 		}
+		// The notice is about the last question, so the next one replaces it.
+		setGone(false);
 		// Decided once on arrival, before the lazy card tries for the keyboard.
 		if (decided.current === shownId) return;
 		decided.current = shownId;
@@ -141,33 +141,36 @@ export function TerminalQuestion({
 					onSend={(answer) => void send(answer)}
 				/>
 			) : null}
+			{/* The box only draws while the notice shows; the status region stays put. */}
 			<div
-				ref={region}
-				role="status"
-				aria-live="polite"
-				data-testid={`terminal-question-live-${terminalId}`}
+				className={gone ? "pk-term-flag pk-term-question-gone" : undefined}
+				data-testid={gone ? `terminal-question-gone-${terminalId}` : undefined}
 			>
-				{announcement ? (
-					// Keyed by question, so a swap from one question to the next is a new
-					// node a screen reader speaks even when the words are the same.
-					<span key={shownId} className="pk-visually-hidden">
-						{announcement}
-					</span>
-				) : null}
-				{gone ? (
-					<GoneNotice
-						testId={`terminal-question-gone-${terminalId}`}
-						onClose={() => setGone(false)}
-					/>
-				) : null}
+				<div
+					ref={region}
+					role="status"
+					aria-live="polite"
+					data-testid={`terminal-question-live-${terminalId}`}
+				>
+					{announcement ? (
+						// Keyed by question, so a swap from one question to the next is a new
+						// node a screen reader speaks even when the words are the same.
+						<span key={shownId} className="pk-visually-hidden">
+							{announcement}
+						</span>
+					) : null}
+					{gone ? QUESTION_GONE : null}
+				</div>
+				{/* Outside the status region, so a screen reader reads only the message. */}
+				{gone ? <DismissNotice onClose={() => setGone(false)} /> : null}
 			</div>
 		</>
 	);
 }
 
 /** Stays until the student closes it or the next question arrives. */
-function GoneNotice({ testId, onClose }: { testId: string; onClose: () => void }) {
-	const box = useRef<HTMLParagraphElement | null>(null);
+function DismissNotice({ onClose }: { onClose: () => void }) {
+	const box = useRef<HTMLButtonElement | null>(null);
 
 	// Runs before the notice leaves the page, so a closed notice never strands focus.
 	useLayoutEffect(() => {
@@ -176,10 +179,7 @@ function GoneNotice({ testId, onClose }: { testId: string; onClose: () => void }
 	}, []);
 
 	return (
-		<p ref={box} className="pk-term-flag pk-term-question-gone" data-testid={testId}>
-			{QUESTION_GONE}
-			<IconButton icon="x" size="sm" label="Dismiss notice" onClick={onClose} />
-		</p>
+		<IconButton ref={box} icon="x" size="sm" label="Dismiss notice" onClick={onClose} />
 	);
 }
 

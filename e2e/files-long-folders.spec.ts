@@ -61,15 +61,16 @@ test.describe("folders past one listing page", () => {
 		// The first page of folders, then the row that loads the rest.
 		await expect(dialog.getByTestId("move-folder-pics/d00000")).toBeVisible();
 		await expect(dialog.getByTestId("move-folder-pics/d02002")).toHaveCount(0);
-		const more = dialog.getByTestId("file-tree-show-more");
-		await expect(more).toContainText("Show 2,000 more…");
+		const more = dialog.getByRole("button", { name: "Show more folders" });
+		await expect(more).toBeVisible();
+		await expect(dialog.getByRole("tree")).toHaveCount(0);
 		const results = await (await settledAxe(page))
 			.withTags(WCAG_TAGS)
 			.include("[data-testid=dialog-move-file]")
 			.analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 
-		// Keyboard only: the row, Enter, and focus lands on the first new folder.
+		// Keyboard only: the button, Enter, and focus lands on the first new folder.
 		await more.focus();
 		await expect(more).toBeFocused();
 		await page.keyboard.press("Enter");

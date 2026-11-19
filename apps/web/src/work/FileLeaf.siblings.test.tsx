@@ -88,3 +88,23 @@ test("the lookup stops when the last page does not hold the file", async () => {
 	await new Promise((resolve) => setTimeout(resolve, 50));
 	expect(trees).toHaveLength(3);
 });
+
+test("a next page that fails ends the lookup instead of asking again", async () => {
+	const trees: string[] = [];
+	stubFetch((url) => {
+		if (url.includes("/tree?")) {
+			trees.push(url);
+			if (url.includes("after=")) {
+				return json(500, { error: { code: "INTERNAL", message: "boom" } });
+			}
+			return json(200, { entries: [entry("a.png")], truncated: true, next: "f/a.png" });
+		}
+		return settings(url) ?? tooLarge();
+	});
+	renderLeaf();
+	// The viewer shows without a version rather than staying on "Loading…".
+	await screen.findByRole("img", { name: "z.png" });
+	expect(screen.queryByText("Loading…")).toBeNull();
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(trees).toHaveLength(2);
+});

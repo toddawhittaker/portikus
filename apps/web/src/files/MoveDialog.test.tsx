@@ -46,7 +46,9 @@ function paged(trees: string[]) {
 	});
 }
 
-test("a folder past the first page is reached through the Show more row", async () => {
+const MORE = "Show more folders";
+
+test("a folder past the first page is reached through the Show more folders button", async () => {
 	const trees: string[] = [];
 	paged(trees);
 	const onMove = renderDialog();
@@ -55,17 +57,17 @@ test("a folder past the first page is reached through the Show more row", async 
 	// Not "No folders here": the listing is not finished.
 	expect(screen.queryByText("No folders here.")).toBeNull();
 
-	const more = screen.getByTestId("file-tree-show-more");
-	expect(more.getAttribute("role")).toBe("treeitem");
-	expect(more.closest("[role=tree]")).not.toBeNull();
-	expect(screen.getByTestId("file-tree-truncated").textContent).toContain(
-		"2 entries shown",
-	);
+	// A plain button in the list area, with no tree around it and no count.
+	const more = screen.getByRole("button", { name: MORE });
+	expect(more.closest("[role=tree]")).toBeNull();
+	expect(screen.queryByRole("tree")).toBeNull();
+	expect(screen.queryByRole("treeitem")).toBeNull();
+	expect(screen.queryByText(/shown/)).toBeNull();
 	fireEvent.click(more);
 
 	const later = await screen.findByTestId("move-folder-c");
-	// The new page is reached, the row is gone, and the keyboard stays in the list.
-	expect(screen.queryByTestId("file-tree-show-more")).toBeNull();
+	// The new page is reached, the button is gone, and the keyboard stays in the list.
+	expect(screen.queryByRole("button", { name: MORE })).toBeNull();
 	await waitFor(() => expect(document.activeElement).toBe(later));
 	fireEvent.click(later);
 	expect(screen.getByTestId("move-destination").textContent).toContain("/c");
@@ -74,32 +76,108 @@ test("a folder past the first page is reached through the Show more row", async 
 	expect(onMove).toHaveBeenCalledWith("c");
 });
 
-test("Enter and Space on the Show more row load the next page", async () => {
+test("the button stays focusable but inert while the next page loads", async () => {
+	let release: (response: Response) => void = () => {};
+	let nextPages = 0;
+	stubFetch((url) => {
+		if (!url.includes("after=")) {
+			return json(200, { entries: [dir("a")], truncated: true, next: "d/a" });
+		}
+		nextPages += 1;
+		return new Promise<Response>((resolve) => {
+			release = resolve;
+		});
+	});
+	renderDialog();
+	const more = await screen.findByRole("button", { name: MORE });
+	more.focus();
+	fireEvent.click(more);
+	await waitFor(() => expect(more.getAttribute("aria-disabled")).toBe("true"));
+	fireEvent.click(more);
+	expect(document.activeElement).toBe(more);
+	release(json(200, { entries: [dir("b")], truncated: false }));
+	await screen.findByTestId("move-folder-b");
+	expect(nextPages).toBe(1);
+});
+
+test("Enter on the Show more folders button loads the next page", async () => {
 	paged([]);
 	renderDialog();
-	const more = await screen.findByTestId("file-tree-show-more");
+	const more = await screen.findByRole("button", { name: MORE });
 	more.focus();
-	fireEvent.keyDown(more, { key: "Enter" });
+	// A real browser turns Enter on a button into a click.
+	fireEvent.click(more);
 	await screen.findByTestId("move-folder-c");
 });
 
-test("a last page with no new folder leaves focus in the list", async () => {
+test("a last page with no new folder focuses the last folder", async () => {
 	stubFetch((url) =>
 		url.includes("after=")
 			? json(200, { entries: [file("z.txt")], truncated: false })
 			: json(200, { entries: [dir("a")], truncated: true, next: "d/a" }),
 	);
 	renderDialog();
-	fireEvent.click(await screen.findByTestId("file-tree-show-more"));
-	await waitFor(() => expect(screen.queryByTestId("file-tree-show-more")).toBeNull());
+	fireEvent.click(await screen.findByRole("button", { name: MORE }));
+	await waitFor(() => expect(screen.queryByRole("button", { name: MORE })).toBeNull());
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByTestId("move-folder-a")),
 	);
 });
 
-test("a short listing has no Show more row, and an empty one says so", async () => {
+test("a page with no new folder, still cut short, keeps focus on the button and says so", async () => {
+	stubFetch((url) => {
+		if (url.includes("after=d%2Fa")) {
+			return json(200, { entries: [file("y.txt")], truncated: true, next: "f/y.txt" });
+		}
+		if (url.includes("after=")) {
+			return json(200, { entries: [dir("c")], truncated: false });
+		}
+		return json(200, { entries: [dir("a")], truncated: true, next: "d/a" });
+	});
+	renderDialog();
+	const more = await screen.findByRole("button", { name: MORE });
+	more.focus();
+	fireEvent.click(more);
+	await waitFor(() =>
+		expect(screen.getByRole("status").textContent).toBe(
+			"No folders in the next page; more entries remain.",
+		),
+	);
+	expect(document.activeElement).toBe(more);
+
+	// The next page does bring a folder, which takes focus and clears the notice.
+	fireEvent.click(more);
+	const later = await screen.findByTestId("move-folder-c");
+	await waitFor(() => expect(document.activeElement).toBe(later));
+	expect(screen.getByRole("status").textContent).toBe("");
+});
+
+test("a page that lands after the student opened another folder pulls no focus", async () => {
+	let release: (response: Response) => void = () => {};
+	stubFetch((url) => {
+		// The folder opened holds a folder with the same name as the late page's.
+		if (url.includes("path=a")) {
+			return json(200, { entries: [dir("b")], truncated: false });
+		}
+		if (url.includes("after=")) {
+			return new Promise<Response>((resolve) => {
+				release = resolve;
+			});
+		}
+		return json(200, { entries: [dir("a")], truncated: true, next: "d/a" });
+	});
+	renderDialog();
+	fireEvent.click(await screen.findByRole("button", { name: MORE }));
+	fireEvent.click(screen.getByTestId("move-folder-a"));
+	const inside = await screen.findByTestId("move-folder-a/b");
+	release(json(200, { entries: [dir("b")], truncated: false }));
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(document.activeElement).not.toBe(inside);
+});
+
+test("a short listing has no Show more folders button, and an empty one says so", async () => {
 	stubFetch(() => json(200, { entries: [file("a.txt")], truncated: false }));
 	renderDialog();
 	await screen.findByText("No folders here.");
-	expect(screen.queryByTestId("file-tree-show-more")).toBeNull();
+	expect(screen.queryByRole("button", { name: MORE })).toBeNull();
 });
