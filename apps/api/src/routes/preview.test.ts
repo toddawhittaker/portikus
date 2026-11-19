@@ -1636,9 +1636,9 @@ test.skipIf(skip)("a workspace leaving running revokes its previews", async () =
 	const stopped = await authorize(token, previewHostFor(5173));
 	expect(stopped.statusCode).toBe(503);
 	expect(stopped.headers["x-portikus-upstream"]).toBeUndefined();
-	// The Preview tab frames this page, so its policy names the control plane.
+	// The Preview tab frames this page through the wrapper, so its policy names the wrapper's origin and the control plane.
 	expect(stopped.headers["content-security-policy"]).toContain(
-		`frame-ancestors ${new URL(PUBLIC_URL).origin}`,
+		`frame-ancestors 'self' ${new URL(PUBLIC_URL).origin}`,
 	);
 
 	// Starting the workspace again does not bring the revoked session back.
