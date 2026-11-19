@@ -13,6 +13,7 @@ import { accountEmailDeps, sendAccountEmail } from "./send.js";
 import {
 	type AccountEmailPurpose,
 	issueAccountEmailToken,
+	revokeAccountEmailToken,
 	supersedeAccountEmailTokens,
 } from "./tokens.js";
 
@@ -91,8 +92,11 @@ export function createAdminSender(deps: ServerDeps): AdminSender {
 			});
 			const build = purpose === "invite" ? inviteMessage : resetMessage;
 			const result = await send(to, build(config.PUBLIC_URL, issued.token));
+			// A link nobody received is not left valid; older links stay as they were.
 			if (result === "sent") {
 				await supersedeAccountEmailTokens(db, { userId, purpose, keepId: issued.id });
+			} else {
+				await revokeAccountEmailToken(db, issued.id);
 			}
 			// The row id only, never the token or the address (SPEC.md section 24.8).
 			await recordAudit(db, {

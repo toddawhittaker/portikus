@@ -36,6 +36,7 @@ import { parseOr400, sendError, UuidParam } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
 import { knownCodeHelpLanguages } from "../site/switches.js";
 import { workspaceViews } from "../workspaces/workspace-view.js";
+import { closeLanguageServerSockets } from "./language-servers.js";
 
 /** The settings columns this route may write. */
 type SettingsUpdate = Partial<Updateable<Database["settings"]>>;
@@ -348,6 +349,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			}
 			return row;
 		});
+
+		// After the commit, so a socket never closes for a change that did not stick.
+		closeLanguageServerSockets(
+			knownCodeHelpLanguages(before.code_help_languages).filter(
+				(language) => !updated.code_help_languages.includes(language),
+			),
+		);
 
 		return toPlatformSettings(updated);
 	});
