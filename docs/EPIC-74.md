@@ -95,7 +95,7 @@ Epic 73). Scope: GitHub issue #2110. This file goes away at the fold.
 
 | Task | Agent, model | Machine | Files it owns | Issues | Starts after | Playwright |
 |---|---|---|---|---|---|---|
-| T1 contracts | builder, Sonnet high | local | `packages/contracts/src/chat.ts`, `packages/contracts/src/chat.test.ts` | #2110 | none | no |
+| T1 contracts | builder, Sonnet high | local | `packages/contracts/src/chat-side.ts` (new: the side schemas, since `chat.ts` is already over 800 lines), `chat-side.test.ts` (new), and in `packages/contracts/src/chat.ts` only the lines that add the side frames to the frame unions and re-export them | #2110 | none | no |
 | T2 core and Claude driver | builder, Opus low | local | `apps/workspace-agent/src/chat/agent.ts`, `core.ts`, `side.ts` (new), `side.test.ts` (new), `host.ts`, `sdk.ts`, `core.test.ts`, `host.test.ts`, `test-fixtures/core-harness.ts`, `claude-real.test.ts` | #2110 | T1 | no |
 | T3 Codex driver | builder, Opus low | pve | `apps/workspace-agent/src/chat/codex/host.ts`, `codex/side.ts` (new), `codex/side.test.ts` (new), `codex/requests.ts`, `codex/fake-app-server.ts`, and their tests | #2110 | T1 (uses the interface above; does not edit `agent.ts`) | no |
 | T4 pane and `/btw` | ui-designer, Opus | desk | `apps/web/src/chat/ChatView.tsx`, `SidePanel.tsx` (new), `side.css` (new), `SidePanel.test.tsx` (new), `chatStore.ts` and its test, `Composer.tsx`, `ComposerCommandMenu.tsx` and their tests, `apps/web/src/help/content/studentClaudeChat.tsx`, `studentCodexChat.tsx` | #2110 | T1 | yes, in T5 |
