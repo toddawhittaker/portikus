@@ -610,10 +610,26 @@ test("a subagent opened from the list takes its title from the row that started 
 		({ kind: "tool", id, name, input }) as unknown as ChatItem;
 	const items = [
 		row("a1", "Agent", { receivers: ["c1"], prompt: "Not this" }),
-		row("c0", "collabAgentToolCall", { receivers: ["c1"] }),
-		row("c2", "collabAgentToolCall", { receivers: ["c1"], prompt: "Find dead code" }),
+		row("c0", "collabAgentToolCall", { tool: "spawnAgent", receivers: ["c1"] }),
+		row("c2", "collabAgentToolCall", {
+			tool: "spawnAgent",
+			receivers: ["c1"],
+			prompt: "Find dead code",
+		}),
 	];
 	expect(requestedTitle(items, "c1", "explorer")).toBe("Find dead code");
 	expect(requestedTitle(items, "gone", "explorer")).toBe("explorer");
 	expect(requestedTitle(items, "gone", "")).toBe("Subagent");
+});
+
+test("a message sent to a subagent does not title it", () => {
+	const items = [
+		{
+			kind: "tool",
+			id: "c1",
+			name: "collabAgentToolCall",
+			input: { tool: "sendInput", receivers: ["c1"], prompt: "Now run the tests" },
+		},
+	] as unknown as ChatItem[];
+	expect(requestedTitle(items, "c1", "explorer")).toBe("explorer");
 });
