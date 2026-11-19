@@ -10,11 +10,13 @@ import {
 	cleanup,
 	fireEvent,
 	render,
+	renderHook,
 	screen,
 	waitFor,
 } from "@testing-library/react";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { useAgentDropTargets } from "../agents/agentDropTargets.js";
 import { resetSpeechSupport } from "../voice/useSpeechInput.js";
 import { Composer, SIDE_TEXT_ONLY } from "./Composer.js";
 import { type ChatStore, createChatStore } from "./chatStore.js";
@@ -847,6 +849,50 @@ test("a dropped file is saved, and a drag without files does nothing", async () 
 	// Other files are sent as paths, with no thumbnail.
 	expect(chip.querySelector("img")).toBeNull();
 	expect(chip.textContent).toContain("notes.pdf");
+});
+
+test("a mounted chat is listed as a drop target and its files become chips", async () => {
+	const targets = renderHook(() => useAgentDropTargets());
+	expect(targets.result.current).toEqual([]);
+	draw();
+	expect(targets.result.current).toHaveLength(1);
+	const [target] = targets.result.current;
+	expect(target).toMatchObject({
+		terminalId: TERMINAL,
+		kind: "chat",
+		label: "Claude Code (GUI)",
+	});
+	await act(async () => {
+		await target?.deliver([
+			file("a.png", "image/png"),
+			file("notes.pdf", "application/pdf"),
+		]);
+	});
+	expect(saveDroppedFile).toHaveBeenCalledTimes(2);
+	const chips = await screen.findAllByTestId("composer-chip");
+	expect(chips.map((chip) => chip.textContent)).toEqual([
+		expect.stringContaining("a.png"),
+		expect.stringContaining("notes.pdf"),
+	]);
+	// Nothing was sent: the files only wait as attachments.
+	expect(sent).toEqual([]);
+});
+
+test("a chat that unmounts is no longer a drop target", () => {
+	const targets = renderHook(() => useAgentDropTargets());
+	draw();
+	expect(targets.result.current).toHaveLength(1);
+	cleanup();
+	expect(renderHook(() => useAgentDropTargets()).result.current).toEqual([]);
+});
+
+test("the listed name follows the chat's agent", () => {
+	const targets = renderHook(() => useAgentDropTargets());
+	draw();
+	settings({ agent: "codex" });
+	expect(targets.result.current.map((target) => target.label)).toEqual([
+		"Codex (GUI)",
+	]);
 });
 
 test("a drop that is not files is ignored", () => {
