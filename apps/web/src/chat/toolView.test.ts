@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	collabReceivers,
+	collabTitle,
 	diffLines,
 	isPlanCall,
 	mcpCall,
@@ -588,4 +589,16 @@ test("a plan decision is told for either agent's plan call", () => {
 	expect(isPlanCall("plan")).toBe(true);
 	expect(isPlanCall("planSteps")).toBe(false);
 	expect(isPlanCall("Bash")).toBe(false);
+});
+
+test("a Codex subagent is titled by its prompt's first line, cut and numbered", () => {
+	expect(
+		collabTitle({ receivers: ["a"], prompt: "  Fix the build\nthen test" }, "a"),
+	).toBe("Fix the build");
+	expect(collabTitle({ receivers: ["a", "b"], prompt: "Look" }, "b")).toBe("Look (2)");
+	const long = collabTitle({ receivers: ["a"], prompt: "x".repeat(100) }, "a");
+	expect(long).toBe(`${"x".repeat(59)}…`);
+	expect(collabTitle({ receivers: ["a"], prompt: "Look" }, "z")).toBeNull();
+	expect(collabTitle({ receivers: ["a"], prompt: "\n" }, "a")).toBeNull();
+	expect(collabTitle({ receivers: ["a"] }, "a")).toBeNull();
 });

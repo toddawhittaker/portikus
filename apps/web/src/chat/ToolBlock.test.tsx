@@ -409,7 +409,7 @@ test("a Codex subagent call opens each child by its thread id", () => {
 			id: "c1",
 			name: "collabAgentToolCall",
 			title: "",
-			input: { tool: tool_, receivers, prompt: "Count the routes" },
+			input: { tool: tool_, receivers, prompt: "Count the routes\nthen list them" },
 		});
 	const { rerender } = render(
 		<SubagentOpenerContext.Provider value={open}>
@@ -420,7 +420,10 @@ test("a Codex subagent call opens each child by its thread id", () => {
 		"Started a subagent",
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Show its conversation" }));
-	expect(open).toHaveBeenCalledWith({ toolUseId: "thread-1", title: "Subagent" });
+	expect(open).toHaveBeenCalledWith({
+		toolUseId: "thread-1",
+		title: "Count the routes",
+	});
 	rerender(
 		<SubagentOpenerContext.Provider value={open}>
 			<ToolBlock tool={call(["thread-1", "thread-2"], "wait")} />
@@ -431,14 +434,14 @@ test("a Codex subagent call opens each child by its thread id", () => {
 	);
 	expect(open).toHaveBeenLastCalledWith({
 		toolUseId: "thread-2",
-		title: "Subagent 2",
+		title: "Count the routes (2)",
 	});
 	fireEvent.click(
 		screen.getByRole("button", { name: "Show subagent 1's conversation" }),
 	);
 	expect(open).toHaveBeenLastCalledWith({
 		toolUseId: "thread-1",
-		title: "Subagent 1",
+		title: "Count the routes (1)",
 	});
 	// A call that failed, or names no child, offers no way in.
 	rerender(

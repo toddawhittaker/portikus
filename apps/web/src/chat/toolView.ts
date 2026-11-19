@@ -284,6 +284,25 @@ export function collabReceivers(input: unknown): string[] {
 	);
 }
 
+/** How long a subagent's title runs before it is cut. */
+const TITLE_LENGTH = 60;
+
+/**
+ * A Codex subagent's title: the first line of the prompt its parent sent it,
+ * cut short, and numbered when one call names several children so their
+ * views tell apart. Null when the call names no such child or carries no prompt.
+ */
+export function collabTitle(input: unknown, child: string): string | null {
+	const receivers = collabReceivers(input);
+	const at = receivers.indexOf(child);
+	if (at === -1 || !isRecord(input) || typeof input.prompt !== "string") return null;
+	const line = input.prompt.trim().split("\n")[0]?.trim() ?? "";
+	if (line === "") return null;
+	const cut =
+		line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…` : line;
+	return receivers.length === 1 ? cut : `${cut} (${at + 1})`;
+}
+
 /** Codex's subagent tools, told as Claude's Agent rows are. */
 const COLLAB_VERBS: Record<string, Verb> = {
 	spawnAgent: { done: "Started", doing: "Starting", pending: "Start" },

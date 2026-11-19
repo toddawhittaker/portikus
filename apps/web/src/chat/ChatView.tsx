@@ -37,7 +37,7 @@ import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
 import { AgentSwitchReported } from "./ComposerPickers.js";
 import { ChatAgentContext } from "./chatAgent.js";
-import { type ChatState, isEmptyChat } from "./chatStore.js";
+import { type ChatItem, type ChatState, isEmptyChat } from "./chatStore.js";
 import { askNotePrompt } from "./freshStart.js";
 import { type FreshStartActions, FreshStartContext } from "./HandoffDivider.js";
 import { HandoffReviewCard } from "./HandoffReviewCard.js";
@@ -61,6 +61,7 @@ import {
 	takeSubagentRequest,
 	useSubagentRequest,
 } from "./subagentView.js";
+import { collabTitle } from "./toolView.js";
 import { useChatSession } from "./useChatSession.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import { waitingText } from "./waiting.js";
@@ -78,6 +79,20 @@ export interface ChatViewProps {
 }
 
 /** The chat's agent as a speaker: "Claude", "Codex"; Claude until the host says. */
+/**
+ * A subagent picked in the project list: a Codex child is named by the prompt
+ * of the loaded tool row that started it; otherwise the list's own words, or
+ * plain "Subagent" when the list has none.
+ */
+function requestedTitle(items: readonly ChatItem[], target: SubagentTarget): string {
+	for (const item of items) {
+		if (item.kind !== "tool" || item.name !== "collabAgentToolCall") continue;
+		const title = collabTitle(item.input, target.toolUseId);
+		if (title !== null) return title;
+	}
+	return target.title || "Subagent";
+}
+
 function agentOf(state: ChatState): CodingAgent {
 	return state.settings?.agent ?? "claude";
 }
@@ -389,12 +404,15 @@ function ChatViewBody({
 		if (requested === undefined || !visible) return;
 		takeSubagentRequest(terminalId);
 		if (requested) {
-			showSubagent(requested, null);
+			showSubagent(
+				{ ...requested, title: requestedTitle(state.items, requested) },
+				null,
+			);
 		} else {
 			beforeSubagent.current = null;
 			setSubagent(null);
 		}
-	}, [requested, visible, terminalId, showSubagent]);
+	}, [requested, visible, terminalId, showSubagent, state.items]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs as the view closes
 	useLayoutEffect(() => {
 		const before = beforeSubagent.current;

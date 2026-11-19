@@ -24,6 +24,7 @@ import { PlanText } from "./PermissionCard.js";
 import { SubagentOpenerContext } from "./subagentView.js";
 import {
 	collabReceivers,
+	collabTitle,
 	type FileChangeView,
 	type PlanStepView,
 	type ToolDetail,
@@ -231,14 +232,16 @@ function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string 
 				openSubagent({
 					toolUseId: child,
 					// Numbered as the row numbers its buttons, so panels tell apart.
-					title: children.length === 1 ? SUBAGENT_TITLE : `${SUBAGENT_TITLE} ${at + 1}`,
+					title:
+						collabTitle(tool.input, child) ??
+						(children.length === 1 ? SUBAGENT_TITLE : `${SUBAGENT_TITLE} ${at + 1}`),
 				})
 			}
 		/>
 	));
 }
 
-/** A Codex subagent has no description, so its view is named by what it is. */
+/** A Codex subagent with no prompt to name it is named by what it is. */
 const SUBAGENT_TITLE = "Subagent";
 
 function OpenButton({
