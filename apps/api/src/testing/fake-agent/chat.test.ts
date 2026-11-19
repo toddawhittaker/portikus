@@ -756,3 +756,86 @@ test("a test sets the sign-in state; attaches carry it and Check again finds wha
 	await expect.poll(states).toEqual(["signedOut", "signedIn"]);
 	late.ws.close();
 });
+
+/** The side frames a socket has received, parsed, in order. */
+const sideEvents = (frames: string[]) =>
+	frames
+		.map((one) => JSON.parse(one))
+		.filter((frame) => frame.type === "side")
+		.map((frame) => frame.event);
+
+const configureSide = (id: string, body: object) =>
+	fetch(`http://127.0.0.1:${agent.port}/__test/chats/${id}/side`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+
+test("btw is listed only when a test offers it, and a host that does not offer it ignores side frames (SPEC.md §10.2)", async () => {
+	const id = "550e8400-e29b-41d4-a716-4466554400f2";
+	await newChat(id);
+	const first = await connect(id);
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	const names = () =>
+		JSON.parse(
+			first.frames.filter((f) => JSON.parse(f).type === "commands").at(-1) ?? "",
+		).commands.map((c: { name: string }) => c.name);
+	expect(names()).not.toContain("btw");
+	first.ws.send(JSON.stringify({ type: "side.ask", text: "ignored?" }));
+	await configureSide(id, { offered: true });
+	await expect.poll(() => names()).toContain("btw");
+	expect(sideEvents(first.frames)).toEqual([]);
+	await configureSide(id, { offered: false });
+	await expect.poll(() => names()).not.toContain("btw");
+	first.ws.close();
+});
+
+test("a side question is numbered from a snapshot at seq 0, answered after the delay, stopped, replayed and ended", async () => {
+	const id = "550e8400-e29b-41d4-a716-4466554400f3";
+	await newChat(id);
+	await configureSide(id, { offered: true, delayMs: 60_000 });
+	const first = await connect(id);
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	first.ws.send(JSON.stringify({ type: "side.ask", text: "why?" }));
+	await expect.poll(() => sideEvents(first.frames).length).toBe(3);
+	expect(sideEvents(first.frames).map((e) => [e.type, e.seq])).toEqual([
+		["snapshot", 0],
+		["turn.started", 1],
+		["message", 2],
+	]);
+	expect(sideEvents(first.frames)[0].turnRunning).toBe(true);
+	// One at a time: a second question while one runs is ignored.
+	first.ws.send(JSON.stringify({ type: "side.ask", text: "again?" }));
+	// An attach replays the conversation: a snapshot, then every event.
+	const late = await connect(id);
+	await expect.poll(() => types(late.frames).includes("settings")).toBe(true);
+	expect(sideEvents(late.frames).map((e) => [e.type, e.seq])).toEqual([
+		["snapshot", 0],
+		["turn.started", 1],
+		["message", 2],
+	]);
+	first.ws.send(JSON.stringify({ type: "side.stop" }));
+	await expect.poll(() => sideEvents(first.frames).at(-1)?.type).toBe("turn.finished");
+	expect(sideEvents(first.frames).at(-1).status).toBe("interrupted");
+	expect(sideEvents(first.frames)).toHaveLength(4);
+	// End ends it with an empty snapshot at seq 0, and a later attach replays nothing.
+	first.ws.send(JSON.stringify({ type: "side.end" }));
+	await expect.poll(() => sideEvents(first.frames).at(-1)?.type).toBe("snapshot");
+	expect(sideEvents(first.frames).at(-1)).toMatchObject({ seq: 0, turnRunning: false });
+	const after = await connect(id);
+	await expect.poll(() => types(after.frames).includes("settings")).toBe(true);
+	expect(sideEvents(after.frames)).toEqual([]);
+	// The next conversation starts over at seq 0.
+	await configureSide(id, { delayMs: 0 });
+	first.ws.send(JSON.stringify({ type: "side.ask", text: "next?" }));
+	await expect
+		.poll(
+			() => sideEvents(first.frames).filter((e) => e.type === "turn.finished").length,
+		)
+		.toBe(2);
+	const answer = sideEvents(first.frames)
+		.filter((e) => e.type === "message" && e.role === "assistant")
+		.at(-1);
+	expect(answer.markdown).toBe("Side answer to: next?");
+	for (const one of [first, late, after]) one.ws.close();
+});
