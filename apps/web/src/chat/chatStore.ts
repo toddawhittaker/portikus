@@ -203,7 +203,10 @@ type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
 /** Every event but a subagent's, a rename's answer or a copied prompt, which never enter the chat's own sequence. */
 type ChatEvent = Exclude<
 	ChatServerEvent,
-	SubagentFrame | { type: "rename.result" } | { type: "handoff.prompt" }
+	| SubagentFrame
+	| { type: "rename.result" }
+	| { type: "handoff.prompt" }
+	| { type: "side" }
 >;
 
 type ChatContextUsage = Pick<
@@ -277,6 +280,8 @@ export function receiveChatEvent(
 	now: number,
 ): ChatState {
 	if (event.type === "subagent") return { ...state, subagentFrame: event };
+	// The side pane is not built yet; no host sends this until it lists `btw` (SPEC.md section 10.2).
+	if (event.type === "side") return state;
 	// Only the left pane's rename reads its answer.
 	if (event.type === "rename.result") return state;
 	// A new object each time, so a second copy of the same prompt copies again.

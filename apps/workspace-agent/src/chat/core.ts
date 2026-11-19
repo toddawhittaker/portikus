@@ -742,6 +742,11 @@ export class ChatCore {
 			}
 			case "handoff.resend":
 				return this.fresh.resend(message.id);
+			// Side questions are not offered yet: the host does not list `btw` (SPEC.md section 10.2).
+			case "side.ask":
+			case "side.stop":
+			case "side.end":
+				return;
 			default:
 				return assertHandled(message);
 		}
