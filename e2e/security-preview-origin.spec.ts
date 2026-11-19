@@ -1,4 +1,4 @@
-import { expect, type Frame, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
 	API_ORIGIN,
 	createProject,
@@ -8,6 +8,14 @@ import {
 	WEB_ORIGIN,
 	workspacePath,
 } from "./helpers";
+import {
+	appFrame,
+	appFrameLocator,
+	edgeCookieJar,
+	frameAnswerFor,
+	frameRedirect,
+	requireFrameBuild,
+} from "./preview-gateway";
 
 /**
  * Preview code running in student A's own browser gets none of the control
@@ -29,6 +37,8 @@ const PREVIEW_SUFFIX = ".preview.localhost";
 
 /** Stand in for Caddy for the browser's requests to preview hosts. */
 async function previewGateway(page: Page): Promise<void> {
+	requireFrameBuild();
+	const jar = edgeCookieJar();
 	async function proxy(host: string, path: string, cookie: string) {
 		const authorized = await fetch(`${API_ORIGIN}/preview/authorize`, {
 			headers: { "x-forwarded-host": host, "x-forwarded-proto": "https", cookie },
@@ -47,9 +57,12 @@ async function previewGateway(page: Page): Promise<void> {
 		(url) => url.hostname.endsWith(PREVIEW_SUFFIX),
 		async (route) => {
 			const url = new URL(route.request().url());
-			const cookie = (await route.request().headerValue("cookie")) ?? "";
+			const fromBrowser = (await route.request().headerValue("cookie")) ?? "";
+			const cookie = jar.withJar(url.host, fromBrowser);
 			const path = `${url.pathname}${url.search}`;
 			let answer: Response;
+			const wrapper = await frameAnswerFor(route.request(), cookie);
+			if (wrapper) return route.fulfill(wrapper);
 			if (url.pathname.startsWith("/__portikus/")) {
 				answer = await fetch(`${API_ORIGIN}${path}`, {
 					headers: {
@@ -59,13 +72,16 @@ async function previewGateway(page: Page): Promise<void> {
 					},
 					redirect: "manual",
 				});
+				jar.remember(url.host, answer);
 				const location = answer.headers.get("location");
 				if (answer.status === 303 && location !== null) {
 					const minted = answer.headers
 						.getSetCookie()
 						.map((line) => line.split(";")[0] ?? "")
 						.join("; ");
-					answer = await proxy(url.host, location, [cookie, minted].join("; "));
+					const toWrapper = frameRedirect(answer);
+					if (toWrapper) return route.fulfill(toWrapper);
+					answer = await proxy(url.host, location, [fromBrowser, minted].join("; "));
 				}
 			} else {
 				answer = await proxy(url.host, path, cookie);
@@ -114,19 +130,6 @@ async function sameSiteSession(
 	return answered;
 }
 
-/** The frame's own document, where scripts run as preview code. */
-function previewFrame(page: Page): Frame {
-	const frame = page.frames().find((one) => {
-		try {
-			return new URL(one.url()).hostname.endsWith(PREVIEW_SUFFIX);
-		} catch {
-			return false;
-		}
-	});
-	if (!frame) throw new Error("the preview frame is not there");
-	return frame;
-}
-
 /** Sign A in, open a preview of A's own application, and return the frame. */
 async function openOwnPreview(page: Page) {
 	const context = page.context();
@@ -138,13 +141,13 @@ async function openOwnPreview(page: Page) {
 	await expect(page.getByTestId("work-tabs")).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("right-pane-tab-running").click();
 	await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
-	await expect(
-		page.frameLocator("[data-testid=preview-frame]").locator("h1"),
-	).toHaveText("Hostile preview", { timeout: 20_000 });
+	await expect(appFrameLocator(page).locator("h1")).toHaveText("Hostile preview", {
+		timeout: 20_000,
+	});
 	// Routed only now: sending every module of the page load through the
 	// route slows that load past its timeout when the whole suite runs.
 	const answered = await sameSiteSession(page, student.sessionToken);
-	return { student, project, answered, frame: previewFrame(page) };
+	return { student, project, answered, frame: appFrame(page) };
 }
 
 test.describe("preview code in the student's own browser", () => {

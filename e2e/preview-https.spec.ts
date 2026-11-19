@@ -9,6 +9,13 @@ import {
 	workspacePath,
 } from "./helpers";
 import { API_ORIGIN, FAKE_AGENT_URL } from "./ports";
+import {
+	appFrameLocator,
+	edgeCookieJar,
+	frameAnswerFor,
+	frameRedirect,
+	requireFrameBuild,
+} from "./preview-gateway";
 
 /**
  * A student application serving HTTPS (step 2, ADR 0041). The
@@ -92,7 +99,9 @@ function tlsGet(
  * Returns the schemes the API named for each proxied request.
  */
 async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
+	requireFrameBuild();
 	const seen = { schemes: [] as string[] };
+	const jar = edgeCookieJar();
 
 	async function authorize(host: string, cookie: string) {
 		return fetch(`${API_ORIGIN}/preview/authorize`, {
@@ -129,8 +138,11 @@ async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
 		async (route) => {
 			const request = route.request();
 			const url = new URL(request.url());
-			const cookie = (await request.headerValue("cookie")) ?? "";
+			const fromBrowser = (await request.headerValue("cookie")) ?? "";
+			const cookie = jar.withJar(url.host, fromBrowser);
 			let answer: { status: number; contentType?: string; body: Buffer };
+			const wrapper = await frameAnswerFor(request, cookie);
+			if (wrapper) return route.fulfill(wrapper);
 			if (url.pathname.startsWith("/__portikus/")) {
 				const boot = await fetch(`${API_ORIGIN}${url.pathname}${url.search}`, {
 					headers: {
@@ -140,6 +152,7 @@ async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
 					},
 					redirect: "manual",
 				});
+				jar.remember(url.host, boot);
 				const setCookie = boot.headers.getSetCookie();
 				const location = boot.headers.get("location");
 				if (boot.status !== 303 || location === null) {
@@ -148,12 +161,15 @@ async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
 						body: Buffer.from(await boot.arrayBuffer()),
 					});
 				}
+				const toWrapper = frameRedirect(boot);
+				if (toWrapper) return route.fulfill(toWrapper);
+
 				// Follow the bootstrap redirect here, with the cookie it set.
 				const minted = setCookie.map((line) => line.split(";")[0] ?? "").join("; ");
 				answer = await proxy(
 					url.host,
 					location,
-					[cookie, minted].filter(Boolean).join("; "),
+					[fromBrowser, minted].filter(Boolean).join("; "),
 				);
 				return route.fulfill({
 					status: answer.status,
@@ -233,9 +249,9 @@ test.describe("a preview of a port speaking HTTPS", () => {
 		const port = await startHttpsApp(student.workspaceId);
 		await previewInTab(page, student.workspaceId, port);
 
-		await expect(
-			page.frameLocator("[data-testid=preview-frame]").locator("h1"),
-		).toHaveText("Secure app", { timeout: 20_000 });
+		await expect(appFrameLocator(page).locator("h1")).toHaveText("Secure app", {
+			timeout: 20_000,
+		});
 		await expect(page.getByTestId("preview-https")).toHaveCount(0);
 		expect(seen.schemes).toContain("https");
 		expect(seen.schemes).not.toContain("http");
@@ -246,9 +262,9 @@ test.describe("a preview of a port speaking HTTPS", () => {
 		await previewGateway(page);
 		const port = await startHttpsApp(student.workspaceId);
 		await previewInTab(page, student.workspaceId, port);
-		await expect(
-			page.frameLocator("[data-testid=preview-frame]").locator("h1"),
-		).toHaveText("Secure app", { timeout: 20_000 });
+		await expect(appFrameLocator(page).locator("h1")).toHaveText("Secure app", {
+			timeout: 20_000,
+		});
 
 		const results = await (await settledAxe(page))
 			// WCAG rules only: the framed page is the student's, and axe's

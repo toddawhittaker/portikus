@@ -764,15 +764,16 @@ test("a live agent terminal is a drop target that saves files and types their qu
 	const [target] = targets.result.current;
 	expect(target).toMatchObject({
 		terminalId: terminal.id,
-		kind: "terminal",
 		label: "Claude Code (TUI)",
 	});
+	let arrived: boolean | undefined;
 	await act(async () => {
-		await target?.deliver([
+		arrived = await target?.deliver([
 			new File(["x"], "pick.png", { type: "image/png" }),
 			new File(["y"], "my pick.txt"),
 		]);
 	});
+	expect(arrived).toBe(true);
 	expect(calls.filter((call) => call.method === "PUT")).toHaveLength(2);
 	expect(typed).toHaveBeenCalledTimes(1);
 	const text = String(typed.mock.calls[0]?.[0]);
@@ -782,6 +783,22 @@ test("a live agent terminal is a drop target that saves files and types their qu
 		),
 	);
 	expect(text).not.toMatch(/[\r\n]/);
+});
+
+test("a delivery that is refused or fails to save resolves to false", async () => {
+	stubUpload(() => new Response("{}", { status: 500 }));
+	const targets = renderHook(() => useAgentDropTargets());
+	renderLeaf({ agent: "claude", name: "Terminal 3" });
+	const [target] = targets.result.current;
+	let refused: boolean | undefined;
+	let failed: boolean | undefined;
+	await act(async () => {
+		refused = await target?.deliver([new File(["x"], "bad\nname.txt")]);
+		failed = await target?.deliver([new File(["x"], "pick.png")]);
+	});
+	expect(refused).toBe(false);
+	expect(failed).toBe(false);
+	expect(typed).not.toHaveBeenCalled();
 });
 
 test("a plain shell is not a drop target", () => {

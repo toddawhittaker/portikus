@@ -42,13 +42,73 @@ describe("startWrapper", () => {
 		expect(win.document.body.textContent).toBe(STANDALONE_MESSAGE);
 	});
 
-	it("holds the app at / with the preview's allow list, and posts loaded once", () => {
+	it("holds the app at / with the preview's allow list, and posts nothing on load", () => {
 		const { app, posted } = mount();
 		expect(app.getAttribute("src")).toBe("/");
 		expect(app.allow).toBe(PREVIEW_FRAME_ALLOW);
 		app.dispatchEvent(new Event("load"));
 		app.dispatchEvent(new Event("load"));
-		expect(posted).toEqual([{ v: 1, type: "loaded" }]);
+		expect(posted).toEqual([]);
+	});
+
+	it("leaves pick mode and posts cancelled when the app loads a new page", () => {
+		const { win, app, send, posted } = mount();
+		app.dispatchEvent(new Event("load"));
+		send({ v: 1, type: "start" });
+		expect(win.document.querySelector(".pick-layer")).not.toBeNull();
+		app.dispatchEvent(new Event("load"));
+		expect(win.document.querySelector(".pick-layer")).toBeNull();
+		expect(types(posted)).toEqual(["cancelled"]);
+		// The next start reads the new page.
+		send({ v: 1, type: "start" });
+		expect(win.document.querySelector(".pick-layer")).not.toBeNull();
+	});
+
+	it("posts cancelled when the pick cannot be built", async () => {
+		const { win, send, posted } = mount(
+			vi.fn(async () => {
+				throw new Error("draw failed");
+			}),
+		);
+		send({ v: 1, type: "start" });
+		const layer = win.document.querySelector(".pick-layer") as HTMLElement;
+		layer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		await vi.waitFor(() => expect(types(posted)).toContain("cancelled"));
+		expect(types(posted)).not.toContain("picked");
+	});
+
+	it("starts the keyboard at the app's last focused element after focus left the frame", async () => {
+		const { win, app, send, posted } = mount();
+		app.dispatchEvent(new Event("load"));
+		const appDoc = app.contentDocument as Document;
+		appDoc.body.innerHTML = `<button id="b">B</button><p>Other</p>`;
+		const button = appDoc.querySelector("button") as HTMLElement;
+		button.focus();
+		// Pressing the Portikus button moves focus out; the app's body reads as focused.
+		button.blur();
+		expect(appDoc.activeElement).toBe(appDoc.body);
+		send({ v: 1, type: "start" });
+		const layer = win.document.querySelector(".pick-layer") as HTMLElement;
+		layer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		await vi.waitFor(() => expect(types(posted)).toContain("picked"));
+		const pick = posted.find((m) => (m as { type: string }).type === "picked");
+		expect(pick).toMatchObject({ selector: "#b" });
+	});
+
+	it("starts at the body when the last focused element is gone", async () => {
+		const { win, app, send, posted } = mount();
+		app.dispatchEvent(new Event("load"));
+		const appDoc = app.contentDocument as Document;
+		appDoc.body.innerHTML = `<button id="b">B</button>`;
+		const button = appDoc.querySelector("button") as HTMLElement;
+		button.focus();
+		button.remove();
+		send({ v: 1, type: "start" });
+		const layer = win.document.querySelector(".pick-layer") as HTMLElement;
+		layer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		await vi.waitFor(() => expect(types(posted)).toContain("picked"));
+		const pick = posted.find((m) => (m as { type: string }).type === "picked");
+		expect(pick).toMatchObject({ tag: "body" });
 	});
 
 	it("ignores start from any source other than its parent", () => {

@@ -9,12 +9,11 @@
  * instructions.
  */
 import type { PickedMessage, PickRule } from "./messages.js";
-import { PICK_COMPUTED_PROPERTIES } from "./messages.js";
+import { PICK_COMPUTED_PROPERTIES, PICK_PAGE_PATH_MAX_CHARS } from "./messages.js";
 
 export const PICK_MARKDOWN_FILE_NAME = "picked-element.md";
 export const PICK_PNG_FILE_NAME = "picked-element.png";
 
-const PAGE_PATH_MAX_CHARS = 2_048;
 // Printable ASCII with no space or backtick: a real URL path is already
 // percent-encoded to this, and it is then safe inside an inline code span.
 const PRINTABLE_PATH = /^\/[\x21-\x5f\x61-\x7e]*$/;
@@ -49,7 +48,7 @@ export function checkPng(bytes: ArrayBuffer | Uint8Array, maxBytes: number): boo
 /** The path without query or fragment when it is safe to print, else null. */
 function safePagePath(raw: string): string | null {
 	const path = raw.split(/[?#]/, 1)[0] ?? "";
-	if (path.length > PAGE_PATH_MAX_CHARS) return null;
+	if (path.length > PICK_PAGE_PATH_MAX_CHARS) return null;
 	return PRINTABLE_PATH.test(path) ? path : null;
 }
 

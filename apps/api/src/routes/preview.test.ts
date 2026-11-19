@@ -723,7 +723,8 @@ test.skipIf(skip)("bootstrap sets a host-only cookie and redirects", async () =>
 		ticketOf(created.json().bootstrapUrl),
 	);
 	expect(response.statusCode).toBe(303);
-	expect(response.headers.location).toBe("/");
+	// An embedded preview opens Portikus's wrapper page, which frames the app.
+	expect(response.headers.location).toBe("/__portikus/frame/");
 	expect(response.headers["cache-control"]).toBe("no-store");
 	expect(response.headers["referrer-policy"]).toBe("no-referrer");
 	const header = String(response.headers["set-cookie"]);
@@ -734,6 +735,22 @@ test.skipIf(skip)("bootstrap sets a host-only cookie and redirects", async () =>
 	// Nothing of the ticket may survive into the response.
 	expect(response.body).not.toContain(ticketOf(created.json().bootstrapUrl));
 });
+
+test.skipIf(skip)(
+	"a preview opened in its own tab goes straight to the app",
+	async () => {
+		const tab = await grant(alice, workspaceId, 5173, {}, "top-level");
+		const response = await bootstrap(
+			previewHostFor(5173),
+			ticketOf(tab.json().bootstrapUrl),
+			{ "sec-fetch-dest": "document" },
+		);
+		expect(response.statusCode).toBe(303);
+		expect(response.headers.location).toBe("/");
+		expect(response.headers["cache-control"]).toBe("no-store");
+		expect(String(response.headers["set-cookie"])).toContain("SameSite=Strict");
+	},
+);
 
 test.skipIf(skip)("a ticket is only good where it was meant to open", async () => {
 	// A ticket for the preview frame, opened as a top-level page.
@@ -1619,9 +1636,9 @@ test.skipIf(skip)("a workspace leaving running revokes its previews", async () =
 	const stopped = await authorize(token, previewHostFor(5173));
 	expect(stopped.statusCode).toBe(503);
 	expect(stopped.headers["x-portikus-upstream"]).toBeUndefined();
-	// The Preview tab frames this page, so its policy names the control plane.
+	// The Preview tab frames this page through the wrapper, so its policy names the wrapper's origin and the control plane.
 	expect(stopped.headers["content-security-policy"]).toContain(
-		`frame-ancestors ${new URL(PUBLIC_URL).origin}`,
+		`frame-ancestors 'self' ${new URL(PUBLIC_URL).origin}`,
 	);
 
 	// Starting the workspace again does not bring the revoked session back.
@@ -2054,6 +2071,36 @@ test.skipIf(skip)(
 		const row = await activityRow();
 		expect(row.last_activity_at).not.toBeNull();
 		expect(row.idle_stop_at).toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"the wrapper page's request is the activity, and the app frame inside it adds none",
+	async () => {
+		const token = await openPreview(5173);
+		await pendingIdleStop();
+
+		// Caddy authorizes the wrapper request with its path rewritten to `/`; a
+		// user opening or reloading the Preview tab makes it a user navigation.
+		const wrapper = await authorize(token, previewHostFor(5173), {
+			extra: { "sec-fetch-dest": "iframe", "sec-fetch-user": "?1" },
+		});
+		expect(wrapper.statusCode).toBe(200);
+		let row = await activityRow();
+		expect(row.last_activity_at).not.toBeNull();
+		expect(row.idle_stop_at).toBeNull();
+
+		// The wrapper's own frame loads the app: an iframe request the user did
+		// not start, so it is authorized and writes nothing.
+		await pendingIdleStop();
+		const inner = await authorize(token, previewHostFor(5173), {
+			extra: { "sec-fetch-dest": "iframe" },
+		});
+		expect(inner.statusCode).toBe(200);
+		expect(inner.headers["x-portikus-upstream"]).toBeDefined();
+		row = await activityRow();
+		expect(row.last_activity_at).toBeNull();
+		expect(row.idle_stop_at).not.toBeNull();
 	},
 );
 

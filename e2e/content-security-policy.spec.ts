@@ -13,7 +13,7 @@ import {
 } from "./helpers";
 import { pdf } from "./pdf-fixture";
 import { WEB_ORIGIN } from "./ports";
-import { previewGateway } from "./preview-gateway";
+import { appFrameLocator, previewGateway } from "./preview-gateway";
 
 /**
  * The control-plane UI's content security policy (SPEC.md section 24.3).
@@ -204,9 +204,9 @@ test.describe("content security policy", () => {
 
 		await page.getByTestId("right-pane-tab-running").click();
 		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
-		await expect(
-			page.frameLocator("[data-testid=preview-frame]").locator("h1"),
-		).toHaveText("Csp app", { timeout: 20_000 });
+		await expect(appFrameLocator(page).locator("h1")).toHaveText("Csp app", {
+			timeout: 20_000,
+		});
 		expect(violations()).toEqual([]);
 	});
 });

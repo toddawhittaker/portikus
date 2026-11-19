@@ -6,6 +6,7 @@
 import type { ListeningService } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -14,10 +15,21 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { registerAgentDropTarget } from "../agents/agentDropTargets.js";
 import { ListeningContext } from "../running/services.js";
 import { json, openToggletip, stubFetch } from "../test-utils.js";
 import { resetPreviewHistory } from "./history.js";
 import { PreviewLeaf } from "./PreviewLeaf.js";
+
+const navigate = vi.fn();
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tanstack/react-router")>()),
+	useNavigate: () => navigate,
+}));
+vi.mock("../editor/settingsQueries.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../editor/settingsQueries.js")>()),
+	useCourseProfile: () => "agentic",
+}));
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 
@@ -770,4 +782,90 @@ test("a port speaking HTTPS previews like any other", async () => {
 		GRANT.bootstrapUrl,
 	);
 	expect(screen.queryByTestId("preview-https")).toBeNull();
+});
+
+/** A message from the preview frame's own window, as the wrapper would send it. */
+function fromFrame(data: unknown) {
+	const frame = screen.getByTestId("preview-frame") as HTMLIFrameElement;
+	act(() => {
+		window.dispatchEvent(
+			new MessageEvent("message", {
+				data,
+				origin: GRANT.previewOrigin,
+				source: frame.contentWindow,
+			}),
+		);
+	});
+}
+
+test("a pick that does not arrive leaves the view on the preview", async () => {
+	stubFetch(() => json(200, GRANT));
+	const deliver = vi.fn(async () => false);
+	const off = registerAgentDropTarget({
+		terminalId: "term-1",
+		label: "Claude Code",
+		deliver,
+	});
+	try {
+		show({});
+		await screen.findByTestId("preview-frame");
+		fireEvent.click(screen.getByTestId("preview-pick"));
+		fromFrame({
+			v: 1,
+			type: "picked",
+			pagePath: "/",
+			selector: "h1",
+			tag: "h1",
+			html: "<h1>Welcome</h1>",
+			rules: [],
+			computed: {},
+			trimmed: { html: false, rules: false },
+		});
+		await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+		await waitFor(() =>
+			expect(screen.getByTestId("preview-pick").getAttribute("aria-pressed")).toBe(
+				"false",
+			),
+		);
+		expect(navigate).not.toHaveBeenCalled();
+	} finally {
+		off();
+	}
+});
+
+test("a pick goes to the one open agent, the status reads the hover, and the view switches", async () => {
+	stubFetch(() => json(200, GRANT));
+	const deliver = vi.fn(async () => true);
+	const off = registerAgentDropTarget({
+		terminalId: "term-1",
+		label: "Claude Code",
+		deliver,
+	});
+	try {
+		show({});
+		await screen.findByTestId("preview-frame");
+		const pickButton = screen.getByTestId("preview-pick");
+		fireEvent.click(pickButton);
+		expect(pickButton.getAttribute("aria-pressed")).toBe("true");
+		fromFrame({ v: 1, type: "hover", label: "heading Welcome" });
+		expect(screen.getByTestId("preview-status").textContent).toBe("heading Welcome");
+		fromFrame({
+			v: 1,
+			type: "picked",
+			pagePath: "/",
+			selector: "h1",
+			tag: "h1",
+			html: "<h1>Welcome</h1>",
+			rules: [],
+			computed: {},
+			trimmed: { html: false, rules: false },
+		});
+		await waitFor(() => expect(navigate).toHaveBeenCalled());
+		expect(deliver).toHaveBeenCalledTimes(1);
+		const search = navigate.mock.calls[0]?.[0].search as (p: object) => object;
+		expect(search({ open: "a.ts" })).toEqual({ open: "a.ts", tab: "term-1" });
+		expect(pickButton.getAttribute("aria-pressed")).toBe("false");
+	} finally {
+		off();
+	}
 });
