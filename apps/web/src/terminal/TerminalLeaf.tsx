@@ -18,6 +18,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { registerAgentDropTarget } from "../agents/agentDropTargets.js";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { displayName } from "../files/paths.js";
 import "../chat/chat-frame.css";
@@ -214,6 +215,24 @@ export function TerminalLeaf({
 			toast.show(fileErrorToast(error));
 		}
 	}
+
+	// The registered target outlives a render, so it reaches the current drop
+	// path through a ref.
+	const dropFilesNow = useRef(dropFiles);
+	dropFilesNow.current = dropFiles;
+	// Only a live agent terminal can take files; a plain shell is not offered,
+	// and a chat is offered by its composer.
+	const agentTerminal = !chat && !ended && agentLabel(terminal) !== null;
+	const terminalId = terminal.id;
+	useEffect(() => {
+		if (!agentTerminal) return;
+		return registerAgentDropTarget({
+			terminalId,
+			kind: "terminal",
+			label: name,
+			deliver: (files) => dropFilesNow.current(files),
+		});
+	}, [agentTerminal, terminalId, name]);
 
 	function onDrop(event: DragEvent) {
 		const kind = acceptedKind(event);
