@@ -189,13 +189,13 @@ test("/btw with a question asks it, and the keyboard waits on Stop until the ans
 	side(3, "text.delta", { messageId: "a", text: "The tests run twice." });
 	const panel = screen.getByTestId("side-panel");
 	expect(panel.textContent).toContain("The tests run twice.");
-	expect(screen.getByTestId("side-announcer").textContent).toBe("Claude is answering.");
+	expect(screen.getByTestId("side-announcer").textContent).toBe("The side question is running.");
 	// The side conversation never enters the chat's own log.
 	expect(screen.getByTestId("chat-scroll").textContent).not.toContain(
 		"The tests run twice.",
 	);
 	side(4, "turn.finished", { at: 2000, status: "done" });
-	expect(screen.getByTestId("side-announcer").textContent).toBe("Claude answered.");
+	expect(screen.getByTestId("side-announcer").textContent).toBe("Side answer ready.");
 	expect(screen.queryByTestId("side-stop")).toBeNull();
 	expect(sideBox().disabled).toBe(false);
 	expect(document.activeElement).toBe(sideBox());

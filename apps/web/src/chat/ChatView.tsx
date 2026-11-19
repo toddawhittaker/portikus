@@ -42,7 +42,7 @@ import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
 import { AgentSwitchReported } from "./ComposerPickers.js";
 import { ChatAgentContext } from "./chatAgent.js";
-import { type ChatState, isEmptyChat } from "./chatStore.js";
+import { type ChatState, isEmptyChat, sideBusy } from "./chatStore.js";
 import { askNotePrompt } from "./freshStart.js";
 import { type FreshStartActions, FreshStartContext } from "./HandoffDivider.js";
 import { HandoffReviewCard } from "./HandoffReviewCard.js";
@@ -485,8 +485,7 @@ function ChatViewBody({
 	function openSide(question: string): string | null {
 		const now = store.getState();
 		if (question.length > MAX_CHAT_SIDE_TEXT_CHARS) return sideTooLong(question.length);
-		const busy = now.sideWaiting || (now.side?.currentTurnId ?? null) !== null;
-		if (question !== "" && busy) return SIDE_BUSY;
+		if (question !== "" && sideBusy(now)) return SIDE_BUSY;
 		if (question !== "" && !now.askSide(question)) return SIDE_NOT_SENT;
 		if (!now.openSide()) return SIDE_NOT_SENT;
 		setSideAsked((times) => times + 1);

@@ -270,6 +270,11 @@ export function sideOffered(state: Pick<ChatState, "commands">): boolean {
 	);
 }
 
+/** A side question went out, or one is running, so the side box waits. */
+export function sideBusy(state: Pick<ChatState, "side" | "sideWaiting">): boolean {
+	return state.sideWaiting || (state.side?.currentTurnId ?? null) !== null;
+}
+
 /** A side conversation's frames carry no snapshot of their own to wait for. */
 const SIDE_START: ChatState = {
 	...initialChatState,
