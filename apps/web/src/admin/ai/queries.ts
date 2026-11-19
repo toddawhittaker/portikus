@@ -2,10 +2,12 @@ import {
 	AiSettingsView,
 	ModelListResponse,
 	TestAiResult,
+	TestSiteAlertResponse,
 	type UpdateAiSettingsRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, sendJson } from "../../api/request.js";
+import { notificationsKey } from "../../notifications/queries.js";
 
 const aiKey = ["admin", "ai"] as const;
 
@@ -54,5 +56,15 @@ export function useAcceptNotice() {
 export function useTestAi() {
 	return useMutation({
 		mutationFn: () => sendJson(TestAiResult, "/admin/ai/test", {}),
+	});
+}
+
+/** One test alert written as a real site alert; the bell shows it at once. */
+export function useTestSiteAlert() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: () =>
+			sendJson(TestSiteAlertResponse, "/admin/alerts/test-site-alert", {}),
+		onSuccess: () => client.invalidateQueries({ queryKey: notificationsKey }),
 	});
 }

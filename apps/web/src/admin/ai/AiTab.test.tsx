@@ -433,3 +433,52 @@ test("a refused alert setting shows the API's reason", async () => {
 	fireEvent.click(within(group).getByRole("switch", { name: "Explain alerts" }));
 	expect((await within(group).findByRole("alert")).textContent).toBe("Not allowed.");
 });
+
+test("a test site alert reports its title in the group's live status", async () => {
+	const sent = serve(READY, (url) =>
+		url === "/admin/alerts/test-site-alert"
+			? json(200, { title: "Test site alert sent at 14:03:27.400 UTC" })
+			: null,
+	);
+	renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	const button = within(group).getByRole("button", { name: "Send a test site alert" });
+	expect(button.getAttribute("aria-describedby")).toBeTruthy();
+	expect(
+		document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toMatch(
+		/notifications list.*explained if Explain alerts is on.*alert channels.*Most explanations a day/s,
+	);
+	const status = within(group).getByTestId("ai-triage-test-result");
+	expect(status.getAttribute("role")).toBe("status");
+	expect(status.textContent).toBe("");
+	fireEvent.click(button);
+	await waitFor(() =>
+		expect(status.textContent).toBe(
+			"Sent. Look for “Test site alert sent at 14:03:27.400 UTC” in the notifications list.",
+		),
+	);
+	expect(sent.filter((r) => r.url === "/admin/alerts/test-site-alert")).toEqual([
+		{ url: "/admin/alerts/test-site-alert", method: "POST", body: {} },
+	]);
+});
+
+test("a refused test site alert says to wait, and another failure gives the API's reason", async () => {
+	let answer = json(429, { code: "RATE_LIMITED", message: "Too many requests." });
+	serve(READY, (url) => (url === "/admin/alerts/test-site-alert" ? answer : null));
+	renderWithQuery(<AiTab />);
+	const group = await screen.findByTestId("ai-triage");
+	const button = within(group).getByRole("button", { name: "Send a test site alert" });
+	const status = within(group).getByTestId("ai-triage-test-result");
+	fireEvent.click(button);
+	await waitFor(() =>
+		expect(status.textContent).toBe(
+			"Not sent: up to 3 test site alerts an hour. Try again later.",
+		),
+	);
+	answer = json(403, { code: "FORBIDDEN", message: "Administrators only." });
+	fireEvent.click(button);
+	await waitFor(() =>
+		expect(status.textContent).toBe("Not sent: Administrators only."),
+	);
+});

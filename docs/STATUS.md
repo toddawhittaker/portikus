@@ -93,6 +93,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 69, built-in AI.** An AI tab for an administrator's own provider key (sealed and write-only, with a privacy notice to accept and token limits), a table of model prices that a weekly check proposes changes to, and an assistant panel for administrators, and for instructors on the course page, that acts as the signed-in person with approval cards, one preview for bulk work, Diagnose buttons that read and explain, answers from the guides, and "Who is stuck?" for a course (ADRs 0080 and 0081, SPEC.md section 20.5).
 - **Epic 70, built-in AI extras.** Alert explanations (one tool-less model call per new administrator alert, behind its own switch, a daily limit and privacy notice version 2, optionally added to email and Pushover), a weekly summary notification for administrators, "Help me set this up" on the LMS and sign-in pages, MCP resources and prompts, an output price with a dollar estimate on the Agents tab, and refusal of assistant messages that look like secrets (ADR 0082, SPEC.md sections 20.4 and 20.5).
 - **Epic 71, test reliability fix batch.** Timing-sensitive unit tests that no longer fail under machine load, a fallback CI package mirror, a smoke check that no longer lets the workspace stop part-way through a run, and one audit row for each MCP tool call, which the workspace detail's recent activity leaves out (SPEC.md section 24.11).
+- **Epic 72, small fixes batch.** A "Send a test site alert" button on the AI settings page writes a test warning that triage explains and the worker forwards like a real alert (limited to 3 an hour for each administrator); the agent instructions tell coding agents to run only the changed Playwright specs with two workers; set-password links issued in the same millisecond now leave exactly one valid; and removing a Dex user ends access and commits before the Dex password is deleted (SPEC.md sections 20.5, 4, 5.3 and 24.11).
 
 ## Open items
 
@@ -121,8 +122,8 @@ list was made and may already be fixed.
 - Invitations have no course field, so inviting students in bulk, by the assistant or by hand, adds them without course membership.
 - Google and Entra group sign-in have not met a real tenant (#1587), and Entra users in more groups than a token holds need a Microsoft Graph lookup (#1588). Active Directory has not been tried; OpenLDAP stood in for it.
 - Real mail delivery has been checked only through a stand-in relay.
-- Two set-password links sent in the same millisecond both stay valid, and a link whose email failed to send stays until it expires.
-- Removing a Dex user deletes the Dex password inside the database transaction, so a failed commit leaves the account enabled with no password.
+- A set-password link whose email failed to send stays valid until it expires.
+- If the audit write fails after Remove has deleted the Dex password, pressing Remove again finds no password and the `dex_user.removed` row is never written; the committed `user.disabled` row remains (accepted).
 - Changing `PORTIKUS_ADMIN_EMAIL` after the local administrator exists changes nothing; the manual step is `portikus reset-admin --email`.
 - More than one Dex connector per site is not built (unverified).
 - Grade passback to the LMS is not built.

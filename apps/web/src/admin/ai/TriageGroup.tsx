@@ -1,9 +1,9 @@
 import { type AiSettingsView, MAX_AI_TRIAGE_DAILY_LIMIT } from "@portikus/contracts";
 import { Button, TextField, useToast } from "@portikus/ui";
 import { type FormEvent, useEffect, useId, useState } from "react";
-import { errorText } from "../../api/request.js";
+import { ApiError, errorText } from "../../api/request.js";
 import { AdminGroup as Group } from "../AdminSection.js";
-import { useUpdateAi } from "./queries.js";
+import { useTestSiteAlert, useUpdateAi } from "./queries.js";
 import { parseDailyLimit } from "./text.js";
 
 const DEFAULT_DAILY_LIMIT = 5;
@@ -39,6 +39,46 @@ function SwitchRow({
 			</label>
 			<p id={hintId} className="pk-muted m-0 text-[13px]">
 				{hint}
+			</p>
+		</div>
+	);
+}
+
+/** The API allows a few test site alerts an hour per administrator. */
+function testAlertErrorText(error: unknown): string {
+	if (error instanceof ApiError && error.status === 429)
+		return "Not sent: up to 3 test site alerts an hour. Try again later.";
+	return `Not sent: ${errorText(error)}`;
+}
+
+/** Writes a test warning as a real site alert, so the whole path can be tried (SPEC.md section 20.5). */
+function TestSiteAlert() {
+	const send = useTestSiteAlert();
+	const hintId = useId();
+	return (
+		<div className="grid gap-2" data-testid="ai-triage-test">
+			<p id={hintId} className="pk-muted m-0 max-w-[40rem] text-[13px]">
+				Adds a test warning to the notifications list. It is explained if Explain alerts
+				is on, and forwarded to the alert channels like a real alert. Each test counts
+				toward Most explanations a day.
+			</p>
+			<div className="flex flex-wrap gap-2">
+				<Button
+					data-testid="ai-triage-test-send"
+					aria-describedby={hintId}
+					loading={send.isPending}
+					onClick={() => send.mutate()}
+				>
+					Send a test site alert
+				</Button>
+			</div>
+			<p role="status" className="m-0 text-[13px]" data-testid="ai-triage-test-result">
+				{send.isSuccess ? (
+					<>Sent. Look for “{send.data.title}” in the notifications list.</>
+				) : null}
+				{send.isError ? (
+					<span className="text-status-error">{testAlertErrorText(send.error)}</span>
+				) : null}
 			</p>
 		</div>
 	);
@@ -138,6 +178,7 @@ export function TriageGroup({ view }: { view: AiSettingsView }) {
 				}
 				onChange={(next) => toggle({ triageForward: next })}
 			/>
+			<TestSiteAlert />
 			{save.isError ? (
 				<p className="m-0 text-[13px] text-status-error" role="alert">
 					{errorText(save.error)}

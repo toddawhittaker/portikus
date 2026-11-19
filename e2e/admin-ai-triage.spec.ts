@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import { AI_NOTICE_VERSION } from "../packages/contracts/dist/ai.js";
 import {
+	createSignedInUser,
 	expectNoViolations,
 	lockSharedState,
 	openAdmin,
@@ -13,8 +14,9 @@ import {
  * Alert explanations on the AI tab and in the notifications dialog (SPEC.md
  * sections 20.4 and 20.5): both switches start off and
  * save, the daily limit takes 0 to 100, the privacy notice is at version 2 and
- * must be read again, an explanation shows as plain text under its alert, and a
- * digest-style notice keeps its line breaks.
+ * must be read again, an explanation shows as plain text under its alert, a
+ * digest-style notice keeps its line breaks, and a test site alert lands in
+ * the notifications list.
  */
 
 /** Held alone: these tests change the site's one AI settings row. */
@@ -305,4 +307,84 @@ test("a notification without an explanation has no block, and a digest keeps its
 	await page.screenshot({
 		path: "/tmp/epic70/t5b/shots/notifications-digest-dark.png",
 	});
+});
+
+const SEND_TEST = "Send a test site alert";
+
+test("a test site alert says what it does, then lands in the notifications list", async ({
+	page,
+	context,
+}) => {
+	// An administrator of its own, so other specs' channel tests do not use up its limit.
+	const { userId } = await createSignedInUser(context, "administrator");
+	await query("update ai_settings set triage_enabled = true where id = 1");
+	await openAi(page);
+	const group = page.getByTestId("ai-triage");
+	const button = group.getByRole("button", { name: SEND_TEST });
+	await expect(button).toHaveAccessibleDescription(
+		/notifications list.*explained if Explain alerts is on.*alert channels like a real alert.*Most explanations a day/,
+	);
+	const status = group.getByRole("status");
+	await expect(status).toHaveText("");
+
+	const answer = page.waitForResponse((r) =>
+		r.url().endsWith("/admin/alerts/test-site-alert"),
+	);
+	await button.click();
+	const { title } = await (await answer).json();
+	seeded.push(title);
+	expect(title).toMatch(/^Test site alert sent at \d{2}:\d{2}:\d{2}\.\d{3} UTC$/);
+	await expect(status).toHaveText(
+		`Sent. Look for “${title}” in the notifications list.`,
+	);
+	await expect(button).toBeFocused();
+	await expectNoViolations(page, '[data-testid="ai-triage"]');
+	await group.screenshot({ path: "screenshots/72-t1-explain-alerts-after-dark.png" });
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, '[data-testid="ai-triage"]');
+	await group.screenshot({ path: "screenshots/72-t1-explain-alerts-after-light.png" });
+	await page.emulateMedia({ colorScheme: "dark" });
+
+	const [row] = await query<{ site_alert: boolean; tone: string }>(
+		"select site_alert, tone from notifications where title = $1 and user_id = $2",
+		[title, userId],
+	);
+	expect(row).toEqual({ site_alert: true, tone: "warning" });
+	const dialog = await openNotifications(page);
+	const item = dialog.getByTestId("notification").filter({ hasText: title });
+	await expect(item).toBeVisible();
+	await expect(item).toContainText("AI settings page");
+});
+
+test("a fourth test site alert in an hour is refused in the group's status", async ({
+	page,
+	context,
+}) => {
+	await createSignedInUser(context, "administrator");
+	await openAi(page);
+	const group = page.getByTestId("ai-triage");
+	const button = group.getByRole("button", { name: SEND_TEST });
+	const status = group.getByRole("status");
+	for (let sent = 0; sent < 3; sent++) {
+		const answer = page.waitForResponse((r) =>
+			r.url().endsWith("/admin/alerts/test-site-alert"),
+		);
+		await button.click();
+		const response = await answer;
+		expect(response.status()).toBe(200);
+		seeded.push((await response.json()).title);
+		await expect(button).not.toHaveAttribute("aria-busy", "true");
+	}
+	const refused = page.waitForResponse((r) =>
+		r.url().endsWith("/admin/alerts/test-site-alert"),
+	);
+	await button.click();
+	expect((await refused).status()).toBe(429);
+	await expect(status).toHaveText(
+		"Not sent: up to 3 test site alerts an hour. Try again later.",
+	);
+	await expectNoViolations(page, '[data-testid="ai-triage"]');
+	await page.emulateMedia({ colorScheme: "light" });
+	await expectNoViolations(page, '[data-testid="ai-triage"]');
+	await page.emulateMedia({ colorScheme: "dark" });
 });

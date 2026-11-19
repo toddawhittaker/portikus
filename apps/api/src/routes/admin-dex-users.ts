@@ -264,29 +264,35 @@ export function registerAdminDexUserRoutes(
 				return sendError(reply, 404, "NOT_FOUND", "User not found");
 			}
 			if (found.found === "not_local") return notLocal(reply);
-			// The workspace stays for an administrator to archive.
+			// Access ends and commits before Dex is touched, so a failed commit
+			// leaves the password, and a Dex failure leaves a disabled account that
+			// cannot sign in. The workspace stays for an administrator to archive.
 			const result = await disableUser(db, {
 				actorId: actor.id,
 				targetId: id,
 				metadata: requestMetadata(request),
 				alsoInTransaction: async (trx) => {
-					await recordAudit(trx, {
-						actor: `user:${actor.id}`,
-						target: id,
-						action: "dex_user.removed",
-						result: "ok",
-						metadata: {
-							...requestMetadata(request),
-						},
-					});
 					await revokeKeys(trx, { userId: id }, actor.id, {
 						reason: "user_disabled",
 						...requestMetadata(request),
 					});
-					for (const email of found.emails) await viaDex(dex.deletePassword(email));
 				},
 			});
 			if (!result.ok) return sendDisableRefusal(reply, result.reason);
+			for (const email of found.emails) await viaDex(dex.deletePassword(email));
+			// Written once the password is gone, so a row never says removed while
+			// Dex still holds it. Pressing Remove again writes it only after a Dex
+			// failure; if this write itself fails after Dex succeeded, a retry finds
+			// no password and the row is never written.
+			await recordAudit(db, {
+				actor: `user:${actor.id}`,
+				target: id,
+				action: "dex_user.removed",
+				result: "ok",
+				metadata: {
+					...requestMetadata(request),
+				},
+			});
 		} catch (err) {
 			return dexUnavailable(request, reply, err);
 		}
