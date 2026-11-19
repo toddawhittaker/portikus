@@ -312,6 +312,9 @@ export function receiveChatEvent(
 	// The host replays the side conversation after the snapshot, which ends any before it.
 	if (event.type === "side") {
 		if (state.awaitingSnapshot) return state;
+		// An idle snapshot says the conversation ended; a replay's comes with its events after it.
+		if (event.event.type === "snapshot" && !event.event.turnRunning)
+			return { ...state, side: null, sideOpen: false, sideWaiting: false };
 		const side = receiveChatEvent(state.side ?? SIDE_START, event.event, now);
 		return { ...state, side, sideOpen: true, sideWaiting: false };
 	}

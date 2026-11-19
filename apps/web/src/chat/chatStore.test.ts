@@ -837,6 +837,7 @@ test("side frames fold into a conversation of their own and never move the chat'
 	const state = feed([
 		snapshot(0),
 		frame("message", 1, { id: "u", role: "user", markdown: "Main question" }),
+		sideFrame(0, "snapshot", { cards: [], turnRunning: true, truncated: false }),
 		sideFrame(0, "turn.started", { at: 2000 }),
 		sideFrame(1, "message", { id: "q", role: "user", markdown: "Why?" }),
 		sideFrame(2, "text.delta", { messageId: "a", text: "Because" }),
@@ -888,6 +889,35 @@ test("a side frame before the snapshot is stale, and a snapshot ends the side co
 	);
 	expect(replayed.sideOpen).toBe(true);
 	expect(replayed.side ? texts(replayed.side) : []).toEqual(["Why?", "Because"]);
+});
+
+test("an idle side snapshot ends the conversation, and a replay after it brings it back", () => {
+	const open = feed([
+		snapshot(0),
+		sideFrame(0, "snapshot", { cards: [], turnRunning: true, truncated: false }),
+		sideFrame(1, "turn.started", { at: 1 }),
+		sideFrame(2, "message", { id: "q", role: "user", markdown: "Why?" }),
+	]);
+	expect(open.sideOpen).toBe(true);
+	// Closed in another browser, or ended by /clear or a swap.
+	const ended = feed(
+		[sideFrame(0, "snapshot", { cards: [], turnRunning: false, truncated: false })],
+		open,
+	);
+	expect(ended.side).toBeNull();
+	expect(ended.sideOpen).toBe(false);
+	const replayed = feed(
+		[
+			sideFrame(0, "snapshot", { cards: [], turnRunning: false, truncated: false }),
+			sideFrame(1, "turn.started", { at: 1 }),
+			sideFrame(2, "message", { id: "q", role: "user", markdown: "Why?" }),
+			sideFrame(3, "turn.finished", { at: 2, status: "done" }),
+		],
+		ended,
+	);
+	expect(replayed.sideOpen).toBe(true);
+	expect(replayed.side ? texts(replayed.side) : []).toEqual(["Why?"]);
+	expect(replayed.side?.currentTurnId).toBeNull();
 });
 
 test("no side message goes to a host that does not list btw", () => {

@@ -183,9 +183,10 @@ test("/btw with a question asks it, and the keyboard waits on Stop until the ans
 	expect(sideSent()).toEqual([{ type: "side.ask", text: "why is the build slow?" }]);
 	expect(sideBox().disabled).toBe(true);
 	expect(document.activeElement).toBe(screen.getByTestId("side-stop"));
-	side(0, "turn.started", { at: 1000 });
-	side(1, "message", { id: "q", role: "user", markdown: "why is the build slow?" });
-	side(2, "text.delta", { messageId: "a", text: "The tests run twice." });
+	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
+	side(1, "turn.started", { at: 1000 });
+	side(2, "message", { id: "q", role: "user", markdown: "why is the build slow?" });
+	side(3, "text.delta", { messageId: "a", text: "The tests run twice." });
 	const panel = screen.getByTestId("side-panel");
 	expect(panel.textContent).toContain("The tests run twice.");
 	expect(screen.getByTestId("side-announcer").textContent).toBe("Claude is answering.");
@@ -193,7 +194,7 @@ test("/btw with a question asks it, and the keyboard waits on Stop until the ans
 	expect(screen.getByTestId("chat-scroll").textContent).not.toContain(
 		"The tests run twice.",
 	);
-	side(3, "turn.finished", { at: 2000, status: "done" });
+	side(4, "turn.finished", { at: 2000, status: "done" });
 	expect(screen.getByTestId("side-announcer").textContent).toBe("Claude answered.");
 	expect(screen.queryByTestId("side-stop")).toBeNull();
 	expect(sideBox().disabled).toBe(false);
@@ -209,14 +210,15 @@ test("the side box asks one question at a time, and Stop stops it", () => {
 	// Send says why it waits, and stays in reach.
 	const send = screen.getByTestId("side-send");
 	expect(send.getAttribute("aria-disabled")).toBe("true");
-	side(0, "turn.started", { at: 1000 });
+	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
+	side(1, "turn.started", { at: 1000 });
 	fireEvent.click(send);
 	fireEvent.click(screen.getByRole("button", { name: "Stop the side question" }));
 	expect(sideSent()).toEqual([
 		{ type: "side.ask", text: "What does fold.ts do?" },
 		{ type: "side.stop" },
 	]);
-	side(1, "turn.finished", { at: 1500, status: "interrupted" });
+	side(2, "turn.finished", { at: 1500, status: "interrupted" });
 	expect(screen.getByTestId("side-announcer").textContent).toBe(
 		"The side question was stopped.",
 	);
@@ -251,7 +253,8 @@ test("/btw while a side question runs is refused in the chat's box", () => {
 test("Close sends side.end, forgets the conversation and puts the keyboard back in the chat's box", () => {
 	draw();
 	sendFromChat("/btw why?");
-	side(0, "message", { id: "q", role: "user", markdown: "why?" });
+	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
+	side(1, "message", { id: "q", role: "user", markdown: "why?" });
 	fireEvent.click(screen.getByTestId("side-close"));
 	expect(sideSent()).toEqual([
 		{ type: "side.ask", text: "why?" },
@@ -263,14 +266,46 @@ test("Close sends side.end, forgets the conversation and puts the keyboard back 
 
 test("the host's replay after a reload reopens the pane with its conversation, leaving the keyboard alone", () => {
 	draw();
-	side(0, "message", { id: "q", role: "user", markdown: "Earlier question" });
-	side(1, "message", { id: "a", role: "assistant", markdown: "Earlier answer" });
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	side(1, "message", { id: "q", role: "user", markdown: "Earlier question" });
+	side(2, "message", { id: "a", role: "assistant", markdown: "Earlier answer" });
 	const panel = screen.getByTestId("side-panel");
 	expect(panel.textContent).toContain("Earlier answer");
 	expect(document.activeElement).not.toBe(sideBox());
 	// A new snapshot (a /clear, or a host that restarted) ends it.
 	emit("snapshot", { cards: [], turnRunning: false, truncated: false });
 	expect(screen.queryByTestId("side-panel")).toBeNull();
+});
+
+test("the host's empty side snapshot, as another browser closes it, closes the pane here", () => {
+	draw();
+	sendFromChat("/btw why?");
+	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
+	side(1, "turn.started", { at: 1000 });
+	side(2, "message", { id: "q", role: "user", markdown: "why?" });
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	expect(screen.queryByTestId("side-panel")).toBeNull();
+});
+
+test("a failed side question shows the host's answer and frees the box", () => {
+	draw();
+	sendFromChat("/btw why?");
+	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
+	side(1, "turn.started", { at: 1000 });
+	side(2, "message", { id: "q", role: "user", markdown: "why?" });
+	side(3, "message", {
+		id: "e",
+		role: "assistant",
+		markdown: "That side question did not get an answer. Try again.",
+	});
+	side(4, "turn.finished", { at: 1500, status: "error" });
+	expect(screen.getByTestId("side-panel").textContent).toContain(
+		"did not get an answer",
+	);
+	expect(screen.getByTestId("side-announcer").textContent).toBe(
+		"The side question failed.",
+	);
+	expect(sideBox().disabled).toBe(false);
 });
 
 test("a Codex chat says its side answers may run read-only commands", () => {
