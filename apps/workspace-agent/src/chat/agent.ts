@@ -11,6 +11,8 @@ import type {
 	ChatServerEvent,
 	ChatSessionRule,
 	ChatSignIn,
+	ChatSubagentEvent,
+	SideExchange,
 } from "@portikus/contracts";
 import type { Handoff } from "./handoff.js";
 
@@ -108,6 +110,21 @@ export interface ChatAgent {
 	 * Never throws: an agent that cannot say reports `unknown`.
 	 */
 	checkSignIn(): Promise<void>;
+	/**
+	 * Answer a side question beside the main conversation (SPEC.md §10.2,
+	 * ADR 0083), with the side conversation's earlier exchanges. It emits the
+	 * answer's events and resolves when the answer is done; the core opens
+	 * and closes the side turn. It must open no card, touch nothing the main
+	 * conversation shows, and log nothing. Absent when the agent cannot.
+	 */
+	askSide?(
+		text: string,
+		earlier: SideExchange[],
+		emit: (e: ChatSubagentEvent) => void,
+		signal: AbortSignal,
+	): Promise<void>;
+	/** The side conversation ended; forget anything held for it. */
+	endSide?(): Promise<void>;
 }
 
 export interface ChatSink {
