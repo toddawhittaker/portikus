@@ -76,3 +76,16 @@
 	inset-block-end: var(--space-2);
 	z-index: calc(var(--z-sticky) + 1);
 }
+
+/* The close button reads on the notice's own background in either terminal theme. */
+.pk-term-question-gone .pk-iconbtn {
+	margin: calc(var(--space-1) * -1) calc(var(--space-2) * -1) calc(var(--space-1) * -1)
+		0;
+	color: var(--terminal-fg);
+}
+
+.pk-term-question-gone .pk-iconbtn:hover {
+	background: transparent;
+	color: var(--terminal-fg);
+	text-decoration: underline;
+}

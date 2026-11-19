@@ -136,24 +136,61 @@ test("Escape is not Answer in the terminal", async () => {
 	expect(screen.getByTestId("terminal-question")).toBeTruthy();
 });
 
-test("a question no longer waiting says so briefly and clears the card", async () => {
+/** Answers a question that Claude Code already stopped waiting for, so the notice shows. */
+async function answerTooLate() {
 	respond(409, {
 		code: "AGENT_UNAVAILABLE",
 		message: "Answered in the terminal or timed out",
 	});
-	draw();
+	const view = draw();
 	await card();
-	vi.useFakeTimers();
 	fireEvent.click(screen.getByRole("button", { name: "Answer in the terminal" }));
-	await act(async () => {
-		await vi.advanceTimersByTimeAsync(0);
-	});
+	await screen.findByTestId(`terminal-question-gone-${TERMINAL}`);
+	return view;
+}
+
+test("a question no longer waiting says so and clears the card", async () => {
+	await answerTooLate();
 	expect(screen.queryByTestId("terminal-question")).toBeNull();
 	expect(screen.getByRole("status").textContent).toBe(QUESTION_GONE);
+});
+
+test("the notice stays until it is closed, however long that takes", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	await answerTooLate();
 	await act(async () => {
-		await vi.advanceTimersByTimeAsync(4000);
+		await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
 	});
+	expect(screen.getByRole("status").textContent).toBe(QUESTION_GONE);
+});
+
+test("the close button removes the notice and returns the keyboard to the terminal", async () => {
+	await answerTooLate();
+	const close = screen.getByRole("button", { name: "Dismiss notice" });
+	close.focus();
+	fireEvent.click(close);
+	expect(screen.queryByTestId(`terminal-question-gone-${TERMINAL}`)).toBeNull();
 	expect(screen.getByRole("status").textContent).toBe("");
+	expect(document.activeElement).toBe(terminalInput());
+});
+
+test("closing the notice does not take the keyboard from elsewhere", async () => {
+	await answerTooLate();
+	screen.getByRole("textbox", { name: "Elsewhere" }).focus();
+	fireEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+	expect(document.activeElement).toBe(
+		screen.getByRole("textbox", { name: "Elsewhere" }),
+	);
+});
+
+test("a new question replaces the notice", async () => {
+	const { store } = await answerTooLate();
+	act(() => {
+		store.update([entry({ ...QUESTION, id: "toolu_02" })], false);
+	});
+	await card();
+	expect(screen.queryByTestId(`terminal-question-gone-${TERMINAL}`)).toBeNull();
+	expect(screen.getByRole("status").textContent).not.toContain(QUESTION_GONE);
 });
 
 test("an answer that fails to send says so and keeps the question", async () => {
