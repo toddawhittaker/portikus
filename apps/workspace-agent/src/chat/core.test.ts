@@ -802,8 +802,6 @@ describe("side conversations (SPEC.md section 10.2)", () => {
 		const call = agent.sideCalls.at(-1);
 		call?.emit({
 			type: "message",
-			sessionId: ID,
-			seq: 0,
 			id: "a1",
 			role: "assistant",
 			markdown: text,
@@ -856,13 +854,22 @@ describe("side conversations (SPEC.md section 10.2)", () => {
 		});
 	});
 
-	test("a second ask while one runs is refused to the asker", async () => {
+	test("a second ask while one runs is refused in the side conversation only", async () => {
 		agent.sideEnabled = true;
 		const a = await attached();
 		a.send({ type: "side.ask", text: "one" });
 		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		const before = a.events.filter((e) => e.type !== "side").length;
 		a.send({ type: "side.ask", text: "two" });
-		await vi.waitFor(() => expect(types(a)).toContain("error"));
+		await vi.waitFor(() =>
+			expect(sideFrames(a).at(-1)).toMatchObject({
+				type: "message",
+				role: "assistant",
+				markdown: expect.stringMatching(/Wait for the side answer/),
+			}),
+		);
+		// The main transcript and its sequence gain nothing.
+		expect(a.events.filter((e) => e.type !== "side")).toHaveLength(before);
 		expect(agent.sideCalls).toHaveLength(1);
 	});
 
@@ -882,6 +889,7 @@ describe("side conversations (SPEC.md section 10.2)", () => {
 		);
 		a.send({ type: "side.end" });
 		await vi.waitFor(() => expect(agent.calls).toContainEqual(["endSide"]));
+		expect(a.events.at(-1)).toMatchObject({ type: "side", ended: true });
 		expect(sideFrames(a).at(-1)).toMatchObject({
 			type: "snapshot",
 			turnRunning: false,
@@ -914,6 +922,12 @@ describe("side conversations (SPEC.md section 10.2)", () => {
 		a.send({ type: "send", text: "/btw what now?", attachments: [] });
 		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
 		expect(agent.sideCalls[0]?.text).toBe("what now?");
+		answer("now");
+		await vi.waitFor(() => expect(sideFrames(a).at(-1)?.type).toBe("turn.finished"));
+		// A newline after /btw starts the question too.
+		a.send({ type: "send", text: "/btw\nand then?", attachments: [] });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(2));
+		expect(agent.sideCalls[1]?.text).toBe("and then?");
 		expect(agent.calls.some((call) => call[0] === "send")).toBe(false);
 	});
 
@@ -931,6 +945,11 @@ describe("side conversations (SPEC.md section 10.2)", () => {
 		agent.sink.conversationReset(null);
 		await vi.waitFor(() => expect(agent.calls).toContainEqual(["endSide"]));
 		expect(agent.sideCalls[0]?.signal.aborted).toBe(true);
+		await vi.waitFor(() =>
+			expect(a.events).toContainEqual(
+				expect.objectContaining({ type: "side", ended: true }),
+			),
+		);
 		a.send({ type: "side.ask", text: "two" });
 		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(2));
 		await core.stop();
@@ -946,6 +965,9 @@ describe("side conversations (SPEC.md section 10.2)", () => {
 		a.send({ type: "agent.switch", agent: "codex" });
 		await a.closed;
 		expect(agent.calls).toContainEqual(["endSide"]);
+		expect(a.events).toContainEqual(
+			expect.objectContaining({ type: "side", ended: true }),
+		);
 		expect(agent.sideCalls[0]?.signal.aborted).toBe(true);
 	});
 });

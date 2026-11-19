@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ChatSubagentEvent } from "@portikus/contracts";
 import { collectingLogger } from "@portikus/observability/testing";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { ChatEventBody, ContextFigures } from "../agent.js";
+import type { ChatEventBody, ContextFigures, SideEventBody } from "../agent.js";
+import type { AppServerClient } from "./app-server.js";
 import {
 	FakeAppServer,
 	forkHandler,
@@ -14,13 +14,15 @@ import {
 	segment,
 } from "./fake-app-server.js";
 import { CodexAgent, type PostedState } from "./host.js";
-import { SIDE_BOUNDARY, sideItems } from "./side.js";
+import { CodexSide, SIDE_BOUNDARY, sideItems } from "./side.js";
 
 /** The recorded first thread of every fixture, which the stand-in starts. */
 const MAIN = "00000000-0000-7000-8000-000000000002";
 const FORK = "00000000-0000-7000-8000-0000000000f1";
 const FORK2 = "00000000-0000-7000-8000-0000000000f2";
 const SIDE_TURN = "00000000-0000-7000-8000-0000000000a1";
+const CHILD = "00000000-0000-7000-8000-0000000000c1";
+const GRANDCHILD = "00000000-0000-7000-8000-0000000000c2";
 
 type Handlers = ConstructorParameters<typeof FakeAppServer>[0];
 
@@ -93,7 +95,7 @@ async function setup(handlers: Partial<Handlers> = {}) {
 		conversationReset: () => undefined,
 	});
 	const server = servers.at(-1) as FakeAppServer;
-	const side: ChatSubagentEvent[] = [];
+	const side: SideEventBody[] = [];
 	const ask = (
 		text: string,
 		earlier: { question: string; answer: string }[] = [],
@@ -183,21 +185,22 @@ describe("a Codex side question", () => {
 		await second;
 	});
 
-	test("shows the fork's answer and read-only command rows, framed as side events", async () => {
-		const { server, ask, side, terminalId } = await setup();
+	test("shows the fork's answer and read-only command rows, leaving the turn to the core", async () => {
+		const { server, ask, side } = await setup();
 		const asked = ask("Read a.txt");
 		await untilSent(server, "turn/start");
 		for (const message of forkTurn("command-kinds", FORK)) server.push(message);
 		await asked;
-		for (const event of side)
-			expect(ChatSubagentEvent.safeParse(event).success).toBe(true);
-		expect(side.map((event) => event.seq)).toEqual(side.map((_, index) => index));
-		expect(side.every((event) => event.sessionId === terminalId)).toBe(true);
 		const kinds = side.map((event) => event.type);
-		expect(kinds[0]).toBe("turn.started");
 		expect(kinds).toContain("tool.started");
-		expect(kinds.at(-1)).toBe("turn.finished");
-		expect(side.at(-1)).toMatchObject({ status: "done" });
+		expect(kinds).toContain("message");
+		for (const kind of ["snapshot", "turn.started", "turn.finished"])
+			expect(kinds).not.toContain(kind);
+		for (const event of side) expect(event).not.toHaveProperty("seq");
+		// The question is the core's to show.
+		expect(
+			side.some((event) => event.type === "message" && event.role === "user"),
+		).toBe(false);
 	});
 
 	test("leaves the main transcript, the tab's state and the context meter alone", async () => {
@@ -257,7 +260,6 @@ describe("a Codex side question", () => {
 			threadId: FORK,
 			turnId: SIDE_TURN,
 		});
-		expect(side.at(-1)).toMatchObject({ type: "turn.finished", status: "interrupted" });
 		// A late event of the stopped fork shows nowhere.
 		const count = side.length;
 		for (const message of forkTurn("token-usage", FORK)) server.push(message);
@@ -278,7 +280,7 @@ describe("a Codex side question", () => {
 	});
 
 	test("endSide interrupts a running question and unsubscribes its fork", async () => {
-		const { agent, server, ask, side } = await setup();
+		const { agent, server, ask } = await setup();
 		const asked = ask("Anything");
 		await untilSent(server, "turn/start");
 		await agent.endSide();
@@ -288,18 +290,20 @@ describe("a Codex side question", () => {
 			turnId: SIDE_TURN,
 		});
 		await untilSent(server, "thread/unsubscribe");
-		expect(side.at(-1)).toMatchObject({ status: "interrupted" });
 		// Ending with nothing running does nothing.
 		await agent.endSide();
 	});
 
-	test("one question at a time", async () => {
-		const { server, ask } = await setup();
-		const first = ask("one");
-		await expect(ask("two")).rejects.toThrow(/Wait for the side answer/);
+	test("a released fork is no longer a side thread", async () => {
+		const { agent, server, ask } = await setup();
+		const owns = (id: string) =>
+			(agent as unknown as { side: CodexSide }).side.owns(id);
+		const asked = ask("one");
 		await untilSent(server, "turn/start");
+		expect(owns(FORK)).toBe(true);
 		for (const message of forkTurn("token-usage", FORK)) server.push(message);
-		await first;
+		await asked;
+		await vi.waitFor(() => expect(owns(FORK)).toBe(false));
 	});
 
 	test("a failed turn rejects with Codex's message", async () => {
@@ -315,7 +319,9 @@ describe("a Codex side question", () => {
 			params: { threadId: FORK, turn: { id: SIDE_TURN, status: "failed" } },
 		});
 		await expect(asked).rejects.toThrow("Over quota");
-		expect(side.at(-1)).toMatchObject({ status: "error" });
+		expect(
+			side.some((event) => event.type === "message" && event.role === "user"),
+		).toBe(false);
 	});
 
 	test("a refused fork rejects", async () => {
@@ -340,5 +346,212 @@ describe("a Codex side question", () => {
 		await asked;
 		expect(lines.slice(before)).toEqual([]);
 		expect(JSON.stringify(lines)).not.toContain("secret side question");
+	});
+});
+
+describe("a subagent a side fork spawns", () => {
+	const approval = (id: string, threadId: string) => ({
+		id,
+		method: "item/commandExecution/requestApproval",
+		params: { threadId, turnId: "t", itemId: "i", command: "rm -rf x" },
+	});
+
+	function tracked(agent: CodexAgent, threadId: string): boolean {
+		const subagents = (
+			agent as unknown as { subagents: { mappers: Map<string, unknown> } }
+		).subagents;
+		return subagents.mappers.has(threadId);
+	}
+
+	test("is a side thread: its requests are refused and its events kept from the main chat", async () => {
+		const { agent, server, ask, events, cards, side } = await setup();
+		const asked = ask("Spawn something");
+		await untilSent(server, "turn/start");
+		server.push({
+			method: "thread/started",
+			params: { thread: { id: CHILD, name: null, parentThreadId: FORK } },
+		});
+		// A grandchild is named by its parent's spawn call.
+		server.push({
+			method: "item/completed",
+			params: {
+				threadId: CHILD,
+				turnId: "ct",
+				item: {
+					type: "collabAgentToolCall",
+					id: "spawn-2",
+					tool: "spawnAgent",
+					status: "completed",
+					senderThreadId: CHILD,
+					receiverThreadIds: [GRANDCHILD],
+					prompt: "go",
+				},
+			},
+		});
+		const eventsBefore = events.length;
+		const sideBefore = side.length;
+		server.push(approval("child-ask", CHILD));
+		server.push(approval("grandchild-ask", GRANDCHILD));
+		server.push({
+			method: "turn/started",
+			params: { threadId: CHILD, turn: { id: "ct", status: "inProgress" } },
+		});
+		server.push({
+			method: "item/agentMessage/delta",
+			params: { threadId: CHILD, turnId: "ct", itemId: "m", delta: "child says" },
+		});
+		await vi.waitFor(() => expect(server.reply("grandchild-ask")).toBeDefined());
+		for (const id of ["child-ask", "grandchild-ask"])
+			expect(server.reply(id)?.error).toMatchObject({
+				message: "A side conversation is read-only.",
+			});
+		expect(cards).toEqual([]);
+		expect(events.length).toBe(eventsBefore);
+		expect(side.length).toBe(sideBefore);
+		expect(tracked(agent, CHILD)).toBe(false);
+		expect(tracked(agent, GRANDCHILD)).toBe(false);
+		for (const message of forkTurn("token-usage", FORK)) server.push(message);
+		await asked;
+	});
+
+	test("a spawn call on the fork itself makes its threads side threads", async () => {
+		const { server, ask, cards } = await setup();
+		const asked = ask("Spawn something");
+		await untilSent(server, "turn/start");
+		server.push({
+			method: "item/started",
+			params: {
+				threadId: FORK,
+				turnId: SIDE_TURN,
+				item: {
+					type: "collabAgentToolCall",
+					id: "spawn-1",
+					tool: "spawnAgent",
+					status: "inProgress",
+					senderThreadId: FORK,
+					receiverThreadIds: [CHILD],
+					prompt: "go",
+				},
+			},
+		});
+		server.push(approval("child-ask", CHILD));
+		await vi.waitFor(() => expect(server.reply("child-ask")?.error).toBeDefined());
+		expect(cards).toEqual([]);
+		for (const message of forkTurn("token-usage", FORK)) server.push(message);
+		await asked;
+	});
+
+	test("a thread not spawned by a side fork stays the main chat's", async () => {
+		const { agent, server, ask } = await setup();
+		const asked = ask("Hi");
+		await untilSent(server, "turn/start");
+		server.push({
+			method: "thread/started",
+			params: { thread: { id: CHILD, name: null, parentThreadId: MAIN } },
+		});
+		server.push({
+			method: "turn/started",
+			params: { threadId: CHILD, turn: { id: "ct", status: "inProgress" } },
+		});
+		await vi.waitFor(() => expect(tracked(agent, CHILD)).toBe(true));
+		for (const message of forkTurn("token-usage", FORK)) server.push(message);
+		await asked;
+	});
+
+	test("stopping the question interrupts the subagent's turn and drops its thread", async () => {
+		const { agent, server, ask } = await setup();
+		const stop = new AbortController();
+		const asked = ask("Spawn something", [], stop.signal);
+		await untilSent(server, "turn/start");
+		server.push({
+			method: "thread/started",
+			params: { thread: { id: CHILD, name: null, parentThreadId: FORK } },
+		});
+		server.push({
+			method: "turn/started",
+			params: { threadId: CHILD, turn: { id: "ct", status: "inProgress" } },
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		stop.abort();
+		await asked;
+		await vi.waitFor(() =>
+			expect(server.requests("turn/interrupt").map((r) => r.params)).toEqual(
+				expect.arrayContaining([
+					{ threadId: FORK, turnId: SIDE_TURN },
+					{ threadId: CHILD, turnId: "ct" },
+				]),
+			),
+		);
+		await vi.waitFor(() =>
+			expect(server.requests("thread/unsubscribe").map((r) => r.params)).toEqual(
+				expect.arrayContaining([{ threadId: FORK }, { threadId: CHILD }]),
+			),
+		);
+		const owns = (id: string) =>
+			(agent as unknown as { side: CodexSide }).side.owns(id);
+		await vi.waitFor(() => expect(owns(CHILD)).toBe(false));
+	});
+
+	test("endSide interrupts the subagent too", async () => {
+		const { agent, server, ask } = await setup();
+		const asked = ask("Spawn something");
+		await untilSent(server, "turn/start");
+		server.push({
+			method: "thread/started",
+			params: { thread: { id: CHILD, name: null, parentThreadId: FORK } },
+		});
+		server.push({
+			method: "turn/started",
+			params: { threadId: CHILD, turn: { id: "ct", status: "inProgress" } },
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		await agent.endSide();
+		await asked;
+		await vi.waitFor(() =>
+			expect(server.requests("turn/interrupt").map((r) => r.params)).toContainEqual({
+				threadId: CHILD,
+				turnId: "ct",
+			}),
+		);
+	});
+});
+
+describe("a side question while Codex is still starting", () => {
+	function coldStart() {
+		let ready!: (client: AppServerClient) => void;
+		const request = vi.fn(async () => ({}));
+		const side = new CodexSide({
+			projectDir: "/p",
+			client: () =>
+				new Promise<AppServerClient>((resolve) => {
+					ready = resolve;
+				}),
+			mainThread: () => MAIN,
+			model: () => ({ model: "", effort: "" }),
+		});
+		const start = () => ready({ request } as unknown as AppServerClient);
+		return { side, request, start };
+	}
+
+	test("a stop before Codex is up ends the question without forking", async () => {
+		const { side, request, start } = coldStart();
+		const stop = new AbortController();
+		const asked = side.ask("q", [], () => undefined, stop.signal);
+		stop.abort();
+		start();
+		await expect(asked).resolves.toBeUndefined();
+		expect(request).not.toHaveBeenCalled();
+	});
+
+	test("closing the pane before Codex is up ends the question without forking", async () => {
+		const { side, request, start } = coldStart();
+		const closed = new AbortController();
+		const asked = side.ask("q", [], () => undefined, closed.signal);
+		// The core aborts the question, then tells the driver the conversation ended.
+		closed.abort();
+		await side.end();
+		start();
+		await expect(asked).resolves.toBeUndefined();
+		expect(request).not.toHaveBeenCalled();
 	});
 });

@@ -1,9 +1,11 @@
 import { ChatSubagentEvent, type SideExchange } from "@portikus/contracts";
-import type { ChatEventBody } from "../agent.js";
+import { z } from "zod";
+import type { ChatEventBody, SideEventBody } from "../agent.js";
 import type { AppServerClient as Client } from "./app-server.js";
 import { turnStatus } from "./history.js";
 import { CodexItemMapper } from "./mapper.js";
 import {
+	CollabToolCallItem,
 	DeltaNotification,
 	ErrorNotification,
 	ItemNotification,
@@ -14,15 +16,22 @@ import {
 	TurnStartResult,
 } from "./protocol.js";
 
-type SideEventBody = Extract<ChatEventBody, { type: ChatSubagentEvent["type"] }>;
-
-const SIDE_EVENT_TYPES: readonly string[] = ChatSubagentEvent.options.map(
-	(option) => option.shape.type.value,
-);
+/** The core opens and closes the side turn, so a driver sends only content. */
+const SIDE_EVENT_TYPES: readonly string[] = ChatSubagentEvent.options
+	.map((option) => option.shape.type.value)
+	.filter((type) => !["snapshot", "turn.started", "turn.finished"].includes(type));
 
 function isSideEvent(event: ChatEventBody): event is SideEventBody {
 	return SIDE_EVENT_TYPES.includes(event.type);
 }
+
+/** `thread/started`: a subagent's thread names the thread that spawned it. */
+const ThreadStarted = z.object({
+	thread: z.object({
+		id: z.string(),
+		parentThreadId: z.string().nullable().optional(),
+	}),
+});
 
 /**
  * The note put ahead of a side question, as an injected item rather than
@@ -53,7 +62,6 @@ export function sideItems(earlier: readonly SideExchange[]): unknown[] {
 }
 
 export interface CodexSideHost {
-	terminalId: string;
 	projectDir: string;
 	/** The running app-server, started if need be. */
 	client(): Promise<Client>;
@@ -67,8 +75,10 @@ interface Question {
 	client: Client;
 	forkId: string | null;
 	turnId: string | null;
+	/** Threads the fork's subagents run in, each with its running turn. */
+	spawned: Map<string, string | null>;
 	mapper: CodexItemMapper;
-	emit: (event: ChatSubagentEvent) => void;
+	emit: (event: SideEventBody) => void;
 	done: (outcome?: Error | "interrupted") => void;
 	error: TurnError | null;
 }
@@ -79,38 +89,38 @@ interface Question {
  * thread with approvals off, puts the side boundary and the earlier side
  * exchanges into it, and runs one turn. The fork's events go only to the
  * side pane: never to the main transcript, the tab's state or its context
- * meter. Held in memory only, never logged (ADR 0012).
+ * meter. A subagent the fork spawns is a side thread too: its requests are
+ * refused, its events dropped, and it stops with the question. The core
+ * owns the side turn and allows one question at a time. Held in memory
+ * only, never logged (ADR 0012).
  */
 export class CodexSide {
 	private question: Question | null = null;
-	/** Forks this host made, so their requests are refused and their events kept apart. */
-	private readonly forks = new Set<string>();
-	private seq = 0;
-	/** A question is waiting for the app-server, before it runs. */
-	private opening = false;
+	/** Side forks and the threads they spawned, so their requests are refused and their events kept apart. */
+	private readonly owned = new Set<string>();
 
 	constructor(private readonly host: CodexSideHost) {}
 
-	/** The thread is a side fork. */
+	/** The thread is a side fork or one a side fork spawned. */
 	owns(threadId: string): boolean {
-		return this.forks.has(threadId);
+		return this.owned.has(threadId);
+	}
+
+	/** A thread started; one spawned by a side thread is a side thread. */
+	threadStarted(params: unknown): void {
+		const thread = parsed(ThreadStarted, params)?.thread;
+		if (thread?.parentThreadId) this.adopt(thread.parentThreadId, thread.id);
 	}
 
 	async ask(
 		text: string,
 		earlier: readonly SideExchange[],
-		emit: (event: ChatSubagentEvent) => void,
+		emit: (event: SideEventBody) => void,
 		signal: AbortSignal,
 	): Promise<void> {
-		if (this.question || this.opening)
-			throw new Error("Wait for the side answer, or stop it first.");
-		this.opening = true;
-		let client: Client;
-		try {
-			client = await this.host.client();
-		} finally {
-			this.opening = false;
-		}
+		const client = await this.host.client();
+		// Stopped or closed while Codex was starting: nothing was asked.
+		if (signal.aborted) return;
 		const main = this.host.mainThread();
 		if (!main) throw new Error("Codex has no conversation to ask about yet.");
 		let resolve!: () => void;
@@ -123,6 +133,7 @@ export class CodexSide {
 			client,
 			forkId: null,
 			turnId: null,
+			spawned: new Map(),
 			mapper: new CodexItemMapper(),
 			emit,
 			error: null,
@@ -130,9 +141,6 @@ export class CodexSide {
 				if (this.question !== question) return;
 				this.question = null;
 				signal.removeEventListener("abort", onAbort);
-				const status =
-					outcome instanceof Error ? "error" : outcome ? "interrupted" : "done";
-				this.send(question, { type: "turn.finished", status, at: Date.now() });
 				void this.release(question);
 				if (outcome instanceof Error) reject(outcome);
 				else resolve();
@@ -149,7 +157,6 @@ export class CodexSide {
 		};
 		this.question = question;
 		signal.addEventListener("abort", onAbort, { once: true });
-		this.send(question, { type: "turn.started", at: Date.now() });
 		void this.run(question, main, text, earlier).catch((error: unknown) =>
 			question.done(
 				new Error(error instanceof Error ? error.message : "Codex did not answer."),
@@ -157,7 +164,6 @@ export class CodexSide {
 		);
 		return promise;
 	}
-
 	private async run(
 		question: Question,
 		main: string,
@@ -181,7 +187,7 @@ export class CodexSide {
 		);
 		if (!fork) throw new Error("Codex did not start the side conversation.");
 		question.forkId = fork.thread.id;
-		this.forks.add(fork.thread.id);
+		this.owned.add(fork.thread.id);
 		// Stopped while the fork was starting: it is dropped now its id is known.
 		if (this.question !== question) {
 			void this.release(question);
@@ -215,10 +221,15 @@ export class CodexSide {
 		}
 	}
 
-	/** An event of a side fork. Token usage and anything else is dropped. */
+	/** An event of a side thread. Token usage and anything else is dropped. */
 	notification(threadId: string, method: string, params: unknown): void {
 		const question = this.question;
-		if (!question || question.forkId !== threadId) return;
+		if (!question) return;
+		if (question.forkId !== threadId) {
+			if (question.spawned.has(threadId))
+				this.spawnedEvent(question, threadId, method, params);
+			return;
+		}
 		switch (method) {
 			case "turn/started":
 				question.turnId ??= parsed(TurnNotification, params)?.turn.id ?? null;
@@ -236,6 +247,7 @@ export class CodexSide {
 			case "item/completed": {
 				const item = parsed(ItemNotification, params)?.item;
 				if (item === undefined) return;
+				this.adoptReceivers(threadId, item);
 				// The question is shown by the pane when it is asked.
 				if ((item as { type?: unknown } | null)?.type === "userMessage") return;
 				const events =
@@ -259,10 +271,53 @@ export class CodexSide {
 		}
 	}
 
+	/**
+	 * A subagent of the fork: only its running turn is followed, so a stop
+	 * can interrupt it, and the threads it spawns in turn. The rest is dropped.
+	 */
+	private spawnedEvent(
+		question: Question,
+		threadId: string,
+		method: string,
+		params: unknown,
+	): void {
+		switch (method) {
+			case "turn/started":
+				question.spawned.set(
+					threadId,
+					parsed(TurnNotification, params)?.turn.id ?? null,
+				);
+				return;
+			case "turn/completed":
+				question.spawned.set(threadId, null);
+				return;
+			case "item/started":
+			case "item/completed": {
+				const item = parsed(ItemNotification, params)?.item;
+				if (item !== undefined) this.adoptReceivers(threadId, item);
+			}
+		}
+	}
+
+	/** A spawn call names the threads it started, which are side threads too. */
+	private adoptReceivers(parent: string, item: unknown): void {
+		if ((item as { type?: unknown } | null)?.type !== "collabAgentToolCall") return;
+		for (const child of parsed(CollabToolCallItem, item)?.receiverThreadIds ?? [])
+			this.adopt(parent, child);
+	}
+
+	private adopt(parent: string, child: string): void {
+		const question = this.question;
+		if (!question || question.spawned.has(child)) return;
+		if (question.forkId !== parent && !question.spawned.has(parent)) return;
+		question.spawned.set(child, null);
+		this.owned.add(child);
+	}
+
 	/** Codex stopped: the question running ends with an error. */
 	stopped(): void {
 		this.question?.done(new Error(STOPPED));
-		this.forks.clear();
+		this.owned.clear();
 	}
 
 	/** Close the side conversation: stop any question and drop its fork. */
@@ -277,25 +332,27 @@ export class CodexSide {
 				.catch(() => undefined);
 		}
 		question?.done("interrupted");
-		this.seq = 0;
 	}
 
+	/** Stop the fork's subagents, drop the fork and them, and forget their ids. */
 	private async release(question: Question): Promise<void> {
-		const { forkId } = question;
-		if (!forkId) return;
-		await question.client
-			.request("thread/unsubscribe", { threadId: forkId })
-			.catch(() => undefined);
+		const { client, forkId, spawned } = question;
+		for (const [threadId, turnId] of spawned) {
+			if (turnId)
+				void client
+					.request("turn/interrupt", { threadId, turnId })
+					.catch(() => undefined);
+		}
+		const threads = [...(forkId ? [forkId] : []), ...spawned.keys()];
+		await Promise.all(
+			threads.map((threadId) =>
+				client.request("thread/unsubscribe", { threadId }).catch(() => undefined),
+			),
+		);
+		for (const threadId of threads) this.owned.delete(threadId);
 	}
 
 	private send(question: Question, event: ChatEventBody): void {
-		if (!isSideEvent(event)) return;
-		const seq = this.seq;
-		this.seq += 1;
-		question.emit({
-			...event,
-			sessionId: this.host.terminalId,
-			seq,
-		} as ChatSubagentEvent);
+		if (isSideEvent(event)) question.emit(event);
 	}
 }
