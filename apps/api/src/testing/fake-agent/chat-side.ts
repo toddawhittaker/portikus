@@ -5,6 +5,7 @@ import {
 	type ChatCommand,
 	ChatServerEvent,
 	type ChatSubagentEvent,
+	MAX_CHAT_SIDE_TEXT_CHARS,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 
@@ -12,9 +13,15 @@ import type { FastifyInstance } from "fastify";
  * The scripted host's side conversation (SPEC.md §10.2): `btw` is listed only
  * when a test turns it on, a question is answered after a delay a test sets,
  * and every event is numbered per conversation from a snapshot at seq 0, as
- * the real host numbers them. Stop leaves an interrupted turn, End an empty
- * snapshot, and an attach replays what is there.
+ * the real host numbers them. As the host does, a refused question is an
+ * assistant message outside any turn, Stop leaves an interrupted turn, End
+ * an empty snapshot marked `ended`, and an attach replays what is there.
  */
+
+// The host's own refusals, word for word.
+const SIDE_BUSY = "Wait for the side answer before asking another side question.";
+const SIDE_UNAVAILABLE = "This chat cannot take side questions.";
+const SIDE_TOO_LONG = `A side question can be at most ${MAX_CHAT_SIDE_TEXT_CHARS} characters.`;
 
 /** The command a host lists when its agent can take side questions. */
 const BTW: ChatCommand = {
@@ -29,6 +36,8 @@ type Body = Record<string, unknown> & { type: ChatSubagentEvent["type"] };
 interface SideState {
 	/** Whether the host lists `btw`; a test sets it. */
 	offered: boolean;
+	/** Whether its agent can answer; a listed `btw` it cannot answer is refused. A test sets it. */
+	answers: boolean;
 	/** How long the next answers take; a test sets it. */
 	delayMs: number;
 	events: Record<string, unknown>[];
@@ -53,6 +62,7 @@ export function fakeSide(deps: FakeSideDeps) {
 		if (!state) {
 			state = {
 				offered: false,
+				answers: true,
 				delayMs: 0,
 				events: [],
 				seq: 0,
@@ -65,9 +75,14 @@ export function fakeSide(deps: FakeSideDeps) {
 	}
 
 	/** One `side` frame, checked against the contract; it carries no chat `seq`. */
-	function frame(id: string, event: Record<string, unknown>): string {
+	function frame(id: string, event: Record<string, unknown>, ended = false): string {
 		return JSON.stringify(
-			ChatServerEvent.parse({ type: "side", sessionId: id, event }),
+			ChatServerEvent.parse({
+				type: "side",
+				sessionId: id,
+				...(ended ? { ended: true } : {}),
+				event,
+			}),
 		);
 	}
 
@@ -82,8 +97,8 @@ export function fakeSide(deps: FakeSideDeps) {
 		};
 	}
 
-	function broadcast(id: string, event: Record<string, unknown>): void {
-		const line = frame(id, event);
+	function broadcast(id: string, event: Record<string, unknown>, ended = false): void {
+		const line = frame(id, event, ended);
 		for (const peer of deps.socketsOf(id)) {
 			if (peer.readyState === peer.OPEN) peer.send(line);
 		}
@@ -105,11 +120,26 @@ export function fakeSide(deps: FakeSideDeps) {
 
 	function ask(id: string, text: string): void {
 		const state = stateOf(id);
-		// As the host does, a question while one runs is refused, and a host
-		// without the command does not know the message.
-		if (!state.offered || state.timer !== null) return;
+		// A host without the command does not know the message.
+		if (!state.offered) return;
+		if (state.events.length === 0) broadcast(id, snapshot(id, state.timer !== null));
+		const refusal = !state.answers
+			? SIDE_UNAVAILABLE
+			: state.timer !== null
+				? SIDE_BUSY
+				: text.length > MAX_CHAT_SIDE_TEXT_CHARS
+					? SIDE_TOO_LONG
+					: null;
+		if (refusal !== null) {
+			push(id, {
+				type: "message",
+				id: randomUUID(),
+				role: "assistant",
+				markdown: refusal,
+			});
+			return;
+		}
 		state.asked.push(text);
-		if (state.events.length === 0) broadcast(id, snapshot(id, true));
 		push(id, { type: "turn.started", at: Date.now() });
 		push(id, { type: "message", id: randomUUID(), role: "user", markdown: text });
 		state.timer = setTimeout(() => {
@@ -137,7 +167,7 @@ export function fakeSide(deps: FakeSideDeps) {
 		const open = state.events.length > 0;
 		state.events = [];
 		state.seq = 0;
-		if (open) broadcast(id, snapshot(id, false));
+		if (open) broadcast(id, snapshot(id, false), true);
 	}
 
 	return {
@@ -176,12 +206,17 @@ export function fakeSide(deps: FakeSideDeps) {
 		clear: end,
 
 		routes(app: FastifyInstance): void {
-			// Offer `btw` or not (body: offered, delayMs for the answer's delay).
+			// Offer `btw` or not (body: offered, answers false to refuse every question, delayMs for the answer's delay).
 			app.post("/__test/chats/:id/side", async (request, reply) => {
 				const id = (request.params as { id: string }).id;
-				const body = request.body as { offered?: boolean; delayMs?: number };
+				const body = request.body as {
+					offered?: boolean;
+					answers?: boolean;
+					delayMs?: number;
+				};
 				const state = stateOf(id);
 				if (body.delayMs !== undefined) state.delayMs = body.delayMs;
+				if (body.answers !== undefined) state.answers = body.answers;
 				if (body.offered !== undefined) {
 					state.offered = body.offered;
 					deps.sendCommands(id);

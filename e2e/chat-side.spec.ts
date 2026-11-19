@@ -4,6 +4,7 @@ import {
 	type Locator,
 	type Page,
 	test,
+	type WebSocketRoute,
 } from "@playwright/test";
 import { type ChatAgent, inBothThemes, openChat, receivedFrames } from "./chat-helpers";
 import { createStudent, expectNoViolations } from "./helpers";
@@ -32,7 +33,7 @@ const NEVER = 600_000;
 /** Offer `btw` or not, and set how long the host takes to answer. */
 async function configureSide(
 	id: string,
-	body: { offered?: boolean; delayMs?: number },
+	body: { offered?: boolean; answers?: boolean; delayMs?: number },
 ): Promise<void> {
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/chats/${id}/side`, {
 		method: "POST",
@@ -138,7 +139,7 @@ for (const { agent, name } of AGENTS) {
 			const pane = await openPane(page, view);
 			await ask(pane, QUESTION);
 			await expect(pane).toContainText(ANSWER);
-			await expect(pane.getByTestId("side-announcer")).toHaveText(/answered/);
+			await expect(pane.getByTestId("side-announcer")).toHaveText("Side answer ready.");
 			// The question and its answer are in the pane alone; the main turn still runs.
 			await expect(pane).toContainText(QUESTION);
 			await expect(main).not.toContainText(QUESTION);
@@ -169,7 +170,9 @@ for (const { agent, name } of AGENTS) {
 			await expect(stop).toBeVisible();
 			await expect(box).toBeDisabled();
 			await expect(send).toHaveAttribute("aria-disabled", "true");
-			await expect(pane.getByTestId("side-announcer")).toHaveText(/answering/);
+			await expect(pane.getByTestId("side-announcer")).toHaveText(
+				"The side question is running.",
+			);
 			// The disabled Ask still tells a screen reader why, and sends nothing.
 			await send.click({ force: true });
 			await expect(pane).not.toContainText(ANSWER);
@@ -180,6 +183,9 @@ for (const { agent, name } of AGENTS) {
 				.toEqual(["side.ask", "side.stop"]);
 			await expect(stop).toHaveCount(0);
 			await expect(box).toBeEnabled();
+			// Empty, Ask still says why it does nothing; a question frees it.
+			await expect(send).toHaveAttribute("aria-disabled", "true");
+			await box.fill("draft");
 			await expect(send).not.toHaveAttribute("aria-disabled", "true");
 			await expect(pane.getByTestId("side-announcer")).toHaveText(/stopped/);
 			// A stopped question leaves the conversation, and the next one can be asked.
@@ -314,6 +320,121 @@ for (const { agent, name } of AGENTS) {
 				"side.stop",
 				"side.end",
 			]);
+		});
+
+		test("a dropped socket comes back with the pane open, its draft and the keyboard kept", async ({
+			page,
+			context,
+		}) => {
+			// Pass the chat socket through, so the test can drop the page's end of it.
+			const sockets: WebSocketRoute[] = [];
+			await page.routeWebSocket(/\/chat$/, (ws) => {
+				ws.connectToServer();
+				sockets.push(ws);
+			});
+			const { id, view } = await openSideChat(page, context, agent);
+			const pane = await openPane(page, view);
+			await ask(pane, QUESTION);
+			await expect(pane).toContainText(ANSWER);
+			const box = pane.getByTestId("side-composer");
+			await box.fill("A draft of the next one");
+			await expect(box).toBeFocused();
+			const before = sockets.length;
+			await sockets.at(-1)?.close();
+			await expect(view.getByTestId("chat-connection")).toHaveText("Reconnecting…");
+			await expect.poll(() => sockets.length).toBeGreaterThan(before);
+			await expect(view.getByTestId("chat-connection")).toHaveText("");
+			// The host replays the conversation; the pane, its draft and the focus stay.
+			await expect(view.getByTestId("side-panel")).toBeVisible();
+			await expect(pane).toContainText(ANSWER);
+			await expect(box).toHaveValue("A draft of the next one");
+			await expect(box).toBeFocused();
+			expect(await sideFrames(id)).toEqual([{ type: "side.ask", text: QUESTION }]);
+		});
+
+		test("a narrow chat puts the pane under it, readable and without violations", async ({
+			page,
+			context,
+		}) => {
+			await page.setViewportSize({ width: 600, height: 900 });
+			const { id, view } = await openSideChat(page, context, agent);
+			const pane = await openPane(page, view);
+			await ask(pane, QUESTION);
+			const answer = pane.getByText(ANSWER);
+			await expect(answer).toBeVisible();
+			await expect(answer).toBeInViewport();
+			// Under the chat, not beside it.
+			const chat = await view.getByTestId("chat-scroll").boundingBox();
+			const side = await pane.boundingBox();
+			expect(side && chat ? side.y >= chat.y + chat.height - 1 : false).toBe(true);
+			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+		});
+
+		test("the divider resizes the pane with the arrow keys", async ({
+			page,
+			context,
+		}) => {
+			const { view } = await openSideChat(page, context, agent);
+			const pane = await openPane(page, view);
+			const handle = view.getByRole("separator", {
+				name: "Resize the side conversation",
+			});
+			const width = async () => (await pane.boundingBox())?.width ?? 0;
+			const before = await width();
+			await handle.focus();
+			for (let presses = 0; presses < 3; presses += 1)
+				await page.keyboard.press("ArrowLeft");
+			await expect.poll(width).toBeGreaterThan(before + 10);
+			const wider = await width();
+			for (let presses = 0; presses < 3; presses += 1)
+				await page.keyboard.press("ArrowRight");
+			await expect.poll(width).toBeLessThan(wider - 10);
+		});
+
+		test("a refused side question is answered in the pane, and the main transcript gains nothing", async ({
+			page,
+			context,
+		}) => {
+			const { id, view } = await openSideChat(page, context, agent);
+			// The host lists btw, but its agent cannot answer: it refuses, as the host does.
+			await configureSide(id, { answers: false });
+			const pane = await openPane(page, view);
+			await ask(pane, QUESTION);
+			await expect(pane).toContainText("This chat cannot take side questions.");
+			const box = pane.getByTestId("side-composer");
+			await expect(box).toBeEnabled();
+			await expect(pane.getByTestId("side-stop")).toHaveCount(0);
+			const main = view.getByTestId("chat-scroll");
+			await expect(main).not.toContainText("cannot take side questions");
+			await expect(main).not.toContainText(QUESTION);
+			// It can be asked again once the agent answers.
+			await configureSide(id, { answers: true });
+			await ask(pane, QUESTION);
+			await expect(pane).toContainText(ANSWER);
+		});
+
+		test("/btw with a file attached is refused, since side questions are text only", async ({
+			page,
+			context,
+		}) => {
+			const { id, view } = await openSideChat(page, context, agent);
+			await view.getByTestId("chat-composer-file").setInputFiles({
+				name: "notes.txt",
+				mimeType: "text/plain",
+				buffer: Buffer.from("notes"),
+			});
+			await expect(view.getByTestId("composer-chip")).toBeVisible();
+			await view.getByTestId("chat-composer-input").click();
+			await page.keyboard.type(`/btw ${QUESTION}`);
+			await page.keyboard.press("Escape");
+			await page.keyboard.press("Enter");
+			await expect(view.getByTestId("chat-composer-error")).toHaveText(
+				"Side questions are text only. Remove the attached files, then ask again.",
+			);
+			await expect(view.getByTestId("side-panel")).toHaveCount(0);
+			await expect(view.getByTestId("composer-chip")).toBeVisible();
+			expect(await sideFrames(id)).toEqual([]);
+			expect(await receivedFrames(id, "send")).toEqual([]);
 		});
 
 		test("the open pane has no accessibility violations in dark and light", async ({

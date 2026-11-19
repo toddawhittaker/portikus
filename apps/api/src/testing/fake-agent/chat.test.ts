@@ -803,9 +803,17 @@ test("a side question is numbered from a snapshot at seq 0, answered after the d
 		["turn.started", 1],
 		["message", 2],
 	]);
-	expect(sideEvents(first.frames)[0].turnRunning).toBe(true);
-	// One at a time: a second question while one runs is ignored.
+	// As the host does, the first ask's snapshot comes before its turn starts.
+	expect(sideEvents(first.frames)[0].turnRunning).toBe(false);
+	// One at a time: a second question while one runs is refused in the side conversation.
 	first.ws.send(JSON.stringify({ type: "side.ask", text: "again?" }));
+	await expect.poll(() => sideEvents(first.frames).length).toBe(4);
+	expect(sideEvents(first.frames)[3]).toMatchObject({
+		type: "message",
+		seq: 3,
+		role: "assistant",
+		markdown: "Wait for the side answer before asking another side question.",
+	});
 	// An attach replays the conversation: a snapshot, then every event.
 	const late = await connect(id);
 	await expect.poll(() => types(late.frames).includes("settings")).toBe(true);
@@ -813,15 +821,22 @@ test("a side question is numbered from a snapshot at seq 0, answered after the d
 		["snapshot", 0],
 		["turn.started", 1],
 		["message", 2],
+		["message", 3],
 	]);
+	expect(sideEvents(late.frames)[0].turnRunning).toBe(true);
 	first.ws.send(JSON.stringify({ type: "side.stop" }));
 	await expect.poll(() => sideEvents(first.frames).at(-1)?.type).toBe("turn.finished");
 	expect(sideEvents(first.frames).at(-1).status).toBe("interrupted");
-	expect(sideEvents(first.frames)).toHaveLength(4);
-	// End ends it with an empty snapshot at seq 0, and a later attach replays nothing.
+	expect(sideEvents(first.frames)).toHaveLength(5);
+	// End ends it with an empty snapshot at seq 0 marked ended, and a later attach replays nothing.
 	first.ws.send(JSON.stringify({ type: "side.end" }));
 	await expect.poll(() => sideEvents(first.frames).at(-1)?.type).toBe("snapshot");
 	expect(sideEvents(first.frames).at(-1)).toMatchObject({ seq: 0, turnRunning: false });
+	const sides = first.frames
+		.map((one) => JSON.parse(one))
+		.filter((f) => f.type === "side");
+	expect(sides.at(-1).ended).toBe(true);
+	expect(sides.slice(0, -1).some((f) => "ended" in f)).toBe(false);
 	const after = await connect(id);
 	await expect.poll(() => types(after.frames).includes("settings")).toBe(true);
 	expect(sideEvents(after.frames)).toEqual([]);
@@ -838,4 +853,32 @@ test("a side question is numbered from a snapshot at seq 0, answered after the d
 		.at(-1);
 	expect(answer.markdown).toBe("Side answer to: next?");
 	for (const one of [first, late, after]) one.ws.close();
+});
+
+test("a side question the agent cannot answer is refused as an assistant message outside any turn", async () => {
+	const id = "550e8400-e29b-41d4-a716-4466554400f4";
+	await newChat(id);
+	await configureSide(id, { offered: true, answers: false });
+	const first = await connect(id);
+	await expect.poll(() => types(first.frames).includes("settings")).toBe(true);
+	first.ws.send(JSON.stringify({ type: "side.ask", text: "why?" }));
+	await expect.poll(() => sideEvents(first.frames).length).toBe(2);
+	expect(sideEvents(first.frames)).toMatchObject([
+		{ type: "snapshot", seq: 0, turnRunning: false },
+		{
+			type: "message",
+			seq: 1,
+			role: "assistant",
+			markdown: "This chat cannot take side questions.",
+		},
+	]);
+	// The main conversation gains nothing.
+	expect(types(first.frames)).not.toContain("error");
+	await configureSide(id, { answers: true });
+	first.ws.send(JSON.stringify({ type: "side.ask", text: "x".repeat(4001) }));
+	await expect.poll(() => sideEvents(first.frames).length).toBe(3);
+	expect(sideEvents(first.frames)[2].markdown).toBe(
+		"A side question can be at most 4000 characters.",
+	);
+	first.ws.close();
 });
