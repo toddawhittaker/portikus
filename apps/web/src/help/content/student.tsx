@@ -510,14 +510,7 @@ export const STUDENT_HELP: HelpPart = {
 							<strong>Choose another port…</strong> in the preview.
 						</li>
 					</ul>
-				</>
-			),
-		},
-		{
-			id: "student-pick-element",
-			title: "Picking an element for an agent",
-			body: (
-				<>
+					<h3>Picking an element for an agent</h3>
 					<p>
 						<strong>Pick an element</strong> in the preview's toolbar sends one part of
 						your page to an agent. Open an agent terminal or chat first; with more than
