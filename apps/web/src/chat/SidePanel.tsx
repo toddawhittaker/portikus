@@ -20,7 +20,7 @@ import {
 } from "react";
 import { useStore } from "zustand";
 import { useChatAgent } from "./chatAgent.js";
-import type { ChatState, ChatStore } from "./chatStore.js";
+import { type ChatState, type ChatStore, sideBusy } from "./chatStore.js";
 import { type FileOpener, MessageList } from "./MessageList.js";
 import { useFollowEnd } from "./useFollowEnd.js";
 import "./side.css";
@@ -45,11 +45,11 @@ export interface SidePanelHandle {
 }
 
 /** What the pane says politely of its question as it changes. */
-function statusText(side: ChatState | null, name: string): string {
+function statusText(side: ChatState | null, running: boolean): string {
+	if (running) return "The side question is running.";
 	if (side === null) return "";
-	if (side.currentTurnId !== null) return `${name} is answering.`;
 	const last = Object.values(side.turns).at(-1);
-	if (last?.status === "done") return `${name} answered.`;
+	if (last?.status === "done") return "Side answer ready.";
 	if (last?.status === "interrupted") return "The side question was stopped.";
 	if (last?.status === "error") return "The side question failed.";
 	return "";
@@ -71,7 +71,7 @@ export function SidePanel({
 }) {
 	const { agent, name } = useChatAgent();
 	const side = useStore(store, (state) => state.side);
-	const waiting = useStore(store, (state) => state.sideWaiting);
+	const running = useStore(store, sideBusy);
 	const ids = useId();
 	const log = useRef<HTMLDivElement | null>(null);
 	const content = useRef<HTMLDivElement | null>(null);
@@ -79,7 +79,6 @@ export function SidePanel({
 	const follow = useFollowEnd(log, content, true);
 	const [draft, setDraft] = useState("");
 	const [error, setError] = useState("");
-	const running = waiting || (side !== null && side.currentTurnId !== null);
 	const items = side?.items ?? [];
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation changes
@@ -137,6 +136,9 @@ export function SidePanel({
 
 	const headingId = `${ids}-title`;
 	const errorId = `${ids}-error`;
+	const waitId = `${ids}-wait`;
+	const emptyId = `${ids}-empty`;
+	const empty = draft.trim() === "";
 	return (
 		<section className="pk-side" aria-labelledby={headingId} data-testid="side-panel">
 			<div className="pk-side-head">
@@ -194,7 +196,10 @@ export function SidePanel({
 						value={draft}
 						disabled={running}
 						aria-invalid={error !== "" || undefined}
-						aria-describedby={error !== "" ? errorId : undefined}
+						aria-describedby={
+							[running ? waitId : "", error !== "" ? errorId : ""].join(" ").trim() ||
+							undefined
+						}
 						onChange={(event) => setDraft(event.target.value)}
 						onKeyDown={(event) => {
 							if (
@@ -230,14 +235,18 @@ export function SidePanel({
 							className="pk-composer-send is-send"
 							data-testid="side-send"
 							// Stays focusable while a question runs, and says why (SPEC.md §25.8).
-							aria-disabled={running || undefined}
-							aria-describedby={running ? `${ids}-wait` : undefined}
+							aria-disabled={running || empty || undefined}
+							aria-describedby={running ? waitId : empty ? emptyId : undefined}
 						/>
 					</div>
 				</div>
 				{running ? (
-					<span id={`${ids}-wait`} hidden={true}>
+					<span id={waitId} hidden={true}>
 						Wait for the answer, or stop it, before asking again.
+					</span>
+				) : empty ? (
+					<span id={emptyId} hidden={true}>
+						Type a side question first.
 					</span>
 				) : null}
 				{error !== "" ? (
@@ -247,7 +256,7 @@ export function SidePanel({
 				) : null}
 			</form>
 			<p className="sr-only" aria-live="polite" data-testid="side-announcer">
-				{statusText(side, name)}
+				{statusText(side, running)}
 			</p>
 		</section>
 	);

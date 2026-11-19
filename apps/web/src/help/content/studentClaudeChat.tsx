@@ -201,7 +201,8 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 					files, and nothing you ask there joins the chat. Ask one question at a time;
 					Stop ends the one running. A reload keeps the side conversation. Closing it
 					forgets it, and so do <code className="pk-mono-body">/clear</code>, switching
-					agents and stopping your workspace. Drag the line between them to resize.
+					agents and stopping your workspace. Move the line between them by dragging it,
+					or by Tab to it and the arrow keys.
 				</li>
 				<li>
 					A chat zooms on its own, from 50% to 300%: hold{" "}

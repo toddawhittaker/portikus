@@ -167,6 +167,13 @@ test("/btw opens a labelled side pane named for the chat, with the keyboard in i
 		"Ask a quick question",
 	);
 	expect(panel.textContent).toContain("without tools");
+	// Ask stays focusable on an empty box and says why it does nothing.
+	const ask = screen.getByTestId("side-send");
+	expect(ask.getAttribute("aria-disabled")).toBe("true");
+	const why = document.getElementById(ask.getAttribute("aria-describedby") ?? "");
+	expect(why?.textContent).toBe("Type a side question first.");
+	fireEvent.change(sideBox(), { target: { value: "why?" } });
+	expect(ask.getAttribute("aria-disabled")).toBeNull();
 });
 
 test("an untitled chat is named for its agent's tab", () => {
@@ -182,6 +189,11 @@ test("/btw with a question asks it, and the keyboard waits on Stop until the ans
 	sendFromChat("/btw why is the build slow?");
 	expect(sideSent()).toEqual([{ type: "side.ask", text: "why is the build slow?" }]);
 	expect(sideBox().disabled).toBe(true);
+	// The disabled box says why (SPEC.md §25.8).
+	const wait = document.getElementById(
+		sideBox().getAttribute("aria-describedby") ?? "",
+	);
+	expect(wait?.textContent).toContain("Wait for the answer");
 	expect(document.activeElement).toBe(screen.getByTestId("side-stop"));
 	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
 	side(1, "turn.started", { at: 1000 });
@@ -189,13 +201,15 @@ test("/btw with a question asks it, and the keyboard waits on Stop until the ans
 	side(3, "text.delta", { messageId: "a", text: "The tests run twice." });
 	const panel = screen.getByTestId("side-panel");
 	expect(panel.textContent).toContain("The tests run twice.");
-	expect(screen.getByTestId("side-announcer").textContent).toBe("Claude is answering.");
+	expect(screen.getByTestId("side-announcer").textContent).toBe(
+		"The side question is running.",
+	);
 	// The side conversation never enters the chat's own log.
 	expect(screen.getByTestId("chat-scroll").textContent).not.toContain(
 		"The tests run twice.",
 	);
 	side(4, "turn.finished", { at: 2000, status: "done" });
-	expect(screen.getByTestId("side-announcer").textContent).toBe("Claude answered.");
+	expect(screen.getByTestId("side-announcer").textContent).toBe("Side answer ready.");
 	expect(screen.queryByTestId("side-stop")).toBeNull();
 	expect(sideBox().disabled).toBe(false);
 	expect(document.activeElement).toBe(sideBox());
@@ -272,18 +286,43 @@ test("the host's replay after a reload reopens the pane with its conversation, l
 	const panel = screen.getByTestId("side-panel");
 	expect(panel.textContent).toContain("Earlier answer");
 	expect(document.activeElement).not.toBe(sideBox());
-	// A new snapshot (a /clear, or a host that restarted) ends it.
+	// The chat's snapshot on a new socket to the same host session keeps it.
 	emit("snapshot", { cards: [], turnRunning: false, truncated: false });
+	expect(screen.getByTestId("side-panel").textContent).toContain("Earlier answer");
+	// A host that restarted is a new session, and has no side conversation.
+	frame({
+		type: "snapshot",
+		sessionId: WORKSPACE,
+		seq: seq++,
+		cards: [],
+		turnRunning: false,
+		truncated: false,
+	});
 	expect(screen.queryByTestId("side-panel")).toBeNull();
 });
 
-test("the host's empty side snapshot, as another browser closes it, closes the pane here", () => {
+test("the host's end of the side conversation, as another browser closes it, closes the pane here", () => {
 	draw();
 	sendFromChat("/btw why?");
 	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
 	side(1, "turn.started", { at: 1000 });
 	side(2, "message", { id: "q", role: "user", markdown: "why?" });
+	// An idle snapshot alone starts a replay and closes nothing.
 	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	expect(screen.getByTestId("side-panel")).toBeTruthy();
+	frame({
+		type: "side",
+		sessionId: TERMINAL,
+		ended: true,
+		event: {
+			type: "snapshot",
+			sessionId: TERMINAL,
+			seq: 0,
+			cards: [],
+			turnRunning: false,
+			truncated: false,
+		},
+	});
 	expect(screen.queryByTestId("side-panel")).toBeNull();
 });
 

@@ -20,6 +20,7 @@ import {
 	ChatServerEvent,
 	type ChatSessionRule,
 	type ChatSignIn,
+	type ChatSubagentEvent,
 	type ChatToolOutputPart,
 	chatStartMode,
 	type HandoffReview,
@@ -206,6 +207,8 @@ export interface ChatState {
 	sideOpen: boolean;
 	/** A side question went out and the host has not answered it yet. */
 	sideWaiting: boolean;
+	/** The host session the side conversation belongs to; null before its first frame. */
+	sideSession: string | null;
 }
 
 type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
@@ -258,6 +261,7 @@ export const initialChatState: ChatState = {
 	side: null,
 	sideOpen: false,
 	sideWaiting: false,
+	sideSession: null,
 };
 
 /** The command the host lists when its agent can take side questions (SPEC.md §10.2). */
@@ -267,6 +271,32 @@ export const SIDE_COMMAND = "btw";
 export function sideOffered(state: Pick<ChatState, "commands">): boolean {
 	return state.commands.some(
 		(one) => one.name === SIDE_COMMAND && (one.prefix ?? "/") === "/",
+	);
+}
+
+/** A side question went out, or one is running, so the side box waits. */
+export function sideBusy(state: Pick<ChatState, "side" | "sideWaiting">): boolean {
+	return state.sideWaiting || (state.side?.currentTurnId ?? null) !== null;
+}
+
+/** No side conversation and no pane. */
+const SIDE_CLOSED = {
+	side: null,
+	sideOpen: false,
+	sideWaiting: false,
+	sideSession: null,
+} as const satisfies Partial<ChatState>;
+
+/**
+ * The host has answered the question that went out: its turn finished, or
+ * it refused it with a message outside any turn (SPEC.md §10.2).
+ */
+function sideAnswered(event: ChatSubagentEvent, side: ChatState): boolean {
+	if (event.type === "turn.finished") return true;
+	return (
+		event.type === "message" &&
+		event.role === "assistant" &&
+		side.currentTurnId === null
 	);
 }
 
@@ -309,14 +339,19 @@ export function receiveChatEvent(
 	now: number,
 ): ChatState {
 	if (event.type === "subagent") return { ...state, subagentFrame: event };
-	// The host replays the side conversation after the snapshot, which ends any before it.
+	// The host replays the side conversation after the chat's snapshot.
 	if (event.type === "side") {
 		if (state.awaitingSnapshot) return state;
-		// An idle snapshot says the conversation ended; a replay's comes with its events after it.
-		if (event.event.type === "snapshot" && !event.event.turnRunning)
-			return { ...state, side: null, sideOpen: false, sideWaiting: false };
+		// Only the host's end closes the pane; a replay may start with an idle snapshot.
+		if (event.ended) return { ...state, ...SIDE_CLOSED };
 		const side = receiveChatEvent(state.side ?? SIDE_START, event.event, now);
-		return { ...state, side, sideOpen: true, sideWaiting: false };
+		return {
+			...state,
+			side,
+			sideOpen: true,
+			sideWaiting: state.sideWaiting && !sideAnswered(event.event, side),
+			sideSession: event.sessionId,
+		};
 	}
 	// Only the left pane's rename reads its answer.
 	if (event.type === "rename.result") return state;
@@ -352,10 +387,10 @@ function applySnapshot(
 		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
-		// It follows /clear, a swap or a new socket, and the host replays a side conversation that lasts.
-		side: null,
-		sideOpen: false,
-		sideWaiting: false,
+		// A reconnect keeps the side pane; a new host session has none (SPEC.md §10.2).
+		...(state.sideSession !== null && state.sideSession !== event.sessionId
+			? SIDE_CLOSED
+			: {}),
 		// A snapshot follows /clear and an agent swap, and the history it replays counts again.
 		growth: NO_GROWTH,
 		// The host sends a waiting note again after the snapshot.
@@ -446,8 +481,6 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return {
 				...state,
 				lastError: { seq: event.seq, message: event.message },
-				// A refused side question is answered with an error.
-				sideWaiting: false,
 				items: [
 					...state.items,
 					{ kind: "error", key: `error:${event.seq}`, message: event.message, turnId },
@@ -860,7 +893,7 @@ export function createChatStore(
 		stopSide: () => deliverSide(get(), { type: "side.stop" }),
 		endSide: () => {
 			deliverSide(get(), { type: "side.end" });
-			set({ side: null, sideOpen: false, sideWaiting: false });
+			set(SIDE_CLOSED);
 		},
 		checkSignIn: () => {
 			const sent = deliver({ type: "signIn.check" });

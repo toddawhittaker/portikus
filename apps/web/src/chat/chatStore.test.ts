@@ -863,7 +863,17 @@ test("side frames fold into a conversation of their own and never move the chat'
 	expect(again.side ? texts(again.side) : []).toEqual(["Why?", "Because"]);
 });
 
-test("a side frame before the snapshot is stale, and a snapshot ends the side conversation until the host replays it", () => {
+const SIDE_IDLE = { cards: [], turnRunning: false, truncated: false };
+
+/** The host's end of the side conversation: an empty snapshot marked ended. */
+const SIDE_ENDED = JSON.stringify({
+	type: "side",
+	sessionId: SESSION,
+	ended: true,
+	event: { type: "snapshot", sessionId: SESSION, seq: 0, ...SIDE_IDLE },
+});
+
+test("a side frame before the snapshot is stale, and a reconnect's snapshot keeps the side conversation", () => {
 	const early = feed([
 		sideFrame(0, "message", { id: "q", role: "user", markdown: "Old" }),
 		snapshot(0),
@@ -875,49 +885,54 @@ test("a side frame before the snapshot is stale, and a snapshot ends the side co
 		early,
 	);
 	expect(open.sideOpen).toBe(true);
-	// /clear, an agent swap or a new socket each bring a snapshot.
-	const cleared = feed([snapshot(5)], open);
-	expect(cleared.side).toBeNull();
-	expect(cleared.sideOpen).toBe(false);
-	// The host's replay after it reopens the pane with the conversation.
+	// A new socket to the same host session brings a snapshot; the pane stays.
+	const reconnected = feed([snapshot(5)], open);
+	expect(reconnected.sideOpen).toBe(true);
+	expect(reconnected.side ? texts(reconnected.side) : []).toEqual(["Why?"]);
+	// The host's replay after it starts again from its own snapshot.
 	const replayed = feed(
 		[
-			sideFrame(0, "message", { id: "q", role: "user", markdown: "Why?" }),
-			sideFrame(1, "message", { id: "a", role: "assistant", markdown: "Because" }),
+			sideFrame(0, "snapshot", SIDE_IDLE),
+			sideFrame(1, "message", { id: "q", role: "user", markdown: "Why?" }),
+			sideFrame(2, "message", { id: "a", role: "assistant", markdown: "Because" }),
 		],
-		cleared,
+		reconnected,
 	);
 	expect(replayed.sideOpen).toBe(true);
 	expect(replayed.side ? texts(replayed.side) : []).toEqual(["Why?", "Because"]);
 });
 
-test("an idle side snapshot ends the conversation, and a replay after it brings it back", () => {
+test("a snapshot from another host session ends the side conversation", () => {
 	const open = feed([
 		snapshot(0),
-		sideFrame(0, "snapshot", { cards: [], turnRunning: true, truncated: false }),
+		sideFrame(1, "message", { id: "q", role: "user", markdown: "Why?" }),
+	]);
+	const other = JSON.stringify({
+		type: "snapshot",
+		sessionId: "22222222-2222-4222-8222-222222222222",
+		seq: 0,
+		...SIDE_IDLE,
+	});
+	const restarted = feed([other], open);
+	expect(restarted.side).toBeNull();
+	expect(restarted.sideOpen).toBe(false);
+});
+
+test("only the host's end closes the pane; an idle side snapshot starts a replay", () => {
+	const open = feed([
+		snapshot(0),
+		sideFrame(0, "snapshot", { ...SIDE_IDLE, turnRunning: true }),
 		sideFrame(1, "turn.started", { at: 1 }),
 		sideFrame(2, "message", { id: "q", role: "user", markdown: "Why?" }),
+		sideFrame(3, "turn.finished", { at: 2, status: "done" }),
 	]);
-	expect(open.sideOpen).toBe(true);
-	// Closed in another browser, or ended by /clear or a swap.
-	const ended = feed(
-		[sideFrame(0, "snapshot", { cards: [], turnRunning: false, truncated: false })],
-		open,
-	);
+	const replayed = feed([sideFrame(0, "snapshot", SIDE_IDLE)], open);
+	expect(replayed.sideOpen).toBe(true);
+	// Closed in another browser, or ended by /clear, a swap or the host stopping.
+	const ended = feed([SIDE_ENDED], replayed);
 	expect(ended.side).toBeNull();
 	expect(ended.sideOpen).toBe(false);
-	const replayed = feed(
-		[
-			sideFrame(0, "snapshot", { cards: [], turnRunning: false, truncated: false }),
-			sideFrame(1, "turn.started", { at: 1 }),
-			sideFrame(2, "message", { id: "q", role: "user", markdown: "Why?" }),
-			sideFrame(3, "turn.finished", { at: 2, status: "done" }),
-		],
-		ended,
-	);
-	expect(replayed.sideOpen).toBe(true);
-	expect(replayed.side ? texts(replayed.side) : []).toEqual(["Why?"]);
-	expect(replayed.side?.currentTurnId).toBeNull();
+	expect(ended.sideWaiting).toBe(false);
 });
 
 test("no side message goes to a host that does not list btw", () => {
@@ -955,8 +970,10 @@ test("a host that lists btw gets side.ask, side.stop and side.end, and closing f
 	expect(store.getState().sideOpen).toBe(true);
 	expect(store.getState().askSide("Why?")).toBe(true);
 	expect(store.getState().sideWaiting).toBe(true);
-	// Any frame of the side conversation is the host's answer.
-	store.getState().receive(sideFrame(0, "turn.started", { at: 1 }));
+	// The question's turn runs; its finish is the host's answer.
+	store.getState().receive(sideFrame(1, "turn.started", { at: 1 }));
+	expect(store.getState().sideWaiting).toBe(true);
+	store.getState().receive(sideFrame(2, "turn.finished", { at: 2, status: "done" }));
 	expect(store.getState().sideWaiting).toBe(false);
 	expect(store.getState().stopSide()).toBe(true);
 	// Blank or too long never leaves the browser.
@@ -972,15 +989,26 @@ test("a host that lists btw gets side.ask, side.stop and side.end, and closing f
 	]);
 });
 
-test("an error from the host ends the wait for a side answer", () => {
+test("a refusal in the side conversation ends the wait; a main error does not", () => {
 	const store = createChatStore(() => true);
 	store.getState().receive(snapshot(0));
 	store.getState().receive(BTW);
 	store.getState().askSide("Why?");
-	store
-		.getState()
-		.receive(frame("error", 2, { message: "One side question at a time." }));
+	store.getState().receive(frame("error", 2, { message: "Something else failed." }));
+	expect(store.getState().sideWaiting).toBe(true);
+	// The host refuses with a message outside any turn (SPEC.md §10.2).
+	store.getState().receive(sideFrame(0, "snapshot", SIDE_IDLE));
+	expect(store.getState().sideWaiting).toBe(true);
+	store.getState().receive(
+		sideFrame(1, "message", {
+			id: "r",
+			role: "assistant",
+			markdown: "This chat cannot take side questions.",
+		}),
+	);
 	expect(store.getState().sideWaiting).toBe(false);
+	// The refusal stays in the side conversation; the chat holds only its own error.
+	expect(texts(store.getState())).toEqual(["error"]);
 });
 
 const BASH_CALL = {

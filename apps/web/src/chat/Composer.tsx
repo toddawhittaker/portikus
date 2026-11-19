@@ -83,6 +83,9 @@ import { isShellCommand } from "./shellCommand.js";
 import "./composer.css";
 
 const NOT_SENT = "Your message was not sent because the chat is not connected.";
+
+export const SIDE_TEXT_ONLY =
+	"Side questions are text only. Remove the attached files, then ask again.";
 export const HELD_BACK =
 	"The fresh chat did not start, so your message was not sent. It is still here, and the conversation says why.";
 const COUNT = new Intl.NumberFormat();
@@ -336,7 +339,7 @@ export function Composer({
 		if (files.saving > 0 || sending) return;
 		const text = editor.current ? composerText(editor.current) : "";
 		if (text.trim() === "" && files.items.length === 0) return;
-		if (files.items.length === 0 && handledHere(text)) return;
+		if (handledHere(text)) return;
 		if (text.length > MAX_CHAT_TEXT_CHARS) {
 			setError(tooLong(text.length));
 			return;
@@ -384,6 +387,11 @@ export function Composer({
 		if (!box) return false;
 		const question = sideOn && onSide ? sideQuestion(text) : null;
 		if (question !== null && onSide) {
+			// Side questions are text only (SPEC.md §10.2); nothing is sent.
+			if (files.items.length > 0) {
+				setError(SIDE_TEXT_ONLY);
+				return true;
+			}
 			const refused = onSide(question);
 			setError(refused ?? "");
 			if (refused === null) box.commands.clearContent(true);

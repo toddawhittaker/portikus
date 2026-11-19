@@ -16,7 +16,7 @@ import {
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetSpeechSupport } from "../voice/useSpeechInput.js";
-import { Composer } from "./Composer.js";
+import { Composer, SIDE_TEXT_ONLY } from "./Composer.js";
 import { type ChatStore, createChatStore } from "./chatStore.js";
 import {
 	boxText,
@@ -106,7 +106,7 @@ afterEach(() => {
 	deleteFile.mockReset();
 });
 
-function draw() {
+function draw(onSide?: (question: string) => string | null) {
 	render(
 		<QueryClientProvider
 			client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
@@ -118,6 +118,7 @@ function draw() {
 					workspaceId="w"
 					projectId="p"
 					terminalId={TERMINAL}
+					onSide={onSide}
 				/>
 			</ToastProvider>
 		</QueryClientProvider>,
@@ -864,6 +865,23 @@ test("the attach button opens the picker and chosen files become chips", async (
 	expect(click).toHaveBeenCalled();
 	fireEvent.change(picker, { target: { files: [file("a.png", "image/png")] } });
 	expect(await screen.findByTestId("composer-chip")).toBeTruthy();
+});
+
+test("/btw with files attached is refused, since side questions are text only, and nothing is sent", async () => {
+	emit("commands", {
+		commands: [{ name: "btw", description: "", argumentHint: "", terminalOnly: false }],
+	});
+	const onSide = vi.fn(() => null);
+	draw(onSide);
+	paste([file("a.png", "image/png")]);
+	await screen.findByTestId("composer-chip");
+	type("/btw why?");
+	fireEvent.keyDown(input(), { key: "Escape" });
+	fireEvent.keyDown(input(), { key: "Enter" });
+	expect(alert()).toBe(SIDE_TEXT_ONLY);
+	expect(onSide).not.toHaveBeenCalled();
+	expect(sent).toEqual([]);
+	expect(value()).toContain("/btw why?");
 });
 
 test("removing a chip leaves it out of the message", async () => {
