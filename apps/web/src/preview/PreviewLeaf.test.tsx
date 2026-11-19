@@ -6,6 +6,7 @@
 import type { ListeningService } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -14,10 +15,21 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { registerAgentDropTarget } from "../agents/agentDropTargets.js";
 import { ListeningContext } from "../running/services.js";
 import { json, openToggletip, stubFetch } from "../test-utils.js";
 import { resetPreviewHistory } from "./history.js";
 import { PreviewLeaf } from "./PreviewLeaf.js";
+
+const navigate = vi.fn();
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tanstack/react-router")>()),
+	useNavigate: () => navigate,
+}));
+vi.mock("../editor/settingsQueries.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../editor/settingsQueries.js")>()),
+	useCourseProfile: () => "agentic",
+}));
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 
@@ -770,4 +782,86 @@ test("a port speaking HTTPS previews like any other", async () => {
 		GRANT.bootstrapUrl,
 	);
 	expect(screen.queryByTestId("preview-https")).toBeNull();
+});
+
+/** A message from the preview frame's own window, as the wrapper would send it. */
+function fromFrame(data: unknown) {
+	const frame = screen.getByTestId("preview-frame") as HTMLIFrameElement;
+	act(() => {
+		window.dispatchEvent(
+			new MessageEvent("message", {
+				data,
+				origin: GRANT.previewOrigin,
+				source: frame.contentWindow,
+			}),
+		);
+	});
+}
+
+test("a loaded message from the wrapper clears the load fallback", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	stubFetch(() => json(200, GRANT));
+	show({});
+	await screen.findByTestId("preview-frame");
+	fromFrame({ v: 1, type: "loaded" });
+	await vi.advanceTimersByTimeAsync(9_000);
+	expect(screen.queryByTestId("preview-blocked")).toBeNull();
+	vi.useRealTimers();
+});
+
+test("a loaded message from another origin does not clear the fallback", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	stubFetch(() => json(200, GRANT));
+	show({});
+	const frame = (await screen.findByTestId("preview-frame")) as HTMLIFrameElement;
+	act(() => {
+		window.dispatchEvent(
+			new MessageEvent("message", {
+				data: { v: 1, type: "loaded" },
+				origin: "https://evil.example",
+				source: frame.contentWindow,
+			}),
+		);
+	});
+	await vi.advanceTimersByTimeAsync(9_000);
+	expect(await screen.findByTestId("preview-blocked")).toBeTruthy();
+	vi.useRealTimers();
+});
+
+test("a pick goes to the one open agent, the status reads the hover, and the view switches", async () => {
+	stubFetch(() => json(200, GRANT));
+	const deliver = vi.fn(async () => {});
+	const off = registerAgentDropTarget({
+		terminalId: "term-1",
+		kind: "terminal",
+		label: "Claude Code",
+		deliver,
+	});
+	try {
+		show({});
+		await screen.findByTestId("preview-frame");
+		const pickButton = screen.getByTestId("preview-pick");
+		fireEvent.click(pickButton);
+		expect(pickButton.getAttribute("aria-pressed")).toBe("true");
+		fromFrame({ v: 1, type: "hover", label: "heading Welcome" });
+		expect(screen.getByTestId("preview-status").textContent).toBe("heading Welcome");
+		fromFrame({
+			v: 1,
+			type: "picked",
+			pagePath: "/",
+			selector: "h1",
+			tag: "h1",
+			html: "<h1>Welcome</h1>",
+			rules: [],
+			computed: {},
+			trimmed: { html: false, rules: false },
+		});
+		await waitFor(() => expect(navigate).toHaveBeenCalled());
+		expect(deliver).toHaveBeenCalledTimes(1);
+		const search = navigate.mock.calls[0]?.[0].search as (p: object) => object;
+		expect(search({ open: "a.ts" })).toEqual({ open: "a.ts", tab: "term-1" });
+		expect(pickButton.getAttribute("aria-pressed")).toBe("false");
+	} finally {
+		off();
+	}
 });
