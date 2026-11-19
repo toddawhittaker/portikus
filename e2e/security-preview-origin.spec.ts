@@ -12,8 +12,9 @@ import {
 	appFrame,
 	appFrameLocator,
 	edgeCookieJar,
-	FRAME_PREFIX,
 	frameAnswerFor,
+	frameRedirect,
+	requireFrameBuild,
 } from "./preview-gateway";
 
 /**
@@ -36,6 +37,7 @@ const PREVIEW_SUFFIX = ".preview.localhost";
 
 /** Stand in for Caddy for the browser's requests to preview hosts. */
 async function previewGateway(page: Page): Promise<void> {
+	requireFrameBuild();
 	const jar = edgeCookieJar();
 	async function proxy(host: string, path: string, cookie: string) {
 		const authorized = await fetch(`${API_ORIGIN}/preview/authorize`, {
@@ -59,11 +61,8 @@ async function previewGateway(page: Page): Promise<void> {
 			const cookie = jar.withJar(url.host, fromBrowser);
 			const path = `${url.pathname}${url.search}`;
 			let answer: Response;
-			if (url.pathname.startsWith(`${FRAME_PREFIX}/`)) {
-				return route.fulfill(
-					await frameAnswerFor(route.request(), url.pathname, cookie),
-				);
-			}
+			const wrapper = await frameAnswerFor(route.request(), cookie);
+			if (wrapper) return route.fulfill(wrapper);
 			if (url.pathname.startsWith("/__portikus/")) {
 				answer = await fetch(`${API_ORIGIN}${path}`, {
 					headers: {
@@ -80,16 +79,8 @@ async function previewGateway(page: Page): Promise<void> {
 						.getSetCookie()
 						.map((line) => line.split(";")[0] ?? "")
 						.join("; ");
-					// An embedded preview is sent to the wrapper page.
-					if (location.startsWith(`${FRAME_PREFIX}/`)) {
-						return route.fulfill(
-							await frameAnswerFor(
-								route.request(),
-								location,
-								[fromBrowser, minted].join("; "),
-							),
-						);
-					}
+					const toWrapper = frameRedirect(answer);
+					if (toWrapper) return route.fulfill(toWrapper);
 					answer = await proxy(url.host, location, [fromBrowser, minted].join("; "));
 				}
 			} else {

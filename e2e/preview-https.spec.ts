@@ -12,8 +12,9 @@ import { API_ORIGIN, FAKE_AGENT_URL } from "./ports";
 import {
 	appFrameLocator,
 	edgeCookieJar,
-	FRAME_PREFIX,
 	frameAnswerFor,
+	frameRedirect,
+	requireFrameBuild,
 } from "./preview-gateway";
 
 /**
@@ -98,6 +99,7 @@ function tlsGet(
  * Returns the schemes the API named for each proxied request.
  */
 async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
+	requireFrameBuild();
 	const seen = { schemes: [] as string[] };
 	const jar = edgeCookieJar();
 
@@ -139,9 +141,8 @@ async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
 			const fromBrowser = (await request.headerValue("cookie")) ?? "";
 			const cookie = jar.withJar(url.host, fromBrowser);
 			let answer: { status: number; contentType?: string; body: Buffer };
-			if (url.pathname.startsWith(`${FRAME_PREFIX}/`)) {
-				return route.fulfill(await frameAnswerFor(request, url.pathname, cookie));
-			}
+			const wrapper = await frameAnswerFor(request, cookie);
+			if (wrapper) return route.fulfill(wrapper);
 			if (url.pathname.startsWith("/__portikus/")) {
 				const boot = await fetch(`${API_ORIGIN}${url.pathname}${url.search}`, {
 					headers: {
@@ -160,23 +161,11 @@ async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
 						body: Buffer.from(await boot.arrayBuffer()),
 					});
 				}
+				const toWrapper = frameRedirect(boot);
+				if (toWrapper) return route.fulfill(toWrapper);
+
 				// Follow the bootstrap redirect here, with the cookie it set.
 				const minted = setCookie.map((line) => line.split(";")[0] ?? "").join("; ");
-				// An embedded preview is sent to the wrapper page.
-				if (location.startsWith(`${FRAME_PREFIX}/`)) {
-					const wrapper = await frameAnswerFor(
-						request,
-						location,
-						[fromBrowser, minted].filter(Boolean).join("; "),
-					);
-					return route.fulfill({
-						...wrapper,
-						headers: {
-							...wrapper.headers,
-							...(setCookie.length > 0 ? { "set-cookie": setCookie.join("\n") } : {}),
-						},
-					});
-				}
 				answer = await proxy(
 					url.host,
 					location,
