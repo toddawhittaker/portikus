@@ -52,7 +52,8 @@ file or run anything that does.
 
 - **A node in the saved layout.** It would persist the conversation's
   place, let it be dragged to another tab, and change section 7.6.
-- **A workspace file for side conversations.** It would keep student
-  questions and answers on disk, against ADR 0012.
+- **A workspace file for side conversations.** It would survive a
+  workspace stop, but it adds a stored format to installed hosts and keeps
+  student questions and answers on disk.
 - **Codex with no shell tool.** It changes the tool list, which loses the
   prompt cache.
