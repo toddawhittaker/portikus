@@ -2,6 +2,7 @@ import type { WebSocket } from "@fastify/websocket";
 import {
 	CloseCode,
 	CODE_HELP_LANGUAGE_OF_SERVER,
+	type CodeHelpLanguage,
 	LANGUAGE_SERVER_CLOSE_REASONS,
 	LANGUAGE_SERVER_MAX_FRAME_BYTES,
 	LanguageServerId,
@@ -18,6 +19,41 @@ import { createSocketSlots } from "../workspaces/socket-slots.js";
 
 /** Language-server sockets open per workspace (SPEC.md §13.6, §24.1). */
 const languageServerSockets = createSocketSlots(MAX_LANGUAGE_SERVER_SOCKETS);
+
+/**
+ * The browser sockets this process holds open, by code help language, so an
+ * administrator turning a language off can end them (SPEC.md §13.6). Like the
+ * slot counts above, per API process.
+ */
+const openByLanguage = new Map<CodeHelpLanguage, Set<WebSocket>>();
+
+function trackOpen(language: CodeHelpLanguage, socket: WebSocket): () => void {
+	const sockets = openByLanguage.get(language) ?? new Set<WebSocket>();
+	sockets.add(socket);
+	openByLanguage.set(language, sockets);
+	return () => {
+		sockets.delete(socket);
+		if (sockets.size === 0 && openByLanguage.get(language) === sockets) {
+			openByLanguage.delete(language);
+		}
+	};
+}
+
+/**
+ * End every open language-server socket of the given languages, as the check
+ * at open time does. A socket's slot goes back through its normal close path.
+ */
+export function closeLanguageServerSockets(
+	languages: readonly CodeHelpLanguage[],
+): void {
+	for (const language of languages) {
+		for (const socket of openByLanguage.get(language) ?? []) {
+			if (socket.readyState === socket.OPEN) {
+				socket.close(CloseCode.LANGUAGE_SERVER_DISABLED, "code help is off");
+			}
+		}
+	}
+}
 
 /** The agent reasons that may pass through: exactly the contract's fixed list. */
 const RELAYED_REASONS: ReadonlySet<string> = new Set(
@@ -101,15 +137,20 @@ export function registerLanguageServerSocket(
 				socket.resume();
 				return;
 			}
-			const release = () => languageServerSockets.release(scope.workspaceId);
+			// Listed before the switch is read: a write that commits after the
+			// read then finds this socket, and one that committed before is seen by it.
+			const language = CODE_HELP_LANGUAGE_OF_SERVER[server.data];
+			const untrack = trackOpen(language, socket);
+			const release = () => {
+				untrack();
+				languageServerSockets.release(scope.workspaceId);
+			};
 
 			let enabled: boolean;
 			try {
 				const switches = siteSwitches(db);
 				track(switches);
-				enabled = (await switches).codeHelpLanguages.includes(
-					CODE_HELP_LANGUAGE_OF_SERVER[server.data],
-				);
+				enabled = (await switches).codeHelpLanguages.includes(language);
 			} catch (error) {
 				request.log.error({ err: error }, "code help languages could not be read");
 				release();

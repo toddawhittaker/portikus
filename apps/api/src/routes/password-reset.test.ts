@@ -274,6 +274,35 @@ describe.skipIf(skip)("asking for a reset link", () => {
 		]);
 	});
 
+	test("a reset link that could not be sent is revoked and the older link stays live", async () => {
+		const id = await account("alice@example.edu");
+		await requestReset("alice@example.edu");
+		await settled(1);
+		// Mail now fails: no capture file, and no SMTP server is set.
+		await app.close();
+		const config = testConfig(mock.issuer);
+		app = buildServer({
+			db: testDb.db,
+			config,
+			logger: collectingLogger("debug").logger,
+			oidc: createOidcClient(toAuthOptions(config)),
+			dex,
+		});
+		await app.ready();
+		expect((await requestReset("alice@example.edu")).statusCode).toBe(202);
+		await settled(2);
+		const rows = await testDb.db
+			.selectFrom("account_email_tokens")
+			.select(["id", "revoked_at"])
+			.where("user_id", "=", id)
+			.orderBy("created_at")
+			.execute();
+		expect(rows.map((r) => r.revoked_at !== null)).toEqual([false, true]);
+		const audits = await auditRows("user.password_reset_requested");
+		expect(audits.map((r) => r.result)).toEqual(["ok", "failed"]);
+		expect(audits[1]?.metadata).toMatchObject({ tokenId: rows[1]?.id });
+	});
+
 	test("a request without the site's origin is refused", async () => {
 		const res = await app.inject({
 			method: "POST",

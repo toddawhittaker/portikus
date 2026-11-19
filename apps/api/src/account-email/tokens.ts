@@ -33,7 +33,9 @@ export interface IssuedAccountEmailToken {
 
 /**
  * Issue a new link. Older links stay live until the caller knows this one
- * reached the mailbox, then calls supersedeAccountEmailTokens.
+ * reached the mailbox, then calls supersedeAccountEmailTokens; when the send
+ * fails the caller calls revokeAccountEmailToken, so a link nobody received
+ * is not left valid.
  */
 export async function issueAccountEmailToken(
 	db: Kysely<Database>,
@@ -61,6 +63,21 @@ export async function issueAccountEmailToken(
 		.returning("id")
 		.executeTakeFirstOrThrow();
 	return { id: row.id, token, expiresAt };
+}
+
+/** Revoke one link, still live, that was issued for a send that failed. */
+export async function revokeAccountEmailToken(
+	db: Kysely<Database>,
+	id: string,
+	now: Date = new Date(),
+): Promise<void> {
+	await db
+		.updateTable("account_email_tokens")
+		.set({ revoked_at: now })
+		.where("id", "=", id)
+		.where("used_at", "is", null)
+		.where("revoked_at", "is", null)
+		.execute();
 }
 
 /**
