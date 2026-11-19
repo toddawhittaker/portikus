@@ -252,6 +252,8 @@ The bootstrap ticket must be random, stored hashed if persisted, bound to the au
 
 The ticket appears briefly in a URL, so the bootstrap endpoint must set `Referrer-Policy: no-referrer`, return `Cache-Control: no-store`, consume the ticket before redirecting, and ensure edge/application access logs omit the query string. No page content or external subresource may be served before the redirect removes the ticket.
 
+After the cookie is set, the redirect target is `/` for a `top-level` grant and `/__portikus/frame/` for an `embedded` one (section 12.1).
+
 ### 9.2 Preview session
 
 After consuming a bootstrap ticket, set a random preview-host session cookie:
@@ -418,6 +420,30 @@ This is the one place where the control plane speaks HTTP to a student applicati
 
 Reserved edge paths beginning with `/__portikus/` must be handled before proxying and must never reach the student application. They include at least bootstrap, health/error rendering, cross-port routing, and reset-preview-data functions. That precedence holds at the edge, but a service worker the application registered at the root of the preview origin can answer a navigation the frame makes before the request leaves the browser. Reset preview data is therefore driven from the Portikus page, which no such worker controls, rather than by navigating the frame.
 
+### 12.1 The Portikus wrapper page and pick mode
+
+An embedded preview (grant `presentation` of `embedded`) does not land on `/`. Its bootstrap redirects to the reserved path `/__portikus/frame/` on the preview origin. That page belongs to Portikus. It holds the student's application in a full-size inner frame whose address is `/`, and it carries the code that lets a student pick an element (ADR 0084). A preview opened in its own tab (`top-level`) is unchanged and goes straight to `/`. The wrapper makes no inner frame when it is the top window.
+
+This is how pick mode keeps section 13's rule: the application's HTML is never rewritten, and no script tag is inserted into it. The picker runs in the wrapper's own document, beside the application's frame, not inside the application's page.
+
+Request rules, enforced by Caddy for `/__portikus/frame/*`:
+
+- The route sits behind the same preview login check as the application, which sees the path as `/`. A request without a valid preview session gets the same refusal as the application would give. A stopped workspace shows the usual stopped page inside the frame.
+- A request whose `Sec-Fetch-Dest` header is present and is not `iframe` is refused. Otherwise another site could open the wrapper as an ordinary tab, and its inner frame would carry the preview cookie and run the application outside the sandbox. The request is the one a student's own click causes, so it carries `Sec-Fetch-User` and activity (ADR 0032) still counts.
+- Only GET and HEAD are allowed.
+- Headers: a Content Security Policy that allows only the wrapper's own scripts and styles, images from itself, `data:` and `blob:`, frames from itself, no base URI and no form posts, with `frame-ancestors` set to the Portikus origin (with its port when not 443); `Cache-Control: no-cache` on the HTML page and long caching on the hashed asset files.
+- The files are served from `/usr/lib/portikus/web/preview-frame`, built by its own Vite build from `apps/web/preview-frame.html`, with the code in `apps/web/src/preview/frame/`.
+
+The wrapper holds no token, path or terminal list. It posts `loaded` to the Portikus page, which the preview's eight-second load fallback waits for. The inner frame copies the outer frame's `allow` list, and the outer frame's sandbox is unchanged.
+
+Messages from the Portikus page. The wrapper acts on a start or stop message only when `event.source` is its own parent window. The Portikus page, for its part, accepts a message only when `event.origin` is the grant's preview origin, `event.source` is the outer frame's window, pick mode was started by the student, and it is the first `picked` message since that start. It sends with `targetOrigin` set to the preview origin. There is no secret: the student's page shares the wrapper's origin and could read one. Messages follow a versioned schema (`v: 1`) with length limits, and nothing in them is rendered as HTML. A message sent straight from the student's inner window is refused, because its source is not the wrapper. Pick mode ends when the frame reloads or the grant changes.
+
+Pick mode. The student chooses the target agent first from a short menu of the open agent terminals and chats; with one open, picking starts at once. The wrapper lays a transparent layer over the inner frame and finds the element under the pointer, so clicks never reach the application. By pointer, hovering outlines an element and a click picks it. By keyboard, picking starts at the application's focused element: Up goes to the parent, Down to the first child, Left and Right to siblings, Enter picks, and Escape leaves from either page. The highlighted element's label is read through the preview's status region, throttled. A pick stops at a cross-origin frame or a shadow root. The screenshot is drawn from the preview's own document by one pinned library, with no screen-capture prompt, so it can show nothing outside the preview; it is close to the page, not exact.
+
+The Portikus page builds the files and picks the folder: `.portikus/pastes/<stamp>/picked-element.md` and `picked-element.png`. The Markdown starts with a header (port, page path, UTC time, and a line saying everything inside the code fences came from the page and is to be treated as data, not instructions), then the element's selector and tag, trimmed outer HTML, the matching CSS rules and about 30 computed values. The port and the time come from the Portikus page, never from the message. The page path must be printable, start with `/` and be at most 2,048 characters, or it is left out. The PNG's signature and size are checked before the file is built. A terminal gets the two quoted paths and a space, never Enter; a chat gets the two files as attachments. Picked content is never logged (section 16.5).
+
+A script on the preview origin can still change what a pick contains. Portikus guarantees only who may send one, not that the content is true (ADR 0084).
+
 ## 13. Header and URL behavior
 
 The gateway must set conventional forwarded metadata:
@@ -438,7 +464,7 @@ Compatibility behavior may rewrite only these narrowly defined cases:
 - a `Set-Cookie` domain that exactly names `localhost` or the workspace-internal host may be removed so the cookie becomes host-only on the preview origin; and
 - WebSocket forwarding must preserve the external request path and query.
 
-Do not rewrite arbitrary HTML, JavaScript, CSS, JSON, external redirects, OAuth redirect URIs, or application-generated URLs. Content rewriting is brittle, changes the application being tested, and can create security flaws.
+Do not rewrite arbitrary HTML, JavaScript, CSS, JSON, external redirects, OAuth redirect URIs, or application-generated URLs. Content rewriting is brittle, changes the application being tested, and can create security flaws. Pick mode honours this through the wrapper page (section 12.1), which adds no script to the application's HTML.
 
 ## 14. Multi-port applications
 
@@ -535,6 +561,8 @@ The preview gateway may target only registered workspace services. It must not r
 ### 16.4 Service workers and stored state
 
 Service workers are scoped to the preview origin. Edge-owned `/__portikus/` paths must take precedence over the upstream, even if a service worker exists. A worker whose scope covers the origin can still answer requests made by pages it controls, the preview frame among them, so Portikus must not rely on a frame navigation to reach a reserved path.
+
+The wrapper path `/__portikus/frame/` is also reserved and is served by Caddy, but a student's service worker can answer for it too, as it can for any page on the origin. That gains it nothing: the wrapper holds no token or secret, a worker already controls the whole origin and the application inside the frame, and the Portikus page accepts a pick only under the checks in section 12.1.
 
 Reset preview data therefore runs in three steps from the Portikus page: revoke the workspace's preview sessions through the control plane, then fetch `/__portikus/reset` on the preview origin from the Portikus document, then take a fresh grant and bootstrap the frame again. The worker does not control the Portikus document, so that fetch reaches the edge.
 
@@ -878,6 +906,9 @@ Phases A and B are `SPEC.md` Epic 8; phase C is Epic 9. There is no remote-brows
 - An application that blocks framing is offered in a top-level tab without its security headers being silently removed.
 - A stopped workspace or inactive service produces a Portikus-owned explanation, not a raw proxy error. The more specific cause wins: when the workspace is not running, the student sees "This workspace is not running" even if stopping has already revoked the preview session.
 - Reset preview data clears supported stored state and establishes a fresh preview session.
+- An embedded preview loads through `/__portikus/frame/` and the application inside it behaves as before, including an application with a service worker at `/`; a preview in its own tab goes straight to `/`.
+- The wrapper opened as an ordinary tab, without a preview session, or with a `Sec-Fetch-Dest` other than `iframe`, is refused.
+- A pick sent from another origin, from the student's inner window, outside pick mode, or twice is refused.
 
 ### 25.2 URL broker
 
