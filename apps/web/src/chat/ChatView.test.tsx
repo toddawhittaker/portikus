@@ -1163,3 +1163,90 @@ test("in a work area the warning offers the agent's own terminal", () => {
 		}),
 	).toBeTruthy();
 });
+
+/** A chat in a work area whose layout already has a Codex terminal tab open. */
+function drawBesideCodexTab() {
+	const OPEN = "55555555-5555-4555-8555-555555555555";
+	const state = {
+		layout: {
+			tabs: [
+				{ id: TERMINAL, root: { type: "leaf", terminalId: TERMINAL } },
+				{ id: "tab-2", root: { type: "leaf", terminalId: OPEN } },
+			],
+		},
+		addTab: vi.fn(),
+		setActive: vi.fn(),
+		setFocused: vi.fn(),
+	};
+	const calls: string[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (url: string, init?: RequestInit) => {
+			calls.push(`${init?.method ?? "GET"} ${url}`);
+			return Response.json({});
+		}),
+	);
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+	});
+	const terminal = {
+		workspaceId: WORKSPACE,
+		cwd: "/home/student/projects/demo",
+		projectId: PROJECT,
+		createdAt: "2026-01-01T00:00:00.000Z",
+		theme: "dark",
+		endedAt: null,
+	};
+	client.setQueryData(["terminals", WORKSPACE, PROJECT], {
+		terminals: [
+			{
+				...terminal,
+				id: TERMINAL,
+				name: "Chat",
+				position: 0,
+				kind: "chat",
+				agent: "codex",
+			},
+			{
+				...terminal,
+				id: OPEN,
+				name: "Codex",
+				position: 1,
+				kind: "terminal",
+				agent: "codex",
+			},
+		],
+	});
+	render(
+		<QueryClientProvider client={client}>
+			<LayoutStoreContext.Provider
+				value={{ getState: () => state } as unknown as LayoutStore}
+			>
+				<ToastProvider>
+					<ChatView
+						workspaceId={WORKSPACE}
+						projectId={PROJECT}
+						terminalId={TERMINAL}
+						visible={true}
+						focused={false}
+						onLeave={vi.fn()}
+					/>
+				</ToastProvider>
+			</LayoutStoreContext.Provider>
+		</QueryClientProvider>,
+	);
+	open();
+	return { state, calls, OPEN };
+}
+
+test("the sign-in button selects the agent's open terminal tab rather than opening another", async () => {
+	const { state, calls, OPEN } = drawBesideCodexTab();
+	snapshot();
+	codexSettings();
+	emit("signIn", { state: "signedOut" });
+	fireEvent.click(screen.getByTestId("chat-sign-in-terminal"));
+	await vi.waitFor(() => expect(state.setFocused).toHaveBeenCalledWith(OPEN));
+	expect(state.setActive).toHaveBeenCalledWith("tab-2");
+	expect(state.addTab).not.toHaveBeenCalled();
+	expect(calls.filter((call) => call.startsWith("POST"))).toEqual([]);
+});
