@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 import { PaneBarSlot } from "../terminal/paneBarSlot.js";
 import "./side.css";
 
-export const SIDE_BUTTON_LABEL = "Side question";
+const SIDE_BUTTON_LABEL = "Side question";
 
 export function SideButton({ onOpen }: { onOpen: () => void }) {
 	const bar = useContext(PaneBarSlot);
