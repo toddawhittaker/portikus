@@ -7,6 +7,7 @@
  */
 import { ProjectPath } from "@portikus/contracts";
 import { projectRoot } from "../projectRoot.js";
+import type { ChatItem } from "./chatStore.js";
 
 export interface EditChange {
 	before: string;
@@ -301,6 +302,24 @@ export function collabTitle(input: unknown, child: string): string | null {
 	const cut =
 		line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH - 1).trimEnd()}…` : line;
 	return receivers.length === 1 ? cut : `${cut} (${at + 1})`;
+}
+
+/**
+ * A subagent picked in the project list: a Codex child is named by the prompt
+ * of the loaded tool row that started it; otherwise by the list's own words,
+ * or plain "Subagent" when the list has none.
+ */
+export function requestedTitle(
+	items: readonly ChatItem[],
+	child: string,
+	listed: string,
+): string {
+	for (const item of items) {
+		if (item.kind !== "tool" || item.name !== "collabAgentToolCall") continue;
+		const title = collabTitle(item.input, child);
+		if (title !== null) return title;
+	}
+	return listed || "Subagent";
 }
 
 /** Codex's subagent tools, told as Claude's Agent rows are. */
