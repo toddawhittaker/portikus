@@ -1,5 +1,6 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BrowserContext, Frame, Page, Request } from "@playwright/test";
 import { cookiePairs, headersOf } from "./helpers";
@@ -23,12 +24,11 @@ import { API_ORIGIN, WEB_ORIGIN } from "./ports";
  *     subrequest and then proxied to the upstream that answer names, which is
  *     the little application the fake agent is really running.
  *
- * The bootstrap redirect is followed inside the gateway rather than handed to
- * the browser: Chromium follows a redirect from an intercepted response
- * without consulting the route again, and that redirected request would then
- * need the TLS this environment has no certificate for. The browser still
- * receives the preview cookie, so its own later requests to the preview host
- * go through the authorization subrequest as they would in production.
+ * The bootstrap's redirect to the wrapper page is handed to the browser (see
+ * `frameRedirect`), so the browser makes its own request to
+ * `/__portikus/frame/` with its own `Sec-Fetch-*` headers, and Caddy's rules
+ * for that path are answered for a real browser request. The redirect to an
+ * application page is still followed inside each gateway.
  */
 
 /** The preview suffix the end-to-end API is configured with. */
@@ -48,10 +48,32 @@ const PASSED_HEADERS = [
 ];
 
 /** Where Caddy serves the wrapper page from; the web build writes it here. */
-const FRAME_DIR = fileURLToPath(
-	new URL("../apps/web/dist/preview-frame", import.meta.url),
-);
-export const FRAME_PREFIX = "/__portikus/frame";
+const FRAME_DIR = fileURLToPath(new URL("../apps/web/dist-frame", import.meta.url));
+const FRAME_PREFIX = "/__portikus/frame";
+
+/**
+ * Stop a run at once, with the reason, when the wrapper page was never built,
+ * instead of letting every preview open a blank frame.
+ */
+export function requireFrameBuild(): void {
+	if (!existsSync(resolve(FRAME_DIR, "index.html"))) {
+		throw new Error(
+			`the preview wrapper build is missing (${FRAME_DIR}/index.html): build the web app first with \`pnpm build\``,
+		);
+	}
+}
+
+/**
+ * The wrapper page's policy. It must match the `handle /__portikus/frame/*`
+ * block in infra/ansible/roles/caddy/templates/Caddyfile.j2; `frame-ancestors`
+ * is the Portikus origin there too.
+ */
+function frameContentSecurityPolicy(): string {
+	return (
+		"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; " +
+		`connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${WEB_ORIGIN}`
+	);
+}
 
 const CONTENT_TYPES: Record<string, string> = {
 	".html": "text/html",
@@ -119,23 +141,24 @@ export async function frameAnswer(
 		};
 	}
 
-	const relative = normalize(request.pathname.slice(FRAME_PREFIX.length));
-	const file = relative === "/" ? "index.html" : relative.slice(1);
-	if (file.startsWith("..")) return none(404);
+	requireFrameBuild();
+	const inside = request.pathname.slice(FRAME_PREFIX.length);
+	const file = resolve(FRAME_DIR, inside === "/" ? "index.html" : inside.slice(1));
+	// The URL parser has already removed dot segments; this keeps the check
+	// true if a path ever arrives some other way.
+	if (relative(FRAME_DIR, file).startsWith("..")) return none(404);
 	let body: Buffer;
 	try {
-		body = await readFile(join(FRAME_DIR, file));
+		body = await readFile(file);
 	} catch {
 		return none(404);
 	}
-	const assets = relative.startsWith("/assets/");
+	const assets = inside.startsWith("/assets/");
 	return {
 		status: 200,
 		headers: {
 			"content-type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
-			"content-security-policy":
-				"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; " +
-				`frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${WEB_ORIGIN}`,
+			"content-security-policy": frameContentSecurityPolicy(),
 			"cache-control": assets ? "public, max-age=31536000, immutable" : "no-cache",
 		},
 		body: request.method === "HEAD" ? Buffer.alloc(0) : body,
@@ -210,20 +233,72 @@ export function edgeCookieJar() {
 	};
 }
 
-/** The wrapper page's answer to a browser request, with the cookie the edge holds for it. */
+/** Whether a path is the wrapper page's route, which never reaches the application. */
+function isFramePath(pathname: string): boolean {
+	return pathname === FRAME_PREFIX || pathname.startsWith(`${FRAME_PREFIX}/`);
+}
+
+/**
+ * What `Sec-Fetch-Dest` would be on a navigation. Chromium adds the `Sec-Fetch-*`
+ * headers after Playwright has intercepted the request, so no route can read
+ * them; the kind of navigation is the part that can be known. A sub-resource
+ * (the wrapper's script and styles) is left as unknown.
+ */
+function navigationDest(request: Request): string | null {
+	if (request.resourceType() !== "document") return null;
+	return request.frame().parentFrame() === null ? "document" : "iframe";
+}
+
+/**
+ * The wrapper page's answer to a browser request for a wrapper path, with the
+ * cookie the edge holds for it; null for any other path.
+ */
 export async function frameAnswerFor(
 	request: Request,
-	pathname: string,
 	cookie: string,
-): ReturnType<typeof frameAnswer> {
+): Promise<Awaited<ReturnType<typeof frameAnswer>> | null> {
+	const url = new URL(request.url());
+	if (!isFramePath(url.pathname)) return null;
 	return frameAnswer({
 		method: request.method(),
-		host: new URL(request.url()).host,
-		pathname,
+		host: url.host,
+		pathname: url.pathname,
 		cookie,
-		fetchDest: (await request.headerValue("sec-fetch-dest")) ?? null,
-		fetchUser: (await request.headerValue("sec-fetch-user")) ?? null,
+		fetchDest: navigationDest(request),
+		fetchUser: null,
 	});
+}
+
+/**
+ * The API's bootstrap answer when it sends an embedded preview to the wrapper
+ * page, as a response to fulfil with; null for any other answer.
+ *
+ * A real 303 cannot be handed to the browser here: Chromium follows a fulfilled
+ * redirect without asking the route again, so the follow-up request would go
+ * to `https://` on a host this environment has no certificate for. A
+ * `Refresh: 0` response is the nearest thing that still makes the browser
+ * request the wrapper page itself, as a frame navigation with its own
+ * `Sec-Fetch-*` headers, through the route. The cookie the API set rides on
+ * this response, and `edgeCookieJar` holds the copy the follow-up request needs.
+ */
+export function frameRedirect(answer: Response): {
+	status: number;
+	headers: Record<string, string>;
+} | null {
+	const location = answer.headers.get("location");
+	if (answer.status !== 303 || location === null || !isFramePath(location)) return null;
+	const headers = {
+		...headersOf(answer, PASSED_HEADERS),
+		refresh: `0; url=${location}`,
+	};
+	const setCookie = answer.headers.getSetCookie();
+	return {
+		status: 200,
+		headers:
+			setCookie.length > 0
+				? { ...headers, "set-cookie": setCookie.join("\n") }
+				: headers,
+	};
 }
 
 /**
@@ -235,6 +310,7 @@ export async function frameAnswerFor(
 export async function previewGateway(
 	page: Page | BrowserContext,
 ): Promise<{ app: number }> {
+	requireFrameBuild();
 	const counts = { app: 0 };
 	const jar = edgeCookieJar();
 
@@ -284,17 +360,10 @@ export async function previewGateway(
 			const cookie = jar.withJar(host, fromBrowser);
 			const path = `${url.pathname}${url.search}`;
 
-			const frame = (pathname: string, cookies: string) =>
-				frameAnswerFor(request, pathname, cookies);
-
 			// Reserved paths never reach the student application
 			// (BROWSER-HANDLING.md §12).
-			if (
-				url.pathname === FRAME_PREFIX ||
-				url.pathname.startsWith(`${FRAME_PREFIX}/`)
-			) {
-				return route.fulfill(await frame(url.pathname, cookie));
-			}
+			const wrapper = await frameAnswerFor(request, cookie);
+			if (wrapper) return route.fulfill(wrapper);
 			if (url.pathname.startsWith("/__portikus/")) {
 				const answer = await fetch(`${API_ORIGIN}${path}`, {
 					headers: {
@@ -320,22 +389,14 @@ export async function previewGateway(
 					});
 				}
 
+				const toWrapper = frameRedirect(answer);
+				if (toWrapper) return route.fulfill(toWrapper);
+
 				// The bootstrap just minted a session: follow the redirect with
 				// that cookie alone, never a stale one the jar still holds.
 				const withSession = [fromBrowser, cookiePairs(answer)]
 					.filter(Boolean)
 					.join("; ");
-				// An embedded preview is sent to the wrapper page.
-				if (location.startsWith(`${FRAME_PREFIX}/`)) {
-					const page = await frame(location, withSession);
-					return route.fulfill({
-						...page,
-						headers: {
-							...page.headers,
-							...(headers["set-cookie"] ? { "set-cookie": headers["set-cookie"] } : {}),
-						},
-					});
-				}
 				const app = await proxy(host, location, withSession);
 				return route.fulfill({
 					status: app.status,
