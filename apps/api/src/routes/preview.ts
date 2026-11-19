@@ -72,6 +72,9 @@ function previewCookieName(config: ApiConfig): string {
 export const PREVIEW_SESSION_CAP = 2000;
 const PREVIEW_SESSION_CAP_WINDOW_MS = 10_000;
 
+/** Portikus's wrapper page on the preview origin, which frames an embedded preview. */
+const WRAPPER_PATH = "/__portikus/frame/";
+
 /** RFC 6265 cookie-name characters, so nothing else reaches a header. */
 const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
 
@@ -439,7 +442,7 @@ export function registerPreviewRoutes(
 			})
 			.header("cache-control", "no-store")
 			.header("referrer-policy", "no-referrer")
-			.redirect("/", 303);
+			.redirect(grant.presentation === "embedded" ? WRAPPER_PATH : "/", 303);
 	});
 
 	/**
