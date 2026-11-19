@@ -57,7 +57,7 @@ export function PickControl({ pick, ready }: PickControlProps) {
 	);
 
 	return (
-		<>
+		<span className="pk-preview-pick">
 			{targets.length > 1 ? (
 				<MenuRoot
 					open={menuOpen}
@@ -91,6 +91,6 @@ export function PickControl({ pick, ready }: PickControlProps) {
 					{reason}
 				</span>
 			) : null}
-		</>
+		</span>
 	);
 }

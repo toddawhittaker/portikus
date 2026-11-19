@@ -152,6 +152,11 @@
 	border-top: 1px solid var(--line);
 }
 
+/* The pick button and the hidden reason it is disabled, as one toolbar item. */
+.pk-preview-pick {
+	display: inline-flex;
+}
+
 /* While picking, the frame is outlined so it is clear clicks go to the picker. */
 .pk-preview[data-picking] .pk-preview-frame {
 	outline: 2px solid var(--accent);
