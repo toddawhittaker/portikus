@@ -1,7 +1,4 @@
-import {
-	ChatSubagentEvent,
-	type SideExchange,
-} from "@portikus/contracts";
+import { ChatSubagentEvent, type SideExchange } from "@portikus/contracts";
 import type { ChatEventBody } from "../agent.js";
 import type { AppServerClient as Client } from "./app-server.js";
 import { turnStatus } from "./history.js";
@@ -153,7 +150,7 @@ export class CodexSide {
 		this.question = question;
 		signal.addEventListener("abort", onAbort, { once: true });
 		this.send(question, { type: "turn.started", at: Date.now() });
-		void this.run(question, main, text, earlier, signal).catch((error: unknown) =>
+		void this.run(question, main, text, earlier).catch((error: unknown) =>
 			question.done(
 				new Error(error instanceof Error ? error.message : "Codex did not answer."),
 			),
@@ -166,7 +163,6 @@ export class CodexSide {
 		main: string,
 		text: string,
 		earlier: readonly SideExchange[],
-		signal: AbortSignal,
 	): Promise<void> {
 		const { client } = question;
 		const { model, effort } = this.host.model();
@@ -211,7 +207,10 @@ export class CodexSide {
 		// Stopped while the turn was starting: interrupt it now its id is known.
 		if (this.question !== question && question.turnId) {
 			void client
-				.request("turn/interrupt", { threadId: fork.thread.id, turnId: question.turnId })
+				.request("turn/interrupt", {
+					threadId: fork.thread.id,
+					turnId: question.turnId,
+				})
 				.catch(() => undefined);
 		}
 	}
@@ -271,7 +270,10 @@ export class CodexSide {
 		const question = this.question;
 		if (question?.forkId && question.turnId) {
 			await question.client
-				.request("turn/interrupt", { threadId: question.forkId, turnId: question.turnId })
+				.request("turn/interrupt", {
+					threadId: question.forkId,
+					turnId: question.turnId,
+				})
 				.catch(() => undefined);
 		}
 		question?.done("interrupted");
@@ -290,6 +292,10 @@ export class CodexSide {
 		if (!isSideEvent(event)) return;
 		const seq = this.seq;
 		this.seq += 1;
-		question.emit({ ...event, sessionId: this.host.terminalId, seq } as ChatSubagentEvent);
+		question.emit({
+			...event,
+			sessionId: this.host.terminalId,
+			seq,
+		} as ChatSubagentEvent);
 	}
 }

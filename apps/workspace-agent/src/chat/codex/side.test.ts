@@ -99,7 +99,18 @@ async function setup(handlers: Partial<Handlers> = {}) {
 		earlier: { question: string; answer: string }[] = [],
 		signal = new AbortController().signal,
 	) => agent.askSide(text, earlier, (event) => side.push(event), signal);
-	return { agent, server, events, contexts, cards, states, lines, side, ask, terminalId };
+	return {
+		agent,
+		server,
+		events,
+		contexts,
+		cards,
+		states,
+		lines,
+		side,
+		ask,
+		terminalId,
+	};
 }
 
 /** A recorded turn replayed on a side fork. */
@@ -143,7 +154,9 @@ describe("a Codex side question", () => {
 		const order = server.sent
 			.filter((message) => message.id !== undefined && message.method)
 			.map((message) => message.method);
-		expect(order.indexOf("thread/inject_items")).toBeLessThan(order.indexOf("turn/start"));
+		expect(order.indexOf("thread/inject_items")).toBeLessThan(
+			order.indexOf("turn/start"),
+		);
 		for (const message of forkTurn("token-usage", FORK)) server.push(message);
 		await asked;
 	});
@@ -157,14 +170,15 @@ describe("a Codex side question", () => {
 		const earlier = [{ question: "one", answer: "first answer" }];
 		const second = ask("two", earlier);
 		await untilSent(server, "turn/start", 2);
-		expect(server.requests("thread/fork").map((each) => each.params?.threadId)).toEqual([
-			MAIN,
-			MAIN,
-		]);
+		expect(server.requests("thread/fork").map((each) => each.params?.threadId)).toEqual(
+			[MAIN, MAIN],
+		);
 		const items = server.requests("thread/inject_items")[1]?.params;
 		expect(items).toEqual({ threadId: FORK2, items: sideItems(earlier) });
 		expect(JSON.stringify(items)).toContain("first answer");
-		expect(server.requests("thread/unsubscribe")[0]?.params).toEqual({ threadId: FORK });
+		expect(server.requests("thread/unsubscribe")[0]?.params).toEqual({
+			threadId: FORK,
+		});
 		for (const message of forkTurn("token-usage", FORK2)) server.push(message);
 		await second;
 	});
@@ -175,7 +189,8 @@ describe("a Codex side question", () => {
 		await untilSent(server, "turn/start");
 		for (const message of forkTurn("command-kinds", FORK)) server.push(message);
 		await asked;
-		for (const event of side) expect(ChatSubagentEvent.safeParse(event).success).toBe(true);
+		for (const event of side)
+			expect(ChatSubagentEvent.safeParse(event).success).toBe(true);
 		expect(side.map((event) => event.seq)).toEqual(side.map((_, index) => index));
 		expect(side.every((event) => event.sessionId === terminalId)).toBe(true);
 		const kinds = side.map((event) => event.type);
