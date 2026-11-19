@@ -56,6 +56,47 @@ the fold.
 - The screenshot is drawn from the preview's own page, so it cannot
   contain anything outside the preview.
 
+## Security review of this design (2026-11-19)
+
+The security-reviewer checked this design against SPEC.md section 24
+before building, as #1708 asks. Its findings change the tasks:
+
+1. **The wrapper must pass the preview login check (high).** A plain
+   file server would let another site open the wrapper as a normal
+   tab. Its inner frame's request to `/` counts as same-site, so it
+   would carry the `SameSite=Strict` preview cookie and run the app
+   outside the sandbox. T6 puts `/__portikus/frame/*` behind
+   `portikus_preview_authorize`, with the path rewritten to `/` for
+   that check, and refuses any request whose `Sec-Fetch-Dest` is present
+   and not `iframe`. T2's wrapper makes no inner frame when
+   `window.parent === window`. Because the wrapper request is now the
+   one a user opens, it carries `Sec-Fetch-User`, so activity (ADR 0032)
+   keeps counting; T5 checks this in `preview.ts` and its tests. A
+   stopped workspace shows the usual stopped page.
+2. **Header fields are checked (medium).** T1 takes the port and the
+   time from the Portikus page, never from the message. The page path
+   must be printable, start with `/`, and be at most 2,048 characters,
+   or it is left out. The selector and tag go inside fences too. The
+   header says everything inside the fences came from the page.
+3. **The screenshot bytes are checked (medium).** T4 sets the file type
+   to `image/png` itself and checks the PNG signature and size before
+   building the file; otherwise the pick goes without a picture.
+4. **The wrapper listens only to its parent (low).** T2 acts on start
+   and stop only when `event.source === window.parent`, and T4 cancels
+   pick mode when the frame reloads or the grant changes.
+5. **The screenshot library sends no credentials (low).** T2 sets
+   `credentials: "omit"` for its requests to other origins.
+
+T6's route also sends `Content-Security-Policy: default-src 'none';
+script-src 'self'; style-src 'self'; img-src 'self' data: blob:;
+frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors`
+set to the Portikus origin with its port when not 443 (the pilot uses
+8443), `Cache-Control: no-cache` on the HTML page and long caching on
+the hashed asset files, and allows GET and HEAD only. T2 sets Vite's
+`base` to `/__portikus/frame/`. T9 adds to BROWSER-HANDLING.md section
+16.4 that a student's service worker can now also answer for the
+Portikus-owned path `/__portikus/frame/`, which gains it nothing.
+
 ## Design
 
 - **Wrapper** (`apps/web/preview-frame.html`, its own Vite build into
@@ -105,7 +146,7 @@ the fold.
 | T3 agent drop targets | builder, Sonnet high | desk | `apps/web/src/agents/agentDropTargets.ts` (new) and test, `apps/web/src/terminal/TerminalLeaf.tsx` and test, `apps/web/src/chat/Composer.tsx` and test (registration only) | #1708 | none | no |
 | T4 pick mode in the Portikus page | builder, Opus low (ui-designer reviews only) | local | `apps/web/src/preview/pick/usePickMode.ts`, `PickControl.tsx` (new) and tests, `apps/web/src/preview/PreviewLeaf.tsx` and test (toolbar mount and the `loaded` signal), `apps/web/src/preview/preview.css`, `apps/web/src/help/content/student.tsx` | #1708 | T1, T3 | in T7 |
 | T5 embedded previews use the wrapper | builder, Sonnet high | desk | `apps/api/src/routes/preview.ts` (embedded grant redirects to `/__portikus/frame/`), `preview.test.ts`, `e2e/preview-gateway.ts`, the stand-in gateway part of `e2e/preview-browser.spec.ts` | #1708 | T2 | yes, the existing preview specs |
-| T6 Caddy route | infra, Opus low | local | `infra/ansible/roles/caddy/templates/Caddyfile.j2` (`handle /__portikus/frame/*`, strip the prefix, `file_server` from `/usr/lib/portikus/web/preview-frame`, CSP with `frame-ancestors`), plus the rehearsal VM smoke | #1708 | T2, T5 for the smoke (may draft at once) | no |
+| T6 Caddy route | infra, Opus low | local | `infra/ansible/roles/caddy/templates/Caddyfile.j2` (`handle /__portikus/frame/*` behind the preview login check, `file_server` from `/usr/lib/portikus/web/preview-frame`, the headers in "Security review"), plus the rehearsal VM smoke | #1708 | T2, T5 for the smoke (may draft at once) | no |
 | T7 pick mode browser tests | tester, Sonnet high | pve | `e2e/preview-pick.spec.ts` (new) and its test app | #1708 | T4, T5 | yes |
 | T8 side pane focus | builder, Sonnet high | desk | `apps/web/src/chat/SidePanel.tsx`, `SidePanel.test.tsx`, `e2e/chat-side.spec.ts` | #2176 | none | yes |
 | T9 docs | builder, Sonnet high | local | `docs/adr/0084-preview-element-picker.md` (new); `docs/BROWSER-HANDLING.md` (the wrapper and pick mode); `docs/SPEC.md` sections 14.6 and 25.8 (an "Added by Epic 75" paragraph each) | both | none | no |
@@ -116,8 +157,18 @@ clicks not reaching the app in pick mode; keyboard picking; Escape from
 both pages; both files in the drop folder with the paths typed (no
 Enter) into the chosen terminal, and attachment chips in a chosen chat;
 forged messages refused (from the inner window, from a popup, and
-outside pick mode); the button hidden in a Traditional course and
-disabled with a reason when no agent is open; axe checks.
+outside pick mode); a second pick and a pick after Escape refused; a
+pick refused after the frame moves to another preview origin; a forged
+page path with newlines kept out of the file's plain text; a screenshot
+that is not a PNG, or too large, dropped; the button hidden in a
+Traditional course and in the instructor's live-help view, and disabled
+with a reason when no agent is open; an app with a service worker at `/`
+still working inside the wrapper; axe checks. The stand-in gateway in
+the e2e tests copies T6's rules, so T7 also covers: the wrapper refused
+as a normal page (no cookie, and `Sec-Fetch-Dest: document`), the
+stopped page inside the wrapper, the CSP and cache headers, and opening
+a preview still recording activity. T6's rehearsal smoke checks the
+same refusals and headers against the real Caddy.
 
 Waves, for reading only: T1, T3, T8 and T9 first; T2 when T1 lands; T4
 when T1 and T3 land; T5 when T2 lands; T6 smoke and T7 when T5 (and T4)
