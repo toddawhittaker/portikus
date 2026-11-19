@@ -3,6 +3,7 @@ import {
 	getSessionMessages,
 	getSubagentMessages,
 	listSubagents,
+	type Query,
 	query,
 	renameSession,
 	type SessionMessage,
@@ -39,3 +40,40 @@ export const realSdk: ChatSdk = {
 	subagentMessages: (id, agentId, dir, limit) =>
 		getSubagentMessages(id, agentId, limit === undefined ? { dir } : { dir, limit }),
 };
+
+/** A side question's answer, as Claude Code gives it. */
+interface SideAnswer {
+	response: string;
+	/** Claude Code made the answer itself rather than asking the model. */
+	synthetic: boolean;
+}
+
+/**
+ * Asks Claude a side question about the session as it stands, without
+ * adding to its transcript, or null when the answer was cut off.
+ */
+export type SideQuestion = (
+	question: string,
+	options: { history: { question: string; response: string }[]; signal: AbortSignal },
+) => Promise<SideAnswer | null>;
+
+/**
+ * The SDK's `Query.askSideQuestion`, which Claude Code's own /btw uses but
+ * the SDK does not declare (ADR 0083). Null when this SDK has no such
+ * method, so the chat offers no /btw. claude-real.test.ts pins its shape.
+ */
+export function sideQuestionOf(session: Query): SideQuestion | null {
+	const ask = (session as unknown as { askSideQuestion?: unknown }).askSideQuestion;
+	if (typeof ask !== "function") return null;
+	return async (question, options) => {
+		const answer: unknown = await ask.call(session, question, options);
+		if (answer === null || answer === undefined) return null;
+		const { response, synthetic } = answer as {
+			response?: unknown;
+			synthetic?: unknown;
+		};
+		if (typeof response !== "string")
+			throw new Error("Claude Code gave no side answer.");
+		return { response, synthetic: synthetic === true };
+	};
+}
