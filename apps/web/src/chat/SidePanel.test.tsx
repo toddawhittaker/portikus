@@ -289,16 +289,6 @@ test("the host's replay after a reload reopens the pane with its conversation, l
 	// The chat's snapshot on a new socket to the same host session keeps it.
 	emit("snapshot", { cards: [], turnRunning: false, truncated: false });
 	expect(screen.getByTestId("side-panel").textContent).toContain("Earlier answer");
-	// A host that restarted is a new session, and has no side conversation.
-	frame({
-		type: "snapshot",
-		sessionId: WORKSPACE,
-		seq: seq++,
-		cards: [],
-		turnRunning: false,
-		truncated: false,
-	});
-	expect(screen.queryByTestId("side-panel")).toBeNull();
 });
 
 test("the host's end of the side conversation, as another browser closes it, closes the pane here", () => {
@@ -324,6 +314,28 @@ test("the host's end of the side conversation, as another browser closes it, clo
 		},
 	});
 	expect(screen.queryByTestId("side-panel")).toBeNull();
+});
+
+test("a replay after a reconnect does not speak a finished answer again", () => {
+	draw();
+	sendFromChat("/btw why?");
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	side(1, "turn.started", { at: 1000 });
+	side(2, "message", { id: "q", role: "user", markdown: "why?" });
+	side(3, "turn.finished", { at: 1500, status: "done" });
+	const announcer = screen.getByTestId("side-announcer");
+	expect(announcer.textContent).toBe("Side answer ready.");
+	const spoken: string[] = [];
+	const watch = new MutationObserver(() => spoken.push(announcer.textContent ?? ""));
+	watch.observe(announcer, { childList: true, characterData: true, subtree: true });
+	emit("snapshot", { cards: [], turnRunning: false, truncated: false });
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	side(1, "turn.started", { at: 1000 });
+	side(2, "message", { id: "q", role: "user", markdown: "why?" });
+	side(3, "turn.finished", { at: 1500, status: "done" });
+	watch.disconnect();
+	expect(announcer.textContent).toBe("Side answer ready.");
+	expect(spoken).toEqual([]);
 });
 
 test("a failed side question shows the host's answer and frees the box", () => {

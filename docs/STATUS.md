@@ -182,6 +182,7 @@ list was made and may already be fixed.
 - Subagent frames re-render the whole chat view while the subagent panel is open.
 - A side conversation's memory in the chat host is not capped: every streamed event and earlier exchange is kept until the pane closes or `/clear`, and each question re-sends the earlier exchanges.
 - Before the first Claude session starts, a `/btw` question typed into the main composer goes to the main conversation, because the browser offers `/btw` only once the host lists it.
+- If a side conversation ends while a browser's connection is down, that browser's side pane keeps its old content until the student closes it.
 - A busy refusal sent from a second tab lands in the middle of a streaming side answer (display only).
 - More than 256 running subagents drop from the running list.
 - Accepted: Escape closes the subagent panel only when focus is inside it.

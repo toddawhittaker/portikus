@@ -328,8 +328,14 @@ for (const { agent, name } of AGENTS) {
 		}) => {
 			// Pass the chat socket through, so the test can drop the page's end of it.
 			const sockets: WebSocketRoute[] = [];
+			// Set to lose the page's side questions on the way to the host.
+			let loseAsks = false;
 			await page.routeWebSocket(/\/chat$/, (ws) => {
-				ws.connectToServer();
+				const server = ws.connectToServer();
+				ws.onMessage((message) => {
+					if (!(loseAsks && String(message).includes('"side.ask"')))
+						server.send(message);
+				});
 				sockets.push(ws);
 			});
 			const { id, view } = await openSideChat(page, context, agent);
@@ -350,6 +356,16 @@ for (const { agent, name } of AGENTS) {
 			await expect(box).toHaveValue("A draft of the next one");
 			await expect(box).toBeFocused();
 			expect(await sideFrames(id)).toEqual([{ type: "side.ask", text: QUESTION }]);
+			// A question lost with the dropped socket does not lock the pane.
+			loseAsks = true;
+			await ask(pane, "Lost on the way?");
+			await expect(pane.getByTestId("side-stop")).toBeVisible();
+			const lost = sockets.length;
+			await sockets.at(-1)?.close();
+			await expect.poll(() => sockets.length).toBeGreaterThan(lost);
+			await expect(view.getByTestId("chat-connection")).toHaveText("");
+			await expect(box).toBeEnabled();
+			await expect(pane.getByTestId("side-stop")).toHaveCount(0);
 		});
 
 		test("a narrow chat puts the pane under it, readable and without violations", async ({
@@ -367,7 +383,9 @@ for (const { agent, name } of AGENTS) {
 			const chat = await view.getByTestId("chat-scroll").boundingBox();
 			const side = await pane.boundingBox();
 			expect(side && chat ? side.y >= chat.y + chat.height - 1 : false).toBe(true);
-			await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+			await inBothThemes(page, async () => {
+				await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+			});
 		});
 
 		test("the divider resizes the pane with the arrow keys", async ({

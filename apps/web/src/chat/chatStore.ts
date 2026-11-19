@@ -207,8 +207,6 @@ export interface ChatState {
 	sideOpen: boolean;
 	/** A side question went out and the host has not answered it yet. */
 	sideWaiting: boolean;
-	/** The host session the side conversation belongs to; null before its first frame. */
-	sideSession: string | null;
 }
 
 type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
@@ -261,7 +259,6 @@ export const initialChatState: ChatState = {
 	side: null,
 	sideOpen: false,
 	sideWaiting: false,
-	sideSession: null,
 };
 
 /** The command the host lists when its agent can take side questions (SPEC.md §10.2). */
@@ -284,7 +281,6 @@ const SIDE_CLOSED = {
 	side: null,
 	sideOpen: false,
 	sideWaiting: false,
-	sideSession: null,
 } as const satisfies Partial<ChatState>;
 
 /**
@@ -350,7 +346,6 @@ export function receiveChatEvent(
 			side,
 			sideOpen: true,
 			sideWaiting: state.sideWaiting && !sideAnswered(event.event, side),
-			sideSession: event.sessionId,
 		};
 	}
 	// Only the left pane's rename reads its answer.
@@ -387,10 +382,9 @@ function applySnapshot(
 		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
-		// A reconnect keeps the side pane; a new host session has none (SPEC.md §10.2).
-		...(state.sideSession !== null && state.sideSession !== event.sessionId
-			? SIDE_CLOSED
-			: {}),
+		// A reconnect keeps the side pane, but an ask lost with the old socket
+		// is no longer awaited; the replay's turn shows one still running (SPEC.md §10.2).
+		sideWaiting: false,
 		// A snapshot follows /clear and an agent swap, and the history it replays counts again.
 		growth: NO_GROWTH,
 		// The host sends a waiting note again after the snapshot.
