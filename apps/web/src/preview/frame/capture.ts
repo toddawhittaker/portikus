@@ -9,14 +9,13 @@ import {
 	PICK_SELECTOR_MAX_CHARS,
 	PICK_SHEET_ADDRESS_MAX_CHARS,
 	PICK_TAG_MAX_CHARS,
+	PICK_TAG_PATTERN,
 	type PickedMessage,
 	type PickRule,
 	ruleChars,
 } from "../pick/messages.js";
 import { uniqueSelector } from "./selector.js";
 import { trimHtml } from "./trim.js";
-
-const TAG_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 // Rules come from the inner window's realm, so `instanceof` against the
 // wrapper's own CSSStyleRule would never match; these checks look at shape.
@@ -110,7 +109,9 @@ function computedValues(element: Element): PickedMessage["computed"] {
 
 function tagOf(element: Element): string {
 	const tag = element.localName.toLowerCase();
-	return TAG_PATTERN.test(tag) && tag.length <= PICK_TAG_MAX_CHARS ? tag : "element";
+	return PICK_TAG_PATTERN.test(tag) && tag.length <= PICK_TAG_MAX_CHARS
+		? tag
+		: "element";
 }
 
 /** Everything in a pick except the screenshot. */

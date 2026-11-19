@@ -45,10 +45,6 @@ describe("wrapper messages", () => {
 	});
 
 	it("accepts the short messages", () => {
-		expect(parseWrapperMessage({ v: 1, type: "loaded" })).toEqual({
-			v: 1,
-			type: "loaded",
-		});
 		expect(parseWrapperMessage({ v: 1, type: "cancelled" })).toEqual({
 			v: 1,
 			type: "cancelled",
@@ -61,9 +57,13 @@ describe("wrapper messages", () => {
 	});
 
 	it("refuses a wrong or missing version", () => {
-		expect(parseWrapperMessage({ v: 2, type: "loaded" })).toBeNull();
-		expect(parseWrapperMessage({ type: "loaded" })).toBeNull();
+		expect(parseWrapperMessage({ v: 2, type: "cancelled" })).toBeNull();
+		expect(parseWrapperMessage({ type: "cancelled" })).toBeNull();
 		expect(parseWrapperMessage(goodPick({ v: 2 }))).toBeNull();
+	});
+
+	it("refuses the retired loaded message", () => {
+		expect(parseWrapperMessage({ v: 1, type: "loaded" })).toBeNull();
 	});
 
 	it("refuses messages meant for the other direction", () => {
@@ -72,7 +72,7 @@ describe("wrapper messages", () => {
 	});
 
 	it("refuses extra fields on every message", () => {
-		expect(parseWrapperMessage({ v: 1, type: "loaded", extra: 1 })).toBeNull();
+		expect(parseWrapperMessage({ v: 1, type: "cancelled", extra: 1 })).toBeNull();
 		expect(parseWrapperMessage(goodPick({ extra: 1 }))).toBeNull();
 	});
 
@@ -183,13 +183,11 @@ describe("wrapper messages", () => {
 		expect(parseWrapperMessage(goodPick({ computed: { color: `${ok}a` } }))).toBeNull();
 	});
 
-	it("limits the screenshot size and its type", () => {
-		expect(
-			parseWrapperMessage(goodPick({ png: new ArrayBuffer(PICK_PNG_MAX_BYTES) })),
-		).not.toBeNull();
+	it("leaves the screenshot size to the page, and limits its type", () => {
+		// An over-size picture must drop only the picture, not the whole pick.
 		expect(
 			parseWrapperMessage(goodPick({ png: new ArrayBuffer(PICK_PNG_MAX_BYTES + 1) })),
-		).toBeNull();
+		).not.toBeNull();
 		expect(
 			parseWrapperMessage(goodPick({ png: "data:image/png;base64,AAAA" })),
 		).toBeNull();

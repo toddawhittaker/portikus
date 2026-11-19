@@ -255,11 +255,8 @@ export function Composer({
 		() =>
 			registerAgentDropTarget({
 				terminalId,
-				kind: "chat",
 				label: agentTabName(agent, "chat"),
-				deliver: async (dropped) => {
-					await addFiles(dropped);
-				},
+				deliver: async (dropped) => (await addFiles(dropped)).length > 0,
 			}),
 		[terminalId, agent, addFiles],
 	);

@@ -3,7 +3,8 @@ import { PICK_PNG_MAX_BYTES } from "../pick/messages.js";
 
 const domToCanvas = vi.fn();
 vi.mock("modern-screenshot", () => ({ domToCanvas }));
-const { drawElement, SCREENSHOT_MAX_CSS_PIXELS } = await import("./screenshot.js");
+const { drawElement, SCREENSHOT_MAX_CSS_PIXELS, SCREENSHOT_MAX_DEVICE_PIXELS } =
+	await import("./screenshot.js");
 
 interface FakeCanvas {
 	width: number;
@@ -27,15 +28,46 @@ afterEach(() => {
 });
 
 describe("drawElement", () => {
-	it("draws at the device scale, capped at 2, with no credentials", async () => {
+	it("draws at the device scale, capped at 2, sending cookies only to its own origin", async () => {
 		vi.spyOn(window, "devicePixelRatio", "get").mockReturnValue(3);
 		domToCanvas.mockResolvedValue(fakeCanvas(100, 50));
 		const png = await drawElement(document.body);
 		expect(png?.byteLength).toBe(10);
 		expect(domToCanvas).toHaveBeenCalledWith(document.body, {
 			scale: 2,
-			fetch: { requestInit: { credentials: "omit" } },
+			fetch: { requestInit: { credentials: "same-origin", cache: "force-cache" } },
 		});
+	});
+
+	function sized(width: number, height: number): Element {
+		const element = document.createElement("div");
+		element.getBoundingClientRect = () => ({ width, height }) as DOMRect;
+		return element;
+	}
+
+	it("lowers the scale so the longest side stays within the device pixel limit", async () => {
+		vi.spyOn(window, "devicePixelRatio", "get").mockReturnValue(2);
+		domToCanvas.mockResolvedValue(fakeCanvas(10, 10));
+		await drawElement(sized(1500, 100));
+		expect(domToCanvas.mock.calls[0]?.[1].scale).toBeCloseTo(
+			SCREENSHOT_MAX_DEVICE_PIXELS / 1500,
+		);
+		await drawElement(sized(100, 5000));
+		expect(domToCanvas.mock.calls[1]?.[1].scale).toBe(1);
+		await drawElement(sized(800, 600));
+		expect(domToCanvas.mock.calls[2]?.[1].scale).toBe(2);
+	});
+
+	it("never clips to more than the device pixel limit", async () => {
+		vi.spyOn(window, "devicePixelRatio", "get").mockReturnValue(2);
+		const clipped = fakeCanvas(0, 0, 5);
+		const element = sized(100, 100);
+		vi.spyOn(document, "createElement").mockReturnValue(
+			clipped as unknown as HTMLCanvasElement,
+		);
+		domToCanvas.mockResolvedValue(fakeCanvas(4000, 10));
+		await drawElement(element);
+		expect(clipped.width).toBe(SCREENSHOT_MAX_DEVICE_PIXELS);
 	});
 
 	it("clips a box larger than the limit", async () => {

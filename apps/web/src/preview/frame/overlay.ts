@@ -62,8 +62,40 @@ export function throttle(send: (label: string) => void, intervalMs: number) {
 	};
 }
 
+const SCROLLS = new Set(["auto", "scroll", "overlay"]);
+
+/**
+ * The element a wheel over `from` scrolls: its nearest ancestor that can
+ * scroll that way, or null when only the page itself can.
+ */
+function scrollTarget(from: Element | null, deltaX: number, deltaY: number) {
+	const view = from?.ownerDocument.defaultView;
+	const root = from?.ownerDocument.documentElement;
+	for (
+		let element = from;
+		element && element !== root;
+		element = element.parentElement
+	) {
+		if (element === element.ownerDocument.body) break;
+		const style = view?.getComputedStyle(element);
+		if (!style) break;
+		const down =
+			deltaY !== 0 &&
+			SCROLLS.has(style.overflowY) &&
+			element.scrollHeight > element.clientHeight;
+		const across =
+			deltaX !== 0 &&
+			SCROLLS.has(style.overflowX) &&
+			element.scrollWidth > element.clientWidth;
+		if (down || across) return element;
+	}
+	return null;
+}
+
 export interface PickModeOptions {
 	frame: HTMLIFrameElement;
+	/** Where the keyboard highlight starts; the app's focused element or its body when not given. */
+	start?: Element | null;
 	onHover: (label: string) => void;
 	onPick: (element: Element) => void;
 	onCancel: () => void;
@@ -133,7 +165,9 @@ export function startPickMode(options: PickModeOptions): () => void {
 		if (element) finish(() => options.onPick(element));
 	};
 	const onWheel = (event: WheelEvent) => {
-		innerWindow?.scrollBy(event.deltaX, event.deltaY);
+		const target = scrollTarget(elementAt(event), event.deltaX, event.deltaY);
+		if (target) target.scrollBy(event.deltaX, event.deltaY);
+		else innerWindow?.scrollBy(event.deltaX, event.deltaY);
 		if (current) highlight(current);
 	};
 	const onKeyDown = (event: KeyboardEvent) => {
@@ -172,9 +206,11 @@ export function startPickMode(options: PickModeOptions): () => void {
 		box.remove();
 	}
 
-	const focused = inner?.activeElement;
+	const focused = options.start ?? inner?.activeElement;
 	highlight(
-		focused && focused !== inner?.documentElement ? focused : (inner?.body ?? null),
+		focused && focused !== inner?.documentElement && focused.isConnected
+			? focused
+			: (inner?.body ?? null),
 	);
 	layer.focus();
 

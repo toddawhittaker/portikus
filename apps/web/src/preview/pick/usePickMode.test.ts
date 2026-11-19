@@ -5,7 +5,10 @@
  */
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { AgentDropTarget } from "../../agents/agentDropTargets.js";
+import {
+	type AgentDropTarget,
+	registerAgentDropTarget,
+} from "../../agents/agentDropTargets.js";
 import { PICK_PNG_MAX_BYTES } from "./messages.js";
 import { PICK_MARKDOWN_FILE_NAME, PICK_PNG_FILE_NAME } from "./pickFile.js";
 import { type UsePickModeOptions, usePickMode } from "./usePickMode.js";
@@ -22,20 +25,27 @@ beforeEach(() => {
 	document.body.append(iframe, other);
 });
 
+const offs: Array<() => void> = [];
+
 afterEach(() => {
 	cleanup();
+	for (const off of offs.splice(0)) off();
 	iframe.remove();
 	other.remove();
 	vi.useRealTimers();
 });
 
+/** An open agent pane, listed as a drop target. */
 function target(id = "t1"): AgentDropTarget & { deliver: ReturnType<typeof vi.fn> } {
-	return {
+	const made = {
 		terminalId: id,
-		kind: "terminal",
 		label: `Agent ${id}`,
-		deliver: vi.fn(async () => {}),
+		deliver: vi.fn(async () => true),
 	};
+	act(() => {
+		offs.push(registerAgentDropTarget(made));
+	});
+	return made;
 }
 
 function picked(overrides: Record<string, unknown> = {}) {
@@ -75,7 +85,6 @@ function setup(overrides: Partial<UsePickModeOptions> = {}) {
 		previewOrigin: ORIGIN,
 		frameKey: "grant-1",
 		port: 5173,
-		onLoaded: vi.fn(),
 		onDelivered: vi.fn(),
 		onError: vi.fn(),
 		...overrides,
@@ -184,7 +193,7 @@ test("a pick after the frame reloads is refused", async () => {
 	const t = target();
 	const { result } = setup();
 	act(() => result.current.start(t));
-	act(() => result.current.frameLoaded());
+	act(() => result.current.stop());
 	send(picked());
 	await settle();
 	expect(t.deliver).not.toHaveBeenCalled();
@@ -253,7 +262,7 @@ test("a screenshot that is not a PNG is dropped and the file says so", async () 
 	expect(await files[0]?.text()).toContain("was not a PNG");
 });
 
-test("a screenshot over the size limit is refused with the message", async () => {
+test("a screenshot over the size limit drops only the picture", async () => {
 	const t = target();
 	const { result } = setup();
 	act(() => result.current.start(t));
@@ -261,7 +270,10 @@ test("a screenshot over the size limit is refused with the message", async () =>
 	big.set(PNG.slice(0, 8));
 	send(picked({ png: big.buffer }));
 	await settle();
-	expect(t.deliver).not.toHaveBeenCalled();
+	// Only the picture is dropped; the pick still goes, and says why.
+	const files = delivered(t);
+	expect(files).toHaveLength(1);
+	expect(await files[0]?.text()).toContain("larger than the allowed size");
 });
 
 test("a pick without a screenshot says none was sent", async () => {
@@ -299,13 +311,40 @@ test("a failed delivery reports the error and leaves pick mode", async () => {
 	expect(result.current.state).toBe("idle");
 });
 
-test("loaded counts at any time, but only from the frame", () => {
-	const { options } = setup();
-	send({ v: 1, type: "loaded" }, { source: other.contentWindow });
-	send({ v: 1, type: "loaded" }, { origin: "https://evil.example" });
-	expect(options.onLoaded).not.toHaveBeenCalled();
-	send({ v: 1, type: "loaded" });
-	expect(options.onLoaded).toHaveBeenCalledTimes(1);
+test("a delivery that does not arrive leaves the view where it is", async () => {
+	const t = target();
+	t.deliver.mockResolvedValueOnce(false);
+	const { result, options } = setup();
+	act(() => result.current.start(t));
+	send(picked());
+	await settle();
+	expect(t.deliver).toHaveBeenCalledTimes(1);
+	expect(options.onDelivered).not.toHaveBeenCalled();
+	expect(options.onError).not.toHaveBeenCalled();
+	expect(result.current.state).toBe("idle");
+});
+
+test("picking stops when the chosen agent's pane closes", () => {
+	const t = target();
+	const post = vi.spyOn(iframe.contentWindow as Window, "postMessage");
+	const { result } = setup();
+	act(() => result.current.start(t));
+	expect(result.current.state).toBe("picking");
+	act(() => offs.shift()?.());
+	expect(result.current.state).toBe("idle");
+	expect(post).toHaveBeenLastCalledWith({ v: 1, type: "stop" }, ORIGIN);
+});
+
+test("a pick for an agent that is no longer listed is not delivered", async () => {
+	const t = target();
+	const { result } = setup();
+	act(() => result.current.start(t));
+	// Taken off the list without a render in between.
+	offs.shift()?.();
+	send(picked());
+	await settle();
+	expect(t.deliver).not.toHaveBeenCalled();
+	expect(result.current.state).toBe("idle");
 });
 
 test("nothing starts without a frame to pick from", () => {

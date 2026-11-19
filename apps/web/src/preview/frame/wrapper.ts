@@ -45,23 +45,44 @@ export function startWrapper(win: Window, options: WrapperOptions = {}): void {
 	frame.className = "app";
 	frame.title = "Application";
 	frame.allow = PREVIEW_FRAME_ALLOW;
-	let loaded = false;
-	frame.addEventListener("load", () => {
-		if (loaded) return;
-		loaded = true;
-		post({ v: PICK_MESSAGE_VERSION, type: "loaded" });
-	});
 	frame.src = "/";
 	doc.body.append(frame);
 
 	let leave: (() => void) | null = null;
+	const cancel = () => {
+		leave?.();
+		leave = null;
+		post({ v: PICK_MESSAGE_VERSION, type: "cancelled" });
+	};
+
+	// Pressing the Portikus pick button takes focus out of the frame, and the
+	// browser then reports the app's body as focused, so the element the
+	// student last focused in the app is kept here for the keyboard start.
+	let lastFocused: Element | null = null;
+	let loads = 0;
+	frame.addEventListener("load", () => {
+		loads += 1;
+		lastFocused = null;
+		frame.contentDocument?.addEventListener("focusin", (event) => {
+			// The target is from the app's realm, so `instanceof` cannot be used.
+			const target = event.target as Node | null;
+			lastFocused = target?.nodeType === 1 ? (target as Element) : null;
+		});
+		// Pick mode holds the old document's elements; a new page ends it.
+		if (loads > 1 && leave) cancel();
+	});
 
 	const onPick = async (element: Element) => {
 		leave = null;
-		const pick = capturePick(element);
-		const png = await draw(element);
-		if (png) post({ ...pick, png }, [png]);
-		else post(pick);
+		try {
+			const pick = capturePick(element);
+			const png = await draw(element);
+			if (png) post({ ...pick, png }, [png]);
+			else post(pick);
+		} catch {
+			// The Portikus page is waiting in pick mode; let it leave.
+			post({ v: PICK_MESSAGE_VERSION, type: "cancelled" });
+		}
 	};
 
 	win.addEventListener("message", (event) => {
@@ -76,6 +97,7 @@ export function startWrapper(win: Window, options: WrapperOptions = {}): void {
 		if (leave || !frame.contentDocument) return;
 		leave = startPickMode({
 			frame,
+			start: lastFocused,
 			hoverIntervalMs: options.hoverIntervalMs,
 			onHover: (label) => post({ v: PICK_MESSAGE_VERSION, type: "hover", label }),
 			onPick: (element) => void onPick(element),

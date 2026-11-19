@@ -330,16 +330,11 @@ export function PreviewLeaf({
 		// A load can be a late echo of an earlier Back, so the hint goes only
 		// when there really is something to go back to again.
 		if (history.current?.canGoBack()) setBackHint(undefined);
-		pick.frameLoaded();
-		markLoaded();
-	}
-
-	/**
-	 * The frame's page loaded. The frame's load event says so for a page shown
-	 * directly, and the wrapper page's `loaded` message says so for a page shown
-	 * through it; either one clears the load fallback.
-	 */
-	function markLoaded() {
+		// Any pick in progress belongs to the old page.
+		pick.stop();
+		// The wrapper page's own load waits for the app's frame inside it, so
+		// this event means the app loaded whether or not it is shown through
+		// the wrapper.
 		if (state.status !== "available" && state.status !== "blocked") return;
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
@@ -429,7 +424,6 @@ export function PreviewLeaf({
 		previewOrigin: framed ? state.grant.previewOrigin : null,
 		frameKey: framed ? state.grant.bootstrapUrl : null,
 		port,
-		onLoaded: markLoaded,
 		// Show the agent that got the pick, the way its row in the left pane does.
 		onDelivered: (target) =>
 			void navigate({

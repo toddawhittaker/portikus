@@ -17,8 +17,9 @@ import {
 	appFrame,
 	appFrameLocator,
 	edgeCookieJar,
-	FRAME_PREFIX,
 	frameAnswerFor,
+	frameRedirect,
+	requireFrameBuild,
 } from "./preview-gateway";
 
 /**
@@ -66,6 +67,7 @@ interface Seen {
 
 /** Stand in for Caddy for every page in one browser context. */
 async function previewGateway(context: BrowserContext): Promise<Seen> {
+	requireFrameBuild();
 	const jar = edgeCookieJar();
 	const seen: Seen = {
 		cookies: [],
@@ -141,14 +143,8 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 
 			// The wrapper page an embedded preview opens, answered by the same
 			// rules as the shared stand-in (see `frameAnswer`).
-			const frame = (pathname: string, cookies: string) =>
-				frameAnswerFor(request, pathname, cookies);
-			if (
-				url.pathname === FRAME_PREFIX ||
-				url.pathname.startsWith(`${FRAME_PREFIX}/`)
-			) {
-				return route.fulfill(await frame(url.pathname, cookie));
-			}
+			const wrapper = await frameAnswerFor(request, cookie);
+			if (wrapper) return route.fulfill(wrapper);
 
 			if (url.pathname.startsWith("/__portikus/")) {
 				const answer = await fetch(`${API_ORIGIN}${path}`, {
@@ -172,18 +168,11 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 						body: Buffer.from(await answer.arrayBuffer()),
 					});
 				}
+				const toWrapper = frameRedirect(answer);
+				if (toWrapper) return route.fulfill(toWrapper);
+
 				// The bootstrap just minted a session: follow the redirect with
 				// that cookie alone, never a stale one the jar still holds.
-				if (location.startsWith(`${FRAME_PREFIX}/`)) {
-					const page = await frame(location, cookiePairs(answer));
-					return route.fulfill({
-						...page,
-						headers: {
-							...page.headers,
-							...(headers["set-cookie"] ? { "set-cookie": headers["set-cookie"] } : {}),
-						},
-					});
-				}
 				const app = await proxy(
 					host,
 					"GET",

@@ -153,7 +153,36 @@ describe("startPickMode", () => {
 		leave();
 	});
 
-	it("scrolls the app on wheel", () => {
+	it("scrolls the nearest scrollable ancestor of the element under the pointer", () => {
+		inner.body.innerHTML = `<div id="list" style="overflow-y: auto"><p id="row">Row</p></div>`;
+		const list = inner.getElementById("list") as HTMLElement;
+		Object.defineProperty(list, "scrollHeight", { value: 500 });
+		Object.defineProperty(list, "clientHeight", { value: 100 });
+		const listScroll = vi.fn();
+		list.scrollBy = listScroll;
+		const pageScroll = vi.fn();
+		(frame.contentWindow as Window).scrollBy = pageScroll;
+		inner.elementFromPoint = vi.fn(() => inner.getElementById("row"));
+		const { layer } = start();
+		layer.dispatchEvent(new WheelEvent("wheel", { deltaX: 0, deltaY: 40 }));
+		expect(listScroll).toHaveBeenCalledWith(0, 40);
+		expect(pageScroll).not.toHaveBeenCalled();
+	});
+
+	it("starts at the element it is given, or the body when that one is gone", async () => {
+		const p = inner.querySelector("p") as Element;
+		const first = start({ start: p });
+		await vi.waitFor(() => expect(first.onHover).toHaveBeenLastCalledWith("p.lead"));
+		first.leave();
+		p.remove();
+		const second = start({ start: p });
+		await vi.waitFor(() =>
+			expect(second.onHover).toHaveBeenLastCalledWith('body "TitleLink"'),
+		);
+	});
+
+	it("scrolls the app on wheel when nothing under the pointer scrolls", () => {
+		inner.elementFromPoint = vi.fn(() => inner.querySelector("p"));
 		const scrollBy = vi.fn();
 		(frame.contentWindow as Window).scrollBy = scrollBy;
 		const { layer } = start();

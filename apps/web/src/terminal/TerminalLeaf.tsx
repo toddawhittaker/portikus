@@ -176,8 +176,8 @@ export function TerminalLeaf({
 	}
 
 	/** Save each desktop file in the project, then type where they went. */
-	async function dropFiles(files: File[]) {
-		if (files.length === 0) return;
+	async function dropFiles(files: File[]): Promise<boolean> {
+		if (files.length === 0) return false;
 		for (const file of files) {
 			const bad = dropNameError(file.name);
 			if (bad) {
@@ -186,16 +186,16 @@ export function TerminalLeaf({
 					title: `${displayName(file.name)} cannot be dropped`,
 					children: bad,
 				});
-				return;
+				return false;
 			}
 			if (file.size > MAX_UPLOAD_BYTES) {
 				toast.show(tooLargeToast());
-				return;
+				return false;
 			}
 		}
 		if (!projectSlug) {
 			toast.show(fileErrorToast(null));
-			return;
+			return false;
 		}
 		const now = new Date();
 		try {
@@ -211,8 +211,10 @@ export function TerminalLeaf({
 				);
 			}
 			typePaths(saved);
+			return true;
 		} catch (error) {
 			toast.show(fileErrorToast(error));
+			return false;
 		}
 	}
 
@@ -228,7 +230,6 @@ export function TerminalLeaf({
 		if (!agentTerminal) return;
 		return registerAgentDropTarget({
 			terminalId,
-			kind: "terminal",
 			label: name,
 			deliver: (files) => dropFilesNow.current(files),
 		});
