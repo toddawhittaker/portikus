@@ -42,7 +42,7 @@ import { speakingId, stop as stopReading } from "../voice/speak.js";
 import { Composer } from "./Composer.js";
 import { AgentSwitchReported } from "./ComposerPickers.js";
 import { ChatAgentContext } from "./chatAgent.js";
-import { type ChatState, isEmptyChat, sideBusy } from "./chatStore.js";
+import { type ChatState, isEmptyChat, sideBusy, sideOffered } from "./chatStore.js";
 import { askNotePrompt } from "./freshStart.js";
 import { type FreshStartActions, FreshStartContext } from "./HandoffDivider.js";
 import { HandoffReviewCard } from "./HandoffReviewCard.js";
@@ -58,6 +58,7 @@ import {
 } from "./readAloud.js";
 import { useToolReveal } from "./revealTool.js";
 import { SessionRules } from "./SessionRules.js";
+import { SideButton } from "./SideButton.js";
 import {
 	SIDE_BUSY,
 	SIDE_NOT_SENT,
@@ -590,6 +591,8 @@ function ChatViewBody({
 	return (
 		// The conversation's byline, cards and notes name this chat's agent.
 		<ChatAgentContext.Provider value={state.settings?.agent ?? "claude"}>
+			{/* A bare /btw from the title bar; an open pane takes the keyboard again. */}
+			{sideOffered(state) ? <SideButton onOpen={() => openSide("")} /> : null}
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: one shortcut for the whole chat, as a terminal has */}
 			<div
 				ref={root}

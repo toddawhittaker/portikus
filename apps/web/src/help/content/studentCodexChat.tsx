@@ -102,8 +102,9 @@ export const CODEX_CHAT_TOPIC: HelpPart["topics"][number] = {
 					(TUI) terminal shows its subagents in the project list too.
 				</li>
 				<li>
-					Type <code className="pk-mono-body">/btw</code>, alone or with a question, to
-					ask a quick question in a side conversation beside the chat, as Codex's own{" "}
+					Type <code className="pk-mono-body">/btw</code>, alone or with a question, or
+					press Side question in the chat's title bar, to ask a quick question in a side
+					conversation beside the chat, as Codex's own{" "}
 					<code className="pk-mono-body">/side</code> does. Codex answers from what the
 					chat already knows, even while it is working, and may run read-only commands
 					to look things up; they show as rows in the side conversation. It cannot

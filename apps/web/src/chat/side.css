@@ -105,3 +105,35 @@
 	color: var(--status-error);
 	font-size: var(--text-sm);
 }
+
+/* The title bar's Side question button. The bar is its container, so the
+   label folds to the icon when the pane is narrow, whatever the viewport. */
+.pk-term-bar:has(.pk-side-open) {
+	container: pk-pane-bar / inline-size;
+}
+
+.pk-term-bar-slot {
+	display: contents;
+}
+
+.pk-side-open {
+	flex: none;
+	gap: var(--space-1);
+	width: auto;
+	padding-inline: var(--space-2);
+}
+
+@container pk-pane-bar (width < 30rem) {
+	/* Hidden from sight only: it stays the button's name. */
+	.pk-side-open-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.pk-side-open {
+		padding-inline: 0;
+	}
+}

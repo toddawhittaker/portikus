@@ -384,8 +384,18 @@ for (const { agent, name } of AGENTS) {
 			const side = await pane.boundingBox();
 			expect(side && chat ? side.y >= chat.y + chat.height - 1 : false).toBe(true);
 			await inBothThemes(page, async () => {
-				await expectNoViolations(page, `[data-testid="chat-view-${id}"]`);
+				await expectNoViolations(page, `[data-testid="terminal-leaf-${id}"]`);
 			});
+			// In a narrower bar the button folds to its icon, and keeps its name.
+			const button = page
+				.getByTestId(`terminal-leaf-${id}`)
+				.getByRole("button", { name: "Side question" });
+			await expect(button).toContainText("Side question");
+			await page.setViewportSize({ width: 400, height: 900 });
+			await expect
+				.poll(async () => (await button.boundingBox())?.width ?? 99)
+				.toBeLessThan(40);
+			await expect(button).toBeVisible();
 		});
 
 		test("the divider resizes the pane with the arrow keys", async ({
@@ -453,6 +463,46 @@ for (const { agent, name } of AGENTS) {
 			await expect(view.getByTestId("composer-chip")).toBeVisible();
 			expect(await sideFrames(id)).toEqual([]);
 			expect(await receivedFrames(id, "send")).toEqual([]);
+		});
+
+		test("the title bar's Side question button opens the pane, by mouse or keyboard, and sends nothing", async ({
+			page,
+			context,
+		}) => {
+			const { id, view } = await openSideChat(page, context, agent);
+			const leaf = page.getByTestId(`terminal-leaf-${id}`);
+			const button = leaf.getByRole("button", { name: "Side question" });
+			await expect(button).toBeVisible();
+			await expect(button).toContainText("Side question");
+			await button.click();
+			const pane = view.getByTestId("side-panel");
+			await expect(pane).toBeVisible();
+			await expect(pane.getByTestId("side-composer")).toBeFocused();
+			// Open already: the keyboard goes back to the side box, by Tab and Enter alone.
+			await view.getByTestId("chat-composer-input").click();
+			// It sits in the bar just before the zoom controls.
+			await leaf.getByTestId(`pane-zoom-out-${id}`).focus();
+			await page.keyboard.press("Shift+Tab");
+			await expect(button).toBeFocused();
+			await page.keyboard.press("Enter");
+			await expect(pane.getByTestId("side-composer")).toBeFocused();
+			expect(await sideFrames(id)).toEqual([]);
+			expect(await receivedFrames(id, "send")).toEqual([]);
+			await inBothThemes(page, async () => {
+				await expectNoViolations(page, `[data-testid="terminal-leaf-${id}"]`);
+			});
+		});
+
+		test("no Side question button while the host does not list btw", async ({
+			page,
+			context,
+		}) => {
+			const { id } = await openSideChat(page, context, agent, { offered: false });
+			const leaf = page.getByTestId(`terminal-leaf-${id}`);
+			await expect(leaf.getByTestId("composer-model")).toBeAttached();
+			await expect(leaf.getByRole("button", { name: "Side question" })).toHaveCount(0);
+			await configureSide(id, { offered: true });
+			await expect(leaf.getByRole("button", { name: "Side question" })).toBeVisible();
 		});
 
 		test("the open pane has no accessibility violations in dark and light", async ({
