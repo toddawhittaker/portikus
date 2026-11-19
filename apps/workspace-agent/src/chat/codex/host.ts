@@ -6,6 +6,7 @@ import {
 	CODEX_DEFAULT_MODE,
 	isShellCommand,
 	MAX_CHAT_MODELS,
+	type SideExchange,
 	shellCommandText,
 } from "@portikus/contracts";
 import type { Logger } from "@portikus/observability";
@@ -16,6 +17,7 @@ import type {
 	ChatSettingsChange,
 	ChatSink,
 	ContextFigures,
+	SideEventBody,
 } from "../agent.js";
 import { ChatCore, type ChatCoreOptions } from "../core.js";
 import type { Handoff } from "../handoff.js";
@@ -64,6 +66,7 @@ import {
 	turnStartParams,
 } from "./settings.js";
 import { CodexShell } from "./shell.js";
+import { CodexSide } from "./side.js";
 import { codexSignInUpdate, readCodexSignIn } from "./sign-in.js";
 import { CodexSubagents } from "./subagents.js";
 
@@ -139,6 +142,7 @@ export class CodexAgent implements ChatAgent {
 	private readonly requests: CodexRequests;
 	private readonly mcp: CodexMcp;
 	private readonly shell: CodexShell;
+	private readonly side: CodexSide;
 	private readonly title: ChatTitle;
 	private models: ChatModelInfo[] = [];
 	private settings: Settings = { model: "", effort: "", mode: CODEX_DEFAULT_MODE };
@@ -157,6 +161,7 @@ export class CodexAgent implements ChatAgent {
 		this.requests = new CodexRequests({
 			sink: () => this.sink,
 			mapperOf: (threadId) => this.mapperOf(threadId),
+			isSide: (threadId) => this.side.owns(threadId),
 			deliver: (message, steerable) => this.deliver(message, steerable),
 			send: (message) => this.send(message, []),
 			setMode: (mode) => {
@@ -170,6 +175,12 @@ export class CodexAgent implements ChatAgent {
 			() => this.threadId,
 		);
 		this.shell = new CodexShell(() => this.sink);
+		this.side = new CodexSide({
+			projectDir: options.projectDir,
+			client: () => this.ready(),
+			mainThread: () => this.threadId,
+			model: () => ({ model: this.settings.model, effort: this.settings.effort }),
+		});
 		this.subagents = new CodexSubagents({
 			terminalId: options.terminalId,
 			turns: (threadId) =>
@@ -365,6 +376,7 @@ export class CodexAgent implements ChatAgent {
 	private onExit(): void {
 		this.client = null;
 		this.options.log.info("codex app-server ended");
+		this.side.stopped();
 		this.endConversationState("error");
 		if (!this.stopping) this.sink.emit({ type: "error", message: STOPPED_MESSAGE });
 	}
@@ -388,6 +400,10 @@ export class CodexAgent implements ChatAgent {
 			case "serverRequest/resolved":
 				this.requests.resolved(params);
 				return;
+			case "thread/started":
+				// A subagent a side fork spawns is a side thread too (SPEC.md §10.2).
+				this.side.threadStarted(params);
+				return;
 			case "account/updated": {
 				const state = codexSignInUpdate(params);
 				if (state) this.sink.signIn(state);
@@ -396,8 +412,9 @@ export class CodexAgent implements ChatAgent {
 		}
 		const threadId = (params as { threadId?: unknown } | null)?.threadId;
 		if (typeof threadId !== "string") return;
-		// A subagent's events share the stream, tagged with its own thread id.
+		// Subagents' and side forks' events share the stream, tagged with their own thread ids.
 		if (threadId === this.threadId) this.onThreadEvent(method, params);
+		else if (this.side.owns(threadId)) this.side.notification(threadId, method, params);
 		else this.subagents.notification(threadId, method, params);
 	}
 
@@ -592,6 +609,20 @@ export class CodexAgent implements ChatAgent {
 
 	unwatchSubagent(socket: Socket, threadId: string): void {
 		this.subagents.unwatch(socket, threadId);
+	}
+
+	/** A side question, answered in a read-only fork of the main thread (SPEC.md §10.2). */
+	askSide(
+		text: string,
+		earlier: SideExchange[],
+		emit: (event: SideEventBody) => void,
+		signal: AbortSignal,
+	): Promise<void> {
+		return this.side.ask(text, earlier, emit, signal);
+	}
+
+	endSide(): Promise<void> {
+		return this.side.end();
 	}
 
 	/** Codex keeps its "for this chat" grants itself; there are no rules to revoke. */

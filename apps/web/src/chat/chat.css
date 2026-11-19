@@ -7,9 +7,24 @@
 	/* Tool-call groups and shell boxes: as wide as the reply column, up to 760px. */
 	--pk-chat-card: 47.5rem;
 	--pk-chat-gutter: max(var(--space-4), calc((100% - var(--pk-chat-column)) / 2));
-	/* Held to the pane: the log takes what the card dock and the composer
-	   leave, keeping at least a little conversation in view, and only the log
-	   and the card body scroll. Clipped, so nothing can scroll it by script. */
+	/* Held to the pane, beside the side conversation when it is open (side.css).
+	   Clipped, so nothing can scroll it by script. */
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	overflow: clip;
+	background: var(--surface);
+	color: var(--ink);
+	font-size: var(--pk-font);
+	line-height: var(--pk-leading);
+}
+
+/* The conversation: the log takes what the card dock and the composer
+   leave, keeping at least a little conversation in view, and only the log
+   and the card body scroll. */
+.pk-chat-body {
 	position: relative;
 	flex: 1;
 	min-height: 0;
@@ -19,12 +34,8 @@
 	grid-template-rows: minmax(min(8rem, 25%), 1fr) auto minmax(0, auto) auto auto;
 	grid-template-columns: minmax(0, 1fr);
 	overflow: clip;
-	/* Sized by the pane, not its content, so the dock can be capped at a share of it. */
+	/* Sized by its panel, not its content, so the dock can be capped at a share of it. */
 	container: pk-chat / size;
-	background: var(--surface);
-	color: var(--ink);
-	font-size: var(--pk-font);
-	line-height: var(--pk-leading);
 }
 
 .pk-chat-main {

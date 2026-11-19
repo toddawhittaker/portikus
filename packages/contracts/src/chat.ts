@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SideAskMessage, SideEndMessage, SideStopMessage } from "./chat-side.js";
 import {
 	HandoffNoteHash,
 	HandoffNotePath,
@@ -7,6 +8,8 @@ import {
 	HandoffReview,
 } from "./handoff-note.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
+
+export * from "./chat-side.js";
 
 /**
  * The chat socket between the workspace agent, the API relay and the
@@ -592,6 +595,19 @@ export const ChatServerEvent = z.discriminatedUnion("type", [
 		toolUseId: ToolUseId,
 		event: ChatSubagentEvent,
 	}),
+	/**
+	 * The side conversation's events (SPEC.md §10.2), sent to every attachment.
+	 * Like a subagent frame it carries no `seq` of the chat's own. `ended`
+	 * marks the end of the conversation (closed, /clear, an agent swap, the
+	 * host stopping), whose event is an empty snapshot; the browser closes
+	 * the pane only on it. A replay or a first ask never sets it.
+	 */
+	z.object({
+		type: z.literal("side"),
+		sessionId: TerminalId,
+		ended: z.literal(true).optional(),
+		event: ChatSubagentEvent,
+	}),
 	z.object({ type: z.literal("error"), ...Envelope, message: z.string() }),
 	/**
 	 * The answer to a `rename`, sent only to the attachment that asked. Like a
@@ -774,6 +790,9 @@ export const ChatClientMessage = z.discriminatedUnion("type", [
 		})
 		.strict(),
 	z.object({ type: z.literal("interrupt") }).strict(),
+	SideAskMessage,
+	SideStopMessage,
+	SideEndMessage,
 	z
 		.object({
 			type: z.literal("rule.revoke"),

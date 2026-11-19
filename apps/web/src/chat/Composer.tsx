@@ -13,8 +13,8 @@
  * slash commands and skills, `$` lists skills alone in a Codex chat, and `@`
  * lists project files (ComposerCommandMenu.tsx). `/model`, `/effort`,
  * `/permissions` and `/mcp` open their place in Chat options for either
- * agent, chosen from the list or sent as typed. Every sentence names the
- * chat's own agent.
+ * agent, chosen from the list or sent as typed, and so does `/btw` with
+ * the side pane (SPEC.md §10.2). Every sentence names the chat's own agent.
  * While the text starts with `!` it is a shell command: the box wears a
  * "Shell" label and monospace text, says so once, and opens neither menu.
  * A send into a cold chat with a saved automatic note asks first whether it
@@ -53,10 +53,11 @@ import {
 	controlFor,
 	optionId,
 	selectCommands,
+	sideQuestion,
 	useComposerMenu,
 } from "./ComposerCommandMenu.js";
 import { ComposerPickers } from "./ComposerPickers.js";
-import type { ChatState, ChatStore } from "./chatStore.js";
+import { type ChatState, type ChatStore, sideOffered } from "./chatStore.js";
 import { lineText, useComposerAttachments } from "./composerAttachments.js";
 import {
 	type ComposerMenu,
@@ -82,6 +83,9 @@ import { isShellCommand } from "./shellCommand.js";
 import "./composer.css";
 
 const NOT_SENT = "Your message was not sent because the chat is not connected.";
+
+export const SIDE_TEXT_ONLY =
+	"Side questions are text only. Remove the attached files, then ask again.";
 export const HELD_BACK =
 	"The fresh chat did not start, so your message was not sent. It is still here, and the conversation says why.";
 const COUNT = new Intl.NumberFormat();
@@ -168,6 +172,8 @@ export interface ComposerProps {
 	terminalId: string;
 	/** Put the other agent in this chat's place (ComposerPickers.tsx). */
 	onSwitchAgent?: (agent: CodingAgent) => Promise<void>;
+	/** Open the side pane and ask it the question, if any; returns why it was refused, or null. */
+	onSide?: (question: string) => string | null;
 }
 
 /** The permission mode in force when it is one that warns, else null. */
@@ -183,6 +189,7 @@ export function Composer({
 	projectId,
 	terminalId,
 	onSwitchAgent,
+	onSide,
 }: ComposerProps) {
 	const ids = useId();
 	const agent = useStore(store, (state) => state.settings?.agent ?? "claude");
@@ -199,6 +206,7 @@ export function Composer({
 	const lastError = useStore(store, (state) => state.lastError);
 	const connection = useStore(store, (state) => state.connection);
 	const commands = useStore(store, selectCommands);
+	const sideOn = useStore(store, sideOffered);
 	const [sending, setSending] = useState<Sending | null>(null);
 	const coldNote = useColdSendNote(store);
 	/** A send held while the student chooses where it goes (ColdSendChoice.tsx). */
@@ -331,12 +339,7 @@ export function Composer({
 		if (files.saving > 0 || sending) return;
 		const text = editor.current ? composerText(editor.current) : "";
 		if (text.trim() === "" && files.items.length === 0) return;
-		// `/model` and its kind, sent bare, open their place here instead of reaching the agent.
-		const control = files.items.length === 0 ? controlFor(text.trim()) : undefined;
-		if (control && editor.current && openControl(control)) {
-			editor.current.commands.clearContent(true);
-			return;
-		}
+		if (handledHere(text)) return;
 		if (text.length > MAX_CHAT_TEXT_CHARS) {
 			setError(tooLong(text.length));
 			return;
@@ -372,6 +375,32 @@ export function Composer({
 			shell: newestShell(store.getState()),
 			fresh: to === "fresh" && coldNote !== null,
 		});
+	}
+
+	/**
+	 * A command the web does itself: `/btw`, bare or with a question, goes to
+	 * the side pane, and `/model` and its kind, sent bare, open their place
+	 * here. Neither reaches the agent.
+	 */
+	function handledHere(text: string): boolean {
+		const box = editor.current;
+		if (!box) return false;
+		const question = sideOn && onSide ? sideQuestion(text) : null;
+		if (question !== null && onSide) {
+			// Side questions are text only (SPEC.md §10.2); nothing is sent.
+			if (files.items.length > 0) {
+				setError(SIDE_TEXT_ONLY);
+				return true;
+			}
+			const refused = onSide(question);
+			setError(refused ?? "");
+			if (refused === null) box.commands.clearContent(true);
+			return true;
+		}
+		const control = controlFor(text.trim());
+		if (!control || !openControl(control)) return false;
+		box.commands.clearContent(true);
+		return true;
 	}
 
 	function addLongPaste(text: string, lines: number) {
@@ -429,6 +458,11 @@ export function Composer({
 		const option = menuModel.options[index];
 		const box = editor.current;
 		if (!option || !box || !menu) return;
+		if (option.side && onSide) {
+			clearMenuText(box, menu);
+			onSide("");
+			return;
+		}
 		if (option.insert !== null) {
 			chooseFromMenu(box, menu, option.insert);
 			return;
@@ -721,6 +755,16 @@ export function Composer({
 						onSwitchAgent={onSwitchAgent}
 					/>
 					<div className="pk-composer-actions">
+						{sideOn && onSide ? (
+							<IconButton
+								icon="messages"
+								size="sm"
+								label="Side question"
+								data-testid="side-open"
+								// What a bare /btw does, for a student who does not know the command.
+								onClick={() => onSide("")}
+							/>
+						) : null}
 						<VoiceButton
 							testId={`chat-voice-${terminalId}`}
 							statusTestId={`chat-voice-status-${terminalId}`}

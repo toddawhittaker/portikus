@@ -40,6 +40,7 @@ import {
 	TINY_PNG,
 } from "./chat-fixtures.js";
 import { fakeHandoff } from "./chat-handoff.js";
+import { fakeSide } from "./chat-side.js";
 import { setCodingAgentTitle } from "./coding-agents.js";
 import type { FakeAgentState } from "./state.js";
 
@@ -443,6 +444,17 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		filesForKey: s.filesForKey,
 	});
 
+	const side = fakeSide({
+		socketsOf: (id) => chatOf(id).sockets,
+		sendCommands: (id) => {
+			const chat = chatOf(id);
+			emit(id, chat.sockets, {
+				type: "commands",
+				commands: side.commandsFor(id, chat.commands),
+			});
+		},
+	});
+
 	function handle(
 		id: string,
 		key: string,
@@ -451,6 +463,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 	): void {
 		const chat = chatOf(id);
 		if (handoff(id, key, message, from)) return;
+		if (side.handle(id, message)) return;
 		switch (message.type) {
 			case "send": {
 				// Claude Code's /rename retitles the session; the host reads it back after the result.
@@ -479,6 +492,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				}
 				// Claude Code's /clear starts a new session; the host sends a fresh snapshot.
 				if (message.text.trim() === "/clear") {
+					side.clear(id);
 					chat.history = [];
 					chat.decisions.clear();
 					emit(id, chat.sockets, {
@@ -627,8 +641,13 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 					emit(id, [socket], { type: "card.resolved", id: event.id, decision });
 				}
 			}
+			// The side conversation lasts across attachments (SPEC.md §10.2).
+			for (const line of side.replay(id)) socket.send(line);
 			// Before the settings, which tests wait for as the end of an attach.
-			emit(id, [socket], { type: "commands", commands: chat.commands });
+			emit(id, [socket], {
+				type: "commands",
+				commands: side.commandsFor(id, chat.commands),
+			});
 			emit(id, [socket], { type: "mcp", servers: chat.mcp });
 			emit(id, [socket], { type: "models", models: chat.models });
 			emit(id, [socket], { type: "modes", modes: chat.modes });
@@ -688,6 +707,7 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 				? { previousInstitutionalEnv: body.previousInstitutionalEnv }
 				: {}),
 		});
+		side.clear(id);
 		for (const peer of chat.sockets) peer.close(1000, "chat closed");
 		return reply.status(204).send();
 	});
@@ -705,7 +725,43 @@ export function registerChatRoutes(app: FastifyInstance, s: FakeAgentState): voi
 		const id = (request.params as { id: string }).id;
 		const chat = chatOf(id);
 		chat.commands = (request.body as { commands: ChatCommand[] }).commands;
-		emit(id, chat.sockets, { type: "commands", commands: chat.commands });
+		emit(id, chat.sockets, {
+			type: "commands",
+			commands: side.commandsFor(id, chat.commands),
+		});
+		return reply.status(204).send();
+	});
+
+	side.routes(app);
+
+	// A main turn that stays open until a test finishes it (body: action
+	// "start" or "finish"), so a side question can be asked while it runs.
+	app.post("/__test/chats/:id/main-turn", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const chat = chatOf(id);
+		const { action } = request.body as { action: "start" | "finish" };
+		if (action === "start") {
+			chat.started = true;
+			record(id, chat.sockets, { type: "turn.started", at: Date.now() });
+			record(id, chat.sockets, {
+				type: "message",
+				id: `m-user-${chat.seq}`,
+				role: "user",
+				markdown: "Main question",
+			});
+		} else {
+			record(id, chat.sockets, {
+				type: "message",
+				id: `m-reply-${chat.seq}`,
+				role: "assistant",
+				markdown: "Main answer",
+			});
+			record(id, chat.sockets, {
+				type: "turn.finished",
+				at: Date.now(),
+				status: "done",
+			});
+		}
 		return reply.status(204).send();
 	});
 

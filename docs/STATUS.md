@@ -95,6 +95,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 71, test reliability fix batch.** Timing-sensitive unit tests that no longer fail under machine load, a fallback CI package mirror, a smoke check that no longer lets the workspace stop part-way through a run, and one audit row for each MCP tool call, which the workspace detail's recent activity leaves out (SPEC.md section 24.11).
 - **Epic 72, small fixes batch.** A "Send a test site alert" button on the AI settings page writes a test warning that triage explains and the worker forwards like a real alert (limited to 3 an hour for each administrator); the agent instructions tell coding agents to run only the changed Playwright specs with two workers; set-password links issued in the same millisecond now leave exactly one valid; and removing a Dex user ends access and commits before the Dex password is deleted (SPEC.md sections 20.5, 4, 5.3 and 24.11).
 - **Epic 73, fix batch from the open items.** The chat's sign-in button selects the agent's open terminal tab before opening a new one; Codex subagent panels are titled by the first line of their prompt; the terminal question's "Answered in the terminal or timed out" notice stays until it is closed; the Move to dialog and the file viewer reach later pages of a long folder; a set-password link whose email failed to send is revoked; and turning a code help language off closes its open sockets (SPEC.md sections 10.2, 10.8, 11.2, 13.6, 5.3 and 25.8).
+- **Epic 74, side conversations.** A student can type `/btw` in a Claude Code (GUI) or Codex (GUI) chat tab to ask a side question, or press Side question beside the composer's microphone, in a split beside the chat: it is answered from the conversation as it stands, never enters it or steers the running turn, runs read-only, and is kept across a reload (SPEC.md section 10.2, ADR 0083).
 
 ## Open items
 
@@ -179,6 +180,10 @@ list was made and may already be fixed.
 - Files changed does not count deleted files or changes made by shell commands.
 - A typed message that contains `<bash-input>` text replays as a shell item on reload (display only).
 - Subagent frames re-render the whole chat view while the subagent panel is open.
+- A side conversation's memory in the chat host is not capped: every streamed event and earlier exchange is kept until the pane closes or `/clear`, and each question re-sends the earlier exchanges.
+- Before the first Claude session starts, a `/btw` question typed into the main composer goes to the main conversation, because the browser offers `/btw` only once the host lists it.
+- If a side conversation ends while a browser's connection is down, that browser's side pane keeps its old content until the student closes it.
+- A busy refusal sent from a second tab lands in the middle of a streaming side answer (display only).
 - More than 256 running subagents drop from the running list.
 - Accepted: Escape closes the subagent panel only when focus is inside it.
 - A model row from Claude Code whose value ends in `[1m]` would be listed as its own family and never highlight (only if Claude Code lists such rows).
@@ -217,6 +222,7 @@ list was made and may already be fixed.
 ### Tests and docs
 
 - `e2e/chat-context-meter.spec.ts` "the readouts fit the row and pass axe at 420 px" fails about half the time, on the base too.
+- No browser test covers a side conversation ending on `/clear` or an agent swap, or Codex's read-only command rows in the side pane.
 - Under heavy machine load some chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
 - Two browser tests, `e2e/editor-schemes.spec.ts` (line 193) and `e2e/guard-settings.spec.ts` (line 125), failed even on retry in one run and passed when CI was rerun.
 - An MCP tool call whose inner request is refused by the key's rate limit (429) writes no audit row, matching direct rate-limited requests (accepted).

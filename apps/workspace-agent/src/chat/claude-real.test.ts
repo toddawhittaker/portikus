@@ -3,11 +3,12 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
+import { getSessionInfo, getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
 import type { ChatServerEvent } from "@portikus/contracts";
 import { silentLogger } from "@portikus/observability";
 import { expect, test, vi } from "vitest";
 import { ChatHost } from "./host.js";
+import { type ChatSdk, realSdk } from "./sdk.js";
 import { chatSessionsDir, recordChatSession } from "./session-record.js";
 import { readLines } from "./wire.js";
 
@@ -633,4 +634,183 @@ test.skipIf(!existsSync(CLAUDE))(
 		}
 	},
 	240_000,
+);
+
+/**
+ * A side question (/btw) through the SDK's undeclared `askSideQuestion`
+ * (SPEC.md §10.2, ADR 0083): /btw is offered, the answer knows the main
+ * conversation, arrives only as side frames, and nothing of it is written to
+ * the transcript. This pins the method's shape against the real CLI.
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"a side question knows the conversation and leaves the transcript alone",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		const host = new ChatHost({
+			terminalId: ID,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async () => undefined,
+			claudePath: CLAUDE,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+		readLines(socket, 16 * 1024 * 1024, (line) => {
+			events.push(JSON.parse(line) as ChatServerEvent);
+		});
+		const side = () => events.flatMap((e) => (e.type === "side" ? [e.event] : []));
+		try {
+			await vi.waitFor(() =>
+				expect(events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			send({ type: "set", model: "haiku" });
+			send({
+				type: "send",
+				text: "The secret word for this chat is PELICAN. Reply with just OK.",
+				attachments: [],
+			});
+			await vi.waitFor(
+				() => expect(events.some((e) => e.type === "turn.finished")).toBe(true),
+				{ timeout: 120_000, interval: 500 },
+			);
+			await vi.waitFor(() => {
+				const listed = events.filter((e) => e.type === "commands").at(-1);
+				const names =
+					listed?.type === "commands" ? listed.commands.map((c) => c.name) : [];
+				expect(names).toContain("btw");
+			});
+			const before = events.filter((e) => e.type !== "side").length;
+			send({
+				type: "send",
+				text: "/btw What is the secret word? One word.",
+				attachments: [],
+			});
+			await vi.waitFor(() => expect(side().at(-1)?.type).toBe("turn.finished"), {
+				timeout: 120_000,
+				interval: 500,
+			});
+			expect(side().at(-1)).toMatchObject({ status: "done" });
+			const answer = side()
+				.filter((e) => e.type === "message" && e.role === "assistant")
+				.map((e) => (e as { markdown: string }).markdown)
+				.join("");
+			expect(answer.toUpperCase()).toContain("PELICAN");
+			const main = events.filter((e) => e.type !== "side");
+			expect(main.slice(before).filter((e) => e.type !== "context")).toEqual([]);
+			const transcript = JSON.stringify(await getSessionMessages(ID, { dir: project }));
+			expect(transcript).not.toContain("One word.");
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	300_000,
+);
+
+/**
+ * A side question that would need a tool (SPEC.md §10.2, ADR 0083): the
+ * side call has no tools, so it never reaches the permission callback and
+ * opens no card, and an answer still arrives in the side conversation.
+ */
+test.skipIf(!existsSync(CLAUDE))(
+	"a side question needing a tool asks no permission and opens no card",
+	async () => {
+		const home = await mkdtemp(join(tmpdir(), "pk-chat-real-"));
+		const project = join(home, "projects", "demo");
+		await mkdir(project, { recursive: true });
+		await writeFile(join(project, "package.json"), '{ "name": "side-probe-heron" }\n');
+		const asked: string[] = [];
+		// The real SDK, with the host's permission callback recorded on its way in.
+		const sdk: ChatSdk = {
+			...realSdk,
+			query: (args) => {
+				const canUseTool = args.options?.canUseTool;
+				return realSdk.query({
+					...args,
+					options: {
+						...args.options,
+						...(canUseTool
+							? {
+									canUseTool: (name, input, extra) => {
+										asked.push(name);
+										return canUseTool(name, input, extra);
+									},
+								}
+							: {}),
+					},
+				});
+			},
+		};
+		const host = new ChatHost({
+			terminalId: ID,
+			projectDir: project,
+			homeDir: home,
+			socketDir: join(home, "chat"),
+			log: silentLogger(),
+			postLimits: async () => undefined,
+			postTitle: async () => undefined,
+			claudePath: CLAUDE,
+			sdk,
+		});
+		await host.start();
+		const socket = connect(host.socketPath);
+		const events: ChatServerEvent[] = [];
+		const send = (message: unknown) => socket.write(`${JSON.stringify(message)}\n`);
+		readLines(socket, 16 * 1024 * 1024, (line) => {
+			events.push(JSON.parse(line) as ChatServerEvent);
+		});
+		const side = () => events.flatMap((e) => (e.type === "side" ? [e.event] : []));
+		try {
+			await vi.waitFor(() =>
+				expect(events.some((e) => e.type === "snapshot")).toBe(true),
+			);
+			send({ type: "set", model: "haiku", mode: "default" });
+			send({ type: "send", text: "Reply with just OK.", attachments: [] });
+			await vi.waitFor(
+				() => expect(events.some((e) => e.type === "turn.finished")).toBe(true),
+				{ timeout: 120_000, interval: 500 },
+			);
+			await vi.waitFor(() => {
+				const listed = events.filter((e) => e.type === "commands").at(-1);
+				const names =
+					listed?.type === "commands" ? listed.commands.map((c) => c.name) : [];
+				expect(names).toContain("btw");
+			});
+			const askedBefore = asked.length;
+			const before = events.filter((e) => e.type !== "side").length;
+			send({
+				type: "side.ask",
+				text: "Run the shell command `cat package.json` and tell me its name field.",
+			});
+			await vi.waitFor(() => expect(side().at(-1)?.type).toBe("turn.finished"), {
+				timeout: 120_000,
+				interval: 500,
+			});
+			expect(side().at(-1)).toMatchObject({ status: "done" });
+			const answer = side()
+				.filter((e) => e.type === "message" && e.role === "assistant")
+				.map((e) => (e as { markdown: string }).markdown)
+				.join("");
+			expect(answer.trim()).not.toBe("");
+			expect(asked.slice(askedBefore)).toEqual([]);
+			const main = events.filter((e) => e.type !== "side").slice(before);
+			expect(main.filter((e) => e.type !== "context")).toEqual([]);
+			expect(JSON.stringify(events)).not.toContain("permission.requested");
+		} finally {
+			socket.destroy();
+			await host.stop();
+			await rm(home, { recursive: true, force: true });
+			await removeSessionFolder(project);
+		}
+	},
+	300_000,
 );

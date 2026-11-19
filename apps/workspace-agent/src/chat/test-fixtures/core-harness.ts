@@ -3,9 +3,16 @@ import type {
 	ChatClientMessage,
 	ChatOpenCard,
 	ChatServerEvent,
+	SideExchange,
 } from "@portikus/contracts";
 import { expect, vi } from "vitest";
-import type { ChatAgent, ChatEventBody, ChatSink, ContextFigures } from "../agent.js";
+import type {
+	ChatAgent,
+	ChatEventBody,
+	ChatSink,
+	ContextFigures,
+	SideEventBody,
+} from "../agent.js";
 import type { Handoff } from "../handoff.js";
 import { readLines } from "../wire.js";
 
@@ -29,6 +36,27 @@ export class FakeAgent implements ChatAgent {
 	failAdopt = false;
 	/** Called after each send, to play the agent's answer to it. */
 	onSend: ((text: string) => void) | null = null;
+	/** Whether this driver answers side questions; when set, each one waits in `sideCalls`. */
+	sideEnabled = false;
+	sideCalls: {
+		text: string;
+		earlier: SideExchange[];
+		emit: (e: SideEventBody) => void;
+		signal: AbortSignal;
+		finish: () => void;
+	}[] = [];
+
+	get askSide(): ChatAgent["askSide"] {
+		if (!this.sideEnabled) return undefined;
+		return (text, earlier, emit, signal) =>
+			new Promise<void>((finish) => {
+				this.calls.push(["askSide", text]);
+				this.sideCalls.push({ text, earlier, emit, signal, finish });
+			});
+	}
+	async endSide(): Promise<void> {
+		this.calls.push(["endSide"]);
+	}
 
 	async start(sink: ChatSink): Promise<void> {
 		this.sink = sink;
