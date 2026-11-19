@@ -38,6 +38,7 @@ import {
 	writePendingSwitch,
 	writeSwapState,
 } from "./session-record.js";
+import { SIDE_COMMAND_INFO, SideConversation, sideCommand } from "./side.js";
 import { chatSocketPath, privateDirectory, readLines, writeLine } from "./wire.js";
 
 export interface ChatCoreOptions {
@@ -137,6 +138,7 @@ export class ChatCore {
 	private resets = 0;
 	private readonly fresh: FreshStart;
 	private readonly auto: AutoHandoffNotes;
+	private readonly side: SideConversation;
 
 	private readonly sink: ChatSink = {
 		emit: (event) => this.relay(event),
@@ -152,8 +154,14 @@ export class ChatCore {
 		commands: (commands) => {
 			// Every agent's chat offers /handoff; the core runs it (SPEC.md §10.8).
 			const listed = [
-				...commands.filter((command) => command.name !== HANDOFF_COMMAND_INFO.name),
+				...commands.filter(
+					(command) =>
+						command.name !== HANDOFF_COMMAND_INFO.name &&
+						command.name !== SIDE_COMMAND_INFO.name,
+				),
 				{ ...HANDOFF_COMMAND_INFO },
+				// Only a driver that answers side questions offers /btw (SPEC.md §10.2).
+				...(this.agent.askSide ? [{ ...SIDE_COMMAND_INFO }] : []),
 			];
 			if (same(listed, this.commands)) return;
 			this.commands = listed;
@@ -208,6 +216,15 @@ export class ChatCore {
 		private readonly agentName: CodingAgent,
 	) {
 		this.swap = options.swap?.state ?? null;
+		this.side = new SideConversation({
+			terminalId: options.terminalId,
+			agent,
+			broadcast: (line) => {
+				// An attachment still replaying gets the whole side conversation after.
+				for (const client of this.clients)
+					if (!client.held) writeLine(client.socket, line);
+			},
+		});
 		this.fresh = new FreshStart({
 			projectDir: this.options.projectDir,
 			log: this.options.log,
@@ -264,6 +281,7 @@ export class ChatCore {
 	async stop(): Promise<void> {
 		if (this.takeBackTimer) clearTimeout(this.takeBackTimer);
 		this.auto.stop();
+		await this.side.end();
 		await this.agent.stop();
 		for (const client of this.clients) client.socket.destroy();
 		this.clients.clear();
@@ -383,6 +401,7 @@ export class ChatCore {
 			this.switching = false;
 			throw error;
 		}
+		await this.side.end();
 		this.options.log.info({ to }, "chat agent swap prepared");
 		this.closing = this.closeListener();
 		client.socket.end();
@@ -530,6 +549,7 @@ export class ChatCore {
 			void this.saveSwap();
 		}
 		this.cards.clearDecisions();
+		void this.side.end();
 		for (const client of this.clients) {
 			// Mid-attach, its replay is of the old conversation; it reattaches.
 			if (client.held) {
@@ -590,6 +610,7 @@ export class ChatCore {
 		const held = client.held ?? [];
 		client.held = null;
 		for (const event of held) this.write(socket, event);
+		for (const line of this.side.replay()) writeLine(socket, line);
 		const review = this.fresh.reviewEvent();
 		if (review && !held.some((event) => event.type === "handoff.review")) {
 			this.write(socket, review);
@@ -692,11 +713,16 @@ export class ChatCore {
 				const result = await this.agent.rename(message.title);
 				return writeLine(client.socket, JSON.stringify(result));
 			}
-			case "send":
+			case "send": {
+				// A typed /btw is a side question and never reaches the main conversation.
+				const side = this.agent.askSide ? sideCommand(message.text) : null;
+				if (side === "open") return;
+				if (side) return this.side.ask(side.question);
 				if (message.text.trim() === `/${HANDOFF_COMMAND_INFO.name}`)
 					return this.fresh.start();
 				if (!isShellCommand(message.text)) this.auto.studentSent();
 				return this.sendText(message.text, message.attachments ?? []);
+			}
 			case "permission.answer":
 				return this.cards.answer(message.id, {
 					type: "permission",
@@ -742,11 +768,12 @@ export class ChatCore {
 			}
 			case "handoff.resend":
 				return this.fresh.resend(message.id);
-			// Side questions are not offered yet: the host does not list `btw` (SPEC.md section 10.2).
 			case "side.ask":
+				return this.side.ask(message.text);
 			case "side.stop":
+				return this.side.stop();
 			case "side.end":
-				return;
+				return this.side.end();
 			default:
 				return assertHandled(message);
 		}

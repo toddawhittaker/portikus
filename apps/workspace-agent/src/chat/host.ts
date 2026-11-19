@@ -15,6 +15,7 @@ import {
 	type ChatPermissionMode,
 	type ChatQuestion,
 	type ChatShellItem,
+	type ChatSubagentEvent,
 	chatStartMode,
 	isShellCommand,
 	shellCommandText,
@@ -55,7 +56,7 @@ import { ELICITATION_NOTICE, refreshMcp } from "./mcp-status.js";
 import { ModelList } from "./model-list.js";
 import { splitSuggestions } from "./permission-rules.js";
 import { PlanUsage } from "./plan-usage.js";
-import { type ChatSdk, realSdk } from "./sdk.js";
+import { type ChatSdk, realSdk, sideQuestionOf } from "./sdk.js";
 import { toSdkEffort, toSdkPermissionMode } from "./sdk-settings.js";
 import { writeChatSession } from "./session-record.js";
 import { SessionRules } from "./session-rules.js";
@@ -114,6 +115,11 @@ export class ChatHost extends ChatCore {
 	}
 }
 
+type SideEventBody = DistributiveOmit<ChatSubagentEvent, "sessionId" | "seq">;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+	? Omit<T, K>
+	: never;
+
 /** The Claude driver behind the chat core: the Agent SDK in, chat events out. */
 class ClaudeAgent implements ChatAgent {
 	private sink!: ChatSink;
@@ -167,6 +173,8 @@ class ClaudeAgent implements ChatAgent {
 	/** The Claude session in force; /clear moves the tab to a new one. */
 	private sessionId: string;
 	private readonly subagents: SubagentStreams;
+	/** The session in force answers side questions (ADR 0083). */
+	private sideQuestions = false;
 
 	constructor(private readonly options: ChatHostOptions) {
 		this.sdk = options.sdk ?? realSdk;
@@ -201,6 +209,63 @@ class ClaudeAgent implements ChatAgent {
 			),
 		);
 	}
+
+	/** Present only while the session in force can answer side questions. */
+	get askSide(): ChatAgent["askSide"] {
+		return this.sideQuestions ? this.answerSide : undefined;
+	}
+
+	/**
+	 * A side question goes to Claude Code with no tools and leaves no trace
+	 * in the transcript; nothing of it is logged (ADR 0012, ADR 0083).
+	 */
+	private readonly answerSide: NonNullable<ChatAgent["askSide"]> = async (
+		text,
+		earlier,
+		emit,
+		signal,
+	) => {
+		const stamp = { sessionId: this.options.terminalId };
+		let seq = 0;
+		const send = (event: SideEventBody) =>
+			emit({ ...event, ...stamp, seq: seq++ } as ChatSubagentEvent);
+		send({ type: "turn.started", at: Date.now() });
+		try {
+			await this.ensureSession();
+			const session = this.session;
+			const ask = session ? sideQuestionOf(session) : null;
+			if (!ask)
+				throw new Error("This version of Claude Code cannot take side questions.");
+			const answer = await ask(text, {
+				history: earlier.map((exchange) => ({
+					question: exchange.question,
+					response: exchange.answer,
+				})),
+				signal,
+			});
+			if (!signal.aborted && !answer)
+				throw new Error("Claude gave no answer to that side question.");
+			if (answer && !signal.aborted)
+				send({
+					type: "message",
+					id: randomUUID(),
+					role: "assistant",
+					markdown: answer.response,
+				});
+			send({
+				type: "turn.finished",
+				status: signal.aborted ? "interrupted" : "done",
+				at: Date.now(),
+			});
+		} catch (error) {
+			send({
+				type: "turn.finished",
+				status: signal.aborted ? "interrupted" : "error",
+				at: Date.now(),
+			});
+			throw error;
+		}
+	};
 
 	/** Stop Claude. The transcript stays. */
 	async stop(): Promise<void> {
@@ -255,6 +320,7 @@ class ClaudeAgent implements ChatAgent {
 			},
 		});
 		this.session = session;
+		this.sideQuestions = sideQuestionOf(session) !== null;
 		this.input = input;
 		this.ended = ended;
 		this.mapper = new ClaudeMessageMapper();
@@ -437,6 +503,12 @@ class ClaudeAgent implements ChatAgent {
 
 	/** Messages about the session rather than the conversation; true when handled. */
 	private handleControl(message: SDKMessage): boolean {
+		// A side question's only trace on the main stream (ADR 0083).
+		if (
+			message.type === "system" &&
+			(message.subtype as string) === "control_request_progress"
+		)
+			return true;
 		if (message.type === "system" && message.subtype === "init") {
 			this.sessionStarted(message);
 			return true;
