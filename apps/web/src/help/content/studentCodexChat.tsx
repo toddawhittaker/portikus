@@ -109,8 +109,8 @@ export const CODEX_CHAT_TOPIC: HelpPart["topics"][number] = {
 					to look things up; they show as rows in the side conversation. It cannot
 					change files, and nothing there joins the chat. Ask one question at a time;
 					Stop ends the one running. A reload keeps it, and closing it,{" "}
-					<code className="pk-mono-body">/clear</code>, switching agents or stopping your
-					workspace forgets it.
+					<code className="pk-mono-body">/clear</code>, switching agents or stopping
+					your workspace forgets it.
 				</li>
 				<li>
 					Under the pickers, Portikus shows how full Codex's memory of this chat is, as
