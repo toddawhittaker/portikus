@@ -61,6 +61,7 @@ import {
  */
 
 const NO_AGENT_TEXT = "Open an agent terminal or chat to send it a picked element";
+const PICKING_TEXT = "Picking an element. Press Escape to stop.";
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -124,7 +125,10 @@ test.describe("the pick button", () => {
 		await startPicking(page);
 
 		const status = page.getByTestId("preview-status");
-		await expect(status).toHaveText(/^body/);
+		// The start is not read, so the instructions are heard first.
+		await expect(status).toHaveText(PICKING_TEXT);
+		await page.keyboard.press("ArrowUp");
+		await expect(status).toHaveText(PICKING_TEXT);
 		await page.keyboard.press("ArrowDown");
 		await expect(status).toHaveText(/^main#main/);
 		await page.keyboard.press("ArrowDown");
@@ -149,16 +153,52 @@ test.describe("the pick button", () => {
 		expect(selectorOf(folder as PickFolder)).toContain("alpha");
 	});
 
-	// Pressing the pick button moves focus out of the application's frame, and
-	// the browser then forgets which element the frame had focused.
-	test.fixme("pick mode starts at the element the application had focused", async ({
+	test("pick mode starts at the element the application had focused", async ({
 		page,
 		context,
 	}) => {
-		await openScene(page, context);
+		const scene = await openScene(page, context);
 		await appFrame(page).evaluate(() => document.getElementById("beta")?.focus());
 		await startPicking(page);
-		await expect(page.getByTestId("preview-status")).toHaveText(/^li#beta/);
+		await page.keyboard.press("ArrowRight");
+		await expect(page.getByTestId("preview-status")).toHaveText(/^li#gamma/);
+		await page.keyboard.press("ArrowLeft");
+		await page.keyboard.press("Enter");
+		const [folder] = await folders(scene, 1);
+		expect(selectorOf(folder as PickFolder)).toContain("beta");
+	});
+
+	test("with several agents open, the keyboard alone chooses one and picks", async ({
+		page,
+		context,
+	}) => {
+		const scene = await openScene(page, context, { terminal: true, chat: true });
+		await pickButton(page).focus();
+		await page.keyboard.press("Enter");
+		const menu = page.getByRole("menu", { name: "Send the picked element to" });
+		await expect(menu).toBeVisible();
+		await expect(menu.getByRole("menuitem").first()).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(pickButton(page)).toHaveAttribute("aria-pressed", "true");
+		// The keyboard is in the picker, not back on the button.
+		await expect(layer(page)).toBeFocused();
+		const status = page.getByTestId("preview-status");
+		await page.keyboard.press("ArrowDown");
+		await expect(status).toHaveText(/^main#main/);
+		await page.keyboard.press("Enter");
+		const [folder] = await folders(scene, 1);
+		expect(selectorOf(folder as PickFolder)).toContain("main");
+	});
+
+	test("Escape in an agent's own box is left to the agent", async ({
+		page,
+		context,
+	}) => {
+		await openScene(page, context, { terminal: true, chat: true });
+		await startPicking(page, "Claude Code (TUI)");
+		await page.getByTestId("chat-composer-input").first().focus();
+		await page.keyboard.press("Escape");
+		await expect(pickButton(page)).toHaveAttribute("aria-pressed", "true");
 	});
 
 	test("Escape pressed in the Portikus page leaves pick mode", async ({
@@ -181,26 +221,41 @@ test.describe("the pick button", () => {
 	}) => {
 		const scene = await openScene(page, context);
 		await startPicking(page);
-		// The layer holds focus when picking starts.
+		// The layer holds focus when picking starts; leaving puts it on the button.
 		await page.keyboard.press("Escape");
 		await expect(pickButton(page)).toHaveAttribute("aria-pressed", "false");
 		await expect(layer(page)).toHaveCount(0);
+		await expect(pickButton(page)).toBeFocused();
 
-		// And when the application's own element has focus inside the frame.
+		// And when the application's own element has focus inside the frame,
+		// it keeps the keyboard.
 		await startPicking(page);
 		await appFrame(page).evaluate(() => document.getElementById("note")?.focus());
 		await page.keyboard.press("Escape");
 		await expect(pickButton(page)).toHaveAttribute("aria-pressed", "false");
 		await expect(layer(page)).toHaveCount(0);
+		await expect(appFrameLocator(page).locator("#note")).toBeFocused();
 		await expectNothingSent(page, scene);
 	});
 
-	test("is disabled and says why when no agent is open", async ({ page, context }) => {
+	test("is unavailable and says why when no agent is open, also to the keyboard", async ({
+		page,
+		context,
+	}) => {
 		await openScene(page, context, {});
 		const button = pickButton(page);
-		await expect(button).toBeDisabled();
+		await expect(button).toHaveAttribute("aria-disabled", "true");
 		await expect(button).toHaveAccessibleDescription(NO_AGENT_TEXT);
 		await expect(button).toHaveAttribute("aria-pressed", "false");
+		await expect(button).not.toHaveAttribute("title");
+		// Tab reaches it, and focus shows the reason.
+		await page.getByTestId("preview-host").click();
+		await page.keyboard.press("Tab");
+		await expect(button).toBeFocused();
+		await expect(page.getByRole("tooltip")).toContainText(NO_AGENT_TEXT);
+		await page.keyboard.press("Enter");
+		await expect(button).toHaveAttribute("aria-pressed", "false");
+		await expect(layer(page)).toHaveCount(0);
 	});
 
 	test("is hidden in a Traditional course", async ({ page, context }) => {
@@ -313,6 +368,13 @@ test.describe("what a pick sends", () => {
 		).toHaveAttribute("aria-selected", "true");
 		const view = page.getByTestId(`chat-view-${chatId}`);
 		await expect(view).toBeVisible();
+		// The chat's box has the keyboard, and the send is announced.
+		await expect(view.getByTestId("chat-composer-input")).toBeFocused();
+		await expect(
+			page
+				.getByRole("status")
+				.filter({ hasText: "Picked element sent to Claude Code (GUI)" }),
+		).toHaveCount(1);
 		const chips = view.getByTestId("composer-chip");
 		await expect(chips).toHaveCount(2);
 		await expect(chips.filter({ hasText: "picked-element.md" })).toHaveCount(1);
@@ -342,6 +404,10 @@ test.describe("what a pick sends", () => {
 		await expect(
 			page.getByRole("tab", { name: /^Claude Code \(TUI\)/ }),
 		).toHaveAttribute("aria-selected", "true");
+		// The terminal has the keyboard, ready for the student to type.
+		await expect(
+			page.getByTestId(`terminal-leaf-${terminalId}`).locator(".xterm-helper-textarea"),
+		).toBeFocused();
 
 		// The chat got nothing.
 		await page.getByRole("tab", { name: /^Claude Code \(GUI\)/ }).click();
@@ -505,13 +571,13 @@ test.describe("forged messages", () => {
 		await postFromWrapper(page, {
 			png: { bytes: 5 * 1024 * 1024 + 1, signature: true },
 		});
-		await settle(page);
-		// The message breaks a limit of its schema, so it may be refused whole
-		// or go without its picture; it never reaches the folder with the picture.
-		for (const folder of await pickFolders(scene.workspaceId, scene.slug)) {
-			expect(Object.keys(folder.files)).toEqual(["picked-element.md"]);
-			expect(pickText(folder)).toContain("Screenshot: left out");
-		}
+		// The pick arrives, without its picture.
+		const [folder] = await folders(scene, 1);
+		expect(Object.keys((folder as PickFolder).files)).toEqual(["picked-element.md"]);
+		expect(pickText(folder as PickFolder)).toContain("Screenshot: left out");
+		await expect
+			.poll(() => typedInto(scene.terminalId ?? ""))
+			.toContain("picked-element.md");
 		expect(await typedInto(scene.terminalId ?? "")).not.toContain("picked-element.png");
 	});
 });

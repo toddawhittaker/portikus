@@ -132,7 +132,12 @@ const HoverMessage = z.strictObject({
 	type: z.literal("hover"),
 	label: z.string().max(PICK_HOVER_LABEL_MAX_CHARS),
 });
-const CancelledMessage = z.strictObject({ v: version, type: z.literal("cancelled") });
+const CancelledMessage = z.strictObject({
+	v: version,
+	type: z.literal("cancelled"),
+	/** The wrapper gave the keyboard back to the app element that had it. */
+	focusInApp: z.boolean().optional(),
+});
 
 export const ParentMessage = z.discriminatedUnion("type", [StartMessage, StopMessage]);
 export type ParentMessage = z.infer<typeof ParentMessage>;

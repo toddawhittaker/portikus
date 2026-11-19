@@ -56,6 +56,14 @@ describe("Menu", () => {
 		expect(onSelect).toHaveBeenCalledTimes(1);
 	});
 
+	it("is named by its label, not by its trigger", () => {
+		render(<Fixture onSelect={vi.fn()} />);
+
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const menu = screen.getByRole("menu", { name: "Project actions" });
+		expect(menu.getAttribute("aria-labelledby")).toBeNull();
+	});
+
 	it("opens from the keyboard", () => {
 		render(<Fixture onSelect={vi.fn()} />);
 

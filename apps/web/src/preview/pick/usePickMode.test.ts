@@ -18,11 +18,21 @@ const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3];
 
 let iframe: HTMLIFrameElement;
 let other: HTMLIFrameElement;
+let pane: HTMLElement;
+let pickButton: HTMLButtonElement;
+let elsewhere: HTMLTextAreaElement;
 
 beforeEach(() => {
+	// The preview pane as PreviewLeaf draws it: the pick button and the frame.
+	pane = document.createElement("div");
+	pane.className = "pk-preview";
+	pickButton = document.createElement("button");
+	pickButton.dataset.testid = "preview-pick";
 	iframe = document.createElement("iframe");
+	pane.append(pickButton, iframe);
 	other = document.createElement("iframe");
-	document.body.append(iframe, other);
+	elsewhere = document.createElement("textarea");
+	document.body.append(pane, other, elsewhere);
 });
 
 const offs: Array<() => void> = [];
@@ -30,8 +40,9 @@ const offs: Array<() => void> = [];
 afterEach(() => {
 	cleanup();
 	for (const off of offs.splice(0)) off();
-	iframe.remove();
+	pane.remove();
 	other.remove();
+	elsewhere.remove();
 	vi.useRealTimers();
 });
 
@@ -187,6 +198,66 @@ test("Escape in the Portikus page stops picking, and a later pick is refused", a
 	send(picked());
 	await settle();
 	expect(t.deliver).not.toHaveBeenCalled();
+});
+
+test("start gives the frame the keyboard", () => {
+	const { result } = setup();
+	act(() => result.current.start(target()));
+	expect(document.activeElement).toBe(iframe);
+});
+
+test("Escape outside the preview pane, or already handled, does not stop picking", () => {
+	const { result } = setup();
+	act(() => result.current.start(target()));
+	// An agent's chat box has the keyboard; its Escape stops the agent's turn.
+	elsewhere.focus();
+	act(() => {
+		elsewhere.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+		);
+	});
+	expect(result.current.state).toBe("picking");
+	pickButton.focus();
+	act(() => {
+		const event = new KeyboardEvent("keydown", {
+			key: "Escape",
+			bubbles: true,
+			cancelable: true,
+		});
+		event.preventDefault();
+		pickButton.dispatchEvent(event);
+	});
+	expect(result.current.state).toBe("picking");
+	act(() => {
+		pickButton.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+		);
+	});
+	expect(result.current.state).toBe("idle");
+});
+
+test("Escape in the frame puts the keyboard on the pick button", () => {
+	const { result } = setup();
+	act(() => result.current.start(target()));
+	expect(document.activeElement).toBe(iframe);
+	send({ v: 1, type: "cancelled", focusInApp: false });
+	expect(document.activeElement).toBe(pickButton);
+});
+
+test("Escape in the frame leaves the keyboard in the app when the wrapper gave it back", () => {
+	const { result } = setup();
+	act(() => result.current.start(target()));
+	send({ v: 1, type: "cancelled", focusInApp: true });
+	expect(result.current.state).toBe("idle");
+	expect(document.activeElement).toBe(iframe);
+});
+
+test("a cancel leaves the keyboard alone when it is not in the frame", () => {
+	const { result } = setup();
+	act(() => result.current.start(target()));
+	elsewhere.focus();
+	send({ v: 1, type: "cancelled" });
+	expect(document.activeElement).toBe(elsewhere);
 });
 
 test("a pick after the frame reloads is refused", async () => {

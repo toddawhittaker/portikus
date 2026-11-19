@@ -30,6 +30,11 @@ import {
 
 type PickState = "idle" | "picking" | "delivering";
 
+/** The preview pane around `frame`, which holds the pick button. */
+function paneOf(frame: HTMLIFrameElement | null): HTMLElement | null {
+	return frame?.closest<HTMLElement>(".pk-preview") ?? null;
+}
+
 export interface UsePickModeOptions {
 	frame: React.RefObject<HTMLIFrameElement | null>;
 	/** The preview origin of the frame on show, or null when none is. */
@@ -74,6 +79,15 @@ function pickFiles(pick: PickedMessage, port: number, capturedAt: Date): File[] 
 		files.push(new File([pick.png], PICK_PNG_FILE_NAME, { type: "image/png" }));
 	}
 	return files;
+}
+
+/**
+ * Escape in the frame would leave the keyboard on the wrapper's empty page,
+ * so it moves to the pick button; focus elsewhere stays where it is.
+ */
+function leaveFrame(own: HTMLIFrameElement | null) {
+	if (!own || document.activeElement !== own) return;
+	paneOf(own)?.querySelector<HTMLElement>('[data-testid="preview-pick"]')?.focus();
 }
 
 export function usePickMode({
@@ -127,6 +141,8 @@ export function usePickMode({
 				return;
 			target.current = chosen;
 			enter("picking");
+			// The frame takes the keyboard, so the wrapper's layer can have it.
+			frame.current.focus();
 			post({ v: 1, type: "start" });
 		},
 		[previewOrigin, frame, post, enter],
@@ -149,6 +165,7 @@ export function usePickMode({
 			}
 			if (message.type === "cancelled") {
 				enter("idle");
+				if (!message.focusInApp) leaveFrame(frame.current);
 				return;
 			}
 			const chosen = target.current;
@@ -183,15 +200,22 @@ export function usePickMode({
 		return () => window.removeEventListener("message", onMessage);
 	}, [previewOrigin, frame, enter]);
 
-	// Escape anywhere in the Portikus page leaves pick mode.
+	// Escape in the preview pane, or with nothing focused, leaves pick mode.
+	// Elsewhere it belongs to what has focus, such as an agent's running turn.
 	useEffect(() => {
 		if (state !== "picking") return;
 		function onKey(event: KeyboardEvent) {
-			if (event.key === "Escape") stop();
+			if (event.key !== "Escape" || event.defaultPrevented) return;
+			const active = document.activeElement;
+			const inPane =
+				active === null ||
+				active === document.body ||
+				(paneOf(frame.current)?.contains(active) ?? false);
+			if (inPane) stop();
 		}
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [state, stop]);
+	}, [state, stop, frame]);
 
 	// A new grant, a new port, or the tab closing ends a pick in progress;
 	// `stop` is the old frame's, so it tells the old page.

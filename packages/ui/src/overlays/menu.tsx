@@ -62,6 +62,8 @@ export function Menu({
 	const content = (
 		<P.Content
 			aria-label={label}
+			// Radix names the menu after its trigger, which would win over the label.
+			{...(label ? { "aria-labelledby": undefined } : {})}
 			className={`pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md ${className ?? ""}`}
 			style={style}
 			sideOffset={kind === "dropdown" ? 4 : undefined}

@@ -147,8 +147,41 @@ describe("startWrapper", () => {
 		send({ v: 1, type: "start" });
 		const layer = win.document.querySelector(".pick-layer") as HTMLElement;
 		layer.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-		expect(types(posted)).toContain("cancelled");
+		expect(posted).toContainEqual({ v: 1, type: "cancelled", focusInApp: false });
 		expect(win.document.querySelector(".pick-layer")).toBeNull();
+	});
+
+	it("gives the keyboard back to the app element that had it on Escape", () => {
+		const { win, app, send, posted } = mount();
+		app.dispatchEvent(new Event("load"));
+		const appDoc = app.contentDocument as Document;
+		appDoc.body.innerHTML = `<button id="b">B</button>`;
+		const button = appDoc.querySelector("button") as HTMLElement;
+		button.focus();
+		button.blur();
+		send({ v: 1, type: "start" });
+		const layer = win.document.querySelector(".pick-layer") as HTMLElement;
+		layer.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		expect(appDoc.activeElement).toBe(button);
+		expect(posted).toContainEqual({ v: 1, type: "cancelled", focusInApp: true });
+		expect(parseWrapperMessage(posted.at(-1))).not.toBeNull();
+	});
+
+	it("listens for focus again in each page the app loads", () => {
+		const { win, app, send, posted } = mount();
+		app.dispatchEvent(new Event("load"));
+		const appDoc = app.contentDocument as Document;
+		appDoc.open();
+		appDoc.write(`<!doctype html><html><body><a href="#" id="n">N</a></body></html>`);
+		appDoc.close();
+		app.dispatchEvent(new Event("load"));
+		const link = (app.contentDocument as Document).querySelector("a") as HTMLElement;
+		link.focus();
+		link.blur();
+		send({ v: 1, type: "start" });
+		const layer = win.document.querySelector(".pick-layer") as HTMLElement;
+		layer.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		expect(posted).toContainEqual({ v: 1, type: "cancelled", focusInApp: true });
 	});
 
 	it("posts one valid pick per start, with the picture when there is one", async () => {

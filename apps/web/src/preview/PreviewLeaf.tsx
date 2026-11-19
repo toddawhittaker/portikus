@@ -36,6 +36,7 @@ import {
 	resetPreviewData,
 } from "./grants.js";
 import { attachPreviewHistory, type PreviewHistory } from "./history.js";
+import { focusAgentInput } from "./pick/focusAgent.js";
 import { PickControl } from "./pick/PickControl.js";
 import { usePickMode } from "./pick/usePickMode.js";
 import { PREVIEW_FRAME_ALLOW } from "./previewAllow.js";
@@ -424,15 +425,21 @@ export function PreviewLeaf({
 		previewOrigin: framed ? state.grant.previewOrigin : null,
 		frameKey: framed ? state.grant.bootstrapUrl : null,
 		port,
-		// Show the agent that got the pick, the way its row in the left pane does.
-		onDelivered: (target) =>
-			void navigate({
-				to: ".",
-				search: (previous: Record<string, unknown>) => ({
-					...previous,
-					tab: target.terminalId,
+		// Show the agent that got the pick, the way its row in the left pane
+		// does, and give it the keyboard. The toast is announced outside this
+		// pane, which the switch hides (SPEC.md §25.8).
+		onDelivered: (target) => {
+			toast.show({ tone: "success", title: `Picked element sent to ${target.label}` });
+			void Promise.resolve(
+				navigate({
+					to: ".",
+					search: (previous: Record<string, unknown>) => ({
+						...previous,
+						tab: target.terminalId,
+					}),
 				}),
-			}),
+			).then(() => focusAgentInput(target.terminalId));
+		},
 		onError: (error) =>
 			toast.show({
 				tone: "danger",

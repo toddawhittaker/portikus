@@ -468,3 +468,14 @@ test("a replay does not pull the keyboard back after a click left the log for th
 	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
 	expect(document.activeElement).toBe(document.body);
 });
+
+test("a later message does not pull the keyboard in when the focused answer is still there", () => {
+	draw();
+	sendFromChat("/btw why?");
+	answered();
+	act(() => copyInAnswer().focus());
+	// Focus is lost some other way, such as the window losing it, with no click.
+	act(() => (document.activeElement as HTMLElement).blur());
+	side(5, "message", { id: "b", role: "assistant", markdown: "Also this." });
+	expect(document.activeElement).toBe(document.body);
+});

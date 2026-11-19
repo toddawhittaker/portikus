@@ -835,6 +835,14 @@ test("a pick that does not arrive leaves the view on the preview", async () => {
 
 test("a pick goes to the one open agent, the status reads the hover, and the view switches", async () => {
 	stubFetch(() => json(200, GRANT));
+	// The agent's terminal as the work area draws it.
+	const agentPane = document.createElement("div");
+	agentPane.dataset.testid = "terminal-leaf-term-1";
+	const input = document.createElement("textarea");
+	input.className = "xterm-helper-textarea";
+	input.getClientRects = () => [{}] as unknown as DOMRectList;
+	agentPane.append(input);
+	document.body.append(agentPane);
 	const deliver = vi.fn(async () => true);
 	const off = registerAgentDropTarget({
 		terminalId: "term-1",
@@ -865,7 +873,12 @@ test("a pick goes to the one open agent, the status reads the hover, and the vie
 		const search = navigate.mock.calls[0]?.[0].search as (p: object) => object;
 		expect(search({ open: "a.ts" })).toEqual({ open: "a.ts", tab: "term-1" });
 		expect(pickButton.getAttribute("aria-pressed")).toBe("false");
+		// Announced where it is still heard once the preview is hidden, and the
+		// agent's input gets the keyboard.
+		expect(screen.getByText("Picked element sent to Claude Code")).toBeTruthy();
+		await waitFor(() => expect(document.activeElement).toBe(input));
 	} finally {
 		off();
+		agentPane.remove();
 	}
 });

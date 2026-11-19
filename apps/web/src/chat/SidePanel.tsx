@@ -91,27 +91,27 @@ export function SidePanel({
 	if (status !== "" || !rebuilding) spoken.current = status;
 
 	/**
-	 * The keyboard sat on a control inside the log. A replay empties the list
-	 * and may swap it for the empty-state paragraph, and removing the focused
-	 * node reports no new target (a browser may still fire a blur for it), so
-	 * focus is recorded here and the move is made after the items change
-	 * (SPEC.md §25.8). It is forgotten when focus goes to another element or
-	 * the student presses on the page outside the log.
+	 * The control inside the log that had the keyboard. A replay empties the
+	 * list and may swap it for the empty-state paragraph, and removing the
+	 * focused node reports no new target (a browser may still fire a blur for
+	 * it), so the control is kept here and focus moves only once it has left
+	 * the page (SPEC.md §25.8). It is forgotten when focus goes to another
+	 * element or the student presses on the page outside the log.
 	 */
-	const inLog = useRef(false);
+	const inLog = useRef<Element | null>(null);
 	useEffect(() => {
 		const node = log.current;
 		if (!node) return;
-		const onFocusIn = () => {
-			inLog.current = true;
+		const onFocusIn = (event: FocusEvent) => {
+			inLog.current = event.target instanceof Element ? event.target : null;
 		};
 		const onFocusOut = (event: FocusEvent) => {
 			const next = event.relatedTarget;
-			if (next instanceof Node && !node.contains(next)) inLog.current = false;
+			if (next instanceof Node && !node.contains(next)) inLog.current = null;
 		};
 		const onPointerDown = (event: PointerEvent) => {
 			if (!(event.target instanceof Node && node.contains(event.target)))
-				inLog.current = false;
+				inLog.current = null;
 		};
 		node.addEventListener("focusin", onFocusIn);
 		node.addEventListener("focusout", onFocusOut);
@@ -133,10 +133,11 @@ export function SidePanel({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs whenever the conversation changes
 	useLayoutEffect(() => {
 		follow.arrived();
-		if (!inLog.current) return;
+		const had = inLog.current;
+		if (!had || had.isConnected) return;
+		inLog.current = null;
 		const active = document.activeElement;
 		if (active !== null && active !== document.body) return;
-		inLog.current = false;
 		// Where the pane's own handle puts it: Stop while a question runs, else the box.
 		(running ? stop.current : box.current)?.focus({ preventScroll: true });
 	}, [side?.items]);
