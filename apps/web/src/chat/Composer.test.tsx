@@ -890,9 +890,7 @@ test("the listed name follows the chat's agent", () => {
 	const targets = renderHook(() => useAgentDropTargets());
 	draw();
 	settings({ agent: "codex" });
-	expect(targets.result.current.map((target) => target.label)).toEqual([
-		"Codex (GUI)",
-	]);
+	expect(targets.result.current.map((target) => target.label)).toEqual(["Codex (GUI)"]);
 });
 
 test("a drop that is not files is ignored", () => {
