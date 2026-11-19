@@ -102,6 +102,17 @@ export const CODEX_CHAT_TOPIC: HelpPart["topics"][number] = {
 					(TUI) terminal shows its subagents in the project list too.
 				</li>
 				<li>
+					Type <code className="pk-mono-body">/btw</code>, alone or with a question, to
+					ask a quick question in a side conversation beside the chat, as Codex's own{" "}
+					<code className="pk-mono-body">/side</code> does. Codex answers from what the
+					chat already knows, even while it is working, and may run read-only commands
+					to look things up; they show as rows in the side conversation. It cannot
+					change files, and nothing there joins the chat. Ask one question at a time;
+					Stop ends the one running. A reload keeps it, and closing it,{" "}
+					<code className="pk-mono-body">/clear</code>, switching agents or stopping
+					your workspace forgets it.
+				</li>
+				<li>
 					Under the pickers, Portikus shows how full Codex's memory of this chat is, as
 					a meter, and warns as it fills; type{" "}
 					<code className="pk-mono-body">/compact</code> when it is high. Codex gives no

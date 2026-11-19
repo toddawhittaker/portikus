@@ -197,6 +197,15 @@ export interface ChatState {
 	 * applies each one to a store of its own; the chat's sequence ignores them.
 	 */
 	subagentFrame: SubagentFrame | null;
+	/**
+	 * The side conversation (SPEC.md §10.2), folded from `side` frames with
+	 * this same reducer, apart from the chat's own sequence; null when there is none.
+	 */
+	side: ChatState | null;
+	/** The side pane is open, with or without a question asked yet. */
+	sideOpen: boolean;
+	/** A side question went out and the host has not answered it yet. */
+	sideWaiting: boolean;
 }
 
 type SubagentFrame = Extract<ChatServerEvent, { type: "subagent" }>;
@@ -246,6 +255,26 @@ export const initialChatState: ChatState = {
 	lastUserMessageSeq: -1,
 	lastError: null,
 	subagentFrame: null,
+	side: null,
+	sideOpen: false,
+	sideWaiting: false,
+};
+
+/** The command the host lists when its agent can take side questions (SPEC.md §10.2). */
+export const SIDE_COMMAND = "btw";
+
+/** An older host drops the socket on a frame it cannot parse, so no `side.*` goes out unless it lists `btw`. */
+export function sideOffered(state: Pick<ChatState, "commands">): boolean {
+	return state.commands.some(
+		(one) => one.name === SIDE_COMMAND && (one.prefix ?? "/") === "/",
+	);
+}
+
+/** A side conversation's frames carry no snapshot of their own to wait for. */
+const SIDE_START: ChatState = {
+	...initialChatState,
+	loaded: true,
+	awaitingSnapshot: false,
 };
 
 /** Parse one raw socket frame; null when it is not a valid server event. */
@@ -280,8 +309,15 @@ export function receiveChatEvent(
 	now: number,
 ): ChatState {
 	if (event.type === "subagent") return { ...state, subagentFrame: event };
-	// The side pane is not built yet; no host sends this until it lists `btw` (SPEC.md section 10.2).
-	if (event.type === "side") return state;
+	// The host replays the side conversation after the snapshot, which ends any before it.
+	if (event.type === "side") {
+		if (state.awaitingSnapshot) return state;
+		// An idle snapshot says the conversation ended; a replay's comes with its events after it.
+		if (event.event.type === "snapshot" && !event.event.turnRunning)
+			return { ...state, side: null, sideOpen: false, sideWaiting: false };
+		const side = receiveChatEvent(state.side ?? SIDE_START, event.event, now);
+		return { ...state, side, sideOpen: true, sideWaiting: false };
+	}
 	// Only the left pane's rename reads its answer.
 	if (event.type === "rename.result") return state;
 	// A new object each time, so a second copy of the same prompt copies again.
@@ -316,6 +352,10 @@ function applySnapshot(
 		decisions: {},
 		// A new snapshot may be a new session; the host sends its context after.
 		context: null,
+		// It follows /clear, a swap or a new socket, and the host replays a side conversation that lasts.
+		side: null,
+		sideOpen: false,
+		sideWaiting: false,
 		// A snapshot follows /clear and an agent swap, and the history it replays counts again.
 		growth: NO_GROWTH,
 		// The host sends a waiting note again after the snapshot.
@@ -406,6 +446,8 @@ function applyChatEvent(state: ChatState, event: ChatEvent, now: number): ChatSt
 			return {
 				...state,
 				lastError: { seq: event.seq, message: event.message },
+				// A refused side question is answered with an error.
+				sideWaiting: false,
 				items: [
 					...state.items,
 					{ kind: "error", key: `error:${event.seq}`, message: event.message, turnId },
@@ -749,6 +791,14 @@ interface ChatActions {
 	/** Ask for a subagent's conversation as `subagentFrame`s; a new watch replaces the last. */
 	watchSubagent: (toolUseId: string) => boolean;
 	unwatchSubagent: (toolUseId: string) => boolean;
+	/** Open the side pane; false when the host does not offer side questions. */
+	openSide: () => boolean;
+	/** Ask a side question; `side` frames answer. */
+	askSide: (text: string) => boolean;
+	/** Stop the side question that is running. */
+	stopSide: () => boolean;
+	/** Close the side pane and ask the host to forget its conversation. */
+	endSide: () => void;
 	/** Ask the host to check the student's sign-in again; a `signIn` event answers. */
 	checkSignIn: () => boolean;
 	/** Ask the agent for a handoff note; a `handoff.review` event answers (SPEC.md §10.8). */
@@ -781,7 +831,11 @@ export function createChatStore(
 		const parsed = ChatClientMessage.safeParse(message);
 		return parsed.success ? transport(parsed.data) : false;
 	}
-	return createStore<ChatState & ChatActions>()((set) => ({
+	/** A side message, only to a host that lists `btw`. */
+	function deliverSide(state: ChatState, message: unknown): boolean {
+		return sideOffered(state) && deliver(message);
+	}
+	return createStore<ChatState & ChatActions>()((set, get) => ({
 		...initialChatState,
 		send: (text, attachments) => deliver({ type: "send", text, attachments }),
 		set: (settings) => deliver({ type: "set", ...settings }),
@@ -793,6 +847,21 @@ export function createChatStore(
 		revokeRule: (rule) => deliver({ type: "rule.revoke", rule }),
 		watchSubagent: (toolUseId) => deliver({ type: "subagent.watch", toolUseId }),
 		unwatchSubagent: (toolUseId) => deliver({ type: "subagent.unwatch", toolUseId }),
+		openSide: () => {
+			if (!sideOffered(get())) return false;
+			set({ sideOpen: true });
+			return true;
+		},
+		askSide: (text) => {
+			const sent = deliverSide(get(), { type: "side.ask", text });
+			if (sent) set({ sideWaiting: true });
+			return sent;
+		},
+		stopSide: () => deliverSide(get(), { type: "side.stop" }),
+		endSide: () => {
+			deliverSide(get(), { type: "side.end" });
+			set({ side: null, sideOpen: false, sideWaiting: false });
+		},
 		checkSignIn: () => {
 			const sent = deliver({ type: "signIn.check" });
 			if (sent) set({ signInChecking: true });
