@@ -294,8 +294,8 @@ describe("a Codex side question", () => {
 		await agent.endSide();
 	});
 
-	test("a released fork is no longer a side thread", async () => {
-		const { agent, server, ask } = await setup();
+	test("a released fork stays a side thread, so a late request from it is still refused", async () => {
+		const { agent, server, ask, cards, states } = await setup();
 		const owns = (id: string) =>
 			(agent as unknown as { side: CodexSide }).side.owns(id);
 		const asked = ask("one");
@@ -303,7 +303,19 @@ describe("a Codex side question", () => {
 		expect(owns(FORK)).toBe(true);
 		for (const message of forkTurn("token-usage", FORK)) server.push(message);
 		await asked;
-		await vi.waitFor(() => expect(owns(FORK)).toBe(false));
+		await untilSent(server, "thread/unsubscribe");
+		expect(owns(FORK)).toBe(true);
+		server.push({
+			id: "late-1",
+			method: "item/commandExecution/requestApproval",
+			params: { threadId: FORK, turnId: "t", itemId: "i", command: "rm -rf x" },
+		});
+		await vi.waitFor(() => expect(server.reply("late-1")).toBeDefined());
+		expect(server.reply("late-1")?.error).toMatchObject({
+			message: "A side conversation is read-only.",
+		});
+		expect(cards).toEqual([]);
+		expect(states).toEqual([]);
 	});
 
 	test("a failed turn rejects with Codex's message", async () => {
@@ -489,7 +501,8 @@ describe("a subagent a side fork spawns", () => {
 		);
 		const owns = (id: string) =>
 			(agent as unknown as { side: CodexSide }).side.owns(id);
-		await vi.waitFor(() => expect(owns(CHILD)).toBe(false));
+		// Released, but still a side thread, so a late request from it is refused.
+		expect(owns(CHILD)).toBe(true);
 	});
 
 	test("endSide interrupts the subagent too", async () => {

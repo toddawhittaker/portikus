@@ -66,20 +66,21 @@ export class SideConversation {
 	 */
 	ask(text: string): void {
 		const askSide = this.deps.agent.askSide;
-		if (this.events.length === 0) this.send(this.snapshot());
-		const refusal = !askSide
-			? SIDE_UNAVAILABLE_MESSAGE
-			: this.running
-				? SIDE_BUSY_MESSAGE
-				: text.length > MAX_CHAT_SIDE_TEXT_CHARS
-					? SIDE_TOO_LONG_MESSAGE
-					: null;
-		if (!askSide || refusal) {
-			this.answer(refusal ?? SIDE_UNAVAILABLE_MESSAGE);
+		if (!askSide) {
+			this.refuse(SIDE_UNAVAILABLE_MESSAGE);
+			return;
+		}
+		if (this.running) {
+			this.refuse(SIDE_BUSY_MESSAGE);
+			return;
+		}
+		if (text.length > MAX_CHAT_SIDE_TEXT_CHARS) {
+			this.refuse(SIDE_TOO_LONG_MESSAGE);
 			return;
 		}
 		const controller = new AbortController();
 		this.running = controller;
+		if (this.events.length === 0) this.send(this.snapshot());
 		const answers: string[] = [];
 		const live = () => this.running === controller;
 		// The core owns the side turn; the driver emits only its content.
@@ -155,19 +156,31 @@ export class SideConversation {
 		};
 	}
 
-	/** A message from the host in the side conversation: a refusal or an error. */
+	/** An error from the driver, shown as the answer and kept for a replay. */
 	private answer(markdown: string): void {
 		this.push({ type: "message", id: randomUUID(), role: "assistant", markdown });
 	}
 
-	private push(body: SideBody): void {
+	/**
+	 * A refusal goes to the attachments now but is not kept, so repeated
+	 * refused asks cannot grow memory and an attach replays only real turns.
+	 */
+	private refuse(markdown: string): void {
+		if (this.events.length === 0) this.send(this.snapshot());
+		this.push(
+			{ type: "message", id: randomUUID(), role: "assistant", markdown },
+			false,
+		);
+	}
+
+	private push(body: SideBody, keep = true): void {
 		this.seq += 1;
 		const event = {
 			...body,
 			sessionId: this.deps.terminalId,
 			seq: this.seq,
 		} as ChatSubagentEvent;
-		this.events.push(event);
+		if (keep) this.events.push(event);
 		this.send(event);
 	}
 

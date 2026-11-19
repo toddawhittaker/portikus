@@ -96,7 +96,7 @@ interface Question {
  */
 export class CodexSide {
 	private question: Question | null = null;
-	/** Side forks and the threads they spawned, so their requests are refused and their events kept apart. */
+	/** Side forks and the threads they spawned, kept until Codex exits so a late request from one is still refused and its events kept apart. */
 	private readonly owned = new Set<string>();
 
 	constructor(private readonly host: CodexSideHost) {}
@@ -334,7 +334,10 @@ export class CodexSide {
 		question?.done("interrupted");
 	}
 
-	/** Stop the fork's subagents, drop the fork and them, and forget their ids. */
+	/**
+	 * Stop the fork's subagents and drop the fork and them. Their ids stay in
+	 * `owned` until Codex exits, so a late request from one is still refused.
+	 */
 	private async release(question: Question): Promise<void> {
 		const { client, forkId, spawned } = question;
 		for (const [threadId, turnId] of spawned) {
@@ -349,7 +352,6 @@ export class CodexSide {
 				client.request("thread/unsubscribe", { threadId }).catch(() => undefined),
 			),
 		);
-		for (const threadId of threads) this.owned.delete(threadId);
 	}
 
 	private send(question: Question, event: ChatEventBody): void {

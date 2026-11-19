@@ -130,6 +130,46 @@ describe("a side conversation", () => {
 		await vi.waitFor(() => expect(calls).toHaveLength(2));
 	});
 
+	test("a refusal reaches the attachments but is not kept for a replay", async () => {
+		const { side, calls, lines, events, settled } = setup();
+		side.ask("q1");
+		const before = lines.length;
+		for (let i = 0; i < 3; i++) side.ask("q2");
+		expect(lines.length - before).toBe(3);
+		calls[0]?.finish();
+		await settled();
+		// Repeated refused asks leave nothing to replay but the question itself.
+		const replayed = side.replay().map((line) => JSON.parse(line).event);
+		expect(replayed.map((e: ChatSubagentEvent) => e.type)).toEqual([
+			"snapshot",
+			"turn.started",
+			"message",
+			"turn.finished",
+		]);
+		expect(JSON.stringify(replayed)).not.toContain(SIDE_BUSY_MESSAGE);
+		expect(events().filter((e) => e.type === "message").length).toBe(4);
+	});
+
+	test("a refused first ask is shown once and replays nothing", () => {
+		const { side, events } = setup(false);
+		side.ask("q1");
+		side.ask("q2");
+		expect(
+			events().filter((e) => e.type === "message" && e.role === "assistant"),
+		).toHaveLength(2);
+		expect(side.replay()).toEqual([]);
+	});
+
+	test("the first ask's snapshot says the turn is running", () => {
+		const { side, events } = setup();
+		side.ask("q1");
+		expect(events()[0]).toMatchObject({ type: "snapshot", turnRunning: true });
+		// An attach during the turn is told the same.
+		expect(JSON.parse(side.replay()[0] as string).event).toMatchObject({
+			turnRunning: true,
+		});
+	});
+
 	test("the next question gets the earlier exchanges", async () => {
 		const { side, calls, settled } = setup();
 		side.ask("q1");
