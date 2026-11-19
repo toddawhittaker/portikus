@@ -162,6 +162,23 @@ test("a pick started from the menu keeps the keyboard where the pick put it", as
 	elsewhere.remove();
 });
 
+test("two agents of one kind are told apart by number in the menu", async () => {
+	addTarget("t1", "Claude Code (TUI)");
+	addTarget("t2", "Codex (TUI)");
+	const second = addTarget("t3", "Claude Code (TUI)");
+	const pick = mode();
+	render(<PickControl pick={pick} ready={true} />);
+	fireEvent.pointerDown(button(), { button: 0, pointerType: "mouse" });
+	const item = await screen.findByRole("menuitem", { name: "Claude Code (TUI) 2" });
+	expect(screen.getAllByRole("menuitem").map((option) => option.textContent)).toEqual([
+		"Claude Code (TUI) 1",
+		"Codex (TUI)",
+		"Claude Code (TUI) 2",
+	]);
+	fireEvent.click(item);
+	expect(pick.start).toHaveBeenCalledWith(second);
+});
+
 test("while picking it reads as pressed and a press stops", () => {
 	addTarget("t1");
 	const pick = mode("picking");
