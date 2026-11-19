@@ -4,7 +4,7 @@
  * itself is the same file API a drag uses.
  */
 import { Button, Dialog, DialogRoot, Icon } from "@portikus/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	baseName,
 	canMoveInto,
@@ -14,7 +14,22 @@ import {
 	visibleEntries,
 } from "./paths.js";
 import { useTree } from "./queries.js";
+import { ShowMoreRow } from "./ShowMoreRow.js";
 import type { FileNode } from "./selection.js";
+
+/** The folders of a listing that can be moved into, in listing order. */
+function folderNames(
+	entries: { name: string; type: string }[],
+	showHidden: boolean,
+	moving: Set<string>,
+	folder: string,
+): string[] {
+	return visibleEntries(entries, showHidden)
+		.filter(
+			(entry) => entry.type === "dir" && !moving.has(joinPath(folder, entry.name)),
+		)
+		.map((entry) => entry.name);
+}
 
 export interface MoveDialogProps {
 	workspaceId: string;
@@ -43,10 +58,32 @@ export function MoveDialog({
 	const listing = useTree(workspaceId, projectId, folder);
 	const moving = new Set(nodes.map((node) => node.path));
 	const folders = listing.data
-		? visibleEntries(listing.data.entries, showHidden).filter(
-				(entry) => entry.type === "dir" && !moving.has(joinPath(folder, entry.name)),
-			)
+		? folderNames(listing.data.entries, showHidden, moving, folder)
 		: [];
+	const list = useRef<HTMLUListElement | null>(null);
+	// The folder to focus once the next page is drawn, so focus never drops
+	// to the page when the Show more row goes.
+	const [focusAfterLoad, setFocusAfterLoad] = useState<string | null>(null);
+	useEffect(() => {
+		if (focusAfterLoad === null) return;
+		const button = list.current?.querySelector<HTMLElement>(
+			`[data-folder="${CSS.escape(focusAfterLoad)}"]`,
+		);
+		if (!button) return;
+		setFocusAfterLoad(null);
+		button.focus();
+	});
+
+	async function showMore() {
+		const before = folders.length;
+		const result = await listing.fetchNextPage();
+		if (!result.data) return;
+		const after = folderNames(result.data.entries, showHidden, moving, folder);
+		// The first new folder; with none and the row gone, the last one.
+		const target = after[before] ?? (result.data.truncated ? undefined : after.at(-1));
+		if (target !== undefined) setFocusAfterLoad(target);
+	}
+
 	const allowed = nodes.every((node) => canMoveInto(node.path, folder));
 	const title =
 		nodes.length === 1 && first
@@ -84,7 +121,7 @@ export function MoveDialog({
 					~/projects/{slug}
 					{folder === "" ? "" : `/${folder}`}
 				</p>
-				<ul className="m-0 max-h-64 list-none overflow-auto p-0">
+				<ul ref={list} className="m-0 max-h-64 list-none overflow-auto p-0">
 					{folder === "" ? null : (
 						<li>
 							<button
@@ -98,24 +135,49 @@ export function MoveDialog({
 							</button>
 						</li>
 					)}
-					{folders.map((entry) => {
-						const path = joinPath(folder, entry.name);
+					{folders.map((name) => {
+						const path = joinPath(folder, name);
 						return (
-							<li key={entry.name}>
+							<li key={name}>
 								<button
 									type="button"
 									className="pk-move-folder"
 									data-testid={`move-folder-${path}`}
+									data-folder={name}
 									onClick={() => setFolder(path)}
 								>
 									<Icon name="folder" size="sm" />
-									{displayName(entry.name)}
+									{displayName(name)}
 								</button>
 							</li>
 						);
 					})}
 				</ul>
-				{listing.isSuccess && folders.length === 0 ? (
+				{listing.data?.truncated ? (
+					// A treeitem needs a tree around it, and Enter and Space are
+					// the tree's own keys, so this one-row tree answers them.
+					<div
+						role="tree"
+						aria-label="More folders"
+						className="pk-tree"
+						onKeyDown={(event) => {
+							if (event.key !== "Enter" && event.key !== " ") return;
+							event.preventDefault();
+							if (!listing.isFetchingNextPage) void showMore();
+						}}
+					>
+						<ShowMoreRow
+							path=""
+							level={1}
+							shown={visibleEntries(listing.data.entries, showHidden).length}
+							focused
+							loading={listing.isFetchingNextPage}
+							onFocus={() => {}}
+							onActivate={() => void showMore()}
+						/>
+					</div>
+				) : null}
+				{listing.isSuccess && !listing.data.truncated && folders.length === 0 ? (
 					<p className="m-0 mt-2 text-sm text-ink-muted">No folders here.</p>
 				) : null}
 				{allowed ? null : (
