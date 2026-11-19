@@ -302,6 +302,12 @@ test.describe("what a pick sends", () => {
 		await startPicking(page);
 		await clickOn(page, "#card");
 
+		// The two files are saved one after the other, so wait for both.
+		await expect
+			.poll(async () => Object.keys((await folders(scene, 1))[0]?.files ?? {}).sort(), {
+				timeout: 15_000,
+			})
+			.toEqual(["picked-element.md", "picked-element.png"]);
 		const [folder] = await folders(scene, 1);
 		const files = (folder as PickFolder).files;
 		expect(Object.keys(files).sort()).toEqual([
@@ -717,11 +723,11 @@ test.describe("the wrapper page", () => {
 
 		await startPicking(page);
 		await clickOn(page, "#card");
-		const [folder] = await folders(scene, 1);
-		expect(Object.keys((folder as PickFolder).files).sort()).toEqual([
-			"picked-element.md",
-			"picked-element.png",
-		]);
+		await expect
+			.poll(async () => Object.keys((await folders(scene, 1))[0]?.files ?? {}).sort(), {
+				timeout: 15_000,
+			})
+			.toEqual(["picked-element.md", "picked-element.png"]);
 	});
 
 	test("opening a preview still counts as activity", async ({ page, context }) => {
