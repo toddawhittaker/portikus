@@ -793,3 +793,159 @@ describe("conversation growth (SPEC.md section 10.8)", () => {
 		});
 	});
 });
+
+describe("side conversations (SPEC.md section 10.2)", () => {
+	const sideFrames = (client: Client) =>
+		client.events.flatMap((event) => (event.type === "side" ? [event.event] : []));
+
+	function answer(text: string) {
+		const call = agent.sideCalls.at(-1);
+		call?.emit({
+			type: "message",
+			sessionId: ID,
+			seq: 0,
+			id: "a1",
+			role: "assistant",
+			markdown: text,
+		});
+		call?.finish();
+	}
+
+	test("btw is listed only when the driver answers side questions", async () => {
+		agent.sink.commands([]);
+		const a = await attached();
+		expect(a.events.find((e) => e.type === "commands")).toMatchObject({
+			commands: [expect.objectContaining({ name: "handoff" })],
+		});
+		agent.sideEnabled = true;
+		agent.sink.commands([]);
+		await vi.waitFor(() =>
+			expect(types(a).filter((t) => t === "commands")).toHaveLength(2),
+		);
+		const last = a.events.filter((e) => e.type === "commands").at(-1);
+		expect(last?.type === "commands" && last.commands.map((c) => c.name)).toEqual([
+			"handoff",
+			"btw",
+		]);
+	});
+
+	test("a side answer goes to every attachment and leaves the chat's transcript, cards and turn state alone", async () => {
+		agent.sideEnabled = true;
+		const a = await attached();
+		const b = await attached();
+		const before = a.events.length;
+		a.send({ type: "side.ask", text: "what is x?" });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		answer("x is 1");
+		await vi.waitFor(() => expect(sideFrames(b).at(-1)?.type).toBe("turn.finished"));
+		expect(sideFrames(a).map((e) => e.type)).toEqual([
+			"snapshot",
+			"turn.started",
+			"message",
+			"message",
+			"turn.finished",
+		]);
+		expect(a.events.slice(before).every((e) => e.type === "side")).toBe(true);
+		expect(agent.calls.some((call) => call[0] === "send")).toBe(false);
+		// A fresh attach sees no turn running and no card.
+		const c = await attached();
+		expect(c.events[0]).toMatchObject({
+			type: "snapshot",
+			turnRunning: false,
+			cards: [],
+		});
+	});
+
+	test("a second ask while one runs is refused to the asker", async () => {
+		agent.sideEnabled = true;
+		const a = await attached();
+		a.send({ type: "side.ask", text: "one" });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		a.send({ type: "side.ask", text: "two" });
+		await vi.waitFor(() => expect(types(a)).toContain("error"));
+		expect(agent.sideCalls).toHaveLength(1);
+	});
+
+	test("side.stop aborts the question; side.end forgets it and tells the driver", async () => {
+		agent.sideEnabled = true;
+		const a = await attached();
+		a.send({ type: "side.ask", text: "one" });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		a.send({ type: "side.stop" });
+		await vi.waitFor(() => expect(agent.sideCalls[0]?.signal.aborted).toBe(true));
+		agent.sideCalls[0]?.finish();
+		await vi.waitFor(() =>
+			expect(sideFrames(a).at(-1)).toMatchObject({
+				type: "turn.finished",
+				status: "interrupted",
+			}),
+		);
+		a.send({ type: "side.end" });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["endSide"]));
+		expect(sideFrames(a).at(-1)).toMatchObject({
+			type: "snapshot",
+			turnRunning: false,
+		});
+		const late = await attached();
+		expect(sideFrames(late)).toEqual([]);
+	});
+
+	test("an attach replays the side conversation", async () => {
+		agent.sideEnabled = true;
+		const a = await attached();
+		a.send({ type: "side.ask", text: "one" });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		answer("first");
+		await vi.waitFor(() => expect(sideFrames(a).at(-1)?.type).toBe("turn.finished"));
+		const late = await attached();
+		// The snapshot says whether a question runs now; the events are the same.
+		expect(sideFrames(late)[0]).toMatchObject({
+			type: "snapshot",
+			seq: 0,
+			turnRunning: false,
+		});
+		expect(sideFrames(late).slice(1)).toEqual(sideFrames(a).slice(1));
+	});
+
+	test("a typed /btw question becomes a side question; a bare /btw does nothing here", async () => {
+		agent.sideEnabled = true;
+		const a = await attached();
+		a.send({ type: "send", text: "/btw", attachments: [] });
+		a.send({ type: "send", text: "/btw what now?", attachments: [] });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		expect(agent.sideCalls[0]?.text).toBe("what now?");
+		expect(agent.calls.some((call) => call[0] === "send")).toBe(false);
+	});
+
+	test("without side questions, a typed /btw goes to the agent as before", async () => {
+		const a = await attached();
+		a.send({ type: "send", text: "/btw hi", attachments: [] });
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["send", "/btw hi", []]));
+	});
+
+	test("the side conversation ends on /clear and on host stop", async () => {
+		agent.sideEnabled = true;
+		const a = await attached();
+		a.send({ type: "side.ask", text: "one" });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		agent.sink.conversationReset(null);
+		await vi.waitFor(() => expect(agent.calls).toContainEqual(["endSide"]));
+		expect(agent.sideCalls[0]?.signal.aborted).toBe(true);
+		a.send({ type: "side.ask", text: "two" });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(2));
+		await core.stop();
+		expect(agent.calls.filter((call) => call[0] === "endSide")).toHaveLength(2);
+		expect(agent.sideCalls[1]?.signal.aborted).toBe(true);
+	});
+
+	test("the side conversation ends when the chat swaps agents", async () => {
+		agent.sideEnabled = true;
+		const a = await attached();
+		a.send({ type: "side.ask", text: "one" });
+		await vi.waitFor(() => expect(agent.sideCalls).toHaveLength(1));
+		a.send({ type: "agent.switch", agent: "codex" });
+		await a.closed;
+		expect(agent.calls).toContainEqual(["endSide"]);
+		expect(agent.sideCalls[0]?.signal.aborted).toBe(true);
+	});
+});

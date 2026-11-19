@@ -50,7 +50,18 @@ class FakeQuery {
 		void (async () => {
 			for await (const message of prompt) this.sent.push(message);
 		})();
+		// The SDK's undeclared side-question method, present only when a test gives it.
+		if (sideAnswer) {
+			const answer = sideAnswer;
+			Object.assign(this, {
+				askSideQuestion: (question: string, options: unknown) => {
+					this.sideCalls.push({ question, options });
+					return answer(question, options);
+				},
+			});
+		}
 	}
+	readonly sideCalls: { question: string; options: unknown }[] = [];
 
 	emit(message: Partial<SDKMessage> & { type: string }): void {
 		this.queue.push(message as SDKMessage);
@@ -169,6 +180,10 @@ interface Client {
 	closed: Promise<void>;
 }
 
+/** What a query started now answers a side question with; null leaves the method out. */
+let sideAnswer: ((question: string, options: unknown) => Promise<unknown>) | null =
+	null;
+
 /** What a query started now answers for its window and its models. */
 let startWindow: number | null;
 let startModels: Record<string, unknown>[] | null;
@@ -263,6 +278,7 @@ beforeEach(async () => {
 	await mkdir(join(dir, "projects", "demo"), { recursive: true });
 	queries = [];
 	posted = [];
+	sideAnswer = null;
 	exists = false;
 	reads = [];
 	transcript = async () => EARLIER;
@@ -2747,5 +2763,130 @@ describe("agent swaps", () => {
 		expect(
 			events.filter((event) => event.type === "message").map((event) => event.markdown),
 		).toEqual(["go on"]);
+	});
+});
+
+describe("side questions (SPEC.md section 10.2, ADR 0083)", () => {
+	async function sideHost(
+		answer: (question: string, options: unknown) => Promise<unknown>,
+	): Promise<FakeQuery> {
+		await host.stop();
+		queries = [];
+		sideAnswer = answer;
+		host = makeHost();
+		await host.start();
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		return fake;
+	}
+
+	test("an SDK without askSideQuestion offers no /btw", async () => {
+		const fake = queries[0] as FakeQuery;
+		fake.commandList = COMMANDS;
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
+		expect(ofType(a, "commands")[0]?.commands.map((c) => c.name)).not.toContain("btw");
+		// A typed /btw then goes to Claude as any message would.
+		a.send({ type: "send", text: "/btw hi", attachments: [] });
+		await vi.waitFor(() => expect(fake.sent).toHaveLength(1));
+	});
+
+	test("the answer arrives as side events, with earlier exchanges as history, and the transcript is untouched", async () => {
+		const fake = await sideHost(async (question) => ({
+			response: `answer to ${question}`,
+			synthetic: false,
+		}));
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() =>
+			expect(ofType(a, "commands")[0]?.commands.map((c) => c.name)).toContain("btw"),
+		);
+		a.send({ type: "side.ask", text: "first" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "side").map((f) => f.event.type)).toContain("turn.finished"),
+		);
+		a.send({ type: "side.ask", text: "second" });
+		await vi.waitFor(() =>
+			expect(
+				ofType(a, "side").filter((f) => f.event.type === "turn.finished"),
+			).toHaveLength(2),
+		);
+		const answers = ofType(a, "side")
+			.map((f) => f.event)
+			.filter((e) => e.type === "message" && e.role === "assistant")
+			.map((e) => (e.type === "message" ? e.markdown : ""));
+		expect(answers).toEqual(["answer to first", "answer to second"]);
+		expect(fake.sideCalls[1]?.question).toBe("second");
+		expect(fake.sideCalls[1]?.options).toMatchObject({
+			history: [{ question: "first", response: "answer to first" }],
+		});
+		expect(fake.sent).toHaveLength(0);
+		// Only the replayed transcript's message: the side turn added nothing to the chat.
+		expect(ofType(a, "message").map((m) => m.id)).toEqual(["u1"]);
+		expect(ofType(a, "turn.started")).toHaveLength(1);
+	});
+
+	test("a null answer is told as a failed side turn", async () => {
+		const fake = await sideHost(async () => null);
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
+		a.send({ type: "side.ask", text: "q" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "side").map((f) => f.event)).toContainEqual(
+				expect.objectContaining({ type: "turn.finished", status: "error" }),
+			),
+		);
+		await vi.waitFor(() =>
+			expect(ofType(a, "side").at(-1)?.event).toMatchObject({
+				role: "assistant",
+				markdown: "Claude gave no answer to that side question.",
+			}),
+		);
+	});
+
+	test("Stop aborts the SDK call's signal", async () => {
+		let seen: AbortSignal | undefined;
+		const fake = await sideHost(
+			(_q, options) =>
+				new Promise((resolve) => {
+					seen = (options as { signal: AbortSignal }).signal;
+					seen.addEventListener("abort", () => resolve(null));
+				}),
+		);
+		const a = await attach();
+		fake.emit(INIT);
+		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
+		a.send({ type: "side.ask", text: "q" });
+		await vi.waitFor(() => expect(seen).toBeDefined());
+		a.send({ type: "side.stop" });
+		await vi.waitFor(() =>
+			expect(ofType(a, "side").at(-1)?.event).toMatchObject({
+				type: "turn.finished",
+				status: "interrupted",
+			}),
+		);
+		expect(seen?.aborted).toBe(true);
+	});
+
+	test("the side question's progress message on the main stream shows nothing", async () => {
+		const fake = queries[0] as FakeQuery;
+		const a = await attach();
+		await vi.waitFor(() => expect(ofType(a, "rules")).toHaveLength(1));
+		const before = a.events.length;
+		fake.emit({ type: "system", subtype: "control_request_progress" } as never);
+		fake.emit({
+			type: "stream_event",
+			event: { type: "message_start", message: { id: "msg_1" } },
+		} as never);
+		fake.emit(delta("hi"));
+		await vi.waitFor(() => expect(ofType(a, "text.delta")).toHaveLength(1));
+		expect(
+			a.events
+				.slice(before)
+				.map((e) => e.type)
+				.filter((t) => t !== "context"),
+		).toEqual(["turn.started", "text.delta"]);
 	});
 });
