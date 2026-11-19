@@ -366,16 +366,19 @@ function ChatViewBody({
 		element: HTMLElement | null;
 		toolUseId: string;
 	} | null>(null);
+	// Read through a ref so the opener keeps its identity as items arrive.
+	const items = useRef(state.items);
+	items.current = state.items;
 	const showSubagent = useCallback(
 		(target: SubagentTarget, element: HTMLElement | null) => {
 			beforeSubagent.current = { element, toolUseId: target.toolUseId };
 			// A Codex child is titled by its starting row however it is opened.
 			setSubagent({
 				...target,
-				title: requestedTitle(state.items, target.toolUseId, target.title),
+				title: requestedTitle(items.current, target.toolUseId, target.title),
 			});
 		},
-		[state.items],
+		[],
 	);
 	// From an Agent card, the keyboard goes back to the button that opened it.
 	const openSubagent = useCallback(

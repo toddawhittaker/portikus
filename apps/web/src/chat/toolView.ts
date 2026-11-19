@@ -306,7 +306,7 @@ export function collabTitle(input: unknown, child: string): string | null {
 
 /**
  * A subagent picked in the project list: a Codex child is named by the prompt
- * of the loaded tool row that started it; otherwise by the list's own words,
+ * of the loaded spawn row that started it; otherwise by the list's own words,
  * or plain "Subagent" when the list has none.
  */
 export function requestedTitle(
@@ -316,6 +316,8 @@ export function requestedTitle(
 ): string {
 	for (const item of items) {
 		if (item.kind !== "tool" || item.name !== "collabAgentToolCall") continue;
+		// Only the spawn row carries the prompt that started the child.
+		if (!isRecord(item.input) || item.input.tool !== "spawnAgent") continue;
 		const title = collabTitle(item.input, child);
 		if (title !== null) return title;
 	}
