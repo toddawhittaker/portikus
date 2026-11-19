@@ -38,6 +38,7 @@ import {
 import { attachPreviewHistory, type PreviewHistory } from "./history.js";
 import { PickControl } from "./pick/PickControl.js";
 import { usePickMode } from "./pick/usePickMode.js";
+import { PREVIEW_FRAME_ALLOW } from "./previewAllow.js";
 import "./preview.css";
 
 /**
@@ -721,7 +722,7 @@ export function PreviewLeaf({
 						onError={onFrameError}
 						sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock"
 						referrerPolicy="no-referrer"
-						allow="clipboard-read 'none'; clipboard-write 'self'; camera 'none'; microphone 'none'; geolocation 'none'"
+						allow={PREVIEW_FRAME_ALLOW}
 					/>
 				) : null}
 			</div>
