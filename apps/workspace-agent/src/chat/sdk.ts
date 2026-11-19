@@ -42,7 +42,7 @@ export const realSdk: ChatSdk = {
 };
 
 /** A side question's answer, as Claude Code gives it. */
-export interface SideAnswer {
+interface SideAnswer {
 	response: string;
 	/** Claude Code made the answer itself rather than asking the model. */
 	synthetic: boolean;

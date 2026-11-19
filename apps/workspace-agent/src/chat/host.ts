@@ -15,6 +15,7 @@ import {
 	type ChatPermissionMode,
 	type ChatQuestion,
 	type ChatShellItem,
+	type ChatSubagentEvent,
 	chatStartMode,
 	isShellCommand,
 	shellCommandText,
@@ -113,6 +114,11 @@ export class ChatHost extends ChatCore {
 		super(options, new ClaudeAgent(options), "claude");
 	}
 }
+
+type SideEventBody = DistributiveOmit<ChatSubagentEvent, "sessionId" | "seq">;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+	? Omit<T, K>
+	: never;
 
 /** The Claude driver behind the chat core: the Agent SDK in, chat events out. */
 class ClaudeAgent implements ChatAgent {
@@ -219,28 +225,46 @@ class ClaudeAgent implements ChatAgent {
 		emit,
 		signal,
 	) => {
-		await this.ensureSession();
-		const session = this.session;
-		const ask = session ? sideQuestionOf(session) : null;
-		if (!ask)
-			throw new Error("This version of Claude Code cannot take side questions.");
-		const answer = await ask(text, {
-			history: earlier.map((exchange) => ({
-				question: exchange.question,
-				response: exchange.answer,
-			})),
-			signal,
-		});
-		if (signal.aborted) return;
-		if (!answer) throw new Error("Claude gave no answer to that side question.");
-		emit({
-			type: "message",
-			sessionId: this.options.terminalId,
-			seq: 0,
-			id: randomUUID(),
-			role: "assistant",
-			markdown: answer.response,
-		});
+		const stamp = { sessionId: this.options.terminalId };
+		let seq = 0;
+		const send = (event: SideEventBody) =>
+			emit({ ...event, ...stamp, seq: seq++ } as ChatSubagentEvent);
+		send({ type: "turn.started", at: Date.now() });
+		try {
+			await this.ensureSession();
+			const session = this.session;
+			const ask = session ? sideQuestionOf(session) : null;
+			if (!ask)
+				throw new Error("This version of Claude Code cannot take side questions.");
+			const answer = await ask(text, {
+				history: earlier.map((exchange) => ({
+					question: exchange.question,
+					response: exchange.answer,
+				})),
+				signal,
+			});
+			if (!signal.aborted && !answer)
+				throw new Error("Claude gave no answer to that side question.");
+			if (answer && !signal.aborted)
+				send({
+					type: "message",
+					id: randomUUID(),
+					role: "assistant",
+					markdown: answer.response,
+				});
+			send({
+				type: "turn.finished",
+				status: signal.aborted ? "interrupted" : "done",
+				at: Date.now(),
+			});
+		} catch (error) {
+			send({
+				type: "turn.finished",
+				status: signal.aborted ? "interrupted" : "error",
+				at: Date.now(),
+			});
+			throw error;
+		}
 	};
 
 	/** Stop Claude. The transcript stays. */

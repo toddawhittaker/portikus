@@ -46,6 +46,7 @@ export class FakeAgent implements ChatAgent {
 		return (text, earlier, emit, signal) =>
 			new Promise<void>((finish) => {
 				this.calls.push(["askSide", text]);
+				emit({ type: "turn.started", sessionId: "x", seq: 0, at: Date.now() });
 				this.sideCalls.push({ text, earlier, emit, signal, finish });
 			});
 	}

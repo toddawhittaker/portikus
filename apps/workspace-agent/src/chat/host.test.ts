@@ -2834,9 +2834,14 @@ describe("side questions (SPEC.md section 10.2, ADR 0083)", () => {
 		await vi.waitFor(() => expect(ofType(a, "commands")).toHaveLength(1));
 		a.send({ type: "side.ask", text: "q" });
 		await vi.waitFor(() =>
+			expect(ofType(a, "side").map((f) => f.event)).toContainEqual(
+				expect.objectContaining({ type: "turn.finished", status: "error" }),
+			),
+		);
+		await vi.waitFor(() =>
 			expect(ofType(a, "side").at(-1)?.event).toMatchObject({
-				type: "turn.finished",
-				status: "error",
+				role: "assistant",
+				markdown: "Claude gave no answer to that side question.",
 			}),
 		);
 	});

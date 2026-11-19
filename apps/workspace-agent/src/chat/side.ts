@@ -16,7 +16,7 @@ import type { ChatAgent } from "./agent.js";
  * logged (ADR 0012).
  */
 
-export const SIDE_COMMAND = "btw";
+const SIDE_COMMAND = "btw";
 
 export const SIDE_COMMAND_INFO: ChatCommand = {
 	name: SIDE_COMMAND,
@@ -79,20 +79,26 @@ export class SideConversation {
 		const controller = new AbortController();
 		this.running = controller;
 		if (this.events.length === 0) this.send(this.snapshot());
-		this.push({ type: "turn.started", at: Date.now() });
-		this.push({ type: "message", id: randomUUID(), role: "user", markdown: text });
 		const answers: string[] = [];
+		let asked = false;
+		let finished = false;
 		const live = () => this.running === controller;
+		// The driver opens and closes the side turn; the question goes in just inside it.
+		const askedOnce = () => {
+			if (asked) return;
+			asked = true;
+			this.push({ type: "message", id: randomUUID(), role: "user", markdown: text });
+		};
 		const emit = (event: ChatSubagentEvent) => {
-			if (!live()) return;
-			// The core alone opens and closes the side turn.
-			if (
-				event.type === "snapshot" ||
-				event.type === "turn.started" ||
-				event.type === "turn.finished"
-			)
-				return;
+			if (!live() || event.type === "snapshot") return;
 			const { sessionId: _, seq: __, ...body } = event;
+			if (body.type === "turn.started") {
+				this.push(body);
+				askedOnce();
+				return;
+			}
+			askedOnce();
+			if (body.type === "turn.finished") finished = true;
 			if (body.type === "message" && body.role === "assistant")
 				answers.push(body.markdown);
 			this.push(body as SideBody);
@@ -104,6 +110,7 @@ export class SideConversation {
 				(error: unknown) => {
 					if (controller.signal.aborted) return "interrupted";
 					if (live()) {
+						askedOnce();
 						const markdown =
 							error instanceof Error && error.message
 								? error.message
@@ -123,7 +130,11 @@ export class SideConversation {
 				this.running = null;
 				if (status === "done")
 					this.earlier.push({ question: text, answer: answers.join("\n\n") });
-				this.push({ type: "turn.finished", status, at: Date.now() });
+				// A driver that ended without closing its turn still leaves it closed.
+				if (!finished) {
+					askedOnce();
+					this.push({ type: "turn.finished", status, at: Date.now() });
+				}
 			});
 	}
 

@@ -680,7 +680,7 @@ test.skipIf(!existsSync(CLAUDE))(
 				{ timeout: 120_000, interval: 500 },
 			);
 			await vi.waitFor(() => {
-				const listed = events.findLast((e) => e.type === "commands");
+				const listed = events.filter((e) => e.type === "commands").at(-1);
 				const names =
 					listed?.type === "commands" ? listed.commands.map((c) => c.name) : [];
 				expect(names).toContain("btw");

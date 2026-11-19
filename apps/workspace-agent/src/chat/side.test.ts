@@ -21,7 +21,7 @@ interface Call {
 	fail: (error: Error) => void;
 }
 
-function setup(withSide = true) {
+function setup(withSide = true, opensTurn = true) {
 	const calls: Call[] = [];
 	const ended: number[] = [];
 	const agent = {
@@ -34,6 +34,8 @@ function setup(withSide = true) {
 						signal: AbortSignal,
 					) =>
 						new Promise<void>((resolve, reject) => {
+							if (opensTurn)
+								emit({ type: "turn.started", sessionId: "x", seq: 0, at: 1 });
 							calls.push({
 								text,
 								earlier,
@@ -162,18 +164,54 @@ describe("a side conversation", () => {
 		});
 	});
 
-	test("the core alone opens and closes the turn: a driver's own turn events are dropped", async () => {
+	test("relays the driver's turn events, with the question just inside the turn", async () => {
 		const { side, calls, events } = setup();
 		side.ask("q1");
-		calls[0]?.emit({ type: "turn.started", sessionId: ID, seq: 0, at: 1 });
+		answer(calls[0] as Call, "a1");
 		calls[0]?.emit({
 			type: "turn.finished",
 			sessionId: ID,
-			seq: 0,
+			seq: 7,
 			status: "done",
 			at: 1,
 		});
-		expect(events().filter((e) => e.type.startsWith("turn."))).toHaveLength(1);
+		calls[0]?.finish();
+		await vi.waitFor(() => expect(side.busy).toBe(false));
+		expect(events().map((e) => e.type)).toEqual([
+			"snapshot",
+			"turn.started",
+			"message",
+			"message",
+			"turn.finished",
+		]);
+	});
+
+	test("a driver that rejects after closing its turn gets no second close", async () => {
+		const { side, calls, events } = setup();
+		side.ask("q1");
+		calls[0]?.emit({
+			type: "turn.finished",
+			sessionId: ID,
+			seq: 1,
+			status: "error",
+			at: 1,
+		});
+		calls[0]?.fail(new Error("broke"));
+		await vi.waitFor(() => expect(side.busy).toBe(false));
+		expect(events().filter((e) => e.type === "turn.finished")).toHaveLength(1);
+		expect(events().at(-1)).toMatchObject({ role: "assistant", markdown: "broke" });
+	});
+
+	test("a driver that never opened a turn still shows the question and a closed turn", async () => {
+		const { side, calls, events } = setup(true, false);
+		side.ask("q1");
+		calls[0]?.finish();
+		await vi.waitFor(() => expect(side.busy).toBe(false));
+		expect(events().map((e) => e.type)).toEqual([
+			"snapshot",
+			"message",
+			"turn.finished",
+		]);
 	});
 
 	test("end forgets everything, calls endSide, tells attachments, and drops a late answer", async () => {
