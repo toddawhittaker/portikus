@@ -369,9 +369,11 @@ jobs:
           missing=$(echo "$out" | grep '^  ' | grep -Ev '^  x?fonts-' || true)
           if [ -n "$missing" ]; then echo "The runner image lacks libraries Chromium needs:"; echo "$missing"; exit 1; fi
       # The Playwright servers run the compiled output, and Vite serves the
-      # ui package's theme and fonts from its dist, so build both first.
+      # ui package's theme and fonts from its dist, so build both first. The
+      # stand-in preview gateway serves the built wrapper page, so build that
+      # too (the web app itself runs from the dev server).
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
-        run: pnpm typecheck && pnpm --filter @portikus/ui build
+        run: pnpm typecheck && pnpm --filter @portikus/ui build && pnpm --filter @portikus/web exec vite build --config vite.frame.config.ts
       - id: run
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         # Shards are packed by measured time from e2e/shard-timings.json, not by test count.
