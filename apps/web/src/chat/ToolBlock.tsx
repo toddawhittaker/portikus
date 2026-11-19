@@ -24,7 +24,6 @@ import { PlanText } from "./PermissionCard.js";
 import { SubagentOpenerContext } from "./subagentView.js";
 import {
 	collabReceivers,
-	collabTitle,
 	type FileChangeView,
 	type PlanStepView,
 	type ToolDetail,
@@ -231,10 +230,9 @@ function WatchSubagent({ tool, titleId }: { tool: ChatToolItem; titleId: string 
 			onOpen={() =>
 				openSubagent({
 					toolUseId: child,
-					// Numbered as the row numbers its buttons, so panels tell apart.
-					title:
-						collabTitle(tool.input, child) ??
-						(children.length === 1 ? SUBAGENT_TITLE : `${SUBAGENT_TITLE} ${at + 1}`),
+					// Numbered as the row numbers its buttons, so panels tell apart;
+					// ChatView swaps in the starting row's prompt when it is loaded.
+					title: children.length === 1 ? SUBAGENT_TITLE : `${SUBAGENT_TITLE} ${at + 1}`,
 				})
 			}
 		/>
