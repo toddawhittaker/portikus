@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Side conversations in a chat tab (SPEC.md §10.2, Epic 74): a question
+ * Side conversations in a chat tab (SPEC.md §10.2, ADR 0083): a question
  * asked beside the main conversation, answered from what the agent already
  * knows, without disturbing the main turn. The browser sends these three
  * messages; the host answers with `side` frames, which `chat.ts` defines
