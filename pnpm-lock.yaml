@@ -377,6 +377,9 @@ importers:
       highlight.js:
         specifier: 11.12.0
         version: 11.12.0
+      modern-screenshot:
+        specifier: 4.7.0
+        version: 4.7.0
       monaco-editor:
         specifier: 0.57.0
         version: 0.57.0
@@ -3548,6 +3551,9 @@ packages:
 
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
+
+  modern-screenshot@4.7.0:
+    resolution: {integrity: sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg==}
 
   monaco-editor@0.57.0:
     resolution: {integrity: sha512-5BkI9KGoqrNvBGUe15/QlZq3OooZ8WLg1AxTpaqHRCP3HNpzPPZKE2EDz8M7c+VRmCeUw1Brp4cx/PWm3kI/5A==}
@@ -7165,6 +7171,8 @@ snapshots:
       mime-db: 1.54.0
 
   minimist@1.2.8: {}
+
+  modern-screenshot@4.7.0: {}
 
   monaco-editor@0.57.0:
     dependencies:
