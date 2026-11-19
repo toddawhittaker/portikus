@@ -195,7 +195,7 @@ export const CLAUDE_CHAT_TOPIC: HelpPart["topics"][number] = {
 				<li>
 					To ask a quick question without disturbing the chat, type{" "}
 					<code className="pk-mono-body">/btw</code>, alone or followed by your
-					question, or press Side question in the chat's title bar. A side conversation
+					question, or press Side question beside the microphone. A side conversation
 					opens beside the chat (under it when the pane is narrow), titled "Side:" and
 					the chat's name. Claude answers from what the chat already knows, even while
 					it is working, without tools, so it changes no files, and nothing you ask

@@ -755,6 +755,16 @@ export function Composer({
 						onSwitchAgent={onSwitchAgent}
 					/>
 					<div className="pk-composer-actions">
+						{sideOn && onSide ? (
+							<IconButton
+								icon="messages"
+								size="sm"
+								label="Side question"
+								data-testid="side-open"
+								// What a bare /btw does, for a student who does not know the command.
+								onClick={() => onSide("")}
+							/>
+						) : null}
 						<VoiceButton
 							testId={`chat-voice-${terminalId}`}
 							statusTestId={`chat-voice-status-${terminalId}`}
