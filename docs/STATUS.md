@@ -94,6 +94,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 70, built-in AI extras.** Alert explanations (one tool-less model call per new administrator alert, behind its own switch, a daily limit and privacy notice version 2, optionally added to email and Pushover), a weekly summary notification for administrators, "Help me set this up" on the LMS and sign-in pages, MCP resources and prompts, an output price with a dollar estimate on the Agents tab, and refusal of assistant messages that look like secrets (ADR 0082, SPEC.md sections 20.4 and 20.5).
 - **Epic 71, test reliability fix batch.** Timing-sensitive unit tests that no longer fail under machine load, a fallback CI package mirror, a smoke check that no longer lets the workspace stop part-way through a run, and one audit row for each MCP tool call, which the workspace detail's recent activity leaves out (SPEC.md section 24.11).
 - **Epic 72, small fixes batch.** A "Send a test site alert" button on the AI settings page writes a test warning that triage explains and the worker forwards like a real alert (limited to 3 an hour for each administrator); the agent instructions tell coding agents to run only the changed Playwright specs with two workers; set-password links issued in the same millisecond now leave exactly one valid; and removing a Dex user ends access and commits before the Dex password is deleted (SPEC.md sections 20.5, 4, 5.3 and 24.11).
+- **Epic 73, fix batch from the open items.** The chat's sign-in button selects the agent's open terminal tab before opening a new one; Codex subagent panels are titled by the first line of their prompt; the terminal question's "Answered in the terminal or timed out" notice stays until it is closed; the Move to dialog and the file viewer reach later pages of a long folder; a set-password link whose email failed to send is revoked; and turning a code help language off closes its open sockets (SPEC.md sections 10.2, 10.8, 11.2, 13.6, 5.3 and 25.8).
 
 ## Open items
 
@@ -110,7 +111,7 @@ list was made and may already be fixed.
 - Blocking sites in open egress mode is best effort, and domain fronting inside TLS stays open in allow-list mode (ADRs 0038 and 0043). While `nftables.service` is stopped, only the Incus ACL protects the gateway.
 - Ending a root shell by audit session id is best effort against root, and a service started with plain `systemd-run` from a root shell is listed but not stopped.
 - New breached passwords are caught only when the pinned SecLists snapshot is bumped.
-- Some counters live in one API process and reset on restart: the log alerts' hourly memory, the certificate ask endpoint's hourly count, and the per-workspace administrator-socket count (unverified).
+- Some counters live in one API process and reset on restart: the log alerts' hourly memory, the certificate ask endpoint's hourly count, the per-workspace administrator-socket count, and the list of open language-server sockets that turning a language off closes, so other API processes would keep theirs (unverified).
 - Agent usage counts come from the student's own workspace and can be forged, so they are for reporting only. The secret filter on shared projects is a deny list.
 - Codex downloads rely on GitHub's digest and the release checksum file, with no signature check (accepted, ADR 0056).
 - Encryption at rest and an off-server backup copy on rented hardware: #1142. Incident response for administrators: #920.
@@ -122,7 +123,6 @@ list was made and may already be fixed.
 - Invitations have no course field, so inviting students in bulk, by the assistant or by hand, adds them without course membership.
 - Google and Entra group sign-in have not met a real tenant (#1587), and Entra users in more groups than a token holds need a Microsoft Graph lookup (#1588). Active Directory has not been tried; OpenLDAP stood in for it.
 - Real mail delivery has been checked only through a stand-in relay.
-- A set-password link whose email failed to send stays valid until it expires.
 - If the audit write fails after Remove has deleted the Dex password, pressing Remove again finds no password and the `dex_user.removed` row is never written; the committed `user.disabled` row remains (accepted).
 - Changing `PORTIKUS_ADMIN_EMAIL` after the local administrator exists changes nothing; the manual step is `portikus reset-admin --email`.
 - More than one Dex connector per site is not built (unverified).
@@ -154,11 +154,9 @@ list was made and may already be fixed.
 
 - Live file updates inside hidden and generated folders reach one level deep, at the project root only; deeper changes wait for the next refetch.
 - The destination of a create-folder or move can race, because Node has no `RENAME_NOREPLACE`.
-- The Move to dialog and the file viewer's sibling list see only the first page of a long folder.
 - Undo history is lost when an editor remounts; only the text is carried over.
 - A PDF over 50 MB is offered as a download, and CSV view is read-only with at most 1,000 rows and 200 columns.
 - Screen-reader mode is off by default, because xterm.js then drops text that arrives without a key press, such as dictation.
-- Turning a code help language off does not close sockets already open.
 - HTML, CSS and JSON code help ignores the site's code-help switch, and HTML has no diagnostics in Monaco 0.57.
 - Java, C/C++ and SQL code help is still open (#1652). A debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
 - Wanted: picking an element in the preview to send to the agent (#1708).
@@ -169,11 +167,9 @@ list was made and may already be fixed.
 - The full chat path with a signed-in Claude account (subagent rows, `!` commands, read aloud, the context meter) has not been run end to end on a VM. The pilot still needs a check that `SubagentStop` hooks fire under the SDK and that only `/clear` changes the session id.
 - Permission decisions shown in the chat live in the chat host's memory, so a host restart or a resumed ended chat loses them.
 - Answering a permission card splits an open tool group, because a call with a decision stands alone (a visual jump).
-- The "Answered in the terminal or timed out" notice on a terminal's question card shows for 4 seconds only.
 - A long decision target in the chat is cut with an ellipsis; its full text is in a tooltip.
+- A Codex subagent opened from the left pane whose starting row is older than the chat's reloaded turns is titled by its type, not by its prompt.
 - A question asked in a Codex terminal tab has no browser card, because Codex has no hook that can hold a question open; the tab shows needs input.
-- Codex subagent panels opened from separate left-pane rows share the title "Subagent".
-- The sign-in banner's button always opens a new terminal tab, even when that agent's tab is already open.
 - The smoke check's self-test (`chat-probe-test.sh`, `fake-chat-server.mjs`) has no Codex scenarios.
 - A `!` command run in a resumed Claude chat before the first message after an agent switch is hidden after a reload.
 - Claude's automatic title for a chat that began on Codex is unchecked: it may read the handoff block.
@@ -220,6 +216,7 @@ list was made and may already be fixed.
 
 ### Tests and docs
 
+- `e2e/chat-context-meter.spec.ts` "the readouts fit the row and pass axe at 420 px" fails about half the time, on the base too.
 - Under heavy machine load some chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
 - Two browser tests, `e2e/editor-schemes.spec.ts` (line 193) and `e2e/guard-settings.spec.ts` (line 125), failed even on retry in one run and passed when CI was rerun.
 - An MCP tool call whose inner request is refused by the key's rate limit (429) writes no audit row, matching direct rate-limited requests (accepted).
