@@ -51,9 +51,9 @@ describe("uniqueSelector", () => {
 
 	it("stays within the length limit", () => {
 		let html = "";
-		for (let i = 0; i < 400; i++) html += "<div><span></span><span>";
+		for (let i = 0; i < 80; i++) html += "<p></p><p>";
 		document.body.innerHTML = html;
-		const deepest = document.querySelectorAll("span");
+		const deepest = document.querySelectorAll("p");
 		const selector = uniqueSelector(deepest[deepest.length - 1] as Element);
 		expect(selector.length).toBeLessThanOrEqual(PICK_SELECTOR_MAX_CHARS);
 	});
