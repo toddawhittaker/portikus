@@ -225,9 +225,15 @@ function FileTab({
 	const data = file.data;
 	// A folder past one page lists the rest on request, so the lookup asks
 	// for the next page until the file turns up or the pages run out. Only a
-	// file with no etag needs its listing entry.
+	// file with no etag needs its listing entry. A page that fails ends the
+	// lookup, so the viewer shows without a version instead of waiting.
 	const lookingUp =
-		!listed && listing.hasNextPage && data !== undefined && !data.etag && kind !== null;
+		!listed &&
+		listing.hasNextPage &&
+		!listing.isFetchNextPageError &&
+		data !== undefined &&
+		!data.etag &&
+		kind !== null;
 	const { hasNextPage, isFetchingNextPage, fetchNextPage } = listing;
 	const pages = listing.data;
 	// Each page that arrives is new data, so the next page is asked for even

@@ -155,6 +155,15 @@ test("a question no longer waiting says so and clears the card", async () => {
 	expect(screen.getByRole("status").textContent).toBe(QUESTION_GONE);
 });
 
+test("the close button sits in the notice but outside the status region", async () => {
+	await answerTooLate();
+	const close = screen.getByRole("button", { name: "Dismiss notice" });
+	const notice = screen.getByTestId(`terminal-question-gone-${TERMINAL}`);
+	expect(notice.contains(close)).toBe(true);
+	expect(screen.getByRole("status").contains(close)).toBe(false);
+	expect(notice.contains(screen.getByRole("status"))).toBe(true);
+});
+
 test("the notice stays until it is closed, however long that takes", async () => {
 	vi.useFakeTimers({ shouldAdvanceTime: true });
 	await answerTooLate();

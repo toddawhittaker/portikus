@@ -212,8 +212,13 @@ test("an answer that comes too late says so, clears the card, and the notice sta
 
 	const gone = page.getByTestId(`terminal-question-gone-${terminalId}`);
 	await expect(gone).toContainText("Answered in the terminal or timed out");
-	// The notice sits inside the pane's polite status region, so it is spoken.
-	await expect(page.getByRole("status").filter({ has: gone })).toHaveCount(1);
+	// The message is in the pane's polite status region, so it is spoken; the
+	// close button sits in the notice but outside the region.
+	await expect(gone.getByRole("status")).toHaveText(
+		"Answered in the terminal or timed out",
+	);
+	await expect(gone.getByRole("status").getByRole("button")).toHaveCount(0);
+	await expect(gone.getByRole("button", { name: "Dismiss notice" })).toBeVisible();
 	await expect(card(page)).toHaveCount(0);
 	await expect(shell(page, terminalId)).toBeFocused();
 	expect(await forwarded(workspaceId)).toEqual([]);
@@ -235,6 +240,40 @@ test("the close button removes the notice and the keyboard goes back to the term
 	await page.keyboard.press("Enter");
 	await expect(gone).toHaveCount(0);
 	await expect(shell(page, terminalId)).toBeFocused();
+});
+
+test("the close button shows a tint on hover and a ring on focus, in the dark theme", async ({
+	page,
+	context,
+}) => {
+	await page.emulateMedia({ colorScheme: "dark" });
+	const { workspaceId, terminalId } = await openTerminal(page, context);
+	await answerTooLate(page, workspaceId, terminalId);
+	const gone = page.getByTestId(`terminal-question-gone-${terminalId}`);
+	const close = gone.getByRole("button", { name: "Dismiss notice" });
+	await expect(gone).toBeVisible();
+	// A one-line bar at the bottom, not a box stretched down the pane.
+	expect((await gone.boundingBox())?.height).toBeLessThan(60);
+
+	await close.hover();
+	// Something visible changes on hover, and it is a tint, not an underline.
+	const hovered = await close.evaluate((node) => {
+		const style = getComputedStyle(node);
+		return { background: style.backgroundColor, decoration: style.textDecorationLine };
+	});
+	expect(hovered.background).not.toBe("rgba(0, 0, 0, 0)");
+	expect(hovered.decoration).toBe("none");
+
+	// The focus ring takes the terminal's text colour, which reads on the notice.
+	await page.keyboard.press("Shift");
+	await close.focus();
+	const ring = await close.evaluate((node) => ({
+		outline: getComputedStyle(node).outlineColor,
+		text: getComputedStyle(node).color,
+		width: getComputedStyle(node).outlineWidth,
+	}));
+	expect(ring.outline).toBe(ring.text);
+	expect(ring.width).not.toBe("0px");
 });
 
 test("a new question replaces the notice", async ({ page, context }) => {

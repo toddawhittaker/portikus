@@ -14,7 +14,6 @@ import {
 	visibleEntries,
 } from "./paths.js";
 import { useTree } from "./queries.js";
-import { ShowMoreRow } from "./ShowMoreRow.js";
 import type { FileNode } from "./selection.js";
 
 /** The folders of a listing that can be moved into, in listing order. */
@@ -54,7 +53,7 @@ export function MoveDialog({
 }: MoveDialogProps) {
 	const first = nodes[0];
 	// Start where the first item already is, so a nearby move is one step.
-	const [folder, setFolder] = useState(first ? parentOf(first.path) : "");
+	const [folder, setFolderState] = useState(first ? parentOf(first.path) : "");
 	const listing = useTree(workspaceId, projectId, folder);
 	const moving = new Set(nodes.map((node) => node.path));
 	const folders = listing.data
@@ -62,8 +61,21 @@ export function MoveDialog({
 		: [];
 	const list = useRef<HTMLUListElement | null>(null);
 	// The folder to focus once the next page is drawn, so focus never drops
-	// to the page when the Show more row goes.
+	// to the page when the Show more folders button goes.
 	const [focusAfterLoad, setFocusAfterLoad] = useState<string | null>(null);
+	// Set when a page added no folder yet more entries remain, so the button
+	// keeps focus and a polite message says why nothing moved.
+	const [emptyPage, setEmptyPage] = useState(false);
+	const openFolder = useRef(folder);
+	openFolder.current = folder;
+
+	function setFolder(next: string) {
+		setFocusAfterLoad(null);
+		setEmptyPage(false);
+		setFolderState(next);
+	}
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a drawn page is the trigger
 	useEffect(() => {
 		if (focusAfterLoad === null) return;
 		const button = list.current?.querySelector<HTMLElement>(
@@ -72,16 +84,26 @@ export function MoveDialog({
 		if (!button) return;
 		setFocusAfterLoad(null);
 		button.focus();
-	});
+	}, [focusAfterLoad, listing.data]);
 
 	async function showMore() {
 		const before = folders.length;
+		const opened = folder;
+		setEmptyPage(false);
 		const result = await listing.fetchNextPage();
-		if (!result.data) return;
-		const after = folderNames(result.data.entries, showHidden, moving, folder);
-		// The first new folder; with none and the row gone, the last one.
-		const target = after[before] ?? (result.data.truncated ? undefined : after.at(-1));
-		if (target !== undefined) setFocusAfterLoad(target);
+		// A failed page, or one that lands after the student moved on, moves nothing.
+		if (result.isError || !result.data || openFolder.current !== opened) return;
+		const after = folderNames(result.data.entries, showHidden, moving, opened);
+		const added = after[before];
+		if (added !== undefined) {
+			setFocusAfterLoad(added);
+		} else if (result.data.truncated) {
+			setEmptyPage(true);
+		} else {
+			// The button is gone with the last page, so the last folder takes focus.
+			const last = after.at(-1);
+			if (last !== undefined) setFocusAfterLoad(last);
+		}
 	}
 
 	const allowed = nodes.every((node) => canMoveInto(node.path, folder));
@@ -154,29 +176,20 @@ export function MoveDialog({
 					})}
 				</ul>
 				{listing.data?.truncated ? (
-					// A treeitem needs a tree around it, and Enter and Space are
-					// the tree's own keys, so this one-row tree answers them.
-					<div
-						role="tree"
-						aria-label="More folders"
-						className="pk-tree"
-						onKeyDown={(event) => {
-							if (event.key !== "Enter" && event.key !== " ") return;
-							event.preventDefault();
-							if (!listing.isFetchingNextPage) void showMore();
-						}}
+					<Button
+						variant="quiet"
+						size="sm"
+						className="mt-1"
+						data-testid="move-show-more"
+						loading={listing.isFetchingNextPage}
+						onClick={() => void showMore()}
 					>
-						<ShowMoreRow
-							path=""
-							level={1}
-							shown={visibleEntries(listing.data.entries, showHidden).length}
-							focused
-							loading={listing.isFetchingNextPage}
-							onFocus={() => {}}
-							onActivate={() => void showMore()}
-						/>
-					</div>
+						Show more folders
+					</Button>
 				) : null}
+				<p role="status" className="pk-visually-hidden">
+					{emptyPage ? "No folders in the next page; more entries remain." : ""}
+				</p>
 				{listing.isSuccess && !listing.data.truncated && folders.length === 0 ? (
 					<p className="m-0 mt-2 text-sm text-ink-muted">No folders here.</p>
 				) : null}
