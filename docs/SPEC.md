@@ -1438,7 +1438,7 @@ Added by Epic 66: the sign-in check. The chat host asks the agent whether the st
 
 Added by Epic 67: choosing a different model or version in a chat that has history, for either agent, first asks in a confirmation dialog, because the prompt cache belongs to one model and the new model reads the whole conversation again at the cache-write price. The dialog says so with the context meter's figure to the nearest thousand tokens ("about 30k tokens", left out until the meter has one) and offers "Change model", "Start fresh chat with handoff" (the handoff of section 10.8) and "Cancel", which leaves the picker on the old model. An empty chat, and effort and permission changes, switch with no question.
 
-Added by Epic 74 (ADR 0083): side conversations. Typing `/btw` in a chat tab opens a side conversation in a split inside the chat pane, titled "Side: <chat name>"; it is not part of the saved layout (section 7.6). It sees the main conversation as it stands, and its questions and answers never enter the main conversation or steer the running turn. It is read-only, and the chat host enforces that: Claude's side question runs with no tools, and Codex's runs in an ephemeral fork of the thread, made again for each question, with a read-only sandbox and approval policy `never`, where read-only commands are allowed. A chat has one side conversation and it takes one question at a time, on the main chat's model. The host keeps it in memory, so it survives a reload, and it ends when the student closes the pane, on `/clear`, on an agent swap, on a host restart or when the workspace stops. It is never written to disk or logged (ADR 0012). The `/btw` command is offered only when the host lists it.
+Added by Epic 74 (ADR 0083): side conversations. Typing `/btw` in a chat tab opens a side conversation in a split inside the chat pane, titled "Side: <chat name>"; it is not part of the saved layout (section 7.6). It sees the main conversation as it stands, and its questions and answers never enter the main conversation or steer the running turn. It is read-only, and the chat host enforces that: Claude's side question runs with no tools, and Codex's runs in an ephemeral fork of the thread, made again for each question, with a read-only sandbox and approval policy `never`, where read-only commands are allowed. A chat has one side conversation and it takes one question at a time, on the main chat's model. The host keeps it in memory, so it survives a reload, and it ends when the student closes the pane, on `/clear`, on an agent swap, on a host restart or when the workspace stops. It is never written to disk or logged (ADR 0012). The `/btw` command is offered only when the host lists it. In a Codex side conversation, Codex itself refuses an MCP (Model Context Protocol) tool call that needs approval, because the fork runs with approval policy `never`, while a tool whose server marks it read-only (`readOnlyHint`) runs without asking, as it does in the main chat; MCP servers are not turned off for the fork, because that changes the tool list and loses the prompt cache. Threads that a side fork spawns are side threads too: their requests are refused and their events stay out of the main conversation.
 
 ### 10.3 Direct CLI use
 
@@ -8397,6 +8397,23 @@ Acceptance:
 - a file far down a folder of more than 2,000 entries keeps its version in the viewer, and Move to reaches folders past the first page;
 - after a failed send the new link does not work and older links still do;
 - an open language-server socket closes with 4416 when its language is turned off, and sockets of other languages stay open.
+
+### Epic 74 — Side conversations in the chat
+
+Built on `epic/74-side-chat`, issue #2110. No migration and no API change. See sections 7.6, 10.2, 24 and 25.8, and ADR 0083.
+
+Includes:
+
+- `/btw` in a Claude Code (GUI) or Codex (GUI) chat tab opening a side conversation in a resizable split inside the chat pane, with its own text-only box, Stop and Close, offered only when the host lists `btw`;
+- side answers drawn from the main conversation as it stands, which never enter it or steer the running turn, with Claude's side question run without tools and Codex's run in an ephemeral, read-only fork made again for each question;
+- the chat host keeping the side conversation in memory and replaying it when a browser attaches, so it survives a reload, and ending it on close, `/clear`, an agent swap, a host restart or a workspace stop.
+
+Acceptance:
+
+- a side question asked during a running turn is answered, and the main transcript, the tab's state, the permission cards and the context meter gain nothing;
+- a side conversation changes no file and opens no permission card, and an MCP tool call that needs approval is refused;
+- a reload keeps the side conversation, finished or still running, and a host that does not list `btw` is never sent a `side.*` message;
+- nothing from a side conversation is written to disk or logged.
 
 ### Estimated total
 

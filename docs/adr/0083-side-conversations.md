@@ -38,6 +38,16 @@ file or run anything that does.
    restart or a workspace stop. Nothing is written to disk or logged
    (ADR 0012). One side conversation per chat, one question at a time, on
    the main chat's model, because the prompt cache belongs to one model.
+5. **MCP tools in a Codex side conversation.** The fork runs with approval
+   policy `never`, so Codex itself refuses an MCP (Model Context Protocol)
+   tool call that needs approval, and the tool does not run. A tool whose
+   server marks it read-only (`readOnlyHint`) runs without asking, as it does
+   in the main chat. We did not turn MCP servers off for the fork, because
+   that changes the tool list and loses the prompt cache. A test against the
+   real CLI pins this behaviour. Threads that a side fork spawns, such as
+   subagents, are side threads too: the host refuses their requests, drops
+   their events from the main conversation, and stops them when the question
+   stops or the conversation ends.
 
 ## Consequences
 
@@ -45,6 +55,10 @@ file or run anything that does.
   first and the command disappears until the wrapper is changed.
 - A side question reads from the prompt cache of the main model, so it
   costs little while the cache is warm.
+- A read-only-hinted MCP tool can run from a Codex side conversation without
+  a request, so a server that marks a writing tool read-only is trusted to
+  be honest, as in the main chat. A Codex update that changes how `never`
+  treats MCP calls is caught by the real-CLI test.
 - A host restart loses the side conversation. We accept that for never
   keeping it on disk.
 
