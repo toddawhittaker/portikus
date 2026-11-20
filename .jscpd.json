@@ -4,6 +4,7 @@
 	"ignore": [
 		"**/node_modules/**",
 		"**/dist/**",
+		"**/dist-frame/**",
 		"**/.tsbuild/**",
 		"**/*.test.ts",
 		"**/*.test.tsx",

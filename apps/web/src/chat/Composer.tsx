@@ -40,7 +40,8 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useStore } from "zustand";
-import { CODING_AGENT_NAME } from "../agents/codingAgentName.js";
+import { registerAgentDropTarget } from "../agents/agentDropTargets.js";
+import { agentTabName, CODING_AGENT_NAME } from "../agents/codingAgentName.js";
 import { currentPlatform } from "../platform.js";
 import { endsVoiceShortcut, isVoiceShortcut } from "../voice/shortcut.js";
 import { stop as stopReading } from "../voice/speak.js";
@@ -248,6 +249,17 @@ export function Composer({
 	const lastLongPaste = useRef<Promise<string[]> | null>(null);
 	const files = useComposerAttachments(workspaceId, projectId);
 	const clearFiles = files.clear;
+	const addFiles = files.add;
+	// The preview's pick mode can send files here as a drop on the chat would.
+	useEffect(
+		() =>
+			registerAgentDropTarget({
+				terminalId,
+				label: agentTabName(agent, "chat"),
+				deliver: async (dropped) => (await addFiles(dropped)).length > 0,
+			}),
+		[terminalId, agent, addFiles],
+	);
 	// The editor is made once; it reads the agent through here as it draws.
 	const agentNow = useRef(agent);
 	agentNow.current = agent;

@@ -404,3 +404,78 @@ test("a host that does not list btw gets no side pane and no side message", () =
 	expect(screen.queryByTestId("side-panel")).toBeNull();
 	expect(sideSent()).toEqual([]);
 });
+
+/** A finished side answer, so its Copy button is in the log. */
+function answered() {
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	side(1, "turn.started", { at: 1000 });
+	side(2, "message", { id: "q", role: "user", markdown: "why?" });
+	side(3, "message", { id: "a", role: "assistant", markdown: "Because." });
+	side(4, "turn.finished", { at: 1500, status: "done" });
+}
+
+function copyInAnswer(): HTMLElement {
+	const copies = within(screen.getByTestId("side-scroll")).getAllByRole("button", {
+		name: "Copy message",
+	});
+	return copies[copies.length - 1] as HTMLElement;
+}
+
+test("a replay that empties the log moves the keyboard from a side answer's Copy to the side box", () => {
+	draw();
+	sendFromChat("/btw why?");
+	answered();
+	act(() => copyInAnswer().focus());
+	expect(document.activeElement).toBe(copyInAnswer());
+	// A reconnect: the host replays from an empty snapshot, so the list is gone.
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	expect(screen.getByTestId("side-empty")).toBeTruthy();
+	expect(document.activeElement).toBe(sideBox());
+});
+
+test("a replay that empties the log while a question runs moves the keyboard to Stop", () => {
+	draw();
+	sendFromChat("/btw why?");
+	answered();
+	act(() => copyInAnswer().focus());
+	side(0, "snapshot", { cards: [], turnRunning: true, truncated: false });
+	expect(document.activeElement).toBe(screen.getByTestId("side-stop"));
+});
+
+test("a replay leaves the keyboard alone when it was not in the side log", () => {
+	draw();
+	sendFromChat("/btw why?");
+	answered();
+	act(() => composer().focus());
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	expect(document.activeElement).toBe(composer());
+	// Nor does it pull the keyboard back after the student left the log by Tab.
+	answered();
+	act(() => copyInAnswer().focus());
+	act(() => sideBox().focus());
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	expect(document.activeElement).toBe(sideBox());
+});
+
+test("a replay does not pull the keyboard back after a click left the log for the page", () => {
+	draw();
+	sendFromChat("/btw why?");
+	answered();
+	act(() => copyInAnswer().focus());
+	// A click on bare page leaves nothing focused, with no new target.
+	fireEvent.pointerDown(document.body);
+	act(() => (document.activeElement as HTMLElement).blur());
+	side(0, "snapshot", { cards: [], turnRunning: false, truncated: false });
+	expect(document.activeElement).toBe(document.body);
+});
+
+test("a later message does not pull the keyboard in when the focused answer is still there", () => {
+	draw();
+	sendFromChat("/btw why?");
+	answered();
+	act(() => copyInAnswer().focus());
+	// Focus is lost some other way, such as the window losing it, with no click.
+	act(() => (document.activeElement as HTMLElement).blur());
+	side(5, "message", { id: "b", role: "assistant", markdown: "Also this." });
+	expect(document.activeElement).toBe(document.body);
+});

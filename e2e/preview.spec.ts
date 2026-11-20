@@ -11,7 +11,7 @@ import {
 	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
-import { previewGateway } from "./preview-gateway";
+import { appFrameLocator, previewGateway } from "./preview-gateway";
 
 /**
  * The Preview tab, the Running surface and the preview route a terminal link
@@ -46,7 +46,7 @@ async function savePreviewTab(projectId: string, port: number): Promise<void> {
 
 /** The heading of the application the fake agent runs for a preview test. */
 function appHeading(page: Page) {
-	return page.frameLocator("[data-testid=preview-frame]").locator("h1");
+	return appFrameLocator(page).locator("h1");
 }
 
 test.describe("application preview", () => {

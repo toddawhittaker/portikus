@@ -8,11 +8,13 @@ import {
 	createEvent,
 	fireEvent,
 	render,
+	renderHook,
 	screen,
 	waitFor,
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import { useAgentDropTargets } from "../agents/agentDropTargets";
 import { editorSettingsKey } from "../editor/settingsQueries";
 import { setDraggedTreeNodes } from "../files/treeDrag";
 import { TREE_DRAG_TYPE } from "../files/useTreeDragAndDrop";
@@ -750,4 +752,76 @@ test("an ended terminal offers no Resume and no New chat", () => {
 test("a Claude Code terminal's pane reads TUI", () => {
 	renderLeaf({ agent: "claude", name: "Terminal 3" });
 	expect(screen.getByText("Claude Code (TUI) · ~/projects/todo-api")).toBeTruthy();
+});
+
+test("a live agent terminal is a drop target that saves files and types their quoted paths with no Enter", async () => {
+	const calls = stubUpload((url) =>
+		url.includes("/mkdir") ? json({}) : json({ etag: "e", size: 1 }),
+	);
+	const targets = renderHook(() => useAgentDropTargets());
+	renderLeaf({ agent: "claude", name: "Terminal 3" });
+	expect(targets.result.current).toHaveLength(1);
+	const [target] = targets.result.current;
+	expect(target).toMatchObject({
+		terminalId: terminal.id,
+		label: "Claude Code (TUI)",
+	});
+	let arrived: boolean | undefined;
+	await act(async () => {
+		arrived = await target?.deliver([
+			new File(["x"], "pick.png", { type: "image/png" }),
+			new File(["y"], "my pick.txt"),
+		]);
+	});
+	expect(arrived).toBe(true);
+	expect(calls.filter((call) => call.method === "PUT")).toHaveLength(2);
+	expect(typed).toHaveBeenCalledTimes(1);
+	const text = String(typed.mock.calls[0]?.[0]);
+	expect(text).toMatch(
+		new RegExp(
+			`^${PATH_START}/\\.portikus/pastes/[0-9T-]+/pick\\.png '${PATH_START}/\\.portikus/pastes/[0-9T-]+/my pick\\.txt' $`,
+		),
+	);
+	expect(text).not.toMatch(/[\r\n]/);
+});
+
+test("a delivery that is refused or fails to save resolves to false", async () => {
+	stubUpload(() => new Response("{}", { status: 500 }));
+	const targets = renderHook(() => useAgentDropTargets());
+	renderLeaf({ agent: "claude", name: "Terminal 3" });
+	const [target] = targets.result.current;
+	let refused: boolean | undefined;
+	let failed: boolean | undefined;
+	await act(async () => {
+		refused = await target?.deliver([new File(["x"], "bad\nname.txt")]);
+		failed = await target?.deliver([new File(["x"], "pick.png")]);
+	});
+	expect(refused).toBe(false);
+	expect(failed).toBe(false);
+	expect(typed).not.toHaveBeenCalled();
+});
+
+test("a plain shell is not a drop target", () => {
+	const targets = renderHook(() => useAgentDropTargets());
+	renderLeaf();
+	expect(targets.result.current).toEqual([]);
+});
+
+test("a chat pane and an ended agent terminal are not registered by the leaf", () => {
+	const targets = renderHook(() => useAgentDropTargets());
+	renderLeaf({ kind: "chat", agent: "claude" });
+	expect(targets.result.current).toEqual([]);
+	cleanup();
+	renderLeaf({ agent: "codex", endedAt: "2026-01-02T00:00:00.000Z" });
+	expect(targets.result.current).toEqual([]);
+});
+
+test("an agent terminal leaves the list when it unmounts or ends", () => {
+	const targets = renderHook(() => useAgentDropTargets());
+	const leaf = renderLeaf({ agent: "claude" });
+	expect(targets.result.current).toHaveLength(1);
+	leaf.rerender({ agent: "claude", endedAt: "2026-01-02T00:00:00.000Z" });
+	expect(targets.result.current).toEqual([]);
+	leaf.rerender({ agent: "claude" });
+	expect(targets.result.current).toHaveLength(1);
 });

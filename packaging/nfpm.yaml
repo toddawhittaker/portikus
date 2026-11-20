@@ -63,6 +63,15 @@ contents:
       owner: root
       group: root
 
+  # The element picker's wrapper page, which Caddy serves only on preview
+  # hosts, kept out of the bundle above so the main site never serves it.
+  - src: ./apps/web/dist-frame
+    dst: /usr/lib/portikus/preview-frame
+    type: tree
+    file_info:
+      owner: root
+      group: root
+
   # Node, bundled so the package needs nothing outside Debian.
   - src: ./dist/deploy/node
     dst: /usr/lib/portikus/node

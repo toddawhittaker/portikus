@@ -2278,6 +2278,8 @@ In the "Open a preview" dialog each listening port is a bordered row with a trai
 
 "Reset preview data…" first asks for confirmation in the neutral (not red) confirmation dialog.
 
+Added by Epic 75 (ADR 0084): a student can pick an element in an embedded preview and send it to an agent. The Preview toolbar has a pick button. The student first chooses the target, one of the open agent terminals and chats (with one open, picking starts at once; with none, the button is disabled and says why), then points at an element. Two files are written to `.portikus/pastes/<stamp>/`: `picked-element.md`, holding the page's port and path, the time, a short selector, the element's trimmed HTML, its matching CSS rules and some computed values, and `picked-element.png`, a screenshot drawn from the preview's own page. The files follow the drop folder's existing 7-day cleanup. A terminal gets the two quoted paths and a space, never Enter; a chat gets the files as attachments; the view then switches to that agent. A pick whose picture is over the size limit arrives without it, and the file says so. The screenshot library fetches the element's images from the preview's own origin, so an image from another site comes out blank in the picture. Pick mode stops if the app reloads or the target agent's pane closes. The button is hidden in a Traditional course and in an instructor's live-help view. Picking works through a Portikus wrapper page on the preview origin (BROWSER-HANDLING.md section 12.1), a pick can be sent only by that page (code on the preview origin can still shape what a pick contains), and the file says its contents came from the page and are to be treated as data, not instructions. Picked content is never logged.
+
 ### 14.7 Port discovery
 
 The workspace agent should detect listening TCP ports.
@@ -6388,6 +6390,10 @@ Added by Epic 62: on a narrow screen the pane bar's drawer buttons are named "Sh
 
 Added by Epic 63: a terminal's question card takes the keyboard only when focus is in that pane's terminal or nowhere, never from another pane or from a hidden tab; when it goes away while it holds focus, focus returns to the terminal. The "Answered in the terminal or timed out" notice is a polite live status that stays until it is closed with its labelled **Dismiss notice** button, which sits outside the status region, or a new question replaces it; closing it while it holds focus returns focus to the terminal. A decision line in the chat is words ("Allowed", "Denied"), not colour alone, in muted ink at 4.5:1. A file-type icon keeps 3:1 against plain, hovered, focused and selected rows in both themes.
 
+Added by Epic 75 (ADR 0084, section 14.6): pick mode in the preview can be driven from the keyboard. The pick button reports its state with `aria-pressed`. When two open agents are of one kind, the pick menu numbers them. Pick mode starts at the application's focused element. Up moves to the parent element, Down to its first child, Left and Right to its siblings, Enter picks, and Escape leaves pick mode, from the Portikus page or the wrapper page; Escape returns focus to the pick button. The highlighted element's label is read through the preview's polite status region, throttled so a fast walk through the page does not flood it. After a pick, focus moves into the agent that got it, and "Picked element sent to <agent>" is announced.
+
+Added by Epic 75: in a chat's side conversation (section 10.2), a reconnect makes the host replay the side conversation, and the browser empties and rebuilds its message list. If focus was on a control inside a side answer when that happens, it falls back to the side composer, or to Stop while a question is running, and never to the page body.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -8414,6 +8420,25 @@ Acceptance:
 - a side conversation changes no file and opens no permission card, and an MCP tool call that needs approval is refused;
 - a reload keeps the side conversation, finished or still running, and a host that does not list `btw` is never sent a `side.*` message;
 - nothing from a side conversation is written to disk or logged.
+
+### Epic 75 — Pick an element in the preview, and side pane focus
+
+Built on `epic/75-element-picker`, issues #1708 and #2176. No migration. See sections 10.2, 14.6, 24 and 25.8, ADR 0084 and BROWSER-HANDLING.md section 12.1.
+
+Includes:
+
+- an embedded preview opening a Portikus wrapper page at `/__portikus/frame/` on the preview origin, served by Caddy behind the preview login check, which holds the student's app in an inner frame and carries the picker;
+- a pick button in the Preview toolbar: the student chooses an open agent terminal or chat, then points at an element by pointer or keyboard, and its trimmed HTML, matching CSS, computed values and a screenshot arrive as `picked-element.md` and `picked-element.png` in the drop folder, typed into the terminal without Enter or attached to the chat;
+- a side answer in a chat keeping keyboard focus across a reconnect, by falling back to the side composer or Stop.
+
+Acceptance:
+
+- only the wrapper page can send a pick: another origin, the student's inner window, a message outside pick mode and a second pick are all refused;
+- the wrapper page opened as an ordinary tab, without a preview session or with a `Sec-Fetch-Dest` other than `iframe`, is refused, and an application with a service worker still works inside it;
+- nothing in a pick chooses the file path, the agent or a keystroke, and a forged page path, a picture that is not a PNG and one that is too large are kept out of the files;
+- picking works from the keyboard, announces what is highlighted and the delivery, and passes the accessibility checks;
+- the pick button is hidden in a Traditional course and in an instructor's live-help view;
+- after a reconnect, focus in a side answer falls back to the side composer, or to Stop while a question runs, and never to the page body.
 
 ### Estimated total
 

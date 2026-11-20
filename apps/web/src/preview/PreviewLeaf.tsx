@@ -22,6 +22,7 @@ import {
 	Toggletip,
 	useToast,
 } from "@portikus/ui";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, errorText } from "../api/request.js";
 import { PORT_REFUSED_TEXT } from "../links.js";
@@ -35,6 +36,10 @@ import {
 	resetPreviewData,
 } from "./grants.js";
 import { attachPreviewHistory, type PreviewHistory } from "./history.js";
+import { focusAgentInput } from "./pick/focusAgent.js";
+import { PickControl } from "./pick/PickControl.js";
+import { usePickMode } from "./pick/usePickMode.js";
+import { PREVIEW_FRAME_ALLOW } from "./previewAllow.js";
 import "./preview.css";
 
 /**
@@ -326,6 +331,11 @@ export function PreviewLeaf({
 		// A load can be a late echo of an earlier Back, so the hint goes only
 		// when there really is something to go back to again.
 		if (history.current?.canGoBack()) setBackHint(undefined);
+		// Any pick in progress belongs to the old page.
+		pick.stop();
+		// The wrapper page's own load waits for the app's frame inside it, so
+		// this event means the app loaded whether or not it is shown through
+		// the wrapper.
 		if (state.status !== "available" && state.status !== "blocked") return;
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
@@ -408,6 +418,35 @@ export function PreviewLeaf({
 
 	const [confirmingReset, setConfirmingReset] = useState(false);
 	const showingGrant = grantOf(state);
+	const framed = state.status === "available" || state.status === "blocked";
+	const navigate = useNavigate();
+	const pick = usePickMode({
+		frame,
+		previewOrigin: framed ? state.grant.previewOrigin : null,
+		frameKey: framed ? state.grant.bootstrapUrl : null,
+		port,
+		// Show the agent that got the pick, the way its row in the left pane
+		// does, and give it the keyboard. The toast is announced outside this
+		// pane, which the switch hides (SPEC.md §25.8).
+		onDelivered: (target, label) => {
+			toast.show({ tone: "success", title: `Picked element sent to ${label}` });
+			void Promise.resolve(
+				navigate({
+					to: ".",
+					search: (previous: Record<string, unknown>) => ({
+						...previous,
+						tab: target.terminalId,
+					}),
+				}),
+			).then(() => focusAgentInput(target.terminalId));
+		},
+		onError: (error) =>
+			toast.show({
+				tone: "danger",
+				title: "That element could not be sent",
+				children: errorText(error),
+			}),
+	});
 	const host = showingGrant ? new URL(showingGrant.previewOrigin).host : `port ${port}`;
 
 	return (
@@ -415,6 +454,7 @@ export function PreviewLeaf({
 			className="pk-preview"
 			data-testid={`preview-pane-${port}`}
 			data-state={state.status}
+			data-picking={pick.state === "picking" ? "" : undefined}
 			hidden={!visible}
 		>
 			<div className="pk-preview-bar">
@@ -433,6 +473,7 @@ export function PreviewLeaf({
 				{/* Always enabled: the frame is cross-origin, so whether it has
 				    somewhere to go back to cannot be read. A press
 				    with nothing behind it does nothing and says so. */}
+				<PickControl pick={pick} ready={state.status === "available"} />
 				<IconButton
 					icon="arrow-left"
 					label="Back"
@@ -505,7 +546,9 @@ export function PreviewLeaf({
 
 			{/* Always rendered, so each change is announced rather than missed. */}
 			<p className="pk-visually-hidden" role="status" data-testid="preview-status">
-				{announcement(state, port)}
+				{pick.state === "picking"
+					? pick.hoverLabel || "Picking an element. Press Escape to stop."
+					: announcement(state, port)}
 			</p>
 
 			<div className="pk-preview-body">
@@ -680,7 +723,7 @@ export function PreviewLeaf({
 						onError={onFrameError}
 						sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock"
 						referrerPolicy="no-referrer"
-						allow="clipboard-read 'none'; clipboard-write 'self'; camera 'none'; microphone 'none'; geolocation 'none'"
+						allow={PREVIEW_FRAME_ALLOW}
 					/>
 				) : null}
 			</div>

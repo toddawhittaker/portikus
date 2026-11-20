@@ -18,6 +18,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { registerAgentDropTarget } from "../agents/agentDropTargets.js";
 import { fileErrorToast, tooLargeToast } from "../files/errors.js";
 import { displayName } from "../files/paths.js";
 import "../chat/chat-frame.css";
@@ -175,8 +176,8 @@ export function TerminalLeaf({
 	}
 
 	/** Save each desktop file in the project, then type where they went. */
-	async function dropFiles(files: File[]) {
-		if (files.length === 0) return;
+	async function dropFiles(files: File[]): Promise<boolean> {
+		if (files.length === 0) return false;
 		for (const file of files) {
 			const bad = dropNameError(file.name);
 			if (bad) {
@@ -185,16 +186,16 @@ export function TerminalLeaf({
 					title: `${displayName(file.name)} cannot be dropped`,
 					children: bad,
 				});
-				return;
+				return false;
 			}
 			if (file.size > MAX_UPLOAD_BYTES) {
 				toast.show(tooLargeToast());
-				return;
+				return false;
 			}
 		}
 		if (!projectSlug) {
 			toast.show(fileErrorToast(null));
-			return;
+			return false;
 		}
 		const now = new Date();
 		try {
@@ -210,10 +211,29 @@ export function TerminalLeaf({
 				);
 			}
 			typePaths(saved);
+			return true;
 		} catch (error) {
 			toast.show(fileErrorToast(error));
+			return false;
 		}
 	}
+
+	// The registered target outlives a render, so it reaches the current drop
+	// path through a ref.
+	const dropFilesNow = useRef(dropFiles);
+	dropFilesNow.current = dropFiles;
+	// Only a live agent terminal can take files; a plain shell is not offered,
+	// and a chat is offered by its composer.
+	const agentTerminal = !chat && !ended && agentLabel(terminal) !== null;
+	const terminalId = terminal.id;
+	useEffect(() => {
+		if (!agentTerminal) return;
+		return registerAgentDropTarget({
+			terminalId,
+			label: name,
+			deliver: (files) => dropFilesNow.current(files),
+		});
+	}, [agentTerminal, terminalId, name]);
 
 	function onDrop(event: DragEvent) {
 		const kind = acceptedKind(event);

@@ -151,3 +151,20 @@
 	padding: var(--space-2) 0 0;
 	border-top: 1px solid var(--line);
 }
+
+/* The pick button and the hidden reason it is disabled, as one toolbar item. */
+.pk-preview-pick {
+	display: inline-flex;
+}
+
+/* Unavailable but still reachable by Tab, so its tooltip can say why. */
+.pk-preview-pick-off {
+	color: var(--ink-faint);
+	cursor: not-allowed;
+}
+
+/* While picking, the frame is outlined so it is clear clicks go to the picker. */
+.pk-preview[data-picking] .pk-preview-frame {
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
