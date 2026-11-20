@@ -96,6 +96,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 72, small fixes batch.** A "Send a test site alert" button on the AI settings page writes a test warning that triage explains and the worker forwards like a real alert (limited to 3 an hour for each administrator); the agent instructions tell coding agents to run only the changed Playwright specs with two workers; set-password links issued in the same millisecond now leave exactly one valid; and removing a Dex user ends access and commits before the Dex password is deleted (SPEC.md sections 20.5, 4, 5.3 and 24.11).
 - **Epic 73, fix batch from the open items.** The chat's sign-in button selects the agent's open terminal tab before opening a new one; Codex subagent panels are titled by the first line of their prompt; the terminal question's "Answered in the terminal or timed out" notice stays until it is closed; the Move to dialog and the file viewer reach later pages of a long folder; a set-password link whose email failed to send is revoked; and turning a code help language off closes its open sockets (SPEC.md sections 10.2, 10.8, 11.2, 13.6, 5.3 and 25.8).
 - **Epic 74, side conversations.** A student can type `/btw` in a Claude Code (GUI) or Codex (GUI) chat tab to ask a side question, or press Side question beside the composer's microphone, in a split beside the chat: it is answered from the conversation as it stands, never enters it or steers the running turn, runs read-only, and is kept across a reload (SPEC.md section 10.2, ADR 0083).
+- **Epic 75, picking an element in the preview.** A student can pick an element in an embedded preview and send its HTML, CSS and a screenshot to an agent terminal or chat, through a Portikus wrapper page on the preview origin (SPEC.md sections 14.6 and 24, ADR 0084); and a side answer keeps keyboard focus across a reconnect (#2176).
 
 ## Open items
 
@@ -160,7 +161,6 @@ list was made and may already be fixed.
 - Screen-reader mode is off by default, because xterm.js then drops text that arrives without a key press, such as dictation.
 - HTML, CSS and JSON code help ignores the site's code-help switch, and HTML has no diagnostics in Monaco 0.57.
 - Java, C/C++ and SQL code help is still open (#1652). A debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
-- Wanted: picking an element in the preview to send to the agent (#1708).
 - The Playwright projects other than `terminal-webgl` run Chromium with 3D off, so most terminal specs exercise the DOM renderer; only `e2e/terminal-webgl.spec.ts` covers WebGL.
 
 ### Chat and coding agents
@@ -198,6 +198,7 @@ list was made and may already be fixed.
 ### Interface and accessibility
 
 - A manual VoiceOver pass over headings inside `<summary>` elements is #1260.
+- The preview's pick menu is named "Pick an element" for screen readers, not "Send the picked element to", because Radix points the menu's name at its trigger (#2196).
 - A toast can cover a focused row near the bottom of a drawer (WCAG 2.4.11), and the plan meter popover can cover a toast.
 - The Audit tab and the other refreshing admin tabs do not announce new rows to screen readers. The Health heat map's cell values are not readable by sighted keyboard users.
 - The shared Checkbox's unavailable look is faint in both themes.
