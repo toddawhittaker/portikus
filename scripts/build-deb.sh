@@ -109,9 +109,10 @@ pnpm exec tsc -b
 # which tsc does not copy, so build the ui package first.
 pnpm --filter @portikus/ui build
 
-# Caddy serves this bundle from /usr/lib/portikus/web.
+# Caddy serves this bundle from /usr/lib/portikus/web, and the element
+# picker's wrapper from /usr/lib/portikus/preview-frame.
 pnpm --filter @portikus/web build
-chmod -R u=rwX,go=rX apps/web/dist
+chmod -R u=rwX,go=rX apps/web/dist apps/web/dist-frame
 
 rm -rf dist/deploy dist/deb
 pnpm --filter @portikus/api deploy --prod --legacy dist/deploy/api

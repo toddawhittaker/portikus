@@ -77,9 +77,17 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	# X-Portikus-Upstream-Scheme (ADR 0041).  A non-2xx answer goes back to the
 	# browser unchanged, body and status, so the API owns the explanation
 	# page.  On the bridge path the URI still carries the reserved prefix, so
-	# the API can read the requested port out of X-Forwarded-Uri.
+	# the API can read the requested port out of X-Forwarded-Uri.  The
+	# element picker's wrapper page is asked about as / instead, so the
+	# login rules are exactly the application's and the request itself is
+	# never rewritten (ADR 0084).
+	map {path} {portikus_authorize_uri} {
+		~(?i)^/__portikus/frame/ "/"
+		default {uri}
+	}
 	forward_auth 127.0.0.1:{{ portikus_api_port }} {
 		uri /preview/authorize
+		header_up X-Forwarded-Uri {portikus_authorize_uri}
 		copy_headers X-Portikus-Upstream X-Portikus-Upstream-Scheme
 		# The subrequest is a plain GET.  Without these two lines an upgrade
 		# request would ask the API for a WebSocket it never opens, and the
@@ -423,35 +431,37 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	# The element picker's wrapper page (ADR 0084, SPEC 24).  It is
 	# Portikus's own page, served from the package and never from the
 	# student application, but it frames the application on this origin, so
-	# it passes the same login check: the path is rewritten to / for the
-	# check (the API's bridge parser accepts it, and Sec-Fetch-User still
-	# counts as activity), and a refusal or a stopped workspace answers just
-	# as the application path does.  It may only be framed, never opened as
+	# it passes the same login check, asked about / (see
+	# portikus_preview_authorize; the API's bridge parser accepts it, and
+	# Sec-Fetch-User still counts as activity), and a refusal or a stopped
+	# workspace answers just as the application path does.  It may only be framed, never opened as
 	# a page, and only by the Portikus origin.
 	handle /__portikus/frame {
-		redir /__portikus/frame/ 308
+		redir * /__portikus/frame/ 308
 	}
 	handle /__portikus/frame/* {
 		route {
 			@portikus_frame_method not method GET HEAD
 			respond @portikus_frame_method 405
+			# Only the page must be a frame.  Its own scripts and styles
+			# arrive as script and style requests, and still pass the login
+			# check below.
 			@portikus_frame_not_iframe {
 				header Sec-Fetch-Dest *
 				not header Sec-Fetch-Dest iframe
+				not path /__portikus/frame/assets/*
 			}
 			respond @portikus_frame_not_iframe 403
 
-			rewrite * /
 			import portikus_preview_authorize
-			rewrite * {http.request.orig_uri.path}
 			uri strip_prefix /__portikus/frame
 
-			header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors https://{{ portikus_public_host }}{{ '' if portikus_public_port | int == 443 else ':' ~ portikus_public_port }}"
+			header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors https://{{ portikus_public_host }}{{ '' if portikus_public_port | int == 443 else ':' ~ portikus_public_port }}"
 			@portikus_frame_assets path /assets/*
 			header @portikus_frame_assets Cache-Control "public, max-age=31536000, immutable"
 			@portikus_frame_page not path /assets/*
 			header @portikus_frame_page Cache-Control no-cache
-			root * /usr/lib/portikus/web/preview-frame
+			root * /usr/lib/portikus/preview-frame
 			file_server
 		}
 	}
@@ -466,6 +476,11 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	# authorize, then proxy.
 	handle {
 		route {
+			# A reserved path that only leaves the prefix once its dot
+			# segments are cleaned (/__portikus/frame/../x) is still not the
+			# application's.
+			@portikus_reserved_unclean expression `{http.request.orig_uri.path}.matches("(?i)^/__portikus/")`
+			respond @portikus_reserved_unclean 404
 			import portikus_preview_authorize
 			import portikus_preview_proxy ""
 		}
