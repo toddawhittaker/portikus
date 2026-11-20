@@ -90,7 +90,7 @@ test("with one agent open a press starts picking for it at once", () => {
 	render(<PickControl pick={pick} ready={true} />);
 	expect(button().getAttribute("aria-pressed")).toBe("false");
 	fireEvent.click(button());
-	expect(pick.start).toHaveBeenCalledWith(target);
+	expect(pick.start).toHaveBeenCalledWith(target, "Agent t1");
 });
 
 test("with several agents open it asks which, then starts for that one", async () => {
@@ -103,7 +103,7 @@ test("with several agents open it asks which, then starts for that one", async (
 	expect(screen.getByRole("menuitem", { name: "Agent t1" })).toBeTruthy();
 	expect(pick.start).not.toHaveBeenCalled();
 	fireEvent.click(item);
-	await vi.waitFor(() => expect(pick.start).toHaveBeenCalledWith(second));
+	await vi.waitFor(() => expect(pick.start).toHaveBeenCalledWith(second, "Agent t2"));
 });
 
 test("two agents of one kind are told apart by number in the menu", async () => {
@@ -120,7 +120,9 @@ test("two agents of one kind are told apart by number in the menu", async () => 
 		"Claude Code (TUI) 2",
 	]);
 	fireEvent.click(item);
-	await vi.waitFor(() => expect(pick.start).toHaveBeenCalledWith(second));
+	await vi.waitFor(() =>
+		expect(pick.start).toHaveBeenCalledWith(second, "Claude Code (TUI) 2"),
+	);
 });
 
 test("chats are told apart by their titles, and the list follows tab order", async () => {
@@ -176,7 +178,9 @@ test("two agents of one kind are told apart by number in the menu", async () => 
 		"Claude Code (TUI) 2",
 	]);
 	fireEvent.click(item);
-	await vi.waitFor(() => expect(pick.start).toHaveBeenCalledWith(second));
+	await vi.waitFor(() =>
+		expect(pick.start).toHaveBeenCalledWith(second, "Claude Code (TUI) 2"),
+	);
 });
 
 test("while picking it reads as pressed and a press stops", () => {

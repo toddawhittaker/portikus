@@ -113,7 +113,7 @@ function delivered(t: ReturnType<typeof target>): File[] {
 test("start posts start to the frame with the preview origin as target", () => {
 	const post = vi.spyOn(iframe.contentWindow as Window, "postMessage");
 	const { result } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	expect(result.current.state).toBe("picking");
 	expect(post).toHaveBeenCalledWith({ v: 1, type: "start" }, ORIGIN);
 });
@@ -121,7 +121,7 @@ test("start posts start to the frame with the preview origin as target", () => {
 test("a pick from another origin is refused", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked(), { origin: "https://evil.example" });
 	await settle();
 	expect(t.deliver).not.toHaveBeenCalled();
@@ -131,7 +131,7 @@ test("a pick from another origin is refused", async () => {
 test("a pick from the right origin but another window is refused", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked(), { source: other.contentWindow });
 	send(picked(), { source: null });
 	await settle();
@@ -141,7 +141,7 @@ test("a pick from the right origin but another window is refused", async () => {
 test("a message that does not fit the schema is refused", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked({ v: 2 }));
 	send(picked({ extra: true }));
 	send("picked");
@@ -162,7 +162,7 @@ test("hover, picked and cancelled are ignored outside pick mode", async () => {
 
 test("hover labels show while picking and cancelled leaves pick mode", () => {
 	const { result } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	send({ v: 1, type: "hover", label: "heading Welcome" });
 	expect(result.current.hoverLabel).toBe("heading Welcome");
 	send({ v: 1, type: "cancelled" });
@@ -173,12 +173,12 @@ test("hover labels show while picking and cancelled leaves pick mode", () => {
 test("only the first pick per start is taken", async () => {
 	const t = target();
 	const { result, options } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked());
 	send(picked({ tag: "p" }));
 	await settle();
 	expect(t.deliver).toHaveBeenCalledTimes(1);
-	expect(options.onDelivered).toHaveBeenCalledWith(t);
+	expect(options.onDelivered).toHaveBeenCalledWith(t, "Menu label");
 	expect(result.current.state).toBe("idle");
 	send(picked());
 	await settle();
@@ -189,7 +189,7 @@ test("Escape in the Portikus page stops picking, and a later pick is refused", a
 	const post = vi.spyOn(iframe.contentWindow as Window, "postMessage");
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	act(() => {
 		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 	});
@@ -202,13 +202,13 @@ test("Escape in the Portikus page stops picking, and a later pick is refused", a
 
 test("start gives the frame the keyboard", () => {
 	const { result } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	expect(document.activeElement).toBe(iframe);
 });
 
 test("Escape outside the preview pane, or already handled, does not stop picking", () => {
 	const { result } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	// An agent's chat box has the keyboard; its Escape stops the agent's turn.
 	elsewhere.focus();
 	act(() => {
@@ -238,7 +238,7 @@ test("Escape outside the preview pane, or already handled, does not stop picking
 
 test("Escape in the frame puts the keyboard on the pick button", () => {
 	const { result } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	expect(document.activeElement).toBe(iframe);
 	send({ v: 1, type: "cancelled", focusInApp: false });
 	expect(document.activeElement).toBe(pickButton);
@@ -246,7 +246,7 @@ test("Escape in the frame puts the keyboard on the pick button", () => {
 
 test("Escape in the frame leaves the keyboard in the app when the wrapper gave it back", () => {
 	const { result } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	send({ v: 1, type: "cancelled", focusInApp: true });
 	expect(result.current.state).toBe("idle");
 	expect(document.activeElement).toBe(iframe);
@@ -254,7 +254,7 @@ test("Escape in the frame leaves the keyboard in the app when the wrapper gave i
 
 test("a cancel leaves the keyboard alone when it is not in the frame", () => {
 	const { result } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	elsewhere.focus();
 	send({ v: 1, type: "cancelled" });
 	expect(document.activeElement).toBe(elsewhere);
@@ -263,7 +263,7 @@ test("a cancel leaves the keyboard alone when it is not in the frame", () => {
 test("a pick after the frame reloads is refused", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	act(() => result.current.stop());
 	send(picked());
 	await settle();
@@ -274,7 +274,7 @@ test("a pick after the frame reloads is refused", async () => {
 test("a pick after the grant changes is refused", async () => {
 	const t = target();
 	const { result, rerender, options } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	rerender({ ...options, frameKey: "grant-2" });
 	expect(result.current.state).toBe("idle");
 	send(picked());
@@ -285,7 +285,7 @@ test("a pick after the grant changes is refused", async () => {
 test("a pick after the preview origin changes is refused", async () => {
 	const t = target();
 	const { result, rerender, options } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	rerender({
 		...options,
 		previewOrigin: "https://alice-3000.preview.portikus.example.edu",
@@ -298,7 +298,7 @@ test("a pick after the preview origin changes is refused", async () => {
 test("unmounting stops picking", () => {
 	const post = vi.spyOn(iframe.contentWindow as Window, "postMessage");
 	const { result, unmount } = setup();
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	unmount();
 	expect(post).toHaveBeenLastCalledWith({ v: 1, type: "stop" }, ORIGIN);
 });
@@ -308,7 +308,7 @@ test("the port and the time come from this page, and the names and types are fix
 	vi.setSystemTime(new Date("2026-11-19T12:00:00.000Z"));
 	const t = target();
 	const { result } = setup({ port: 4321 });
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked({ png: new Uint8Array(PNG).buffer }));
 	await settle();
 	const [md, png] = delivered(t);
@@ -325,7 +325,7 @@ test("the port and the time come from this page, and the names and types are fix
 test("a screenshot that is not a PNG is dropped and the file says so", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked({ png: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]).buffer }));
 	await settle();
 	const files = delivered(t);
@@ -336,7 +336,7 @@ test("a screenshot that is not a PNG is dropped and the file says so", async () 
 test("a screenshot over the size limit drops only the picture", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	const big = new Uint8Array(PICK_PNG_MAX_BYTES + 1);
 	big.set(PNG.slice(0, 8));
 	send(picked({ png: big.buffer }));
@@ -350,7 +350,7 @@ test("a screenshot over the size limit drops only the picture", async () => {
 test("a pick without a screenshot says none was sent", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked());
 	await settle();
 	const files = delivered(t);
@@ -362,7 +362,7 @@ test("delivery goes to the chosen target only", async () => {
 	const first = target("t1");
 	const second = target("t2");
 	const { result } = setup();
-	act(() => result.current.start(second));
+	act(() => result.current.start(second, "Menu label"));
 	send(picked());
 	await settle();
 	expect(second.deliver).toHaveBeenCalledTimes(1);
@@ -374,7 +374,7 @@ test("a failed delivery reports the error and leaves pick mode", async () => {
 	const failure = new Error("upload refused");
 	t.deliver.mockRejectedValueOnce(failure);
 	const { result, options } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked());
 	await settle();
 	expect(options.onError).toHaveBeenCalledWith(failure);
@@ -386,7 +386,7 @@ test("a delivery that does not arrive leaves the view where it is", async () => 
 	const t = target();
 	t.deliver.mockResolvedValueOnce(false);
 	const { result, options } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	send(picked());
 	await settle();
 	expect(t.deliver).toHaveBeenCalledTimes(1);
@@ -399,7 +399,7 @@ test("picking stops when the chosen agent's pane closes", () => {
 	const t = target();
 	const post = vi.spyOn(iframe.contentWindow as Window, "postMessage");
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	expect(result.current.state).toBe("picking");
 	act(() => offs.shift()?.());
 	expect(result.current.state).toBe("idle");
@@ -409,7 +409,7 @@ test("picking stops when the chosen agent's pane closes", () => {
 test("a pick for an agent that is no longer listed is not delivered", async () => {
 	const t = target();
 	const { result } = setup();
-	act(() => result.current.start(t));
+	act(() => result.current.start(t, "Menu label"));
 	// Taken off the list without a render in between.
 	offs.shift()?.();
 	send(picked());
@@ -418,8 +418,30 @@ test("a pick for an agent that is no longer listed is not delivered", async () =
 	expect(result.current.state).toBe("idle");
 });
 
+test("a new registration for the same agent keeps pick mode and takes the pick", async () => {
+	const first = target();
+	const { result } = setup();
+	act(() => result.current.start(first, "Menu label"));
+	// The pane registers again under the same id, as a renamed tab or a switched agent does.
+	const second = target();
+	expect(result.current.state).toBe("picking");
+	send(picked());
+	await settle();
+	expect(second.deliver).toHaveBeenCalledTimes(1);
+	expect(first.deliver).not.toHaveBeenCalled();
+});
+
+test("removing the agent after it re-registered still stops picking", () => {
+	const { result } = setup();
+	act(() => result.current.start(target(), "Menu label"));
+	target();
+	expect(result.current.state).toBe("picking");
+	act(() => offs.pop()?.());
+	expect(result.current.state).toBe("idle");
+});
+
 test("nothing starts without a frame to pick from", () => {
 	const { result } = setup({ previewOrigin: null });
-	act(() => result.current.start(target()));
+	act(() => result.current.start(target(), "Menu label"));
 	expect(result.current.state).toBe("idle");
 });

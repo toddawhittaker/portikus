@@ -86,7 +86,7 @@ export function PickControl({ pick, ready }: PickControlProps) {
 	// The target chosen in the menu. The menu holds focus inside itself while
 	// open, so picking starts once it has closed, in place of Radix handing
 	// focus back to the button.
-	const chosen = useRef<AgentDropTarget | null>(null);
+	const chosen = useRef<{ target: AgentDropTarget; label: string } | null>(null);
 	const reasonId = useId();
 	if (traditional) return null;
 
@@ -134,7 +134,8 @@ export function PickControl({ pick, ready }: PickControlProps) {
 					? undefined
 					: () => {
 							if (active) pick.stop();
-							else if (targets[0]) pick.start(targets[0]);
+							else if (targets[0] && labels[0] !== undefined)
+								pick.start(targets[0], labels[0]);
 						}
 			}
 		/>
@@ -158,11 +159,11 @@ export function PickControl({ pick, ready }: PickControlProps) {
 					<Menu
 						label="Send the picked element to"
 						onCloseAutoFocus={(event) => {
-							const target = chosen.current;
+							const picked = chosen.current;
 							chosen.current = null;
-							if (!target) return;
+							if (!picked) return;
 							event.preventDefault();
-							pick.start(target);
+							pick.start(picked.target, picked.label);
 						}}
 					>
 						{targets.map((target, index) => (
@@ -170,7 +171,7 @@ export function PickControl({ pick, ready }: PickControlProps) {
 								key={target.terminalId}
 								testId={`preview-pick-target-${target.terminalId}`}
 								onSelect={() => {
-									chosen.current = target;
+									chosen.current = { target, label: labels[index] ?? target.label };
 								}}
 							>
 								{labels[index]}

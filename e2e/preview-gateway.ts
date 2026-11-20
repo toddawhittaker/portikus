@@ -99,9 +99,13 @@ interface FrameRequest {
  *
  *   - GET and HEAD only, else 405;
  *   - a request whose `Sec-Fetch-Dest` is present and not `iframe` is
- *     refused with 403, so the page can only be framed;
- *   - the same login check as the application path, made with the path
- *     rewritten to `/`; a refusal or the stopped page is passed back as is;
+ *     refused with 403, so the page can only be framed; paths under
+ *     `/__portikus/frame/assets/` are exempt, since the page's own scripts
+ *     and styles arrive as script and style requests;
+ *   - the same login check as the application path, for every request that
+ *     gets past that; Caddy sends the request on unchanged and tells the
+ *     check its address is `/`; a refusal or the stopped page is passed back
+ *     as is;
  *   - the build's `index.html` for the folder, its assets by path, with the
  *     page's policy (`frame-ancestors` is the Portikus origin) and caching.
  */
@@ -117,7 +121,10 @@ export async function frameAnswer(
 		return none(308, { location: `${FRAME_PREFIX}/` });
 	}
 	if (request.method !== "GET" && request.method !== "HEAD") return none(405);
-	if (request.fetchDest !== null && request.fetchDest !== "iframe") return none(403);
+	const inside = request.pathname.slice(FRAME_PREFIX.length);
+	const asset = inside.startsWith("/assets/");
+	if (!asset && request.fetchDest !== null && request.fetchDest !== "iframe")
+		return none(403);
 
 	// Caddy forwards the request's own headers to the check, so a user-started
 	// load still counts as activity (ADR 0032).
@@ -142,7 +149,6 @@ export async function frameAnswer(
 	}
 
 	requireFrameBuild();
-	const inside = request.pathname.slice(FRAME_PREFIX.length);
 	const file = resolve(FRAME_DIR, inside === "/" ? "index.html" : inside.slice(1));
 	// The URL parser has already removed dot segments; this keeps the check
 	// true if a path ever arrives some other way.
@@ -153,13 +159,12 @@ export async function frameAnswer(
 	} catch {
 		return none(404);
 	}
-	const assets = inside.startsWith("/assets/");
 	return {
 		status: 200,
 		headers: {
 			"content-type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
 			"content-security-policy": frameContentSecurityPolicy(),
-			"cache-control": assets ? "public, max-age=31536000, immutable" : "no-cache",
+			"cache-control": asset ? "public, max-age=31536000, immutable" : "no-cache",
 		},
 		body: request.method === "HEAD" ? Buffer.alloc(0) : body,
 	};
