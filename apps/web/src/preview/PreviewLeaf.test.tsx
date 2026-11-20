@@ -882,3 +882,51 @@ test("a pick goes to the one open agent, the status reads the hover, and the vie
 		agentPane.remove();
 	}
 });
+
+test("two agents of one kind get different confirmations, as the menu names them", async () => {
+	const names: string[] = [];
+	for (const choice of ["Claude Code 1", "Claude Code 2"]) {
+		stubFetch(() => json(200, GRANT));
+		const offs = ["term-1", "term-2"].map((terminalId) =>
+			registerAgentDropTarget({
+				terminalId,
+				label: "Claude Code",
+				deliver: async () => true,
+			}),
+		);
+		try {
+			show({});
+			await screen.findByTestId("preview-frame");
+			fireEvent.pointerDown(screen.getByTestId("preview-pick"), {
+				button: 0,
+				pointerType: "mouse",
+			});
+			fireEvent.click(await screen.findByRole("menuitem", { name: choice }));
+			await waitFor(() =>
+				expect(screen.getByTestId("preview-pick").getAttribute("aria-pressed")).toBe(
+					"true",
+				),
+			);
+			fromFrame({
+				v: 1,
+				type: "picked",
+				pagePath: "/",
+				selector: "h1",
+				tag: "h1",
+				html: "<h1>Welcome</h1>",
+				rules: [],
+				computed: {},
+				trimmed: { html: false, rules: false },
+			});
+			const toast = await screen.findByText(/^Picked element sent to /);
+			names.push(toast.textContent ?? "");
+		} finally {
+			for (const off of offs) off();
+			cleanup();
+		}
+	}
+	expect(names).toEqual([
+		"Picked element sent to Claude Code 1",
+		"Picked element sent to Claude Code 2",
+	]);
+});

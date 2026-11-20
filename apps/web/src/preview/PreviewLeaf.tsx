@@ -428,8 +428,8 @@ export function PreviewLeaf({
 		// Show the agent that got the pick, the way its row in the left pane
 		// does, and give it the keyboard. The toast is announced outside this
 		// pane, which the switch hides (SPEC.md §25.8).
-		onDelivered: (target) => {
-			toast.show({ tone: "success", title: `Picked element sent to ${target.label}` });
+		onDelivered: (target, label) => {
+			toast.show({ tone: "success", title: `Picked element sent to ${label}` });
 			void Promise.resolve(
 				navigate({
 					to: ".",
