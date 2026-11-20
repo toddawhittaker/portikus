@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PICK_HOVER_LABEL_MAX_CHARS } from "../pick/messages.js";
-import { labelFor, PICK_LAYER_NAME, startPickMode, throttle, walk } from "./overlay.js";
+import {
+	labelFor,
+	PICK_LAYER_NAME,
+	settle,
+	startPickMode,
+	throttle,
+	walk,
+} from "./overlay.js";
 
 let frame: HTMLIFrameElement;
 let inner: Document;
@@ -10,11 +17,19 @@ beforeEach(() => {
 	document.body.append(frame);
 	inner = frame.contentDocument as Document;
 	inner.body.innerHTML = `<main><h1 id="t">Title</h1><p class="lead">Text</p><a href="#">Link</a></main>`;
+	// jsdom lays nothing out; here every element has a box unless marked.
+	const view = frame.contentWindow as Window & typeof globalThis;
+	vi.spyOn(view.Element.prototype, "getClientRects").mockImplementation(function (
+		this: Element,
+	) {
+		return (this.hasAttribute("data-undrawn") ? [] : [{}]) as unknown as DOMRectList;
+	});
 });
 
 afterEach(() => {
 	document.body.innerHTML = "";
 	vi.useRealTimers();
+	vi.restoreAllMocks();
 });
 
 function start(overrides: Partial<Parameters<typeof startPickMode>[0]> = {}) {
@@ -45,8 +60,27 @@ describe("walk", () => {
 		const a = inner.querySelector("a") as Element;
 		expect(walk(a, "ArrowRight")).toBe(a);
 		expect(walk(a, "ArrowDown")).toBe(a);
-		expect(walk(inner.documentElement, "ArrowUp")).toBe(inner.documentElement);
 		expect(walk(a, "Tab")).toBe(a);
+	});
+
+	it("stops going up at the body", () => {
+		expect(walk(inner.querySelector("main") as Element, "ArrowUp")).toBe(inner.body);
+		expect(walk(inner.body, "ArrowUp")).toBe(inner.body);
+	});
+
+	it("skips elements with no box and elements never drawn", () => {
+		inner.body.innerHTML = `<main><script></script><p data-undrawn></p><h1>One</h1><style></style><template></template><p data-undrawn></p><h2>Two</h2><script></script></main>`;
+		const main = inner.querySelector("main") as Element;
+		const h1 = inner.querySelector("h1") as Element;
+		const h2 = inner.querySelector("h2") as Element;
+		expect(walk(main, "ArrowDown")).toBe(h1);
+		expect(walk(h1, "ArrowRight")).toBe(h2);
+		expect(walk(h2, "ArrowLeft")).toBe(h1);
+		expect(walk(h1, "ArrowLeft")).toBe(h1);
+		expect(walk(h2, "ArrowRight")).toBe(h2);
+		inner.body.innerHTML = `<div><script></script></div>`;
+		const div = inner.querySelector("div") as Element;
+		expect(walk(div, "ArrowDown")).toBe(div);
 	});
 });
 
@@ -88,17 +122,63 @@ describe("throttle", () => {
 	});
 });
 
+describe("settle", () => {
+	it("sends only the last value, once the values stop for the rest time", () => {
+		vi.useFakeTimers();
+		const send = vi.fn();
+		const t = settle(send, 400);
+		t.push("a");
+		vi.advanceTimersByTime(300);
+		t.push("b");
+		vi.advanceTimersByTime(300);
+		expect(send).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(100);
+		expect(send).toHaveBeenCalledExactlyOnceWith("b");
+		t.push("c");
+		t.cancel();
+		vi.advanceTimersByTime(1000);
+		expect(send).toHaveBeenCalledOnce();
+	});
+});
+
 describe("startPickMode", () => {
-	it("puts a named, focused layer over the frame", () => {
+	it("puts a named, focused layer over the frame, before it in tab order", () => {
 		const { layer } = start();
 		expect(layer.getAttribute("aria-label")).toBe(PICK_LAYER_NAME);
 		expect(document.activeElement).toBe(layer);
+		expect(
+			layer.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it("does not read the start element, so the instructions are heard first", () => {
+		vi.useFakeTimers();
+		(inner.querySelector("a") as HTMLElement).focus();
+		const { onHover } = start();
+		vi.advanceTimersByTime(2000);
+		expect(onHover).not.toHaveBeenCalled();
+	});
+
+	it("reads the pointer's element only once the pointer rests", () => {
+		vi.useFakeTimers();
+		const h1 = inner.querySelector("h1") as Element;
+		const p = inner.querySelector("p") as Element;
+		let under = h1;
+		inner.elementFromPoint = vi.fn(() => under);
+		const { layer, onHover } = start({ hoverRestMs: 450 });
+		layer.dispatchEvent(new MouseEvent("mousemove", { clientX: 5, clientY: 5 }));
+		vi.advanceTimersByTime(300);
+		under = p;
+		layer.dispatchEvent(new MouseEvent("mousemove", { clientX: 5, clientY: 9 }));
+		vi.advanceTimersByTime(300);
+		expect(onHover).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(200);
+		expect(onHover).toHaveBeenCalledExactlyOnceWith("p.lead");
 	});
 
 	it("starts at the app's focused element and walks by keyboard", async () => {
 		(inner.querySelector("a") as HTMLElement).focus();
 		const { layer, onHover, onPick } = start();
-		await vi.waitFor(() => expect(onHover).toHaveBeenLastCalledWith('a "Link"'));
 		key(layer, "ArrowLeft");
 		await vi.waitFor(() => expect(onHover).toHaveBeenLastCalledWith("p.lead"));
 		key(layer, "ArrowUp");
@@ -107,11 +187,10 @@ describe("startPickMode", () => {
 		expect(document.querySelector(".pick-layer")).toBeNull();
 	});
 
-	it("starts at the body when nothing in the app has focus", async () => {
-		const { onHover } = start();
-		await vi.waitFor(() =>
-			expect(onHover).toHaveBeenCalledWith('body "TitleTextLink"'),
-		);
+	it("starts at the body when nothing in the app has focus", () => {
+		const { layer, onPick } = start();
+		key(layer, "Enter");
+		expect(onPick).toHaveBeenCalledExactlyOnceWith(inner.body);
 	});
 
 	it("picks the element under the pointer on click, and only once", () => {
@@ -169,16 +248,15 @@ describe("startPickMode", () => {
 		expect(pageScroll).not.toHaveBeenCalled();
 	});
 
-	it("starts at the element it is given, or the body when that one is gone", async () => {
+	it("starts at the element it is given, or the body when that one is gone", () => {
 		const p = inner.querySelector("p") as Element;
 		const first = start({ start: p });
-		await vi.waitFor(() => expect(first.onHover).toHaveBeenLastCalledWith("p.lead"));
-		first.leave();
+		key(first.layer, "Enter");
+		expect(first.onPick).toHaveBeenCalledExactlyOnceWith(p);
 		p.remove();
 		const second = start({ start: p });
-		await vi.waitFor(() =>
-			expect(second.onHover).toHaveBeenLastCalledWith('body "TitleLink"'),
-		);
+		key(second.layer, "Enter");
+		expect(second.onPick).toHaveBeenCalledExactlyOnceWith(inner.body);
 	});
 
 	it("scrolls the app on wheel when nothing under the pointer scrolls", () => {

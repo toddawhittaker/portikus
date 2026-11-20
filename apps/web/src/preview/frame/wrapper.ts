@@ -103,7 +103,10 @@ export function startWrapper(win: Window, options: WrapperOptions = {}): void {
 			onPick: (element) => void onPick(element),
 			onCancel: () => {
 				leave = null;
-				post({ v: PICK_MESSAGE_VERSION, type: "cancelled" });
+				// A student who came from the app goes back to where they were.
+				const back = lastFocused?.isConnected ? lastFocused : null;
+				if (back && "focus" in back) (back as HTMLElement).focus();
+				post({ v: PICK_MESSAGE_VERSION, type: "cancelled", focusInApp: back !== null });
 			},
 		});
 	});

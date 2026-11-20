@@ -139,19 +139,34 @@ export async function clickOn(page: Page, selector: string): Promise<void> {
 	await page.mouse.click(at.x, at.y);
 }
 
-/** Wait for exactly `count` drop folders, and return them. */
+/** The folders' file names, to tell when they have stopped changing. */
+const listing = (found: PickFolder[]) =>
+	JSON.stringify(found.map((folder) => Object.keys(folder.files).sort()));
+
+/**
+ * Wait for exactly `count` drop folders whose files have all been written,
+ * and return them. A folder appears before its files do, one at a time, so
+ * the listing must hold its Markdown and read the same twice running.
+ */
 export async function folders(scene: Scene, count: number): Promise<PickFolder[]> {
+	let last = "";
+	let found: PickFolder[] = [];
 	await expect
 		.poll(
 			async () => {
-				const found = await pickFolders(scene.workspaceId, scene.slug);
-				// A folder appears before its files are saved into it.
-				return found.filter((folder) => "picked-element.md" in folder.files).length;
+				found = await pickFolders(scene.workspaceId, scene.slug);
+				const now = listing(found);
+				const settled =
+					found.length === count &&
+					found.every((folder) => "picked-element.md" in folder.files) &&
+					now === last;
+				last = now;
+				return settled;
 			},
-			{ timeout: 20_000 },
+			{ timeout: 20_000, intervals: [250] },
 		)
-		.toBe(count);
-	return pickFolders(scene.workspaceId, scene.slug);
+		.toBe(true);
+	return found;
 }
 
 /** No drop folder, and nothing typed, after everything posted has been handled. */

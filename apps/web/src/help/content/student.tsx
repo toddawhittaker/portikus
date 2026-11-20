@@ -522,9 +522,11 @@ export const STUDENT_HELP: HelpPart = {
 							picker, not your app, until you pick or stop.
 						</li>
 						<li>
-							From the keyboard, Up moves to the outer element, Down to the first one
-							inside, Left and Right to its neighbours, and Enter picks. Escape stops,
-							and so does pressing the button again.
+							From the keyboard, picking starts at whatever had focus in your app. The
+							Up arrow moves to the outer element, the Down arrow to the first one
+							inside, the Left and Right arrows to its neighbours, and Enter picks. The
+							outlined element is read aloud. Escape stops, and so does pressing the
+							button again.
 						</li>
 						<li>
 							The agent receives two files:{" "}
@@ -533,7 +535,7 @@ export const STUDENT_HELP: HelpPart = {
 							and <code className="pk-mono-body">picked-element.png</code>, a picture of
 							it when one could be drawn. In a terminal their paths are typed for you,
 							without Enter; in a chat they are attached. Then Portikus shows that
-							agent.
+							agent, ready for you to type.
 						</li>
 						<li>
 							The file says its content came from your page and is to be treated as

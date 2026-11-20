@@ -157,6 +157,12 @@
 	display: inline-flex;
 }
 
+/* Unavailable but still reachable by Tab, so its tooltip can say why. */
+.pk-preview-pick-off {
+	color: var(--ink-faint);
+	cursor: not-allowed;
+}
+
 /* While picking, the frame is outlined so it is clear clicks go to the picker. */
 .pk-preview[data-picking] .pk-preview-frame {
 	outline: 2px solid var(--accent);
