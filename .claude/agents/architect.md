@@ -10,7 +10,7 @@ description: |
   architecture review. Read-only: it designs, it does not edit.
 model: opus
 effort: high
-tools: Bash, Read, Grep, Glob, Agent(explorer)
+tools: Bash, Read, Grep, Glob, Agent(Explore)
 ---
 
 # architect
@@ -88,3 +88,7 @@ its dependencies and boundaries with other apps and packages, and
 patterns that have drifted apart. Report concrete problems only, each
 with file paths, a simpler shape, the undo test result, and a rough cost.
 If you cannot name a simpler shape, do not report it.
+
+To search across many files, use the Explore agent: it runs on the
+smallest model and keeps the search out of your context. Look up a
+single known file yourself.

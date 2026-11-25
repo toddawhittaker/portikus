@@ -66,7 +66,7 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 
 | Agent | Use for |
 |---|---|
-| explorer | Finding where things are. Cheap. Feed its report to other agents. |
+| Explore | Finding where things are, on the smallest model. Feed its report to other agents. |
 | architect | Read-only design before a feature epic's plan, and the review at each SPEC.md section 30 milestone gate (WORKFLOW.md, "Epic plans"). |
 | builder | Implementing a scoped change against a named SPEC.md section. |
 | tester | Designing tests that pin SPEC.md invariants, then running them. |
@@ -79,7 +79,7 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 
 Orchestration rules:
 
-- Delegate to the cheapest agent that can do the job. Run explorer first
+- Delegate to the cheapest agent that can do the job. Run Explore first
   when a location is unknown and pass its paths on. When a builder or
   tester prompt settles every choice, spawn it on Sonnet at high effort
   and tell it to stop and report any choice the prompt leaves open.
