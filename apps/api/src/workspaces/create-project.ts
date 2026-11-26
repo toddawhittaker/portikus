@@ -11,9 +11,8 @@ import { AgentCallError, type AgentClient } from "../agent-client.js";
 import { sendError } from "../http.js";
 import {
 	claimLongOperation,
+	claimOperation,
 	releaseLongOperation,
-	runningOperation,
-	startOperation,
 } from "./long-operation.js";
 import {
 	type ProjectRow,
@@ -168,10 +167,7 @@ export function replyWithBackgroundCreate(
 	key: string,
 	afterCreate: () => Promise<void> = async () => {},
 ): FastifyReply | undefined {
-	const same = runningOperation(scope.workspaceId, key);
-	if (same) return reply.status(202).send(same);
-	if (!claimLongOperation(scope.workspaceId, reply)) return;
-	const operation = startOperation(
+	const claimed = claimOperation(
 		{
 			workspaceId: scope.workspaceId,
 			key,
@@ -180,13 +176,15 @@ export function replyWithBackgroundCreate(
 			pointId: null,
 			log: request.log,
 		},
-		async (background) => {
-			const created = await makeProject(db, scope.workspaceId, background, plan);
-			if (!created) return null;
-			await afterCreate();
-			return toProject(created.row, created.isGitRepo, false);
-		},
+		reply,
 	);
+	if (!claimed) return reply;
+	const operation = claimed.start(async (background) => {
+		const created = await makeProject(db, scope.workspaceId, background, plan);
+		if (!created) return null;
+		await afterCreate();
+		return toProject(created.row, created.isGitRepo, false);
+	});
 	return reply.status(202).send(operation);
 }
 

@@ -62,26 +62,68 @@ test("a slow clone shows Cloning… until it finishes, then opens the project", 
 	);
 });
 
-test("a reload during a slow clone finds it again and opens the project", async ({
+test("a reload during a slow clone finds it again and offers the project", async ({
 	page,
 	context,
 }) => {
 	const student = await createStudent(context);
-	await page.goto(workspacePath(student.workspaceId));
+	// Open on a project, so an empty workspace's jump to its first project does not interfere.
+	const lab = await createProject(student.workspaceId, { name: "lab" });
+	await page.goto(workspacePath(student.workspaceId, lab.id));
 	await startClone(page, "Reload Clone", "https://example.com/slow-motion.git");
 	await expect(page.getByTestId("dialog-confirm")).toHaveText("Cloning…");
 
 	await page.reload();
+	const url = page.url();
 	await expect(toast(page, "Still creating your project…")).toBeVisible();
-	await expect(toast(page, "Reload Clone created")).toBeVisible({ timeout: 15_000 });
-	const ids = await projectIds(student.workspaceId);
+	const done = toast(page, "Reload Clone created");
+	await expect(done).toBeVisible({ timeout: 15_000 });
+	const ids = (await projectIds(student.workspaceId)).filter((id) => id !== lab.id);
 	expect(ids).toHaveLength(1);
+	// The page stays where the student is until they choose to open it.
+	expect(page.url()).toBe(url);
+	await done.getByRole("button", { name: "Open project" }).click();
 	await expect(page).toHaveURL(new RegExp(`/projects/${ids[0]}`));
 
 	// Shown once: another reload does not announce it again.
 	await page.reload();
 	await expect(page.getByTestId(`project-item-${ids[0]}`)).toBeVisible();
 	await expect(toast(page, "Reload Clone created")).toHaveCount(0);
+
+	// Nor does a second tab, which did not start it.
+	const other = await context.newPage();
+	await other.goto(workspacePath(student.workspaceId));
+	await expect(other.getByTestId(`project-item-${ids[0]}`)).toBeVisible();
+	await expect(toast(other, "Reload Clone created")).toHaveCount(0);
+	await expect(other).not.toHaveURL(new RegExp(`/projects/${ids[0]}`));
+	await other.close();
+});
+
+test("closing the dialog during a slow clone still announces how it went", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	// Open on a project, so an empty workspace's jump to its first project does not interfere.
+	const lab = await createProject(student.workspaceId, { name: "lab" });
+	await page.goto(workspacePath(student.workspaceId, lab.id));
+	await startClone(page, "Closed Clone", "https://example.com/slow-motion.git");
+	const confirm = page.getByTestId("dialog-confirm");
+	await expect(confirm).toHaveText("Cloning…");
+	// Focus stays on the busy button rather than falling out of the dialog.
+	await expect(confirm).toBeFocused();
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("dialog-create-project")).toHaveCount(0);
+	const url = page.url();
+
+	const done = toast(page, "Closed Clone created");
+	await expect(done).toBeVisible({ timeout: 15_000 });
+	expect(page.url()).toBe(url);
+	const [projectId] = (await projectIds(student.workspaceId)).filter(
+		(id) => id !== lab.id,
+	);
+	await done.getByRole("button", { name: "Open project" }).click();
+	await expect(page).toHaveURL(new RegExp(`/projects/${projectId}`));
 });
 
 test("a slow clone that fails shows the same error as before", async ({
@@ -97,7 +139,7 @@ test("a slow clone that fails shows the same error as before", async ({
 	expect(await projectIds(student.workspaceId)).toHaveLength(0);
 });
 
-test("a slow duplicate shows Duplicating…, survives a reload, and opens the copy", async ({
+test("a slow duplicate shows Duplicating…, survives a reload, and offers the copy", async ({
 	page,
 	context,
 }) => {
@@ -112,7 +154,7 @@ test("a slow duplicate shows Duplicating…, survives a reload, and opens the co
 
 	await page.reload();
 	await expect(toast(page, "Still duplicating your project…")).toBeVisible();
-	await expect(toast(page, "Lab Copy created")).toBeVisible({ timeout: 15_000 });
+	await expect(toast(page, "Lab Copy duplicated")).toBeVisible({ timeout: 15_000 });
 	await expect.poll(async () => (await projectIds(student.workspaceId)).length).toBe(2);
 	await expect(page.getByTestId("project-list")).toContainText("Lab Copy");
 });
@@ -172,7 +214,7 @@ test("a slow restore keeps its dialog busy, then reports, and survives a reload"
 	await expect(confirm).toHaveAttribute("aria-busy", "true");
 	await page.reload();
 	await expect(toast(page, "Still restoring your project…")).toBeVisible();
-	await expect(toast(page, "Restore finished")).toBeVisible({ timeout: 15_000 });
+	await expect(toast(page, "Project restored")).toBeVisible({ timeout: 15_000 });
 	await expect
 		.poll(() => readSeededFile(student.workspaceId, project.slug, "notes.txt"))
 		.toBe("first draft\n");

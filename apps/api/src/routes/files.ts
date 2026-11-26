@@ -202,8 +202,8 @@ async function writeFile(
 		);
 	}
 	reply.header("etag", parsed.data.etag);
-	// The next save is conditional on this etag too.
-	reply.header("cache-control", "no-transform");
+	// The next save is conditional on this etag too; never cached, as on a read.
+	reply.header("cache-control", "private, no-store, no-transform");
 	return parsed.data;
 }
 

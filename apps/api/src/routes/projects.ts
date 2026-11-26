@@ -35,12 +35,7 @@ import {
 	planProject,
 	replyWithBackgroundCreate,
 } from "../workspaces/create-project.js";
-import {
-	claimLongOperation,
-	currentOperation,
-	runningOperation,
-	startOperation,
-} from "../workspaces/long-operation.js";
+import { claimOperation, currentOperation } from "../workspaces/long-operation.js";
 import {
 	ownedProject as ownedProjectRow,
 	ownedScope,
@@ -678,10 +673,7 @@ export function registerProjectRoutes(
 			}
 
 			const key = `duplicate:${row.id}:${slug}`;
-			const same = runningOperation(scope.workspaceId, key);
-			if (same) return reply.status(202).send(same);
-			if (!claimLongOperation(scope.workspaceId, reply)) return;
-			const operation = startOperation(
+			const claimed = claimOperation(
 				{
 					workspaceId: scope.workspaceId,
 					key,
@@ -690,28 +682,30 @@ export function registerProjectRoutes(
 					pointId: null,
 					log: request.log,
 				},
-				async (background) => {
-					try {
-						await agent.duplicateProject(row.slug, slug);
-					} catch (error) {
-						sendAgentError(background, error);
-						return null;
-					}
-					// The copy is a project the student made here, not a discovered one.
-					const copy = await db
-						.insertInto("projects")
-						.values({
-							workspace_id: scope.workspaceId,
-							slug,
-							name: body.name,
-							path: projectPath(slug),
-							source: "new",
-						})
-						.returningAll()
-						.executeTakeFirstOrThrow();
-					return toProject(copy, null, false);
-				},
+				reply,
 			);
+			if (!claimed) return reply;
+			const operation = claimed.start(async (background) => {
+				try {
+					await agent.duplicateProject(row.slug, slug);
+				} catch (error) {
+					sendAgentError(background, error);
+					return null;
+				}
+				// The copy is a project the student made here, not a discovered one.
+				const copy = await db
+					.insertInto("projects")
+					.values({
+						workspace_id: scope.workspaceId,
+						slug,
+						name: body.name,
+						path: projectPath(slug),
+						source: "new",
+					})
+					.returningAll()
+					.executeTakeFirstOrThrow();
+				return toProject(copy, null, false);
+			});
 			return reply.status(202).send(operation);
 		},
 	);
