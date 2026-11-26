@@ -4,6 +4,8 @@
 # packaging/tests/settings-keys-test.sh checks all three places against
 # this list (docs/SPEC.md section 21.12).
 public_host        portikus_public_host                 setting
+preview_suffix     portikus_preview_suffix              setting
+trusted_proxies    portikus_trusted_proxies             setting
 admin_email        portikus_admin_email                 setting
 tls                portikus_tls                         setting
 acme_email         portikus_acme_email                  setting
@@ -33,5 +35,6 @@ storage_confirm    portikus_storage_confirm             setting
 storage_size       portikus_storage_size                setting
 registry_cache_gib portikus_registry_cache_gib          setting
 cloudflare_api_token portikus_cloudflare_api_token      secret
+cloudflare_preview_api_token portikus_cloudflare_preview_api_token secret
 client_secret      portikus_dex_upstream_client_secret  secret
 ldap_bind_password portikus_ldap_bind_password          secret
