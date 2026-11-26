@@ -132,7 +132,7 @@ async function openPreview(port: number): Promise<string> {
 		previewHostFor(port),
 		ticketOf(created.json().bootstrapUrl),
 	);
-	expect(done.statusCode).toBe(303);
+	expect(done.statusCode).toBe(200);
 	return previewCookie(done);
 }
 
@@ -403,7 +403,7 @@ test.skipIf(skip)("a ticket is refused on the wrong host, port and label", async
 	// not change which preview host this is.
 	expect(
 		(await bootstrap(app, `${previewHostFor(5173)}:8443`, ticket)).statusCode,
-	).toBe(303);
+	).toBe(200);
 });
 
 test.skipIf(skip)(
@@ -440,7 +440,7 @@ test.skipIf(skip)(
 
 		// Bob's ticket still works where it belongs, and names only his workspace.
 		const done = await bootstrap(app, previewHostFor(5173, bobLabel), bobTicket);
-		expect(done.statusCode).toBe(303);
+		expect(done.statusCode).toBe(200);
 	},
 );
 

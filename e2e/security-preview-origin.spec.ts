@@ -13,7 +13,6 @@ import {
 	appFrameLocator,
 	edgeCookieJar,
 	frameAnswerFor,
-	frameRedirect,
 	requireFrameBuild,
 } from "./preview-gateway";
 
@@ -73,16 +72,6 @@ async function previewGateway(page: Page): Promise<void> {
 					redirect: "manual",
 				});
 				jar.remember(url.host, answer);
-				const location = answer.headers.get("location");
-				if (answer.status === 303 && location !== null) {
-					const minted = answer.headers
-						.getSetCookie()
-						.map((line) => line.split(";")[0] ?? "")
-						.join("; ");
-					const toWrapper = frameRedirect(answer);
-					if (toWrapper) return route.fulfill(toWrapper);
-					answer = await proxy(url.host, location, [fromBrowser, minted].join("; "));
-				}
 			} else {
 				answer = await proxy(url.host, path, cookie);
 			}

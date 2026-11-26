@@ -13,7 +13,6 @@ import {
 	appFrameLocator,
 	edgeCookieJar,
 	frameAnswerFor,
-	frameRedirect,
 	requireFrameBuild,
 } from "./preview-gateway";
 
@@ -140,7 +139,6 @@ async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
 			const url = new URL(request.url());
 			const fromBrowser = (await request.headerValue("cookie")) ?? "";
 			const cookie = jar.withJar(url.host, fromBrowser);
-			let answer: { status: number; contentType?: string; body: Buffer };
 			const wrapper = await frameAnswerFor(request, cookie);
 			if (wrapper) return route.fulfill(wrapper);
 			if (url.pathname.startsWith("/__portikus/")) {
@@ -154,33 +152,16 @@ async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
 				});
 				jar.remember(url.host, boot);
 				const setCookie = boot.headers.getSetCookie();
-				const location = boot.headers.get("location");
-				if (boot.status !== 303 || location === null) {
-					return route.fulfill({
-						status: boot.status,
-						body: Buffer.from(await boot.arrayBuffer()),
-					});
-				}
-				const toWrapper = frameRedirect(boot);
-				if (toWrapper) return route.fulfill(toWrapper);
-
-				// Follow the bootstrap redirect here, with the cookie it set.
-				const minted = setCookie.map((line) => line.split(";")[0] ?? "").join("; ");
-				answer = await proxy(
-					url.host,
-					location,
-					[fromBrowser, minted].filter(Boolean).join("; "),
-				);
 				return route.fulfill({
-					status: answer.status,
+					status: boot.status,
 					headers: {
-						...(answer.contentType ? { "content-type": answer.contentType } : {}),
+						"content-type": boot.headers.get("content-type") ?? "text/plain",
 						...(setCookie.length > 0 ? { "set-cookie": setCookie.join("\n") } : {}),
 					},
-					body: answer.body,
+					body: Buffer.from(await boot.arrayBuffer()),
 				});
 			}
-			answer = await proxy(url.host, `${url.pathname}${url.search}`, cookie);
+			const answer = await proxy(url.host, `${url.pathname}${url.search}`, cookie);
 			return route.fulfill({
 				status: answer.status,
 				headers: answer.contentType ? { "content-type": answer.contentType } : {},

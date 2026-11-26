@@ -4,6 +4,7 @@ import {
 	type DnsProvider,
 } from "@portikus/contracts";
 import { Checkbox, HINT_CLASS, Select, TextField, Toggletip } from "@portikus/ui";
+import type { ReactNode } from "react";
 import { TextAreaField } from "../TextAreaField.js";
 import { Choice } from "./Choice.js";
 import {
@@ -33,7 +34,7 @@ const MODES: { value: ChallengeMode; label: string; text: string }[] = [
 	{
 		value: "dns01",
 		label: "DNS-01",
-		text: "Proves the name with a DNS record your DNS provider adds. One wildcard certificate covers the site and every preview name.",
+		text: "Proves the name with a DNS record your DNS provider adds. The site gets one certificate, and every preview name is covered by one wildcard certificate.",
 	},
 	{
 		value: "http01",
@@ -225,12 +226,22 @@ function DnsAccountFields({
 }) {
 	const provider = providerOf(form, account);
 	const fields = DNS_PROVIDER_FIELDS[provider];
+	// The preview account's fields repeat the site's labels, so a screen
+	// reader hears which account each belongs to (SPEC.md section 25.8).
+	const named = (label: string) =>
+		account === "preview" ? (
+			<>
+				<span className="sr-only">Preview domain</span> {label}
+			</>
+		) : (
+			label
+		);
 	return (
 		<fieldset className="m-0 grid gap-3 border-0 p-0" data-testid={testId}>
 			<legend className="mb-2 p-0 font-medium text-[13px] text-ink">{legend}</legend>
 			<Select
 				id={selectId}
-				label="Provider"
+				label={named("Provider")}
 				value={provider}
 				options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
 				hint={hint}
@@ -242,7 +253,7 @@ function DnsAccountFields({
 					<TextField
 						key={`${provider}-${name}`}
 						id={id}
-						label={fieldLabel(name)}
+						label={named(fieldLabel(name))}
 						mono
 						autoComplete="off"
 						spellCheck={false}
@@ -261,7 +272,7 @@ function DnsAccountFields({
 					<SecretField
 						key={`${provider}-${name}`}
 						id={id}
-						label={fieldLabel(name)}
+						label={named(fieldLabel(name))}
 						multiline={name === "service_account_json"}
 						set={secretStored(settings, provider, name, account)}
 						value={secretValue(form, name, account)}
@@ -288,7 +299,7 @@ function SecretField({
 	onChange,
 }: {
 	id: string;
-	label: string;
+	label: ReactNode;
 	multiline: boolean;
 	set: boolean;
 	value: string;

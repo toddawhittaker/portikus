@@ -20,7 +20,7 @@ export function TextAreaField({
 	onChange,
 }: {
 	id: string;
-	label: string;
+	label: ReactNode;
 	hint?: ReactNode;
 	error: string | undefined;
 	rows: number;

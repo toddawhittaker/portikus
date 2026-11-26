@@ -477,8 +477,15 @@ test("one account shows no preview account until the box is ticked, and then off
 	const group = within(
 		await screen.findByRole("group", { name: "Preview domain DNS provider" }),
 	);
+	// Each field names its account, so the two API tokens are told apart.
+	expect(
+		group.getByRole("combobox", { name: /^Preview domain Provider/ }),
+	).toBeTruthy();
+	expect(
+		within(screen.getByTestId("cert-dns")).getByLabelText("API token"),
+	).toBeTruthy();
 	// A secret is write-only: it starts blank, type password, and reads as not set.
-	const token = group.getByLabelText("API token") as HTMLInputElement;
+	const token = group.getByLabelText("Preview domain API token") as HTMLInputElement;
 	expect(token.type).toBe("password");
 	expect(token.value).toBe("");
 	expect(token.getAttribute("aria-describedby")).toBe(
@@ -495,7 +502,7 @@ test("a stored preview account reads as set, is kept on a blank secret, and is s
 	const group = within(
 		await screen.findByRole("group", { name: "Preview domain DNS provider" }),
 	);
-	const token = group.getByLabelText("API token") as HTMLInputElement;
+	const token = group.getByLabelText("Preview domain API token") as HTMLInputElement;
 	expect(token.value).toBe("");
 	expect(document.getElementById("cert-preview-dns-api_token-hint")?.textContent).toBe(
 		"Set. Leave blank to keep it.",
@@ -532,7 +539,7 @@ test("an empty preview secret with nothing stored stops the request and takes fo
 	fireEvent.click(screen.getByTestId("cert-apply"));
 	const token = (await within(
 		await screen.findByTestId("cert-dns-preview"),
-	).findByLabelText("API token")) as HTMLInputElement;
+	).findByLabelText("Preview domain API token")) as HTMLInputElement;
 	await waitFor(() => expect(document.activeElement).toBe(token));
 	expect(token.getAttribute("aria-invalid")).toBe("true");
 	expect(document.getElementById("cert-preview-dns-api_token-err")?.textContent).toBe(

@@ -175,7 +175,10 @@ export function SourceForm({ data, busy }: { data: AdminCertificate; busy: boole
 			setFormState((current) => ({
 				...current,
 				eabHmacKey: "",
-				secrets: {},
+				dns: {
+					site: { ...current.dns.site, secrets: {} },
+					preview: { ...current.dns.preview, secrets: {} },
+				},
 				site: { certificate: "", chain: "", privateKey: "" },
 				preview: { certificate: "", chain: "", privateKey: "" },
 			}));

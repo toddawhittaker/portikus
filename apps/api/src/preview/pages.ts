@@ -9,10 +9,11 @@
 import { escapeHtml } from "../http.js";
 
 /** A minimal self-contained page; previews load no Portikus subresources. */
-function previewPage(title: string, body: string): string {
+function previewPage(title: string, body: string, head = "", link = ""): string {
 	return [
 		"<!doctype html>",
 		'<html lang="en"><head><meta charset="utf-8">',
+		head,
 		'<meta name="viewport" content="width=device-width, initial-scale=1">',
 		`<title>${escapeHtml(title)}</title>`,
 		"<style>body{font:16px/1.5 system-ui,sans-serif;margin:3rem auto;max-width:34rem;",
@@ -20,6 +21,7 @@ function previewPage(title: string, body: string): string {
 		"</head><body>",
 		`<h1>${escapeHtml(title)}</h1>`,
 		`<p>${escapeHtml(body)}</p>`,
+		link,
 		"</body></html>",
 	].join("");
 }
@@ -53,6 +55,25 @@ export function refusedPage(): string {
 		"Preview not available",
 		"Portikus will not show this preview. Open the preview again from " +
 			"Portikus, or pick a different port.",
+	);
+}
+
+/**
+ * The bootstrap's answer: a page that sends the browser on to `target`
+ * itself. A redirect would not do when previews are on another site: the
+ * navigation began on the Portikus page, so the whole redirect chain counts
+ * as cross-site and the new `SameSite=Strict` cookie would be held back from
+ * the first load (BROWSER-HANDLING.md §7.2). A meta refresh starts a new
+ * navigation from the preview's own page, and needs no script under the
+ * page policy. The link is for a browser that ignores the refresh.
+ */
+export function bootstrapPage(target: string): string {
+	const href = escapeHtml(target);
+	return previewPage(
+		"Opening preview",
+		"Opening the preview.",
+		`<meta http-equiv="refresh" content="0; url=${href}">`,
+		`<p><a href="${href}">Continue to the preview</a></p>`,
 	);
 }
 

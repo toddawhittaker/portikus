@@ -40,18 +40,28 @@ export interface CertificateForm {
 	eabKeyId: string;
 	eabHmacKey: string;
 	mode: ChallengeMode;
+	dns: Record<DnsAccount, DnsDraft>;
+	/** Whether the preview domain is in a DNS zone of its own, with its own account. */
+	previewDns: boolean;
+	site: UploadDraft;
+	separatePreview: boolean;
+	preview: UploadDraft;
+}
+
+/** The two DNS accounts: the one for the site, and the optional one for the preview domain. */
+export type DnsAccount = "site" | "preview";
+
+/** One DNS account's provider and draft values. */
+interface DnsDraft {
 	provider: DnsProvider;
 	/** Keyed `provider.field`, so one provider's values never leak into another's. */
 	plain: Record<string, string>;
 	secrets: Record<string, string>;
-	/** Whether the preview domain is in a DNS zone of its own, with its own account. */
-	previewDns: boolean;
-	previewProvider: DnsProvider;
-	previewPlain: Record<string, string>;
-	previewSecrets: Record<string, string>;
-	site: UploadDraft;
-	separatePreview: boolean;
-	preview: UploadDraft;
+}
+
+/** An account with nothing entered yet. */
+function emptyDns(): DnsDraft {
+	return { provider: "cloudflare", plain: {}, secrets: {} };
 }
 
 /** The hint under a write-only secret, with and without a stored value. */
@@ -185,13 +195,8 @@ export function initialForm(settings: CertificateSettingsView | null): Certifica
 		eabKeyId: "",
 		eabHmacKey: "",
 		mode: "dns01",
-		provider: "cloudflare",
-		plain: {},
-		secrets: {},
+		dns: { site: emptyDns(), preview: emptyDns() },
 		previewDns: false,
-		previewProvider: "cloudflare",
-		previewPlain: {},
-		previewSecrets: {},
 		site: NO_UPLOAD,
 		separatePreview: false,
 		preview: NO_UPLOAD,
@@ -204,15 +209,15 @@ export function initialForm(settings: CertificateSettingsView | null): Certifica
 		form.mode = settings.challenge.mode;
 		if (settings.challenge.mode === "dns01") {
 			const { provider, fields, previewDns } = settings.challenge;
-			form.provider = provider;
+			form.dns.site.provider = provider;
 			for (const [name, value] of Object.entries(fields)) {
-				form.plain[key(provider, name)] = value;
+				form.dns.site.plain[key(provider, name)] = value;
 			}
 			if (previewDns) {
 				form.previewDns = true;
-				form.previewProvider = previewDns.provider;
+				form.dns.preview.provider = previewDns.provider;
 				for (const [name, value] of Object.entries(previewDns.fields)) {
-					form.previewPlain[key(previewDns.provider, name)] = value;
+					form.dns.preview.plain[key(previewDns.provider, name)] = value;
 				}
 			}
 		}
@@ -221,22 +226,20 @@ export function initialForm(settings: CertificateSettingsView | null): Certifica
 	return form;
 }
 
-/** The two DNS accounts: the one for the site, and the optional one for the preview domain. */
-export type DnsAccount = "site" | "preview";
-
-/** One account's provider and draft values, whichever account it is. */
-function accountOf(form: CertificateForm, account: DnsAccount) {
-	return account === "site"
-		? { provider: form.provider, plain: form.plain, secrets: form.secrets }
-		: {
-				provider: form.previewProvider,
-				plain: form.previewPlain,
-				secrets: form.previewSecrets,
-			};
+export function providerOf(form: CertificateForm, account: DnsAccount = "site") {
+	return form.dns[account].provider;
 }
 
-export function providerOf(form: CertificateForm, account: DnsAccount = "site") {
-	return accountOf(form, account).provider;
+/** The form with one account's draft changed. */
+function withAccount(
+	form: CertificateForm,
+	account: DnsAccount,
+	change: Partial<DnsDraft>,
+): CertificateForm {
+	return {
+		...form,
+		dns: { ...form.dns, [account]: { ...form.dns[account], ...change } },
+	};
 }
 
 export function withProvider(
@@ -244,9 +247,7 @@ export function withProvider(
 	provider: DnsProvider,
 	account: DnsAccount = "site",
 ): CertificateForm {
-	return account === "site"
-		? { ...form, provider }
-		: { ...form, previewProvider: provider };
+	return withAccount(form, account, { provider });
 }
 
 export function plainValue(
@@ -254,7 +255,7 @@ export function plainValue(
 	field: string,
 	account: DnsAccount = "site",
 ): string {
-	const { provider, plain } = accountOf(form, account);
+	const { provider, plain } = form.dns[account];
 	return plain[key(provider, field)] ?? "";
 }
 
@@ -263,7 +264,7 @@ export function secretValue(
 	field: string,
 	account: DnsAccount = "site",
 ): string {
-	const { provider, secrets } = accountOf(form, account);
+	const { provider, secrets } = form.dns[account];
 	return secrets[key(provider, field)] ?? "";
 }
 
@@ -273,11 +274,10 @@ export function withPlain(
 	value: string,
 	account: DnsAccount = "site",
 ): CertificateForm {
-	const { provider, plain } = accountOf(form, account);
-	const next = { ...plain, [key(provider, field)]: value };
-	return account === "site"
-		? { ...form, plain: next }
-		: { ...form, previewPlain: next };
+	const { provider, plain } = form.dns[account];
+	return withAccount(form, account, {
+		plain: { ...plain, [key(provider, field)]: value },
+	});
 }
 
 export function withSecret(
@@ -286,11 +286,10 @@ export function withSecret(
 	value: string,
 	account: DnsAccount = "site",
 ): CertificateForm {
-	const { provider, secrets } = accountOf(form, account);
-	const next = { ...secrets, [key(provider, field)]: value };
-	return account === "site"
-		? { ...form, secrets: next }
-		: { ...form, previewSecrets: next };
+	const { provider, secrets } = form.dns[account];
+	return withAccount(form, account, {
+		secrets: { ...secrets, [key(provider, field)]: value },
+	});
 }
 
 /**
