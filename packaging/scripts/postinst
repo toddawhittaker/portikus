@@ -60,6 +60,10 @@ done
 # and prints what is still missing, one item per line. The root site job
 # writes the same files with it (ADR 0059).
 missing=$(python3 /usr/lib/portikus/write-settings)
+# portikus.yaml now holds these two, so an answer from this run must not come
+# back after a hand edit deletes the key; only a fresh preseed marks them seen.
+db_fset portikus/preview_suffix seen false
+db_fset portikus/trusted_proxies seen false
 
 db_get portikus/public_host
 public_host=$RET

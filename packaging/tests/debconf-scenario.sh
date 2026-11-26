@@ -45,6 +45,11 @@ install_with() {
 	}
 }
 
+# Prints true or false: whether debconf has marked a portikus question seen.
+seen() {
+	echo "FGET portikus/$1 seen" | debconf-communicate | sed 's/^0 //'
+}
+
 # Prints a key of a YAML file as JSON, so lists and booleans compare exactly.
 value() {
 	python3 -c 'import json, sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(json.dumps(d.get(sys.argv[2])))' "$1" "$2"
@@ -864,6 +869,43 @@ EOF
 	}
 	expect "$CONFIG" portikus_preview_suffix '"kitestringlabs.dev"'
 	expect "$CONFIG" portikus_trusted_proxies '["10.20.20.10/32"]'
+	# Applied to the file, the preseed stops counting: the questions are no
+	# longer marked seen.
+	for question in preview_suffix trusted_proxies; do
+		[ "$(seen "$question")" = false ] || fail "$question is still marked seen"
+	done
+	;;
+upgrade-hand-delete)
+	# A preview domain and proxy that reached portikus.yaml and were then
+	# deleted by hand stay deleted: an upgrade does not bring the old answers
+	# back, because a hand edit of the file wins.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.kitestringlabs.org
+portikus portikus/preview_suffix string kitestringlabs.dev
+portikus portikus/trusted_proxies string 10.20.20.10/32
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	expect "$CONFIG" portikus_preview_suffix '"kitestringlabs.dev"'
+	expect "$CONFIG" portikus_trusted_proxies '["10.20.20.10/32"]'
+	python3 -c 'import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+for key in ("portikus_preview_suffix", "portikus_trusted_proxies"):
+    del d[key]
+yaml.safe_dump(d, open(sys.argv[1], "w"))' "$CONFIG"
+	DEBIAN_FRONTEND=noninteractive dpkg -i /t/portikus.deb >/tmp/install.log 2>&1 || {
+		cat /tmp/install.log >&2
+		fail "the upgrade failed"
+	}
+	expect "$CONFIG" portikus_preview_suffix null
+	expect "$CONFIG" portikus_trusted_proxies null
+	# A later hand edit of one key is kept by a reconfigure, the other stays off.
+	echo 'portikus_trusted_proxies: [192.0.2.7/32]' >>"$CONFIG"
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "dpkg-reconfigure failed"
+	expect "$CONFIG" portikus_trusted_proxies '["192.0.2.7/32"]'
+	expect "$CONFIG" portikus_preview_suffix null
 	;;
 ui-move-hand-suffix)
 	# A suffix written into portikus.yaml by hand stays when dpkg-reconfigure
