@@ -314,6 +314,12 @@
     portikus_preview_suffix: >-
       {{ lookup('env', 'PORTIKUS_PREVIEW_SUFFIX')
          | default('preview.' ~ portikus_public_host, true) }}
+    # The sources a reverse proxy or Cloudflare Tunnel connector forwards
+    # from, as CIDRs such as 10.20.20.10/32 or 2001:db8::/64 (STACK.md section
+    # 22).  Caddy takes the client's address from CF-Connecting-IP only on a
+    # connection from one of them; empty, the default, trusts no proxy.
+    portikus_trusted_proxies: >-
+      {{ lookup('env', 'PORTIKUS_TRUSTED_PROXIES') | replace(',', ' ') | split | select | list }}
     # The ports a preview may reach inside a workspace.  These match the
     # defaults in packages/config, which is what decides per request whether
     # a port may be previewed; the network ACL only has to be no narrower.
@@ -348,6 +354,9 @@
     portikus_acme_ca: https://acme-v02.api.letsencrypt.org/directory
     # Only ever from the root-only secrets file; never logged.
     portikus_cloudflare_api_token: ""
+    # For a preview suffix in another Cloudflare zone: its own token, for the
+    # preview wildcard only.  Empty, the token above covers both names.
+    portikus_cloudflare_preview_api_token: ""
     portikus_tls_cert: ""
     portikus_tls_key: ""
     # Caddy is always built with xcaddy and the DNS plugins the admin page
@@ -461,6 +470,20 @@
           separate namespace from the application host
           ({{ portikus_public_host }}), and the wildcard *.{{
           portikus_preview_suffix }} must not match that host.
+      tags: always
+
+    - name: Require trusted proxies given as a list of CIDRs
+      ansible.builtin.assert:
+        that:
+          - portikus_trusted_proxies is sequence and portikus_trusted_proxies is not string
+          - portikus_trusted_proxies is not mapping
+          - portikus_trusted_proxies | reject('string') | list | length == 0
+          - portikus_trusted_proxies | reject('search', '/') | list | length == 0
+          - portikus_trusted_proxies | map('ansible.utils.ipaddr') | reject | list | length == 0
+        fail_msg: >-
+          portikus_trusted_proxies ({{ portikus_trusted_proxies }}) must be a
+          list of networks with a prefix length, such as 10.20.20.10/32 or
+          2001:db8::/64.  Leave it empty when no proxy forwards to this server.
       tags: always
 
     - name: Check the TLS settings

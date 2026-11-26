@@ -97,7 +97,9 @@ check_not_started() {
 # The ui-* scenarios: apt install in a 100 by 30 tmux session with the
 # whiptail frontend, answered with key presses. ui_start medium also shows
 # the questions a normal install skips.
+UI_PRIORITY=high
 ui_start() {
+	UI_PRIORITY=${1:-high}
 	tmux new-session -d -s ui -x 100 -y 30 \
 		"DEBIAN_FRONTEND=dialog DEBIAN_PRIORITY=${1:-high} apt-get install -y -qq -o Dpkg::Use-Pty=0 /t/portikus.deb 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
 }
@@ -153,6 +155,12 @@ ui_first_screens() {
 	clear_field
 	typed "$1"
 	keys Enter
+	if [ "$UI_PRIORITY" = medium ]; then
+		wait_for "Domain for student previews"
+		keys Enter
+		wait_for "trusted reverse proxy"
+		keys Enter
+	fi
 	wait_for "Email of the Portikus administrator"
 	keys Enter
 }
@@ -350,6 +358,9 @@ EOF
 	check_modes
 	expect "$CONFIG" portikus_public_port 8443
 	expect "$CONFIG" portikus_public_host '"lab.example.edu"'
+	expect "$CONFIG" portikus_preview_suffix null
+	debconf-show portikus | grep -qF 'preview_suffix: preview.lab.example.edu' ||
+		fail "the suggested preview domain did not follow the hand-edited web address"
 	expect "$CONFIG" portikus_storage_size 3
 	expect "$SECRETS" portikus_dex_upstream_client_secret '"OIDC-SECRET-0123456789abcdef"'
 	check_no_leak OIDC-SECRET-0123456789abcdef
@@ -584,6 +595,7 @@ EOF
 	echo '{"source": "acme"}' >/etc/portikus/certificate/settings.json
 	tmux new-session -d -s ui -x 100 -y 30 \
 		"DEBIAN_FRONTEND=dialog dpkg-reconfigure portikus 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
+	UI_PRIORITY=medium
 	ui_first_screens portikus.example.edu
 	wait_for "How people sign in"
 	keys Enter
@@ -739,10 +751,15 @@ ui-summary-no)
 	wait_for "Cloudflare API token"
 	typed CF-TOKEN-ui-0123456789abcdef
 	keys Enter
+	wait_for "Cloudflare API token for the preview domain"
+	keys Enter
 	wait_for "How people sign in"
 	keys Escape
-	wait_for "Cloudflare API token"
+	wait_for "Cloudflare API token for the preview domain"
+	keys Escape
 	wait_for "Leave blank to keep the value you entered"
+	keys Enter
+	wait_for "Cloudflare API token for the preview domain"
 	keys Enter
 	wait_for "How people sign in"
 	keys Enter
@@ -759,6 +776,12 @@ ui-summary-no)
 	clear_field
 	typed lab.example.edu
 	keys Enter
+	# The suggested preview domain follows the new web address.
+	wait_for "Domain for student previews"
+	wait_for "preview.lab.example.edu"
+	keys Enter
+	wait_for "trusted reverse proxy"
+	keys Enter
 	wait_for "Email of the Portikus administrator"
 	screen | grep -qF "admin@portikus.example.edu" || fail "the administrator's email was not kept"
 	keys Enter
@@ -767,6 +790,8 @@ ui-summary-no)
 	wait_for "Email for Let's Encrypt"
 	keys Enter
 	wait_for "Cloudflare API token"
+	keys Enter
+	wait_for "Cloudflare API token for the preview domain"
 	keys Enter
 	wait_for "How people sign in"
 	keys Enter
@@ -784,8 +809,85 @@ ui-summary-no)
 	expect "$CONFIG" portikus_admin_email '"admin@portikus.example.edu"'
 	expect "$CONFIG" portikus_storage_size 1
 	expect "$SECRETS" portikus_cloudflare_api_token '"CF-TOKEN-ui-0123456789abcdef"'
+	expect "$SECRETS" portikus_cloudflare_preview_api_token null
+	expect "$CONFIG" portikus_preview_suffix null
 	check_no_leak CF-TOKEN-ui-0123456789abcdef
 	check_started
+	;;
+lab-preseed)
+	# Previews under a registrable domain of their own, in a second Cloudflare
+	# zone, behind a Cloudflare Tunnel connector.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.kitestringlabs.org
+portikus portikus/preview_suffix string kitestringlabs.dev
+portikus portikus/trusted_proxies string 10.20.20.10/32
+portikus portikus/tls select letsencrypt
+portikus portikus/acme_email string certs@example.edu
+portikus portikus/cloudflare_api_token password CF-TOKEN-site-0123456789abcdef
+portikus portikus/cloudflare_preview_api_token password CF-TOKEN-preview-0123456789abcdef
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	check_modes
+	expect "$CONFIG" portikus_preview_suffix '"kitestringlabs.dev"'
+	expect "$CONFIG" portikus_trusted_proxies '["10.20.20.10/32"]'
+	expect "$SECRETS" portikus_cloudflare_api_token '"CF-TOKEN-site-0123456789abcdef"'
+	expect "$SECRETS" portikus_cloudflare_preview_api_token '"CF-TOKEN-preview-0123456789abcdef"'
+	check_no_leak CF-TOKEN-site-0123456789abcdef CF-TOKEN-preview-0123456789abcdef
+	check_started
+	# A reconfigure reads both back from portikus.yaml and keeps them.
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "dpkg-reconfigure failed"
+	expect "$CONFIG" portikus_preview_suffix '"kitestringlabs.dev"'
+	expect "$CONFIG" portikus_trusted_proxies '["10.20.20.10/32"]'
+	expect "$SECRETS" portikus_cloudflare_preview_api_token '"CF-TOKEN-preview-0123456789abcdef"'
+	;;
+ui-preview)
+	# The preview domain and proxy questions check their answers.
+	ui_start medium
+	wait_for "Welcome to Portikus"
+	keys Enter
+	wait_for "Web address of this server"
+	clear_field
+	typed portikus.kitestringlabs.org
+	keys Enter
+	wait_for "Domain for student previews"
+	wait_for "preview.portikus.kitestringlabs.org"
+	clear_field
+	typed kitestringlabs.org
+	keys Enter
+	wait_for "cannot be the web address"
+	keys Enter
+	wait_for "Domain for student previews"
+	clear_field
+	typed kitestringlabs.dev
+	keys Enter
+	wait_for "trusted reverse proxy"
+	typed "10.20.20.10"
+	keys Enter
+	wait_for "is not a network with a prefix length"
+	keys Enter
+	wait_for "trusted reverse proxy"
+	clear_field
+	typed "10.20.20.10/32 2001:db8::/64"
+	keys Enter
+	wait_for "Email of the Portikus administrator"
+	keys Enter
+	ui_own_authority
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Size of the storage file"
+	clear_field
+	typed 1
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	screen | grep -qF "Student previews: under kitestringlabs.dev" || fail "the summary does not show the preview domain"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_preview_suffix '"kitestringlabs.dev"'
+	expect "$CONFIG" portikus_trusted_proxies '["10.20.20.10/32", "2001:db8::/64"]'
 	;;
 ui-cert)
 	# The certificate and key must parse, and the key must match.

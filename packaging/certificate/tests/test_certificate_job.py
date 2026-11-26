@@ -135,6 +135,15 @@ def acme(directory=PRODUCTION, provider="cloudflare", fields=None, eab=None, mod
     return settings
 
 
+def two_zones(preview_fields=None, **kwargs):
+    """DNS-01 with the preview wildcard in a second Cloudflare zone, under its own token."""
+    settings = acme(**kwargs)
+    settings["challenge"]["previewDns"] = {"provider": "cloudflare",
+                                           "fields": {"api_token": TOKEN2} if preview_fields is None
+                                           else preview_fields}
+    return settings
+
+
 def files(site="site", key="site", preview=None, chain=True):
     upload = {"certificate": CERTS.chain(site) if chain else CERTS.pem(site)}
     if key:
@@ -279,6 +288,20 @@ class Snippets(unittest.TestCase):
                 self.assertEqual(site.strip(), preview.strip())
                 self.assertNotIn("on_demand", global_ + site + preview)
 
+    def test_one_token_covers_both_names(self):
+        _, site, preview = self.blocks(acme())
+        line = f"\t\t\t\tapi_token {{file.{self.base}/secrets/cloudflare_api_token}}\n"
+        self.assertIn(line, site)
+        self.assertIn(line, preview)
+
+    def test_a_second_zone_gives_the_preview_wildcard_its_own_token(self):
+        _, site, preview = self.blocks(two_zones())
+        self.assertIn(f"\t\t\t\tapi_token {{file.{self.base}/secrets/cloudflare_api_token}}\n", site)
+        self.assertNotIn("preview_cloudflare", site)
+        self.assertIn(f"\t\t\t\tapi_token {{file.{self.base}/secrets/preview_cloudflare_api_token}}\n", preview)
+        self.assertIn("\t\t\tdns cloudflare {\n", preview)
+        self.assertNotIn(TOKEN2, site + preview)
+
     def test_a_secret_never_reaches_the_snippet(self):
         """A secret with braces or spaces would inject directives; it only ever goes to a file."""
         evil = "x }\n\ttls internal {"
@@ -347,6 +370,9 @@ class Validation(JobTest):
             (acme(provider="porkbun", fields={"api_key": "key with space"}), "api_key"),
             (acme(provider="porkbun", fields={"api_key": "key}"}), "api_key"),
             (acme(fields={"api_token": "two\nlines"}), "one line"),
+            (two_zones(preview_fields={"api_token": "two\nlines"}), "one line"),
+            (two_zones(preview_fields={"api_token": TOKEN, "zone_token": TOKEN}), "missing or extra"),
+            (dict(acme(mode="http01"), challenge={"mode": "http01", "previewDns": {}}), "missing or extra"),
             (acme(fields={"api_token": "x" * 1025}), "one line"),
             (acme(fields={"api_token": ""}), "one line"),
             (acme(provider="googleclouddns", fields={"gcp_project": "p", "service_account_json": "[1]"}),
@@ -443,6 +469,14 @@ class FirstInstall(JobTest):
         self.assertEqual(stat.S_IMODE(Path(self.tree.state("secrets")).stat().st_mode), 0o750)
         self.assertNotIn(TOKEN, Path(self.tree.state("tls.caddy")).read_text() + json.dumps(view))
         self.assertFalse(os.path.exists(self.tree.state("secrets.env")))
+
+    def test_a_preseed_with_two_tokens_seeds_both(self):
+        shutil.rmtree(self.runner.state_dir)
+        os.mkdir(self.runner.state_dir, 0o750)
+        self.assertEqual(self.first_install(two_zones()), (0, "changed"))
+        self.assertEqual(Path(self.tree.state("secrets/preview_cloudflare_api_token")).read_text(), TOKEN2)
+        self.assertIn("preview_cloudflare_api_token", Path(self.tree.state("tls.caddy")).read_text())
+        self.assertNotIn(TOKEN2, Path(self.tree.state("tls.caddy")).read_text() + json.dumps(self.settings()))
 
     def test_any_state_at_all_is_left_alone(self):
         for leftover in ("tls.caddy", "secrets"):
@@ -593,6 +627,44 @@ class Apply(JobTest):
         shutil.rmtree(Path(self.runner.jobs_dir, ID2))
         status = self.submit({"kind": "apply", "settings": acme(fields={}, eab={"keyId": "other"})}, ID2)
         self.assertIn("EAB HMAC key is not set", status["message"])
+
+    def test_two_zones_issue_each_name_with_its_own_token(self):
+        self.fake.serve("acme")
+        status = self.submit({"kind": "apply", "settings": two_zones()})
+        self.assertEqual(status["state"], "succeeded", status)
+        self.assertEqual(self.throwaway_calls[1]["secrets"], ["cloudflare_api_token", "preview_cloudflare_api_token"])
+        self.assertEqual(Path(self.tree.state("secrets/cloudflare_api_token")).read_text(), TOKEN)
+        self.assertEqual(Path(self.tree.state("secrets/preview_cloudflare_api_token")).read_text(), TOKEN2)
+        challenge = self.settings()["challenge"]
+        self.assertEqual(challenge["previewDns"], {"provider": "cloudflare", "fields": {},
+                                                   "secretsSet": {"api_token": True}})
+        self.assertEqual(challenge["secretsSet"], {"api_token": True})
+        written = self.everything_written()
+        self.assertNotIn(TOKEN, written)
+        self.assertNotIn(TOKEN2, written)
+
+    def test_one_zone_writes_no_preview_account(self):
+        self.fake.serve("acme")
+        self.assertEqual(self.submit({"kind": "apply", "settings": acme()})["state"], "succeeded")
+        self.assertNotIn("previewDns", self.settings()["challenge"])
+        self.assertEqual(self.throwaway_calls[1]["secrets"], ["cloudflare_api_token"])
+
+    def test_a_blank_preview_token_keeps_the_stored_one_and_dropping_it_removes_it(self):
+        self.fake.serve("acme")
+        self.assertEqual(self.submit({"kind": "apply", "settings": two_zones()}, ID)["state"], "succeeded")
+        self.fake.serve("acme2")
+        status = self.submit({"kind": "apply", "settings": two_zones(fields={}, preview_fields={})}, ID2)
+        self.assertEqual(status["state"], "succeeded", status)
+        self.assertEqual(Path(self.tree.state("secrets/preview_cloudflare_api_token")).read_text(), TOKEN2)
+        self.fake.serve("acme")
+        status = self.submit({"kind": "apply", "settings": acme(fields={})}, "2b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e")
+        self.assertEqual(status["state"], "succeeded", status)
+        self.assertFalse(os.path.exists(self.tree.state("secrets/preview_cloudflare_api_token")))
+
+    def test_a_preview_zone_with_no_token_is_refused(self):
+        status = self.submit({"kind": "apply", "settings": two_zones(preview_fields={})})
+        self.assertEqual(status["state"], "refused")
+        self.assertIn("preview cloudflare secret api_token is not set", status["message"])
 
     def test_google_writes_its_json_to_a_file(self):
         account = json.dumps({"type": "service_account", "project_id": "proj-1", "private_key_id": "fake-id",
@@ -765,6 +837,16 @@ class Renew(JobTest):
         self.assertEqual(Path(self.runner.caddy_data, "certificates", "acme-v02.example-directory", SITE,
                               f"{SITE}.crt").read_text(), CERTS.pem("acme2"))
         self.assertFalse(os.path.exists(self.tree.state(".before")))
+
+    def test_two_zones_renew_with_both_tokens(self):
+        self.fake.serve("acme")
+        self.assertEqual(self.submit({"kind": "apply", "settings": two_zones()})["state"], "succeeded")
+        self.throwaway_calls.clear()
+        self.fake.on_reload = lambda verb: self.fake.serve("acme2")
+        status = self.submit({"kind": "renew"}, ID2)
+        self.assertEqual(status["state"], "succeeded", status)
+        self.assertIn("secrets/preview_cloudflare_api_token", self.throwaway_calls[0]["tls"])
+        self.assertEqual(self.throwaway_calls[0]["names"], [SITE, WILDCARD])
 
     def test_a_renewal_caddy_does_not_serve_puts_the_old_certificate_back(self):
         self.apply_acme()
@@ -1247,7 +1329,8 @@ class ThrowawayCaddy(JobTest):
         config = captured["config"]
         self.assertTrue(captured["account"])
         for line in ("admin off", "persist_config off", "default_bind 127.0.0.1", "auto_https disable_redirects",
-                     f"https://{SITE}, https://{WILDCARD} {{", "import portikus_tls_site"):
+                     f"https://{SITE} {{\n\timport portikus_tls_site\n",
+                     f"https://{WILDCARD} {{\n\timport portikus_tls_preview\n"):
             self.assertIn(line, config)
         self.assertNotIn(TOKEN, config)
 
