@@ -19,7 +19,7 @@ and an ordered list of pull request numbers (or branches to rebuild).
 Your job is to land them safely and report facts. You do not change
 code, and you do not decide whether a real failure is acceptable.
 
-## Standing rules (learned the hard way; do not relax them)
+## Standing rules
 
 - Task PRs into an epic branch need no human review or go-ahead. The
   orchestrator normally lands them by auto-merge; you are called to
@@ -92,7 +92,7 @@ normally take under two minutes.
   `gh run view <id> --json status` says `completed`, then
   `gh run rerun <id> --failed`. Do this yourself without escalating; it
   is not a code failure and it does not count against the flake limit.
-- A branch cut before the CI time limits landed (#959) has no step
+- A branch cut before the CI time limits landed has no step
   limits, so a hang there waits up to six hours. Check for it rather
   than waiting.
 - An install step that fails fast with "Installation process exited

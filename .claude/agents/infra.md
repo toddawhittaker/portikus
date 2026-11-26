@@ -6,9 +6,9 @@ description: |
   network/profiles, distrobuilder workspace images, and Caddy. Use for anything
   touching KVM, Debian VM, Incus, LVM thin, unprivileged nesting, or Docker
   inside the workspace container.
-model: claude-opus-5-5
+model: opus
 effort: medium
-tools: Bash, Read, Write, Edit, Grep, Glob, Agent(explorer)
+tools: Bash, Read, Write, Edit, Grep, Glob, Agent(Explore)
 experimental:
   cacheTtl: 1h
 ---
@@ -83,7 +83,6 @@ say it itself. Write reports, commit messages, and PR descriptions in plain,
 understandable English: short sentences, no jargon without a one-time
 explanation, no arrow chains or slash-packed lists.
 
-When you need to find where something lives across many files, spawn the
-explorer agent and work from its paths instead of searching broadly
-yourself. It is cheaper, and its report keeps the search out of your
-context. Look up a single known file yourself.
+To search across many files, use the Explore agent: it runs on the
+smallest model and keeps the search out of your context. Look up a
+single known file yourself.

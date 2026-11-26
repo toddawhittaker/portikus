@@ -45,3 +45,6 @@ screenshots/
 # OpenTofu variable values hold per-operator secrets
 terraform.tfvars
 *.auto.tfvars
+
+# The resume point of unfinished work; local to one machine
+/HANDOFF.md
