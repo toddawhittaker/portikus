@@ -32,8 +32,8 @@ import type { UserLimit } from "../rate-limit.js";
 import {
 	createProject,
 	isSlowCreate,
-	makeProject,
 	planProject,
+	replyWithBackgroundCreate,
 } from "../workspaces/create-project.js";
 import {
 	claimLongOperation,
@@ -409,25 +409,14 @@ export function registerProjectRoutes(
 			// so it is answered at once and finished in the background.
 			const plan = await planProject(db, config, scope, reply, body);
 			if (!plan) return;
-			const key = `create:${plan.slug}`;
-			const same = runningOperation(scope.workspaceId, key);
-			if (same) return reply.status(202).send(same);
-			if (!claimLongOperation(scope.workspaceId, reply)) return;
-			const operation = startOperation(
-				{
-					workspaceId: scope.workspaceId,
-					key,
-					kind: "create",
-					projectId: null,
-					pointId: null,
-					log: request.log,
-				},
-				async (background) => {
-					const created = await makeProject(db, scope.workspaceId, background, plan);
-					return created ? toProject(created.row, created.isGitRepo, false) : null;
-				},
+			return replyWithBackgroundCreate(
+				db,
+				request,
+				reply,
+				scope,
+				plan,
+				`create:${plan.slug}`,
 			);
-			return reply.status(202).send(operation);
 		},
 	);
 

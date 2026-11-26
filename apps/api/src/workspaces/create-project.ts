@@ -5,17 +5,23 @@ import {
 	slugify,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
 import { sendError } from "../http.js";
-import { claimLongOperation, releaseLongOperation } from "./long-operation.js";
+import {
+	claimLongOperation,
+	releaseLongOperation,
+	runningOperation,
+	startOperation,
+} from "./long-operation.js";
 import {
 	type ProjectRow,
 	projectPath,
 	requireAgent,
 	type Scope,
 	sendAgentError,
+	toProject,
 } from "./project-scope.js";
 
 /** Why a project cannot be made where a folder already sits (SPEC.md §7.6). */
@@ -115,7 +121,7 @@ export async function planProject(
  * is written. A clone or template must run while the caller holds the
  * workspace's long-operation slot. Null after answering a refusal.
  */
-export async function makeProject(
+async function makeProject(
 	db: Kysely<Database>,
 	workspaceId: string,
 	reply: FastifyReply,
@@ -145,6 +151,43 @@ export async function makeProject(
 		.returningAll()
 		.executeTakeFirstOrThrow();
 	return { row, isGitRepo: created.isGitRepo };
+}
+
+/**
+ * Answer a slow create with 202 and finish it in the background, since a
+ * clone can outlast a proxy's response timeout. The same request sent again
+ * while it runs (same `key`) joins it; any other slow request is refused
+ * with 409. `afterCreate` runs once the row exists.
+ */
+export function replyWithBackgroundCreate(
+	db: Kysely<Database>,
+	request: FastifyRequest,
+	reply: FastifyReply,
+	scope: Scope,
+	plan: ProjectPlan,
+	key: string,
+	afterCreate: () => Promise<void> = async () => {},
+): FastifyReply | undefined {
+	const same = runningOperation(scope.workspaceId, key);
+	if (same) return reply.status(202).send(same);
+	if (!claimLongOperation(scope.workspaceId, reply)) return;
+	const operation = startOperation(
+		{
+			workspaceId: scope.workspaceId,
+			key,
+			kind: "create",
+			projectId: null,
+			pointId: null,
+			log: request.log,
+		},
+		async (background) => {
+			const created = await makeProject(db, scope.workspaceId, background, plan);
+			if (!created) return null;
+			await afterCreate();
+			return toProject(created.row, created.isGitRepo, false);
+		},
+	);
+	return reply.status(202).send(operation);
 }
 
 /** Whether a create waits on a clone or a template copy. */

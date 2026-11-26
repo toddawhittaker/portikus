@@ -11,12 +11,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { parseOr400, sendError } from "../http.js";
 import { consumeStarterLaunch, findStarterLaunch } from "../lti/starter.js";
-import { makeProject, planProject } from "../workspaces/create-project.js";
 import {
-	claimLongOperation,
-	runningOperation,
-	startOperation,
-} from "../workspaces/long-operation.js";
+	planProject,
+	replyWithBackgroundCreate,
+} from "../workspaces/create-project.js";
 import { ownedScope, toProject } from "../workspaces/project-scope.js";
 
 /**
@@ -90,28 +88,16 @@ export function registerProjectStarterRoute(
 			// so it is answered at once and finished in the background.
 			const plan = await planProject(db, config, scope, reply, input);
 			if (!plan) return;
-			const key = `starter:${starter.id}`;
-			const same = runningOperation(scope.workspaceId, key);
-			if (same) return reply.status(202).send(same);
-			if (!claimLongOperation(scope.workspaceId, reply)) return;
-			const operation = startOperation(
-				{
-					workspaceId: scope.workspaceId,
-					key,
-					kind: "create",
-					projectId: null,
-					pointId: null,
-					log: request.log,
-				},
-				async (background) => {
-					const created = await makeProject(db, scope.workspaceId, background, plan);
-					// A refusal keeps the starter, so the student can try again once the cause is gone.
-					if (!created) return null;
-					await consumeStarterLaunch(db, starter.id);
-					return toProject(created.row, created.isGitRepo, false);
-				},
+			// A refusal keeps the starter, so the student can try again once the cause is gone.
+			return replyWithBackgroundCreate(
+				db,
+				request,
+				reply,
+				scope,
+				plan,
+				`starter:${starter.id}`,
+				() => consumeStarterLaunch(db, starter.id),
 			);
-			return reply.status(202).send(operation);
 		},
 	);
 }
