@@ -20,6 +20,7 @@ import {
 	type PreviewDeniedReason,
 } from "../preview/audit-throttle.js";
 import { type BridgeForwards, parseBridgeUri } from "../preview/bridge.js";
+import { previewCookieOptions } from "../preview/cookie.js";
 import {
 	type EmbeddableVerdict,
 	probeEmbeddable,
@@ -434,12 +435,15 @@ export function registerPreviewRoutes(
 		});
 
 		return reply
-			.setCookie(cookieName, token, {
-				httpOnly: true,
-				secure,
-				sameSite: "strict",
-				path: "/",
-			})
+			.setCookie(
+				cookieName,
+				token,
+				previewCookieOptions(
+					request.headers,
+					grant.presentation === "embedded",
+					secure,
+				),
+			)
 			.header("cache-control", "no-store")
 			.header("referrer-policy", "no-referrer")
 			.redirect(grant.presentation === "embedded" ? WRAPPER_PATH : "/", 303);
@@ -496,15 +500,19 @@ export function registerPreviewRoutes(
 				`${name}=; Path=/; Max-Age=0${secure ? "; Secure" : ""}`,
 			);
 		}
-		return reply
-			.clearCookie(cookieName, { path: "/", secure, sameSite: "strict" })
-			.header("clear-site-data", '"storage"')
-			.header("content-type", "text/html; charset=utf-8")
-			.header("content-security-policy", pagePolicy)
-			.header("cache-control", "no-store")
-			.header("referrer-policy", "no-referrer")
-			.status(200)
-			.send(resetPage());
+		return (
+			reply
+				// Reset comes from the Portikus page, so a cross-site request is clearing
+				// the partitioned cookie an embedded preview was given.
+				.clearCookie(cookieName, previewCookieOptions(request.headers, true, secure))
+				.header("clear-site-data", '"storage"')
+				.header("content-type", "text/html; charset=utf-8")
+				.header("content-security-policy", pagePolicy)
+				.header("cache-control", "no-store")
+				.header("referrer-policy", "no-referrer")
+				.status(200)
+				.send(resetPage())
+		);
 	});
 
 	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──

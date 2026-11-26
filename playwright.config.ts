@@ -163,6 +163,18 @@ export default defineConfig({
 			use: { ...devices["Desktop Chrome"], ...NO_WEBGL },
 			dependencies: ["setup"],
 		},
+		// The cross-site preview cookie in WebKit. CI installs Chromium only,
+		// so this runs when PORTIKUS_E2E_WEBKIT=1 and WebKit is installed.
+		...(process.env.PORTIKUS_E2E_WEBKIT === "1"
+			? [
+					{
+						name: "webkit",
+						testMatch: /preview-cross-site\.spec\.ts$/,
+						use: { ...devices["Desktop Safari"] },
+						dependencies: ["setup"],
+					},
+				]
+			: []),
 	],
 	webServer: [
 		{

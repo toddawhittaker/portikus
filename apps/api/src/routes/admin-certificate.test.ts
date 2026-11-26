@@ -419,6 +419,86 @@ describe.skipIf(skip)("POST /admin/certificate/jobs", () => {
 		expect(await requestFiles()).toEqual([]);
 	});
 
+	describe("a preview domain in its own DNS zone", () => {
+		const twoZones = (
+			dns: Record<string, string>,
+			previewDns: { provider: string; fields: Record<string, string> },
+		) => ({
+			...acmeDns(dns),
+			challenge: {
+				mode: "dns01",
+				dns: { provider: "cloudflare", fields: dns },
+				previewDns,
+			},
+		});
+		const storedTwoZones: CertificateSettingsView = {
+			...storedCloudflare,
+			challenge: {
+				mode: "dns01",
+				provider: "cloudflare",
+				fields: {},
+				secretsSet: { api_token: true },
+				previewDns: {
+					provider: "cloudflare",
+					fields: {},
+					secretsSet: { api_token: true },
+				},
+			},
+		};
+
+		test("both accounts reach the request file, and a blank secret keeps the stored one", async () => {
+			await putStatus({ settings: storedTwoZones, source: "acme" });
+			const res = await send(carol, "POST", "/admin/certificate/jobs", {
+				kind: "apply",
+				settings: twoZones(
+					{ api_token: SECRET },
+					{ provider: "cloudflare", fields: { api_token: "" } },
+				),
+			});
+			expect(res.statusCode).toBe(202);
+			const [name] = await requestFiles();
+			const file = JSON.parse(await readFile(join(jobsDir, name as string), "utf8"));
+			const { dns, previewDns } = file.request.settings.challenge;
+			expect(dns.fields).toEqual({ api_token: SECRET });
+			expect(previewDns).toEqual({ provider: "cloudflare", fields: {} });
+		});
+
+		test("a preview secret with nothing stored for that provider is refused", async () => {
+			// Only the site account is stored, and the preview account changes provider.
+			await putStatus({ settings: storedCloudflare, source: "acme" });
+			for (const previewDns of [
+				{ provider: "cloudflare", fields: {} },
+				{ provider: "digitalocean", fields: {} },
+			]) {
+				const res = await send(carol, "POST", "/admin/certificate/jobs", {
+					kind: "apply",
+					settings: twoZones({ api_token: "" }, previewDns),
+				});
+				expect(res.statusCode).toBe(400);
+				expect(res.json().code).toBe("CERTIFICATE_SECRET_REQUIRED");
+				expect(res.json().message).toContain("the preview api_token");
+			}
+			await putStatus({ settings: storedTwoZones, source: "acme" });
+			const switched = await send(carol, "POST", "/admin/certificate/jobs", {
+				kind: "apply",
+				settings: twoZones({ api_token: "" }, { provider: "digitalocean", fields: {} }),
+			});
+			expect(switched.statusCode).toBe(400);
+			expect(await requestFiles()).toEqual([]);
+		});
+
+		test("the settings view passes through, and no secret comes back out", async () => {
+			await putStatus({ settings: storedTwoZones, source: "acme" });
+			const view = await send(carol, "GET", "/admin/certificate");
+			expect(view.statusCode).toBe(200);
+			expect(view.json().settings.challenge.previewDns).toEqual({
+				provider: "cloudflare",
+				fields: {},
+				secretsSet: { api_token: true },
+			});
+		});
+	});
+
 	test("secrets reach only the request file: not a response, a log line or an audit row", async () => {
 		const res = await send(carol, "POST", "/admin/certificate/jobs", {
 			kind: "apply",

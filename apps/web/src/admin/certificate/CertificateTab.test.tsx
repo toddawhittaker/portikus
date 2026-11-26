@@ -445,6 +445,130 @@ function heldVariables(client: ReturnType<typeof renderWithQuery>): string {
 	);
 }
 
+const TWO_ZONES: CertificateSettingsView = {
+	...SETTINGS,
+	challenge: {
+		mode: "dns01",
+		provider: "cloudflare",
+		fields: {},
+		secretsSet: { api_token: true },
+		previewDns: {
+			provider: "digitalocean",
+			fields: {},
+			secretsSet: { api_token: true },
+		},
+	},
+};
+
+test("one account shows no preview account until the box is ticked, and then offers its own", async () => {
+	const fetch = serve(data());
+	renderWithQuery(<CertificateTab />);
+	const box = await screen.findByRole("checkbox", {
+		name: "Preview domain in its own DNS zone",
+	});
+	expect((box as HTMLInputElement).checked).toBe(false);
+	expect(screen.queryByTestId("cert-dns-preview")).toBeNull();
+	fireEvent.click(screen.getByTestId("cert-test"));
+	await waitFor(() => expect(posted(fetch, "/admin/certificate/jobs")).toHaveLength(1));
+	expect(JSON.stringify(posted(fetch, "/admin/certificate/jobs"))).not.toContain(
+		"previewDns",
+	);
+	fireEvent.click(box);
+	const group = within(
+		await screen.findByRole("group", { name: "Preview domain DNS provider" }),
+	);
+	// A secret is write-only: it starts blank, type password, and reads as not set.
+	const token = group.getByLabelText("API token") as HTMLInputElement;
+	expect(token.type).toBe("password");
+	expect(token.value).toBe("");
+	expect(token.getAttribute("aria-describedby")).toBe(
+		"cert-preview-dns-api_token-hint",
+	);
+	expect(document.getElementById("cert-preview-dns-api_token-hint")?.textContent).toBe(
+		"Not set.",
+	);
+});
+
+test("a stored preview account reads as set, is kept on a blank secret, and is sent with its provider", async () => {
+	const fetch = serve(data({ settings: TWO_ZONES }));
+	renderWithQuery(<CertificateTab />);
+	const group = within(
+		await screen.findByRole("group", { name: "Preview domain DNS provider" }),
+	);
+	const token = group.getByLabelText("API token") as HTMLInputElement;
+	expect(token.value).toBe("");
+	expect(document.getElementById("cert-preview-dns-api_token-hint")?.textContent).toBe(
+		"Set. Leave blank to keep it.",
+	);
+	expect(group.getByRole("combobox", { name: /Provider/ }).textContent).toContain(
+		"DigitalOcean",
+	);
+	fireEvent.click(screen.getByTestId("cert-test"));
+	await waitFor(() =>
+		expect(posted(fetch, "/admin/certificate/jobs")).toEqual([
+			{
+				kind: "test",
+				settings: {
+					source: "acme",
+					directory: ACME_DIRECTORY_PRESETS.letsencrypt,
+					email: "it@example.edu",
+					challenge: {
+						mode: "dns01",
+						dns: { provider: "cloudflare", fields: {} },
+						previewDns: { provider: "digitalocean", fields: {} },
+					},
+				},
+			},
+		]),
+	);
+});
+
+test("an empty preview secret with nothing stored stops the request and takes focus", async () => {
+	const fetch = serve(data());
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(
+		await screen.findByRole("checkbox", { name: "Preview domain in its own DNS zone" }),
+	);
+	fireEvent.click(screen.getByTestId("cert-apply"));
+	const token = (await within(
+		await screen.findByTestId("cert-dns-preview"),
+	).findByLabelText("API token")) as HTMLInputElement;
+	await waitFor(() => expect(document.activeElement).toBe(token));
+	expect(token.getAttribute("aria-invalid")).toBe("true");
+	expect(document.getElementById("cert-preview-dns-api_token-err")?.textContent).toBe(
+		"Enter the API token.",
+	);
+	// The site account's own stored token is untouched by this.
+	expect(
+		(screen.getByTestId("cert-dns").querySelector("input") as HTMLInputElement).value,
+	).toBe("");
+	expect(posted(fetch, "/admin/certificate/jobs")).toEqual([]);
+});
+
+test("unticking the box clears the stored preview account: the request leaves it out", async () => {
+	const fetch = serve(data({ settings: TWO_ZONES }));
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(
+		await screen.findByRole("checkbox", { name: "Preview domain in its own DNS zone" }),
+	);
+	expect(screen.queryByTestId("cert-dns-preview")).toBeNull();
+	fireEvent.click(screen.getByTestId("cert-test"));
+	await waitFor(() => expect(posted(fetch, "/admin/certificate/jobs")).toHaveLength(1));
+	expect(JSON.stringify(posted(fetch, "/admin/certificate/jobs"))).not.toContain(
+		"previewDns",
+	);
+});
+
+test("HTTP-01 hides the preview account and sends none", async () => {
+	serve(data({ settings: TWO_ZONES }));
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByRole("radio", { name: /^HTTP-01/ }));
+	expect(screen.queryByTestId("cert-dns-preview")).toBeNull();
+	expect(
+		screen.queryByRole("checkbox", { name: "Preview domain in its own DNS zone" }),
+	).toBeNull();
+});
+
 test("Test only drops the typed secret from the mutation but keeps it in the form", async () => {
 	const fetch = serve(data());
 	const client = renderWithQuery(<CertificateTab />);

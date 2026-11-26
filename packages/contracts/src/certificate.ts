@@ -262,7 +262,14 @@ export const DnsChallenge = z.discriminatedUnion("provider", [
 export type DnsChallenge = z.infer<typeof DnsChallenge>;
 
 export const AcmeChallenge = z.discriminatedUnion("mode", [
-	z.object({ mode: z.literal("dns01"), dns: DnsChallenge }).strict(),
+	z
+		.object({
+			mode: z.literal("dns01"),
+			dns: DnsChallenge,
+			/** A second DNS account for the preview wildcard, when its zone is elsewhere. */
+			previewDns: DnsChallenge.optional(),
+		})
+		.strict(),
 	/** HTTP-01 for the site, on-demand TLS for each preview name. */
 	z.object({ mode: z.literal("http01") }).strict(),
 ]);
@@ -426,6 +433,17 @@ export type CertificateInfo = z.infer<typeof CertificateInfo>;
 
 const SecretsSet = z.record(z.string(), z.boolean());
 
+/** One DNS account as the view shows it: plain fields, and which secrets are stored. */
+const DnsAccountView = z
+	.object({
+		provider: DnsProvider,
+		/** The plain fields only. */
+		fields: z.record(z.string(), z.string()),
+		/** Each secret field's name, and whether a value is stored. */
+		secretsSet: SecretsSet,
+	})
+	.strict();
+
 export const UploadedCertificateView = z
 	.object({
 		certificate: CertificateInfo.omit({ name: true }),
@@ -443,16 +461,11 @@ export const CertificateSettingsView = z.discriminatedUnion("source", [
 			email: z.string(),
 			eab: z.object({ keyId: z.string(), hmacKeySet: z.boolean() }).strict().nullable(),
 			challenge: z.discriminatedUnion("mode", [
-				z
-					.object({
-						mode: z.literal("dns01"),
-						provider: DnsProvider,
-						/** The plain fields only. */
-						fields: z.record(z.string(), z.string()),
-						/** Each secret field's name, and whether a value is stored. */
-						secretsSet: SecretsSet,
-					})
-					.strict(),
+				DnsAccountView.extend({
+					mode: z.literal("dns01"),
+					/** Present only when the preview wildcard uses its own DNS account. */
+					previewDns: DnsAccountView.optional(),
+				}).strict(),
 				z.object({ mode: z.literal("http01") }).strict(),
 			]),
 		})
