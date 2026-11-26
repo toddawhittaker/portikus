@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DNS_PROVIDER_FIELDS, type DnsProvider } from "@portikus/contracts";
 import { API_PORT } from "./ports";
 
 /**
@@ -87,21 +88,50 @@ export async function requestFiles(): Promise<string[]> {
 }
 
 interface DnsRequest {
-	provider: string;
+	provider: DnsProvider;
 	fields: Record<string, string>;
 }
 
-/** One DNS account as the record keeps it: no values, only which secrets were sent. */
-function accountView(dns: DnsRequest) {
+/** One DNS account as it is stored: plain values, and which secrets are set. */
+interface DnsView {
+	provider: string;
+	secretsSet: Record<string, boolean>;
+}
+
+/** The settings in force, as the hourly check last copied them. */
+async function settingsInForce(): Promise<{
+	source?: string;
+	challenge?: DnsView & { mode?: string; previewDns?: DnsView };
+} | null> {
+	try {
+		const status = JSON.parse(
+			await readFile(join(CERTIFICATE_STATUS_DIR, "status.json"), "utf8"),
+		);
+		return status.settings ?? null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * One DNS account as the job records it: its plain values, and each secret
+ * set when it was sent or, left blank, when the account in force has it
+ * stored for the same provider.
+ */
+function accountView(dns: DnsRequest, stored: DnsView | undefined) {
+	const { plain, secret } = DNS_PROVIDER_FIELDS[dns.provider];
+	const kept = stored?.provider === dns.provider ? stored.secretsSet : {};
 	return {
 		provider: dns.provider,
-		fields: {},
-		secretsSet: Object.fromEntries(Object.keys(dns.fields).map((k) => [k, true])),
+		fields: Object.fromEntries(plain.map((name) => [name, dns.fields[name] ?? ""])),
+		secretsSet: Object.fromEntries(
+			secret.map((name) => [name, name in dns.fields || kept[name] === true]),
+		),
 	};
 }
 
 /** Every secret becomes a "set" flag, as the job's record of a request does. */
-function recordOf(request: { kind: string; settings?: Record<string, unknown> }) {
+async function recordOf(request: { kind: string; settings?: Record<string, unknown> }) {
 	const settings = request.settings as
 		| {
 				source: string;
@@ -133,6 +163,11 @@ function recordOf(request: { kind: string; settings?: Record<string, unknown> })
 		};
 	}
 	const challenge = settings.challenge;
+	const current = await settingsInForce();
+	const inForce =
+		current?.source === "acme" && current.challenge?.mode === "dns01"
+			? current.challenge
+			: undefined;
 	return {
 		kind: request.kind,
 		settings: {
@@ -144,9 +179,11 @@ function recordOf(request: { kind: string; settings?: Record<string, unknown> })
 				challenge?.mode === "dns01" && challenge.dns
 					? {
 							mode: "dns01",
-							...accountView(challenge.dns),
+							...accountView(challenge.dns, inForce),
 							...(challenge.previewDns
-								? { previewDns: accountView(challenge.previewDns) }
+								? {
+										previewDns: accountView(challenge.previewDns, inForce?.previewDns),
+									}
 								: {}),
 						}
 					: { mode: "http01" },
@@ -173,7 +210,7 @@ export async function takeRequest(): Promise<{
 			await mkdir(join(CERTIFICATE_JOBS_DIR, file.id), { recursive: true });
 			await writeAtomic(
 				join(CERTIFICATE_JOBS_DIR, file.id, "request.json"),
-				JSON.stringify(recordOf(file.request)),
+				JSON.stringify(await recordOf(file.request)),
 			);
 			await rm(path);
 			return { id: file.id, mode, request: file.request };

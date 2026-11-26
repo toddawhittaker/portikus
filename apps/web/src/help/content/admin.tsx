@@ -494,11 +494,11 @@ export const ADMIN_HELP: HelpPart = {
 					</p>
 					<p>
 						For ACME, <strong>DNS-01</strong> needs credentials for your DNS provider
-						and gets one wildcard certificate for the site and every preview name.{" "}
-						<strong>HTTP-01</strong> needs port 80 open to the internet and gets a
-						certificate for each preview name the first time it is opened. Tokens and
-						keys are never shown again: each field says whether one is set, and leaving
-						it blank keeps it.
+						and gets a certificate for the site and one wildcard certificate for every
+						preview name. <strong>HTTP-01</strong> needs port 80 open to the internet
+						and gets a certificate for each preview name the first time it is opened.
+						Tokens and keys are never shown again: each field says whether one is set,
+						and leaving it blank keeps it.
 					</p>
 					<p>
 						<strong>Test only</strong> checks that the names point at this server and

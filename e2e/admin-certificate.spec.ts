@@ -348,7 +348,8 @@ test.describe("with the fake root job", () => {
 		await page.keyboard.press("Space");
 		const preview = page.getByTestId("cert-dns-preview");
 		await expect(preview).toBeVisible();
-		const token = preview.getByLabel("API token");
+		// The second account's fields say whose they are.
+		const token = preview.getByLabel("Preview domain API token", { exact: true });
 		await expect(token).toHaveAttribute("type", "password");
 		await expect(token).toHaveAccessibleDescription("Not set.");
 
@@ -356,7 +357,12 @@ test.describe("with the fake root job", () => {
 		await page.getByRole("button", { name: "Test only" }).click();
 		await expect(token).toBeFocused();
 		await expect(token).toHaveAccessibleDescription(/Enter the API token\./);
+		await expect(page.locator("#cert-preview-dns-api_token-err")).toBeVisible();
 		expect(await requestFiles()).toEqual([]);
+		await page.emulateMedia({ colorScheme: "dark" });
+		await expectNoViolations(page, "main");
+		await page.emulateMedia({ colorScheme: "light" });
+		await expectNoViolations(page, "main");
 
 		await token.fill(FAKE_PREVIEW_TOKEN);
 		await page.getByRole("button", { name: "Apply" }).click();
@@ -407,7 +413,7 @@ test.describe("with the fake root job", () => {
 			"previews through DigitalOcean",
 		);
 		const preview = page.getByTestId("cert-dns-preview");
-		const token = preview.getByLabel("API token");
+		const token = preview.getByLabel("Preview domain API token", { exact: true });
 		await expect(token).toHaveValue("");
 		await expect(token).toHaveAccessibleDescription("Set. Leave blank to keep it.");
 
@@ -450,12 +456,12 @@ test.describe("with the fake root job", () => {
 	test("the job's refusal for a missing preview secret is shown", async ({ page }) => {
 		const id = crypto.randomUUID();
 		await writeStatus(id, "apply", "refused", "Refused", {
-			message: "the preview cloudflare secret api_token is not set",
+			message: "The preview domain's Cloudflare API token is not set.",
 		});
 		await open(page);
 		await expect(page.getByTestId("cert-job-state")).toContainText("Refused");
 		await expect(page.getByTestId("cert-job-message")).toHaveText(
-			"the preview cloudflare secret api_token is not set",
+			"The preview domain's Cloudflare API token is not set.",
 		);
 	});
 
@@ -794,7 +800,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		const preview = page.getByTestId("cert-dns-preview");
 		await expect(preview).toBeVisible({ timeout: 15_000 });
 		// The two accounts' fields are told apart by their groups.
-		await expect(preview.getByRole("combobox", { name: /Provider/ })).toBeVisible();
+		await expect(
+			preview.getByRole("combobox", { name: /^Preview domain Provider/ }),
+		).toBeVisible();
 		await expect(
 			page.getByRole("group", { name: "Preview domain DNS provider" }),
 		).toBeVisible();

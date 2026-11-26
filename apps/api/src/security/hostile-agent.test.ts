@@ -518,7 +518,7 @@ test.skipIf(skip)(
 			url: `/__portikus/bootstrap?t=${encodeURIComponent(ticket)}`,
 			headers: { "x-forwarded-host": host },
 		});
-		expect(booted.statusCode).toBe(303);
+		expect(booted.statusCode).toBe(200);
 		const cookie = (booted.cookies as { name: string; value: string }[]).find(
 			(one) => one.name === "portikus-preview",
 		);

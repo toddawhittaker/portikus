@@ -1,3 +1,9 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { createServer, type Server } from "node:https";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
@@ -5,8 +11,8 @@ import {
 	startPreviewApp,
 	workspacePath,
 } from "./helpers";
-import { WEB_ORIGIN } from "./ports";
-import { appFrameLocator, previewGateway, siteOf } from "./preview-gateway";
+import { API_ORIGIN } from "./ports";
+import { appFrameLocator, previewGateway } from "./preview-gateway";
 
 /**
  * Previews on a different site from Portikus (BROWSER-HANDLING.md §7.2).
@@ -24,12 +30,6 @@ import { appFrameLocator, previewGateway, siteOf } from "./preview-gateway";
  */
 
 const PREVIEW_SUFFIX = ".preview.localhost";
-
-test("the two hosts are different sites", () => {
-	expect(siteOf(new URL(WEB_ORIGIN).hostname)).not.toBe(
-		siteOf(`ws-1-5173${PREVIEW_SUFFIX}`),
-	);
-});
 
 async function openRunning(page: Page, workspaceId: string, port: number) {
 	const project = await createProject(workspaceId, { name: "cross-site" });
@@ -101,4 +101,162 @@ test("a preview in its own tab still works", async ({ page, context, browserName
 
 	await tab.goto(new URL("/", tab.url()).href);
 	await expect(tab.locator("h1")).toHaveText("Own tab", { timeout: 20_000 });
+});
+
+/** What the real preview server saw of one request. */
+interface Seen {
+	path: string;
+	cookie: string;
+	site: string | undefined;
+}
+
+/** A self-signed certificate for the preview hosts, made for this run. */
+function previewCertificate(): { key: Buffer; cert: Buffer } {
+	const dir = mkdtempSync(join(tmpdir(), "portikus-e2e-preview-tls-"));
+	const key = join(dir, "key.pem");
+	const cert = join(dir, "cert.pem");
+	execFileSync(
+		"openssl",
+		[
+			"req",
+			"-x509",
+			"-newkey",
+			"ec",
+			"-pkeyopt",
+			"ec_paramgen_curve:prime256v1",
+			"-nodes",
+			"-days",
+			"1",
+			"-subj",
+			`/CN=*${PREVIEW_SUFFIX}`,
+			"-keyout",
+			key,
+			"-out",
+			cert,
+		],
+		{ stdio: "ignore" },
+	);
+	return { key: readFileSync(key), cert: readFileSync(cert) };
+}
+
+/**
+ * A real HTTPS server standing in for Caddy on the preview hosts. Unlike a
+ * route handler, the browser's own cookie rules decide what reaches it,
+ * which is the thing under test: a route cannot see whether a cookie would
+ * have been sent.
+ */
+async function previewServer(): Promise<{
+	server: Server;
+	port: number;
+	seen: Seen[];
+}> {
+	const seen: Seen[] = [];
+	const server = createServer(previewCertificate(), async (request, response) => {
+		const path = request.url ?? "/";
+		const host = (request.headers.host ?? "").split(":")[0] ?? "";
+		const cookie = request.headers.cookie ?? "";
+		const site = request.headers["sec-fetch-site"] as string | undefined;
+		seen.push({ path, cookie, site });
+		const forwarded: Record<string, string> = {
+			"x-forwarded-host": host,
+			"x-forwarded-proto": "https",
+			cookie,
+			...(site ? { "sec-fetch-site": site } : {}),
+		};
+		const dest = request.headers["sec-fetch-dest"];
+		if (typeof dest === "string") forwarded["sec-fetch-dest"] = dest;
+		let answer: Response;
+		if (path.startsWith("/__portikus/")) {
+			answer = await fetch(`${API_ORIGIN}${path}`, {
+				headers: forwarded,
+				redirect: "manual",
+			});
+		} else {
+			answer = await fetch(`${API_ORIGIN}/preview/authorize`, {
+				headers: { ...forwarded, "x-forwarded-method": "GET", "x-forwarded-uri": path },
+				redirect: "manual",
+			});
+			const upstream = answer.headers.get("x-portikus-upstream");
+			if (answer.ok && upstream) {
+				answer = await fetch(`http://${upstream}${path}`, { headers: { host } });
+			}
+		}
+		const headers: Record<string, string | string[]> = {};
+		for (const name of [
+			"content-type",
+			"cache-control",
+			"referrer-policy",
+			"content-security-policy",
+			"location",
+		]) {
+			const value = answer.headers.get(name);
+			if (value !== null) headers[name] = value;
+		}
+		const setCookie = answer.headers.getSetCookie();
+		if (setCookie.length > 0) headers["set-cookie"] = setCookie;
+		response.writeHead(answer.status, headers);
+		response.end(Buffer.from(await answer.arrayBuffer()));
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	return { server, port: (server.address() as AddressInfo).port, seen };
+}
+
+test.describe("a tab preview served by a real preview host", () => {
+	// Chromium alone is asked to accept the throwaway certificate here; the
+	// redirect-chain rule this pins is Chromium's.
+	test.use({ ignoreHTTPSErrors: true });
+
+	test("its first load carries the strict cookie its bootstrap set", async ({
+		page,
+		context,
+		browserName,
+	}) => {
+		test.skip(
+			browserName !== "chromium",
+			"the throwaway certificate is set up for Chromium",
+		);
+		const { server, port: serverPort, seen } = await previewServer();
+		try {
+			const student = await createStudent(context);
+			const port = await startPreviewApp(student.workspaceId, "Real host");
+			await openRunning(page, student.workspaceId, port);
+			const bootstrapUrl = await page.evaluate(
+				async ({ workspaceId, port }) => {
+					const response = await fetch(`/workspaces/${workspaceId}/preview-grants`, {
+						method: "POST",
+						credentials: "same-origin",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ port, presentation: "top-level" }),
+					});
+					return ((await response.json()) as { bootstrapUrl: string }).bootstrapUrl;
+				},
+				{ workspaceId: student.workspaceId, port },
+			);
+			const served = new URL(bootstrapUrl);
+			served.port = String(serverPort);
+
+			// A link on the Portikus page, so the navigation starts cross-site as
+			// "Open in new tab" does.
+			await page.evaluate((href) => {
+				const link = document.createElement("a");
+				link.href = href;
+				link.textContent = "open the preview";
+				link.id = "real-preview-link";
+				document.body.append(link);
+			}, served.href);
+			await page.locator("#real-preview-link").click();
+
+			await expect(page.locator("h1")).toHaveText("Real host", { timeout: 20_000 });
+			const boot = seen.find((one) => one.path.startsWith("/__portikus/bootstrap"));
+			expect(boot?.site).toBe("cross-site");
+			const first = seen.find((one) => one.path === "/");
+			expect(first?.cookie).toContain("portikus-preview=");
+			const stored = (await context.cookies(page.url())).find(
+				(one) => one.name === "portikus-preview",
+			);
+			expect(stored?.sameSite).toBe("Strict");
+		} finally {
+			server.close();
+		}
+	});
 });

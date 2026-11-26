@@ -2,7 +2,6 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
-	cookiePairs,
 	createProject,
 	createStudent,
 	deleteSessions,
@@ -18,7 +17,6 @@ import {
 	appFrameLocator,
 	edgeCookieJar,
 	frameAnswerFor,
-	frameRedirect,
 	requireFrameBuild,
 } from "./preview-gateway";
 
@@ -159,32 +157,10 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 				const headers = headersOf(answer, PASSED_HEADERS);
 				const setCookie = answer.headers.getSetCookie();
 				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
-
-				const location = answer.headers.get("location");
-				if (answer.status !== 303 || location === null) {
-					return route.fulfill({
-						status: answer.status,
-						headers,
-						body: Buffer.from(await answer.arrayBuffer()),
-					});
-				}
-				const toWrapper = frameRedirect(answer);
-				if (toWrapper) return route.fulfill(toWrapper);
-
-				// The bootstrap just minted a session: follow the redirect with
-				// that cookie alone, never a stale one the jar still holds.
-				const app = await proxy(
-					host,
-					"GET",
-					location,
-					[fromBrowser, cookiePairs(answer)].filter(Boolean).join("; "),
-					null,
-					null,
-				);
 				return route.fulfill({
-					status: app.status,
-					headers: { ...app.headers, ...headers },
-					body: app.body,
+					status: answer.status,
+					headers,
+					body: Buffer.from(await answer.arrayBuffer()),
 				});
 			}
 
@@ -901,10 +877,7 @@ test.describe("the preview in a real browser", () => {
 
 		const frame = () => appFrameLocator(page);
 		// Two navigations forward first, so stepping back stays on pages the
-		// application served. The entry the frame started on is the bootstrap
-		// URL, whose ticket is single-use; in a real deployment the browser
-		// sees the bootstrap redirect and keeps "/" instead, but this file
-		// stands in for Caddy and follows that redirect itself.
+		// application served.
 		await frame().locator("#link").click();
 		await expect(appHeading(page)).toHaveText("second page");
 		await frame().locator("#home").click();
@@ -988,9 +961,8 @@ test.describe("the preview in a real browser", () => {
 		await expect(appHeading(page)).toHaveText("Steps", { timeout: 20_000 });
 		const portikusUrl = page.url();
 
-		// Three navigations inside the frame, so three entries. The page the
-		// frame started on is the bootstrap URL, whose ticket is single-use,
-		// so it is the entry the student must not be able to go past twice.
+		// Three navigations inside the frame, so three entries. The frame's
+		// first page is the entry the student must not be able to go past.
 		const frame = () => appFrameLocator(page);
 		await frame().locator("#link").click();
 		await expect(appHeading(page)).toHaveText("second page");

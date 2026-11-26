@@ -426,11 +426,27 @@ test("an application the probe could not reach keeps the timeout", async () => {
 	);
 	show({});
 	const frame = await screen.findByTestId("preview-frame");
-	// An application still starting up is not a refusal; a load clears it.
+	// An application still starting up is not a refusal; its load, after the
+	// bootstrap's own page, clears it.
+	fireEvent.load(frame);
 	fireEvent.load(frame);
 	await vi.advanceTimersByTimeAsync(9_000);
 	expect(screen.queryByTestId("preview-blocked")).toBeNull();
 	expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("available");
+	vi.useRealTimers();
+});
+
+test("the bootstrap page's own load does not stand for the application", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	stubFetch(() => json(200, GRANT));
+	show({});
+	const frame = await screen.findByTestId("preview-frame");
+	await waitFor(() =>
+		expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("available"),
+	);
+	fireEvent.load(frame);
+	await vi.advanceTimersByTimeAsync(9_000);
+	await screen.findByTestId("preview-blocked");
 	vi.useRealTimers();
 });
 
@@ -702,6 +718,8 @@ test("a slow application that loads after the blocked guess recovers", async () 
 	// The frame is still there, so the load that was in flight still is too.
 	expect(screen.getByTestId("preview-frame")).toBe(frame);
 
+	// The bootstrap's page, then the application.
+	fireEvent.load(frame);
 	fireEvent.load(frame);
 	await waitFor(() => expect(screen.queryByTestId("preview-blocked")).toBeNull());
 	expect(screen.getByTestId("preview-pane-5173").dataset.state).toBe("available");

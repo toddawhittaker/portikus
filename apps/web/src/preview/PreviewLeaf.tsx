@@ -2,8 +2,9 @@
  * One Preview tab (SPEC.md §14.6, §14.8, BROWSER-HANDLING.md §12).
  *
  * The frame is pointed at a bootstrap URL the API mints; that URL sets the
- * preview session cookie on the preview host and redirects to `/`, so the
- * student's application is what the frame ends up showing. Nothing about
+ * preview session cookie on the preview host and its page moves the frame on
+ * to the wrapper page, so the student's application is what the frame ends up
+ * showing. Nothing about
  * the application is rewritten, stripped or proxied here.
  */
 import {
@@ -180,6 +181,8 @@ export function PreviewLeaf({
 	const [width, setWidth] = useState<Width>("fit");
 	/** The bootstrap URL of the frame that has reported a load, if any. */
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+	/** The bootstrap URL whose own page has loaded in the frame. */
+	const bootstrapLoaded = useRef<string | null>(null);
 	const frame = useRef<HTMLIFrameElement | null>(null);
 	const statusRef = useRef<State["status"]>("connecting");
 	/** True while a grant request is out, so a flickering list cannot start a second. */
@@ -337,6 +340,12 @@ export function PreviewLeaf({
 		// this event means the app loaded whether or not it is shown through
 		// the wrapper.
 		if (state.status !== "available" && state.status !== "blocked") return;
+		// The first load is the bootstrap's own page, which then moves the
+		// frame on; only a later load says the application arrived.
+		if (bootstrapLoaded.current !== state.grant.bootstrapUrl) {
+			bootstrapLoaded.current = state.grant.bootstrapUrl;
+			return;
+		}
 		setLoadedUrl(state.grant.bootstrapUrl);
 		// A slow application that finally loaded was not refusing to be
 		// embedded after all. An application the control plane asked directly

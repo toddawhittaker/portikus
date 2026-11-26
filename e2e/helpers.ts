@@ -946,15 +946,6 @@ export function headersOf(response: Response, names: string[]): Record<string, s
 	return headers;
 }
 
-/** The `name=value` part of each Set-Cookie line, for the next hop. */
-export function cookiePairs(response: Response): string {
-	return response.headers
-		.getSetCookie()
-		.map((line) => line.split(";")[0] ?? "")
-		.filter(Boolean)
-		.join("; ");
-}
-
 /**
  * The open toggletip's visible panel. It is hidden from assistive technology
  * by design (a live region reads the text), so it has no role to find it by.

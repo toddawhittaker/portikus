@@ -205,7 +205,7 @@ test.describe("another user in the browser", () => {
 				redirect: "manual",
 			},
 		);
-		expect(bootstrap.status).toBe(303);
+		expect(bootstrap.status).toBe(200);
 		await owner.close();
 
 		const other = await browser.newContext({ baseURL: WEB_ORIGIN });

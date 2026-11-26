@@ -3,6 +3,7 @@ import {
 	CertificateJobRequest,
 	type CertificateSettingsView,
 	DNS_PROVIDER_FIELDS,
+	type DnsProvider,
 } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
@@ -58,25 +59,29 @@ const ACME_VIEW: CertificateSettingsView = {
 	},
 };
 
-function acme(over: Partial<CertificateForm> = {}): CertificateForm {
-	return {
+function acme({
+	provider,
+	...over
+}: Partial<CertificateForm> & { provider?: DnsProvider } = {}): CertificateForm {
+	const form: CertificateForm = {
 		...initialForm(null),
 		source: "acme",
 		email: "it@example.edu",
 		...over,
 	};
+	return provider ? withProvider(form, provider) : form;
 }
 
 test("the form starts from the settings in force, with every secret blank", () => {
 	const form = initialForm(ACME_VIEW);
 	expect(form.source).toBe("acme");
 	expect(form.directory).toBe("letsencrypt");
-	expect(form.provider).toBe("route53");
-	expect(form.plain).toEqual({
+	expect(form.dns.site.provider).toBe("route53");
+	expect(form.dns.site.plain).toEqual({
 		"route53.region": "us-east-1",
 		"route53.access_key_id": "AKIAFAKE",
 	});
-	expect(form.secrets).toEqual({});
+	expect(form.dns.site.secrets).toEqual({});
 	expect(form.eabHmacKey).toBe("");
 	expect(initialForm(null).source).toBe("internal");
 });
@@ -137,7 +142,7 @@ test("one provider's values never leak into another's", () => {
 	let form = acme({ provider: "porkbun" });
 	form = withPlain(form, "api_key", "pk1_fake");
 	form = withSecret(form, "api_secret_key", "sk1_fake");
-	form = { ...form, provider: "hetzner" };
+	form = withProvider(form, "hetzner");
 	form = withSecret(form, "api_token", "fake-hetzner");
 	const settings = toSettings(form);
 	expect(settings.source === "acme" && settings.challenge).toEqual({
@@ -421,7 +426,7 @@ test("one account sends no preview account, and the form starts without one", ()
 test("the form starts from a stored preview account, secrets blank", () => {
 	const form = initialForm(TWO_ZONES);
 	expect(form.previewDns).toBe(true);
-	expect(form.previewProvider).toBe("cloudflare");
+	expect(form.dns.preview.provider).toBe("cloudflare");
 	expect(secretValue(form, "api_token", "preview")).toBe("");
 	expect(secretStored(TWO_ZONES, "cloudflare", "api_token", "preview")).toBe(true);
 	// The stored secret belongs to the preview account, not the site's.
@@ -451,9 +456,8 @@ test("a blank preview secret keeps the stored one and is left out of the request
 test("a preview secret not stored for its provider must be entered, under its own id", () => {
 	// Same provider as the site, but nothing stored for the preview account.
 	const form = {
-		...initialForm(ACME_VIEW),
+		...withProvider(initialForm(ACME_VIEW), "route53", "preview"),
 		previewDns: true,
-		previewProvider: "route53" as const,
 	};
 	expect(Object.keys(validate(form, ACME_VIEW)).sort()).toEqual(
 		[
@@ -485,7 +489,7 @@ test("the two accounts keep their values apart, even for one provider", () => {
 	const route = withProvider(form, "porkbun", "preview");
 	const typed = withPlain(route, "api_key", "pk", "preview");
 	expect(plainValue(typed, "api_key", "preview")).toBe("pk");
-	expect(typed.plain).toEqual({});
+	expect(typed.dns.site.plain).toEqual({});
 });
 
 test("turning the preview account off removes it from the request", () => {

@@ -32,6 +32,7 @@ import {
 	sendPreviewGrant,
 } from "../preview/grants.js";
 import {
+	bootstrapPage,
 	inactiveServicePage,
 	missLimitPage,
 	refusedPage,
@@ -434,19 +435,16 @@ export function registerPreviewRoutes(
 			liveHelpSessionId: grant.live_help_session_id,
 		});
 
-		return reply
-			.setCookie(
-				cookieName,
-				token,
-				previewCookieOptions(
-					request.headers,
-					grant.presentation === "embedded",
-					secure,
-				),
-			)
-			.header("cache-control", "no-store")
-			.header("referrer-policy", "no-referrer")
-			.redirect(grant.presentation === "embedded" ? WRAPPER_PATH : "/", 303);
+		reply.setCookie(
+			cookieName,
+			token,
+			previewCookieOptions(request.headers, grant.presentation === "embedded", secure),
+		);
+		return page(
+			reply,
+			200,
+			bootstrapPage(grant.presentation === "embedded" ? WRAPPER_PATH : "/"),
+		);
 	});
 
 	/**
@@ -490,29 +488,31 @@ export function registerPreviewRoutes(
 				await bridge.closeForSession(session.id);
 			}
 		}
+		// Reset comes from the Portikus page, so a cross-site request is clearing
+		// cookies set inside an embedded preview, which are partitioned; an
+		// expiry is ignored unless it carries the same attributes.
+		const own = previewCookieOptions(request.headers, true, secure);
+		const attributes = own.partitioned
+			? "; Secure; SameSite=None; Partitioned"
+			: secure
+				? "; Secure"
+				: "";
 		for (const name of Object.keys(request.cookies)) {
 			if (name === cookieName) continue;
 			// Anything that is not a cookie name is dropped rather than echoed
 			// into a response header.
 			if (!COOKIE_NAME.test(name)) continue;
-			reply.header(
-				"set-cookie",
-				`${name}=; Path=/; Max-Age=0${secure ? "; Secure" : ""}`,
-			);
+			reply.header("set-cookie", `${name}=; Path=/; Max-Age=0${attributes}`);
 		}
-		return (
-			reply
-				// Reset comes from the Portikus page, so a cross-site request is clearing
-				// the partitioned cookie an embedded preview was given.
-				.clearCookie(cookieName, previewCookieOptions(request.headers, true, secure))
-				.header("clear-site-data", '"storage"')
-				.header("content-type", "text/html; charset=utf-8")
-				.header("content-security-policy", pagePolicy)
-				.header("cache-control", "no-store")
-				.header("referrer-policy", "no-referrer")
-				.status(200)
-				.send(resetPage())
-		);
+		return reply
+			.clearCookie(cookieName, own)
+			.header("clear-site-data", '"storage"')
+			.header("content-type", "text/html; charset=utf-8")
+			.header("content-security-policy", pagePolicy)
+			.header("cache-control", "no-store")
+			.header("referrer-policy", "no-referrer")
+			.status(200)
+			.send(resetPage());
 	});
 
 	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──

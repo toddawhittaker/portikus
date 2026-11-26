@@ -152,7 +152,7 @@ async function openPreview(
 		previewHostFor(port, name),
 		ticketOf(created.json().bootstrapUrl),
 	);
-	expect(done.statusCode).toBe(303);
+	expect(done.statusCode).toBe(200);
 	return previewCookie(done);
 }
 
@@ -716,15 +716,28 @@ test.skipIf(skip)(
 
 // ── Bootstrap (BROWSER-HANDLING.md §9.1, §9.2) ──
 
-test.skipIf(skip)("bootstrap sets a host-only cookie and redirects", async () => {
+/** Where a bootstrap page sends the browser on, from its meta refresh. */
+function targetOf(response: { body: string }): string | null {
+	return (
+		/<meta http-equiv="refresh" content="0; url=([^"]*)">/.exec(response.body)?.[1] ??
+		null
+	);
+}
+
+test.skipIf(skip)("bootstrap sets a host-only cookie and moves on", async () => {
 	const created = await grant(alice, workspaceId, 5173);
 	const response = await bootstrap(
 		previewHostFor(5173),
 		ticketOf(created.json().bootstrapUrl),
 	);
-	expect(response.statusCode).toBe(303);
+	// A page, not a redirect: the next request then starts on the preview
+	// site, so a SameSite=Strict cookie goes with it (BROWSER-HANDLING.md §7.2).
+	expect(response.statusCode).toBe(200);
+	expect(response.headers.location).toBeUndefined();
 	// An embedded preview opens Portikus's wrapper page, which frames the app.
-	expect(response.headers.location).toBe("/__portikus/frame/");
+	expect(targetOf(response)).toBe("/__portikus/frame/");
+	expect(response.body).toContain('<a href="/__portikus/frame/">');
+	expect(response.headers["content-security-policy"]).toContain("default-src 'none'");
 	expect(response.headers["cache-control"]).toBe("no-store");
 	expect(response.headers["referrer-policy"]).toBe("no-referrer");
 	const header = String(response.headers["set-cookie"]);
@@ -745,8 +758,9 @@ test.skipIf(skip)(
 			ticketOf(tab.json().bootstrapUrl),
 			{ "sec-fetch-dest": "document" },
 		);
-		expect(response.statusCode).toBe(303);
-		expect(response.headers.location).toBe("/");
+		expect(response.statusCode).toBe(200);
+		expect(targetOf(response)).toBe("/");
+		expect(response.headers["referrer-policy"]).toBe("no-referrer");
 		expect(response.headers["cache-control"]).toBe("no-store");
 		expect(String(response.headers["set-cookie"])).toContain("SameSite=Strict");
 	},
@@ -763,7 +777,7 @@ test.skipIf(skip)(
 			ticketOf(framed.json().bootstrapUrl),
 			{ "sec-fetch-dest": "iframe", "sec-fetch-site": "cross-site" },
 		);
-		expect(response.statusCode).toBe(303);
+		expect(response.statusCode).toBe(200);
 		const header = String(response.headers["set-cookie"]);
 		expect(header).toContain("SameSite=None");
 		expect(header).toContain("Secure");
@@ -799,7 +813,7 @@ test.skipIf(skip)(
 				ticketOf(created.json().bootstrapUrl),
 				one.headers,
 			);
-			expect(response.statusCode).toBe(303);
+			expect(response.statusCode).toBe(200);
 			const header = String(response.headers["set-cookie"]);
 			expect(header).toContain("SameSite=Strict");
 			expect(header).not.toContain("Partitioned");
@@ -841,7 +855,7 @@ test.skipIf(skip)("a ticket opened the way it asked for is accepted", async () =
 				"sec-fetch-dest": "iframe",
 			})
 		).statusCode,
-	).toBe(303);
+	).toBe(200);
 
 	const tab = await grant(alice, workspaceId, 5173, {}, "top-level");
 	expect(
@@ -850,14 +864,14 @@ test.skipIf(skip)("a ticket opened the way it asked for is accepted", async () =
 				"sec-fetch-dest": "document",
 			})
 		).statusCode,
-	).toBe(303);
+	).toBe(200);
 
 	// A browser that sends no Sec-Fetch-Dest is still let in.
 	const quiet = await grant(alice, workspaceId, 5173);
 	expect(
 		(await bootstrap(previewHostFor(5173), ticketOf(quiet.json().bootstrapUrl)))
 			.statusCode,
-	).toBe(303);
+	).toBe(200);
 });
 
 test.skipIf(skip)("an unknown ticket is refused", async () => {
@@ -1586,6 +1600,38 @@ test.skipIf(skip)(
 		}
 		const raw = response.headers["set-cookie"] as string[];
 		expect(raw.some((one) => one.startsWith("session=; Path=/; Max-Age=0"))).toBe(true);
+	},
+);
+
+test.skipIf(skip)(
+	"a reset from another site expires the application's partitioned cookies",
+	async () => {
+		const expiries = async (site: string) => {
+			const response = await app.inject({
+				method: "GET",
+				url: "/__portikus/reset",
+				headers: {
+					"x-forwarded-host": previewHostFor(5173),
+					"sec-fetch-site": site,
+					cookie: "session=abc",
+				},
+			});
+			return (response.headers["set-cookie"] as string[]).filter((one) =>
+				one.startsWith("session="),
+			);
+		};
+		// A cookie set inside a cross-site frame is partitioned and SameSite=None,
+		// and a browser ignores an expiry that does not carry the same attributes.
+		const [crossSite] = await expiries("cross-site");
+		expect(crossSite).toContain("Max-Age=0");
+		expect(crossSite).toContain("SameSite=None");
+		expect(crossSite).toContain("Partitioned");
+		expect(crossSite).toContain("Secure");
+
+		const [sameSite] = await expiries("same-site");
+		expect(sameSite).toContain("Max-Age=0");
+		expect(sameSite).not.toContain("SameSite=None");
+		expect(sameSite).not.toContain("Partitioned");
 	},
 );
 
