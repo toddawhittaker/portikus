@@ -77,6 +77,17 @@ table inet filter {
     # one NAT address: 60 students with ten terminals, the editor and a few
     # preview tabs each hold about 1800 together, and the cap leaves room
     # for several such classes at once.
+{% set firewall_trusted4 = portikus_trusted_proxies | default([]) | reject('search', ':') | list %}
+{% set firewall_trusted6 = portikus_trusted_proxies | default([]) | select('search', ':') | list %}
+    # A trusted reverse proxy carries every client's connections, so it is
+    # exempt from the cap.  Behind it, the API's per-address rate limits,
+    # keyed on the client address the proxy reports, are what remains.
+{% if firewall_trusted4 | length > 0 %}
+    tcp dport { 80, {{ portikus_public_port }} } ip saddr { {{ firewall_trusted4 | join(', ') }} } accept
+{% endif %}
+{% if firewall_trusted6 | length > 0 %}
+    tcp dport { 80, {{ portikus_public_port }} } ip6 saddr { {{ firewall_trusted6 | join(', ') }} } accept
+{% endif %}
     tcp dport { 80, {{ portikus_public_port }} } ct state new add @web_conns4 { ip saddr ct count over 8192 } reject with tcp reset
     tcp dport { 80, {{ portikus_public_port }} } ct state new add @web_conns6 { ip6 saddr & ffff:ffff:ffff:ffff:: ct count over 8192 } reject with tcp reset
     tcp dport { 80, {{ portikus_public_port }} } accept

@@ -195,6 +195,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/alert-command-test.sh
 	python3 -B infra/tests/totp_test.py
 	bash infra/tests/caddy-preview-test.sh
+	bash infra/tests/caddy-proxy-test.sh
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
 	ansible-playbook infra/tests/egress-proxy-render-test.yml

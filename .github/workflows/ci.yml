@@ -860,6 +860,7 @@ jobs:
           fi
           "$CADDY" version
           bash infra/tests/caddy-preview-test.sh
+          bash infra/tests/caddy-proxy-test.sh
       # Pebble, Let's Encrypt's test ACME server, pinned by version and checksum.
       - name: Cache Pebble
         id: pebble

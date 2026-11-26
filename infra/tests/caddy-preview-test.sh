@@ -355,7 +355,7 @@ echo "--- Sign-in provider routes (docs/adr/0023) ---"
 has "Dex is served under /dex on the application host" \
   '^[[:space:]]+handle /dex/\* \{$' "${app}"
 has "Dex keeps the /dex prefix and listens on loopback" \
-  '^[[:space:]]+reverse_proxy 127\.0\.0\.1:5556$' "${app}"
+  '^[[:space:]]+reverse_proxy 127\.0\.0\.1:5556( \{)?$' "${app}"
 has "only password form posts, local and LDAP, are matched for the throttle" \
   '^[[:space:]]+path /dex/auth/local/login\* /dex/auth/ldap/login\*$' "${app}"
 # Caddy matches a path pattern without escapes against the decoded path, so
@@ -367,7 +367,7 @@ has "the throttle matcher is for POST only" '^[[:space:]]+method POST$' "${app}"
 # The API counts it per address and per account and passes it on to Dex
 # (SPEC.md section 24.13).
 has "a password post goes to the API, which relays it to Dex" \
-  "^[[:space:]]+reverse_proxy @dex_password_post 127\.0\.0\.1:${API_PORT}\$" "${app}"
+  "^[[:space:]]+reverse_proxy @dex_password_post 127\.0\.0\.1:${API_PORT}( \{)?\$" "${app}"
 # Caddy keeps the client's query when the forward_auth URI has none, so a
 # client could add ?scope=password to a sign-in start.  Every ask names its scope.
 lacks "no throttle ask leaves the client's query in place" \
@@ -449,7 +449,7 @@ done < <(api_routes "${rendered}")
 [ "${edge_open}" = 1 ] || ok "every route that proxies to the API has a path that cannot cover /edge"
 # A proxy with its own matcher is outside the list above; the only one is
 # the Dex password post, whose paths cannot cover /edge.
-if [ "$(grep -oE '^[[:space:]]+reverse_proxy @[a-z_]+ 127\.0\.0\.1:'"${API_PORT}"'$' "${rendered}" \
+if [ "$(grep -oE '^[[:space:]]+reverse_proxy @[a-z_]+ 127\.0\.0\.1:'"${API_PORT}"'( \{)?$' "${rendered}" \
   | awk '{ print $2 }' | sort -u)" = "@dex_password_post" ]; then
   ok "the only API proxy with its own matcher is the Dex password post"
 else
