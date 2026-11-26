@@ -74,12 +74,13 @@ except (OSError, yaml.YAMLError):
     sys.exit(0)
 if not isinstance(data, dict):
     sys.exit(0)
-# Written only when set, so a missing one is blank, not the old answer.
+# Written only when set, so a missing one is reported for the shell to
+# blank unless a preseed gave it.
 blank_when_missing = ("portikus_preview_suffix", "portikus_trusted_proxies")
 for key, question in names.items():
     if key not in data or data[key] is None:
         if key in blank_when_missing:
-            print(question + "\t")
+            print("-" + question + "\t")
         continue
     value = data[key]
     if isinstance(value, list):
@@ -97,7 +98,21 @@ PY
 )
 	# db_set talks over stdin and stdout, so the lines come in on fd 4.
 	while IFS='	' read -r question value <&4; do
-		[ -z "$question" ] || db_set "portikus/$question" "$value"
+		case "$question" in
+		"") ;;
+		-*)
+			# Missing from the file: blank, unless debconf-set-selections
+			# or an earlier answer marked the question seen, as a preseed
+			# before a non-interactive upgrade does.
+			question=${question#-}
+			db_fget "portikus/$question" seen
+			[ "$RET" = true ] || db_set "portikus/$question" ""
+			;;
+		*)
+			[ "$question" != preview_suffix ] || SUFFIX_IN_FILE=1
+			db_set "portikus/$question" "$value"
+			;;
+		esac
 	done 4<<EOF
 $answers
 EOF
@@ -299,8 +314,10 @@ prepare() {
 		# The suggestion follows the web address until someone picks another.
 		db_get portikus/public_host
 		host=$RET
+		# A suffix portikus.yaml names is kept, even when it equals the old
+		# default, as the administration page keeps it.
 		db_get portikus/preview_suffix
-		if [ -z "$RET" ] || [ "$RET" = "$SUFFIX_DEFAULT" ]; then
+		if [ -z "$RET" ] || { [ "$RET" = "$SUFFIX_DEFAULT" ] && [ "$SUFFIX_IN_FILE" = 0 ]; }; then
 			db_set portikus/preview_suffix "preview.$host"
 		fi
 		SUFFIX_DEFAULT="preview.$host"
@@ -320,6 +337,10 @@ prepare() {
 		fi
 		;;
 	cloudflare_api_token | cloudflare_preview_api_token | client_secret | ldap_bind_password)
+		if [ "$1" = cloudflare_api_token ]; then
+			db_get portikus/public_host
+			db_subst portikus/cloudflare_api_token host "$RET"
+		fi
 		# debconf keeps a password answered blank, but cannot show it.
 		db_get "portikus/$1"
 		if [ -n "$RET" ]; then
@@ -488,6 +509,11 @@ is_cidr() {
 	fi
 }
 
+# A prefix length of zero, as in 0.0.0.0/0 or ::/0, covers every address.
+is_everyone() {
+	case "$1" in */0 | */00 | */000) return 0 ;; *) return 1 ;; esac
+}
+
 is_email() {
 	echo "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9-]+$'
 }
@@ -553,6 +579,10 @@ check() {
 				PROBLEM="\"$net\" is not a network with a prefix length, such as 10.20.20.10/32 or 2001:db8::/64."
 				return 1
 			}
+			! is_everyone "$net" || {
+				PROBLEM="\"$net\" would trust every address, so anyone could claim to be any visitor. Give only the proxy's own addresses, such as 10.20.20.10/32."
+				return 1
+			}
 		done
 		;;
 	google_admin_email)
@@ -581,7 +611,6 @@ check() {
 		fi
 		check_pem "$1" "$value" || return 1
 		;;
-	cloudflare_preview_api_token) ;;
 	cloudflare_api_token | ldap_bind_password | client_secret)
 		if [ -z "$value" ]; then
 			has_secret "$(secret_key "$1")" && return 0
@@ -699,10 +728,12 @@ priority() {
 	esac
 }
 
-import_config_file
-
+# The default the remembered suffix was suggested from: the remembered host,
+# read before the file can move it.
 db_get portikus/public_host
 SUFFIX_DEFAULT="preview.$RET"
+SUFFIX_IN_FILE=0
+import_config_file
 db_get portikus/storage_size
 ORIGINAL_SIZE=$RET
 db_get portikus/registry_cache_gib

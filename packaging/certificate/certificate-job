@@ -96,6 +96,19 @@ DNS_PROVIDER_FIELDS = {
         "secret": ["client_secret"],
     },
 }
+# The names the Certificate page shows (apps/web/src/admin/certificate/form.ts),
+# so a refusal names a secret the way the administrator saw it.
+DNS_PROVIDER_LABEL = {
+    "cloudflare": "Cloudflare", "route53": "Amazon Route 53", "digitalocean": "DigitalOcean",
+    "ovh": "OVH", "hetzner": "Hetzner Cloud DNS", "gandi": "Gandi", "porkbun": "Porkbun",
+    "googleclouddns": "Google Cloud DNS", "azure": "Azure DNS",
+}
+SECRET_FIELD_LABEL = {
+    "api_token": "API token", "secret_access_key": "secret access key",
+    "application_secret": "application secret", "consumer_key": "consumer key",
+    "bearer_token": "personal access token", "api_secret_key": "secret API key",
+    "service_account_json": "service account key (JSON)", "client_secret": "client secret",
+}
 # A secret whose plugin takes a file path rather than the value: the field
 # and the directive that names the file (Google's service-account JSON).
 PATH_SECRET_FIELDS = {("googleclouddns", "service_account_json"): "gcp_application_default"}
@@ -1144,8 +1157,8 @@ class Runner:
                 for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
                     value = dns["fields"].get(name, kept.get((owner, name)))
                     if value is None:
-                        which = "preview " if owner != provider else ""
-                        raise Refused(f"the {which}{provider} secret {name} is not set")
+                        whose = "The preview domain's" if owner != provider else "The site's"
+                        raise Refused(f"{whose} {DNS_PROVIDER_LABEL[provider]} {SECRET_FIELD_LABEL[name]} is not set.")
                     secrets[(owner, name)] = value
         if settings.get("eab"):
             value = settings["eab"].get("hmacKey", kept.get(("eab", "hmacKey")))
@@ -2029,7 +2042,9 @@ class Runner:
     def refuse(self, job, reason):
         journal(f"refused request {job.id}: {scrub(reason, job.secrets)}")
         job.line(f"Refused: {reason}")
-        job.status("refused", "Refused", message=f"The request was refused: {reason}.")
+        # A reason written as its own sentence follows as one.
+        message = f"The request was refused. {reason}" if reason.endswith(".") else f"The request was refused: {reason}."
+        job.status("refused", "Refused", message=message)
 
     def perform(self, job, request):
         """Run one job to its end, then refresh status.json. Returns the final state."""
