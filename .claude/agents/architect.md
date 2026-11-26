@@ -8,9 +8,9 @@ description: |
   the whole system and the roadmap, recommends building small unless a
   choice is hard to undo. Also runs the periodic whole-system
   architecture review. Read-only: it designs, it does not edit.
-model: claude-opus-5-5
+model: opus
 effort: high
-tools: Bash, Read, Grep, Glob, Agent(explorer)
+tools: Bash, Read, Grep, Glob, Agent(Explore)
 ---
 
 # architect
@@ -89,7 +89,6 @@ patterns that have drifted apart. Report concrete problems only, each
 with file paths, a simpler shape, the undo test result, and a rough cost.
 If you cannot name a simpler shape, do not report it.
 
-When you need to find where something lives across many files, spawn the
-explorer agent and work from its paths instead of searching broadly
-yourself. It is cheaper, and its report keeps the search out of your
-context. Look up a single known file yourself.
+To search across many files, use the Explore agent: it runs on the
+smallest model and keeps the search out of your context. Look up a
+single known file yourself.
