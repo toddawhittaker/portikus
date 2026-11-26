@@ -97,9 +97,22 @@ else
     >/dev/null 2>&1 || true
   check "the project is empty before the restore" \
     alice_student "test -z \"\$(ls -A ${RS_DIR})\""
-  check_output "restore returns 204" "204" \
+  # A restore can outlast a proxy's response timeout, so it is answered
+  # at once and finished in the background (SPEC.md 15.8).
+  check_output "restore returns 202, a background operation" "202" \
     http_status alice "${PROJECTS_URL}/${rs_id}/recovery-points/${rp_id}/restore" \
     "-X POST -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{}'"
+  restore_state() {
+    local state="" _
+    for _ in $(seq 1 60); do
+      state=$(vm_get alice "${API}/workspaces/${ws_id}/project-operation" \
+        | python3 -c 'import json,sys; o=json.load(sys.stdin)["operation"] or {}; print(o.get("state", ""))' 2>/dev/null)
+      [ "$state" = running ] || break
+      sleep 2
+    done
+    echo "$state"
+  }
+  check_output "the restore operation succeeds" "succeeded" restore_state
   check_output "restore brings the files back" "one" \
     alice_student "cat ${RS_DIR}/notes.txt"
   check "restore brings back Git-ignored files" \

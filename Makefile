@@ -134,8 +134,8 @@ rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (nev
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt TOFU_DESTROY_CALLER=rehearsal-destroy tofu-destroy
 
 # The script fixes TOFU_ENV=rehearsal-libvirt and ignores VM_IP, so it cannot reach the pilot.
-install-test: ## apt install portikus on a fresh rehearsal VM from a local signed repository, claim the administrator, smoke test, upgrade, destroy it (IMAGE_JOBS=1 adds the image job rehearsal; UPGRADE_FROM_PUBLISHED=1 upgrades from the published release instead; KEEP_VM=1 keeps the VM)
-	IMAGE_JOBS=$(IMAGE_JOBS) KEEP_VM=$(KEEP_VM) bash infra/tests/install-test.sh
+install-test: ## apt install portikus on a fresh rehearsal VM from a local signed repository, claim the administrator, smoke test, upgrade, destroy it (IMAGE_JOBS=1 adds the image job rehearsal; UPGRADE_FROM_PUBLISHED=1 upgrades from the published release instead; KEEP_VM=1 keeps the VM; STANDIN=1 installs the Cloudflare Tunnel layout and smoke tests through a stand-in connector, then stops and keeps the VM)
+	IMAGE_JOBS=$(IMAGE_JOBS) KEEP_VM=$(KEEP_VM) STANDIN=$(STANDIN) bash infra/tests/install-test.sh
 
 # Refuses to start the VM when the host lacks its memory; a running VM is fine.
 rehearsal-preflight:
