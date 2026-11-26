@@ -752,6 +752,61 @@ test.skipIf(skip)(
 	},
 );
 
+// ── Embedded previews on another site (BROWSER-HANDLING.md §7.2) ──
+
+test.skipIf(skip)(
+	"an embedded bootstrap from another site gets a partitioned cookie",
+	async () => {
+		const framed = await grant(alice, workspaceId, 5173);
+		const response = await bootstrap(
+			previewHostFor(5173),
+			ticketOf(framed.json().bootstrapUrl),
+			{ "sec-fetch-dest": "iframe", "sec-fetch-site": "cross-site" },
+		);
+		expect(response.statusCode).toBe(303);
+		const header = String(response.headers["set-cookie"]);
+		expect(header).toContain("SameSite=None");
+		expect(header).toContain("Secure");
+		expect(header).toContain("Partitioned");
+		expect(header).toContain("HttpOnly");
+		expect(header).not.toContain("Domain=");
+		expect(
+			(await authorize(previewCookie(response), previewHostFor(5173))).statusCode,
+		).toBe(200);
+	},
+);
+
+test.skipIf(skip)(
+	"every other bootstrap keeps its strict, unpartitioned cookie",
+	async () => {
+		const cases: {
+			presentation: "embedded" | "top-level";
+			headers: Record<string, string>;
+		}[] = [
+			{ presentation: "embedded", headers: { "sec-fetch-site": "same-site" } },
+			{ presentation: "embedded", headers: { "sec-fetch-site": "same-origin" } },
+			{ presentation: "embedded", headers: {} },
+			{ presentation: "top-level", headers: { "sec-fetch-site": "cross-site" } },
+			{ presentation: "top-level", headers: {} },
+		];
+		for (const one of cases) {
+			const created =
+				one.presentation === "embedded"
+					? await grant(alice, workspaceId, 5173)
+					: await grant(alice, workspaceId, 5173, {}, "top-level");
+			const response = await bootstrap(
+				previewHostFor(5173),
+				ticketOf(created.json().bootstrapUrl),
+				one.headers,
+			);
+			expect(response.statusCode).toBe(303);
+			const header = String(response.headers["set-cookie"]);
+			expect(header).toContain("SameSite=Strict");
+			expect(header).not.toContain("Partitioned");
+		}
+	},
+);
+
 test.skipIf(skip)("a ticket is only good where it was meant to open", async () => {
 	// A ticket for the preview frame, opened as a top-level page.
 	const framed = await grant(alice, workspaceId, 5173);
@@ -1583,6 +1638,35 @@ test.skipIf(skip)("the reset page clears the cookie and stored data", async () =
 	expect(String(response.headers["set-cookie"])).toContain(`${COOKIE}=`);
 	expect((await authorize(token, previewHostFor(5173))).statusCode).toBe(401);
 });
+
+test.skipIf(skip)(
+	"a reset from another site clears the partitioned cookie",
+	async () => {
+		const response = await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: {
+				"x-forwarded-host": previewHostFor(5173),
+				"sec-fetch-site": "cross-site",
+			},
+		});
+		const header = String(response.headers["set-cookie"]);
+		expect(header).toContain(`${COOKIE}=`);
+		expect(header).toContain("SameSite=None");
+		expect(header).toContain("Partitioned");
+
+		const sameSite = await app.inject({
+			method: "GET",
+			url: "/__portikus/reset",
+			headers: {
+				"x-forwarded-host": previewHostFor(5173),
+				"sec-fetch-site": "same-site",
+			},
+		});
+		expect(String(sameSite.headers["set-cookie"])).toContain("SameSite=Strict");
+		expect(String(sameSite.headers["set-cookie"])).not.toContain("Partitioned");
+	},
+);
 
 test.skipIf(skip)(
 	"the reset page clears browser data even with no preview cookie",

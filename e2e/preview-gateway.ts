@@ -255,6 +255,36 @@ function navigationDest(request: Request): string | null {
 }
 
 /**
+ * The site of a host name: an IP address is its own site, and a name is its
+ * last two labels. Enough for the hosts this suite uses; a deployment's
+ * browser uses the public suffix list.
+ */
+export function siteOf(hostname: string): string {
+	if (/^[\d.]+$/.test(hostname)) return hostname;
+	return hostname.split(".").slice(-2).join(".");
+}
+
+/**
+ * The `Sec-Fetch-Dest` and `Sec-Fetch-Site` a navigation would carry, which a
+ * route handler cannot read (see `navigationDest`). The site compares the
+ * request with the top-level page, as a browser does for a framed request.
+ * A request with no known top page, such as the reset fetch from the
+ * Portikus page, is compared with the page that made it.
+ */
+function fetchMetadata(request: Request): Record<string, string> {
+	const dest = navigationDest(request);
+	let top = request.frame();
+	while (top.parentFrame() !== null) top = top.parentFrame() as Frame;
+	const own = siteOf(new URL(request.url()).hostname);
+	const from = siteOf(new URL(top.url() || request.url()).hostname);
+	const site = dest === "document" ? "none" : own === from ? "same-site" : "cross-site";
+	return {
+		...(dest === null ? {} : { "sec-fetch-dest": dest }),
+		"sec-fetch-site": site,
+	};
+}
+
+/**
  * The wrapper page's answer to a browser request for a wrapper path, with the
  * cookie the edge holds for it; null for any other path.
  */
@@ -317,10 +347,19 @@ export function frameRedirect(answer: Response): {
  */
 export async function previewGateway(
 	page: Page | BrowserContext,
+	options: { browserCookies?: boolean } = {},
 ): Promise<{ app: number }> {
 	requireFrameBuild();
 	const counts = { app: 0 };
-	const jar = edgeCookieJar();
+	const edgeJar = edgeCookieJar();
+	// With browser cookies the browser alone keeps the preview cookie, as it
+	// does in a deployment, and the API sees the Fetch Metadata it decides by.
+	const jar = options.browserCookies
+		? {
+				withJar: (_host: string, browser: string) => browser,
+				remember: () => undefined,
+			}
+		: edgeJar;
 
 	/** Authorize one request and proxy it to the upstream the API names. */
 	async function proxy(
@@ -378,6 +417,7 @@ export async function previewGateway(
 						"x-forwarded-host": host,
 						"x-forwarded-proto": "https",
 						cookie,
+						...(options.browserCookies ? fetchMetadata(request) : {}),
 					},
 					redirect: "manual",
 				});
