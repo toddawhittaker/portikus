@@ -12,13 +12,13 @@ import {
 import { ApiError, request, toApiError } from "../api/request.js";
 
 /** How often a running operation is read again. */
-export const OPERATION_POLL_MS = 1000;
+const OPERATION_POLL_MS = 1000;
 
 /** Shown when the server no longer knows the operation, as after a restart. */
 export const LOST_OPERATION_MESSAGE =
 	"Portikus lost track of this request, which can happen when the server restarts. Check the projects list to see whether it finished, then try again if it did not.";
 
-export const operationUrl = (workspaceId: string) =>
+const operationUrl = (workspaceId: string) =>
 	`/workspaces/${workspaceId}/project-operation`;
 
 /** The workspace's current or most recent operation, or null. */
