@@ -53,6 +53,12 @@ file goes away at the fold.
   streams from the first byte instead of building a temporary file
   first. If zip extract can hold a request past 60 seconds at the 50 MiB
   upload limit, T4 stops and reports before changing its shape.
+- **LTI on staging (Todd, 2026-11-26).** No real course until about
+  January 2027, so T6 uses the repository's mock LMS (`make
+  lti-mock-register`, ADR 0025). A browser on this host opens the mock's
+  launch page, which posts across sites to `portikus.kitestringlabs.org`
+  through the real tunnel. The mock's registration is removed from the
+  lab VM when T6 ends, since the mock can launch as anyone.
 - **HTTP/3 (orchestrator).** No new setting. Portikus does not depend on
   its own `Alt-Svc`; the reply says so.
 
@@ -66,7 +72,7 @@ file goes away at the fold.
 | T4 Long connections: API WebSocket pings, streamed zip download, zip extract timing | builder, Opus low | `apps/api/src/routes/{ws,terminals,project-events,files}.ts`, `apps/workspace-agent/src/{files-route,projects}.ts`, their tests | none | |
 | T2b Admin Certificate tab: the optional preview-zone token | builder, Sonnet high | `apps/api/src/routes/admin-certificate.ts`, `apps/web/src/admin/` certificate screen, their tests and e2e | T2 | |
 | T5 Rehearsal VM full smoke with the stand-in `cloudflared` and a separate-site preview suffix, including an LTI launch through the stand-in | infra, Opus low | `infra/tests/**` | T1, T2, T3, T4 | |
-| T6 Lab staging: install the epic build on 10.20.30.30 with the lab preseed; measure WebSocket idle closes, the 100-second timeout, caching, LTI form posts and the redirect back through the real tunnel | infra, Opus low | none in the repo; findings in its report | T5, plus the lab VM built, the Cloudflare token and an LTI course from Todd | |
+| T6 Lab staging: install the epic build on 10.20.30.30 with the lab preseed; measure WebSocket idle closes, the 100-second timeout, caching, and LTI form posts and the redirect back with the mock LMS, through the real tunnel; remove the mock registration after | infra, Opus low | none in the repo; findings in its report | T5, plus the lab VM built (in progress, 2026-11-26) and the Cloudflare token from Todd | |
 | T7 Reply and install docs: `kitestring-lab-reply.md` (section 4 of the requirements), INSTALL.md "Behind a Cloudflare Tunnel" example, CAPACITY.md check for 24 students on 12 to 16 vCPUs and 24 GB, backup target on a local disk | builder, Sonnet high | `docs/deployments/kitestring-lab-reply.md`, `docs/INSTALL.md`, `docs/CAPACITY.md` | T6 | |
 | T8 Fold | orchestrator | `docs/STATUS.md`, `docs/SPEC.md`, `docs/adr/`, this file | T7 and the fix round | |
 
