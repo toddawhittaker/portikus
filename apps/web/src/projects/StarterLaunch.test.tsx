@@ -1,11 +1,20 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, project, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
+import {
+	json,
+	operation,
+	project,
+	renderApp,
+	stubFetch,
+	USER,
+	WORKSPACE,
+} from "../test-utils.js";
 import {
 	STARTER_ARCHIVED,
 	STARTER_CREATED,
 	STARTER_EXPIRED,
 	STARTER_OPENED,
+	STARTER_PREPARING,
 } from "./StarterLaunch.js";
 
 const STARTER = "55555555-5555-4555-8555-555555555555";
@@ -30,7 +39,7 @@ class PushSocket {
 afterEach(() => vi.unstubAllGlobals());
 
 /** A running workspace whose starter route answers with `starter`. */
-function stub(starter: () => Response) {
+function stub(starter: () => Response, operationReads: unknown[] = []) {
 	PushSocket.last = null;
 	vi.stubGlobal("WebSocket", PushSocket);
 	const calls: string[] = [];
@@ -43,6 +52,12 @@ function stub(starter: () => Response) {
 			return starter();
 		}
 		if (url.includes("/projects?state=")) return json(200, { projects: [project()] });
+		if (url.endsWith("/project-operation")) {
+			// The last read repeats, so a late reader from another component sees it too.
+			const read =
+				operationReads.length > 1 ? operationReads.shift() : operationReads[0];
+			return json(200, { operation: read ?? null });
+		}
 		return json(404, { code: "NOT_FOUND", message: "Not here." });
 	});
 	return { calls, mock };
@@ -99,5 +114,51 @@ test("an expired or unknown id shows the toast", async () => {
 	stub(() => json(404, { code: "NOT_FOUND", message: "Not found." }));
 	const router = await landing();
 	expect(await screen.findByText(STARTER_EXPIRED)).toBeDefined();
+	await waitFor(() => expect(router.state.location.search).toEqual({}));
+});
+
+test("a slow starter says it is being set up, then opens the new project", {
+	timeout: 15_000,
+}, async () => {
+	const running = operation();
+	const { calls } = stub(
+		() => json(202, running),
+		[running, { ...running, state: "succeeded", project: project() }],
+	);
+	const router = await landing();
+
+	expect(await screen.findByText(STARTER_PREPARING)).toBeDefined();
+	expect(
+		await screen.findByText(STARTER_CREATED, {}, { timeout: 12_000 }),
+	).toBeDefined();
+	await waitFor(() =>
+		expect(router.state.location.pathname).toBe(
+			`/workspaces/${WORKSPACE.id}/projects/${project().id}`,
+		),
+	);
+	expect(screen.queryByText(STARTER_PREPARING)).toBeNull();
+	expect(calls).toHaveLength(1);
+});
+
+test("a slow starter that fails shows the server's message and leaves the address", {
+	timeout: 15_000,
+}, async () => {
+	const running = operation();
+	stub(
+		() => json(202, running),
+		[
+			{
+				...running,
+				state: "failed",
+				error: { status: 400, code: "GIT_FAILED", message: "The clone failed." },
+			},
+		],
+	);
+	const router = await landing();
+
+	expect(
+		await screen.findByText("The clone failed.", {}, { timeout: 12_000 }),
+	).toBeDefined();
+	// The project index may open the one active project; only the starter must be gone.
 	await waitFor(() => expect(router.state.location.search).toEqual({}));
 });

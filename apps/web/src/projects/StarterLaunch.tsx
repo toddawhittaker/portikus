@@ -3,12 +3,14 @@ import { useToast } from "@portikus/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { ApiError, request } from "../api/request.js";
+import { ApiError } from "../api/request.js";
+import { followHere, sendOperation } from "./operations.js";
 
 export const STARTER_CREATED = "Your starter project is ready";
 export const STARTER_OPENED = "Opened your existing project";
 export const STARTER_ARCHIVED =
 	"You archived this project; restore it from Archived projects";
+export const STARTER_PREPARING = "Setting up your starter project…";
 export const STARTER_EXPIRED =
 	"This starter link has expired. Open the link from your course again.";
 
@@ -32,12 +34,25 @@ export function StarterLaunch({
 	// replay must never send it twice.
 	const started = useRef<string | null>(null);
 	const { mutateAsync } = useMutation({
-		mutationFn: (id: string) =>
-			request(StarterProjectResponse, `/workspaces/${workspaceId}/projects/starter`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ starterId: id }),
-			}),
+		mutationFn: async (id: string): Promise<StarterProjectResponse> => {
+			const sent = await sendOperation(`/workspaces/${workspaceId}/projects/starter`, {
+				starterId: id,
+			});
+			if (sent.kind === "answered") return StarterProjectResponse.parse(sent.body);
+			// A clone or template copy finishes on the server; say so while it runs.
+			const dismiss = toast.show({
+				title: STARTER_PREPARING,
+				persistent: true,
+				unrecorded: true,
+			});
+			try {
+				const done = await followHere(workspaceId, sent.operation);
+				if (!done.project) throw new Error("Could not create your starter project.");
+				return { project: done.project, created: true };
+			} finally {
+				dismiss();
+			}
+		},
 	});
 
 	useEffect(() => {

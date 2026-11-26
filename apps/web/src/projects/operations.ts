@@ -49,6 +49,42 @@ export async function followOperation(
 	return current;
 }
 
+/** What a POST to a slow project route answered: an operation, or the answer itself. */
+export type Sent =
+	| { kind: "started"; operation: ProjectOperation }
+	| { kind: "answered"; status: number; body: unknown };
+
+/** POST `body` to `url`; a refusal throws the API's error. */
+export async function sendOperation(url: string, body: unknown): Promise<Sent> {
+	const response = await fetch(url, {
+		method: "POST",
+		credentials: "same-origin",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	if (!response.ok) throw await toApiError(response);
+	if (response.status === 202) {
+		return {
+			kind: "started",
+			operation: ProjectOperation.parse(await response.json()),
+		};
+	}
+	const answer = response.status === 204 ? undefined : await response.json();
+	return { kind: "answered", status: response.status, body: answer };
+}
+
+/** Follow `operation`, then mark it shown by this page so a reload does not repeat it. */
+export async function followHere(
+	workspaceId: string,
+	operation: ProjectOperation,
+): Promise<ProjectOperation> {
+	try {
+		return await followOperation(workspaceId, operation);
+	} finally {
+		markOperationHandled(operation.id);
+	}
+}
+
 /**
  * POST `body` to `url` and follow the operation a 202 starts. A route that
  * answered at once (a new empty project) is read as before.
@@ -58,23 +94,12 @@ export async function postOperation(
 	url: string,
 	body: unknown,
 ): Promise<Project | undefined> {
-	const response = await fetch(url, {
-		method: "POST",
-		credentials: "same-origin",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(body),
-	});
-	if (!response.ok) throw await toApiError(response);
-	if (response.status === 204) return undefined;
-	if (response.status !== 202) return Project.parse(await response.json());
-	const started = ProjectOperation.parse(await response.json());
-	try {
-		const done = await followOperation(workspaceId, started);
-		return done.project ?? undefined;
-	} finally {
-		// This page shows the outcome itself; a later reload need not.
-		markOperationHandled(started.id);
+	const sent = await sendOperation(url, body);
+	if (sent.kind === "answered") {
+		return sent.body === undefined ? undefined : Project.parse(sent.body);
 	}
+	const done = await followHere(workspaceId, sent.operation);
+	return done.project ?? undefined;
 }
 
 const HANDLED_KEY = "portikus.handled-project-operation";

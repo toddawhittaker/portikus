@@ -220,7 +220,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			{/* Shown while stopped too: a session outlasts a stop, and only the student ends it early. */}
 			<LiveHelpBar workspaceId={workspaceId} fallbackFocus={workRef} />
 			<StarterLaunch workspaceId={workspaceId} starterId={starter} running={running} />
-			<ResumeProjectOperation workspaceId={workspaceId} running={running} />
+			{/* A course link resumes its own starter; see StarterLaunch. */}
+			<ResumeProjectOperation workspaceId={workspaceId} running={running && !starter} />
 			<Group
 				className="pk-shell"
 				orientation="horizontal"
