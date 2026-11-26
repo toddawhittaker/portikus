@@ -290,6 +290,90 @@ describe("secret values", () => {
 	});
 });
 
+describe("a preview domain in its own DNS zone", () => {
+	const withPreview = (previewDns: unknown, mode = "dns01") => ({
+		kind: "apply",
+		settings: {
+			...acme,
+			challenge: { mode, dns: acme.challenge.dns, previewDns },
+		},
+	});
+	const accepts = (request: unknown) =>
+		CertificateJobRequest.safeParse(request).success;
+
+	test("a second account has the same shape and rules as the first", () => {
+		expect(
+			accepts(withPreview({ provider: "cloudflare", fields: { api_token: "other" } })),
+		).toBe(true);
+		// A secret left out keeps the stored one, as in the first account.
+		expect(accepts(withPreview({ provider: "cloudflare", fields: {} }))).toBe(true);
+		expect(
+			accepts(
+				withPreview({
+					provider: "route53",
+					fields: { region: "us-east-1", access_key_id: "A", secret_access_key: "s" },
+				}),
+			),
+		).toBe(true);
+	});
+
+	test.each([
+		["unknown provider", { provider: "bind", fields: {} }],
+		[
+			"field of another provider",
+			{ provider: "cloudflare", fields: { auth_token: "x" } },
+		],
+		["multi-line token", { provider: "cloudflare", fields: { api_token: "a\nb" } }],
+		["missing plain field", { provider: "porkbun", fields: {} }],
+		["extra key", { provider: "cloudflare", fields: {}, secretsSet: {} }],
+	])("refuses %s", (_name, previewDns) => {
+		expect(accepts(withPreview(previewDns))).toBe(false);
+	});
+
+	test("HTTP-01 has no preview account", () => {
+		expect(accepts(withPreview({ provider: "cloudflare", fields: {} }, "http01"))).toBe(
+			false,
+		);
+	});
+
+	const view = (previewDns?: unknown) => ({
+		source: "acme",
+		directory: acme.directory,
+		email: acme.email,
+		eab: null,
+		challenge: {
+			mode: "dns01",
+			provider: "cloudflare",
+			fields: {},
+			secretsSet: { api_token: true },
+			...(previewDns === undefined ? {} : { previewDns }),
+		},
+	});
+
+	test("the view shows the preview account when set, and still reads a one-account file", () => {
+		expect(CertificateSettingsView.safeParse(view()).success).toBe(true);
+		expect(
+			CertificateSettingsView.safeParse(
+				view({
+					provider: "route53",
+					fields: { region: "r" },
+					secretsSet: { a: false },
+				}),
+			).success,
+		).toBe(true);
+	});
+
+	test("the view's preview account never holds a secret value", () => {
+		const leaky = view({
+			provider: "cloudflare",
+			fields: {},
+			secretsSet: { api_token: true },
+			api_token: "tok",
+		});
+		expect(CertificateSettingsView.safeParse(leaky).success).toBe(false);
+	});
+});
+
 describe("DNS provider field fixture", () => {
 	// The root job's Python tests read this file (docs/SPEC.md section 24.8),
 	// so the two sides cannot drift apart.

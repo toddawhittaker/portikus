@@ -40,7 +40,25 @@ import {{ caddy_certificate_dir }}/tls.caddy
 			idle 2m
 		}
 		max_header_size 64KB
+{% if portikus_trusted_proxies | default([]) | length > 0 %}
+		# Behind a proxy such as a Cloudflare Tunnel every connection comes
+		# from the proxy, so the client's address is read from the header the
+		# proxy sets, and only on a connection from a listed source; from
+		# anywhere else the header is ignored and the peer is the client.
+		trusted_proxies static {{ portikus_trusted_proxies | join(' ') }}
+		client_ip_headers CF-Connecting-IP
+{% endif %}
 	}
+}
+
+# Inside every proxy to the API, Dex, or a student application: the one
+# address an upstream may believe is Caddy's client address, sent as the only
+# X-Forwarded-For.  Caddy would otherwise keep a trusted proxy's chain, which
+# the client can write into, and the API (trusting only loopback) would read
+# the proxy's address.  The proxy's own header stops here.
+(portikus_client_address) {
+	header_up X-Forwarded-For {client_ip}
+	header_up -CF-Connecting-IP
 }
 
 # ── Preview edge building blocks ─────────────────────────────────────
@@ -51,7 +69,8 @@ import {{ caddy_certificate_dir }}/tls.caddy
 # and its scheme may only ever come from the authorization response, so a
 # client copy of either header goes too.  Every route on the preview host imports this
 # first, including the two that only talk to the API: the API reads
-# X-Forwarded-Host to decide which preview host a request is for.
+# X-Forwarded-Host to decide which preview host a request is for.  The
+# application host imports it once for the whole site.
 (portikus_forget_forwarded) {
 	request_header -X-Portikus-Upstream
 	request_header -X-Portikus-Upstream-Scheme
@@ -87,6 +106,7 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	}
 	forward_auth 127.0.0.1:{{ portikus_api_port }} {
 		uri /preview/authorize
+		import portikus_client_address
 		header_up X-Forwarded-Uri {portikus_authorize_uri}
 		copy_headers X-Portikus-Upstream X-Portikus-Upstream-Scheme
 		# The subrequest is a plain GET.  Without these two lines an upgrade
@@ -127,6 +147,25 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	# The student application never sees the internal address or scheme.
 	header_up -X-Portikus-Upstream
 	header_up -X-Portikus-Upstream-Scheme
+	import portikus_client_address
+
+	# A shared cache between the browser and Portikus, such as a proxy's,
+	# must never hand one student's preview to another, so a preview
+	# response is only ever cacheable by the browser.  A Cache-Control the
+	# application sent keeps its other directives, with public, s-maxage
+	# and any private of its own taken out and a plain private put first:
+	# Vite's max-age=31536000,immutable arrives as private, max-age=31536000,
+	# immutable.  One it did not send is added at the site.  The directions
+	# a CDN reads instead of Cache-Control are dropped.  The replacements
+	# run in the order written.
+	header_down -CDN-Cache-Control
+	header_down -Cloudflare-CDN-Cache-Control
+	header_down -Surrogate-Control
+	header_down Cache-Control "(?i)\b(public|private(\s*=\s*\"[^\"]*\")?|s-maxage\s*=\s*\"?[0-9]*\"?)" ""
+	header_down Cache-Control "\s*,[\s,]*" ", "
+	header_down Cache-Control "^[\s,]+|[\s,]+$" ""
+	header_down Cache-Control "^(.+)$" "private, ${1}"
+	header_down Cache-Control "^$" "private"
 
 	# A reload keeps a student application's WebSockets (such as a dev
 	# server's live reload) open, for the reason given at /workspaces*.
@@ -194,9 +233,19 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	}
 }
 
+# An API response is one user's data, so one that names no caching of its
+# own is never stored, by the browser or by a cache in between.
+(portikus_api_no_store) {
+	header ?Cache-Control "private, no-store"
+}
+
 https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	import portikus_tls_site
 	encode gzip
+
+	# Caddy passes a trusted proxy's X-Forwarded-Proto and -Host on as they
+	# came, and the client can write those, so none reaches the API.
+	import portikus_forget_forwarded
 
 	# Browser-side hardening (SPEC 24.3 and 24.10).  Every name under this
 	# host is HTTPS only (port 80 just redirects), so subdomains are
@@ -237,7 +286,9 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	}
 	# The workspace WebSocket lives at /workspaces/<id>/ws.
 	handle /workspaces* {
+		import portikus_api_no_store
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+			import portikus_client_address
 			# Every WebSocket the API serves lives here.  A reload (a
 			# certificate change, a setup run) would close them all at once;
 			# this keeps terminals open through it.  An hour is long enough
@@ -253,6 +304,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	@root_shell_ws path /admin/root-shell/ws
 	handle @root_shell_ws {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+			import portikus_client_address
 			stream_close_delay 1h
 		}
 	}
@@ -261,6 +313,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	@assistant_ws path /assistant/conversations/*/socket
 	handle @assistant_ws {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+			import portikus_client_address
 			stream_close_delay 1h
 		}
 	}
@@ -275,7 +328,10 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# /pricing the public price list; the bundle has no page at either.
 	@api path /auth/* /admin* /lti/* /courses* /me/* /health /mcp /openapi.json /assistant* /pricing /.well-known/portikus-preflight/*
 	handle @api {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+		import portikus_api_no_store
+		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+			import portikus_client_address
+		}
 	}
 
 	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
@@ -332,13 +388,18 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			}
 			# The path and query go to the API as the client sent them, and
 			# the API sends them on to Dex.
-			reverse_proxy @dex_password_post 127.0.0.1:{{ portikus_api_port }}
+			reverse_proxy @dex_password_post 127.0.0.1:{{ portikus_api_port }} {
+				import portikus_client_address
+			}
 			# The ask names its scope, so Caddy replaces the client's query
 			# instead of passing on one the client added.
 			forward_auth @dex_signin_start 127.0.0.1:{{ portikus_api_port }} {
+				import portikus_client_address
 				uri /edge/signin-throttle?scope=start
 			}
-			reverse_proxy 127.0.0.1:{{ dex_port }}
+			reverse_proxy 127.0.0.1:{{ dex_port }} {
+				import portikus_client_address
+			}
 		}
 	}
 
@@ -347,6 +408,17 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle {
 		root * /usr/lib/portikus/web
 		try_files {path} /index.html
+		# The build names each file under /assets by its content, so one
+		# that exists never changes.  Everything else, the entry page and
+		# the fallback to it included, is checked on every load so a new
+		# release shows at once.  A path under /assets with no file falls
+		# back to the page, which must not be kept for a year.
+		@web_hashed {
+			path /assets/*
+			file {path}
+		}
+		header @web_hashed Cache-Control "public, max-age=31536000, immutable"
+		header ?Cache-Control no-cache
 		file_server
 	}
 }
@@ -364,9 +436,12 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	# adds no framing policy here: the Preview tab embeds these pages
 	# (BROWSER-HANDLING 12).  nosniff only stops a browser running a
 	# response as a type its server did not declare (SPEC 24.3).
+	# A response with no Cache-Control of its own is private, for the
+	# reason given at the proxy rules above.
 	header {
 		X-Content-Type-Options nosniff
 		-Server
+		?Cache-Control private
 	}
 
 	# BROWSER-HANDLING 16.5: preview access logs must carry no query string
@@ -393,13 +468,17 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	handle /__portikus/bootstrap {
 		route {
 			import portikus_forget_forwarded
-			reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+			reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+				import portikus_client_address
+			}
 		}
 	}
 	handle /__portikus/reset {
 		route {
 			import portikus_forget_forwarded
-			reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+			reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+				import portikus_client_address
+			}
 		}
 	}
 	# The certificate pre-flight's nonce, answered before any authorization,
@@ -407,7 +486,9 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 	handle /.well-known/portikus-preflight/* {
 		route {
 			import portikus_forget_forwarded
-			reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+			reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+				import portikus_client_address
+			}
 		}
 	}
 	# The same-origin bridge to a second port in the same workspace
@@ -498,7 +579,9 @@ http://{{ portikus_public_host }}, http://*.{{ portikus_preview_suffix }} {
 	handle /.well-known/portikus-preflight/* {
 		route {
 			import portikus_forget_forwarded
-			reverse_proxy 127.0.0.1:{{ portikus_api_port }}
+			reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
+				import portikus_client_address
+			}
 		}
 	}
 	handle /.well-known/acme-challenge/* {

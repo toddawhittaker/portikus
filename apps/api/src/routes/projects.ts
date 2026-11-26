@@ -1,6 +1,7 @@
 import { requireUser } from "@portikus/auth";
 import {
 	CreateProjectRequest,
+	type CurrentProjectOperation,
 	DuplicateProjectRequest,
 	displayNameFromDirectory,
 	type ProjectList,
@@ -28,11 +29,13 @@ import {
 } from "../live-help/sessions.js";
 import type { BridgeForwards } from "../preview/bridge.js";
 import type { UserLimit } from "../rate-limit.js";
-import { createProject } from "../workspaces/create-project.js";
 import {
-	claimLongOperation,
-	releaseLongOperation,
-} from "../workspaces/long-operation.js";
+	createProject,
+	isSlowCreate,
+	planProject,
+	replyWithBackgroundCreate,
+} from "../workspaces/create-project.js";
+import { claimOperation, currentOperation } from "../workspaces/long-operation.js";
 import {
 	ownedProject as ownedProjectRow,
 	ownedScope,
@@ -392,11 +395,36 @@ export function registerProjectRoutes(
 			if (!scope) return;
 			const body = parseOr400(CreateProjectRequest, request.body ?? {}, reply);
 			if (!body) return reply;
-			const created = await createProject(db, config, scope, reply, body);
-			if (!created) return;
-			return reply.status(201).send(toProject(created.row, created.isGitRepo, false));
+			if (!isSlowCreate(body)) {
+				const created = await createProject(db, config, scope, reply, body);
+				if (!created) return;
+				return reply.status(201).send(toProject(created.row, created.isGitRepo, false));
+			}
+			// A clone or template copy can outlast a proxy's response timeout,
+			// so it is answered at once and finished in the background.
+			const plan = await planProject(db, config, scope, reply, body);
+			if (!plan) return;
+			return replyWithBackgroundCreate(
+				db,
+				request,
+				reply,
+				scope,
+				plan,
+				`create:${plan.slug}`,
+			);
 		},
 	);
+
+	// The workspace's current or most recent slow project request, so a
+	// browser that reloads mid-way finds it again.
+	app.get("/workspaces/:id/project-operation", async (request, reply) => {
+		const scope = await owned(request, reply);
+		if (!scope) return;
+		const body: CurrentProjectOperation = {
+			operation: currentOperation(scope.workspaceId),
+		};
+		return reply.header("cache-control", "no-store").send(body);
+	});
 
 	/**
 	 * Moves a project's folder to `slug`. False after answering a refusal.
@@ -644,29 +672,41 @@ export function registerProjectRoutes(
 				);
 			}
 
-			if (!claimLongOperation(scope.workspaceId, reply)) return;
-			try {
-				await agent.duplicateProject(row.slug, slug);
-			} catch (error) {
-				return sendAgentError(reply, error);
-			} finally {
-				releaseLongOperation(scope.workspaceId);
-			}
-
-			// The copy is a project the student made here, not a discovered one.
-			const copy = await db
-				.insertInto("projects")
-				.values({
-					workspace_id: scope.workspaceId,
-					slug,
-					name: body.name,
-					path: projectPath(slug),
-					source: "new",
-				})
-				.returningAll()
-				.executeTakeFirstOrThrow();
-
-			return reply.status(201).send(toProject(copy, null, false));
+			const key = `duplicate:${row.id}:${slug}`;
+			const claimed = claimOperation(
+				{
+					workspaceId: scope.workspaceId,
+					key,
+					kind: "duplicate",
+					projectId: row.id,
+					pointId: null,
+					log: request.log,
+				},
+				reply,
+			);
+			if (!claimed) return reply;
+			const operation = claimed.start(async (background) => {
+				try {
+					await agent.duplicateProject(row.slug, slug);
+				} catch (error) {
+					sendAgentError(background, error);
+					return null;
+				}
+				// The copy is a project the student made here, not a discovered one.
+				const copy = await db
+					.insertInto("projects")
+					.values({
+						workspace_id: scope.workspaceId,
+						slug,
+						name: body.name,
+						path: projectPath(slug),
+						source: "new",
+					})
+					.returningAll()
+					.executeTakeFirstOrThrow();
+				return toProject(copy, null, false);
+			});
+			return reply.status(202).send(operation);
 		},
 	);
 
@@ -694,7 +734,7 @@ export function registerProjectRoutes(
 	);
 	// jscpd:ignore-end
 
-	registerProjectDownloadRoute(app, owned, ownedProject);
+	registerProjectDownloadRoute(app, db, owned, ownedProject);
 
 	registerProjectLayoutRoutes(app, db, workspaceHub, limitWrites, owned, ownedProject);
 	registerProjectChatSettingsRoutes(app, db, limitWrites, owned, ownedProject);

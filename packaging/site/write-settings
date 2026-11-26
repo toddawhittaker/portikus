@@ -70,6 +70,8 @@ SECRET_NAMES = {
     "portikus_dex_upstream_client_secret": "the client secret (client_secret)",
     "portikus_ldap_bind_password": "the service account password (ldap_bind_password)",
 }
+# Blank means the first Cloudflare token covers the preview wildcard too.
+OPTIONAL_SECRETS = ("portikus_cloudflare_preview_api_token",)
 
 
 def certificate_is_seeded(etc):
@@ -133,7 +135,7 @@ def storage_settings(storage):
     return settings
 
 
-def settings_from_answers(tls, provider, storage):
+def settings_from_answers(tls, provider, storage, current_suffix=None):
     settings = {
         "portikus_public_host": answer("public_host"),
         "portikus_admin_email": answer("admin_email"),
@@ -141,6 +143,14 @@ def settings_from_answers(tls, provider, storage):
         "portikus_dex_upstream": "none" if provider == "dex" else provider,
         "portikus_storage": storage,
     }
+    # Each only when set: a suffix left at preview.<host> follows the host on
+    # a move (the site view's previewSuffixSetByHand) unless portikus.yaml
+    # already holds it, and no proxies is off.
+    suffix = answer("preview_suffix").lower()
+    if suffix and (suffix != "preview." + answer("public_host").lower() or suffix == current_suffix):
+        settings["portikus_preview_suffix"] = suffix
+    if words("trusted_proxies"):
+        settings["portikus_trusted_proxies"] = words("trusted_proxies")
     if tls == "letsencrypt":
         settings["portikus_acme_email"] = answer("acme_email")
     if tls == "files":
@@ -175,6 +185,7 @@ def wanted_secrets(tls, provider, certificate_seeded):
     wanted = {}
     if tls == "letsencrypt" and not certificate_seeded:
         wanted["portikus_cloudflare_api_token"] = answer("cloudflare_api_token")
+        wanted["portikus_cloudflare_preview_api_token"] = answer("cloudflare_preview_api_token")
     if provider in IDENTITY_PROVIDERS:
         wanted["portikus_dex_upstream_client_secret"] = answer("client_secret")
     if provider == "ldap":
@@ -230,7 +241,7 @@ def missing_items(config, secrets, wanted, needed, storage):
         items.append("where to keep student files (storage)")
     elif storage.startswith("/dev/") and config.get("portikus_storage_confirm") is not True:
         items.append("confirmation that everything on %s may be erased (storage_confirm)" % storage)
-    items.extend(SECRET_NAMES[key] for key in wanted if not secrets.get(key))
+    items.extend(SECRET_NAMES[key] for key in wanted if not secrets.get(key) and key not in OPTIONAL_SECRETS)
     return items
 
 
@@ -242,7 +253,8 @@ def write_answers(etc, public_port=None, out=sys.stdout):
     provider = answer("provider") or "dex"
     storage = answer("storage")
 
-    settings = settings_from_answers(tls, provider, storage)
+    settings = settings_from_answers(tls, provider, storage,
+                                     load(config_file).get("portikus_preview_suffix"))
     config = merged_config(config_file, settings, public_port)
     current = load(secrets_file)
     wanted = wanted_secrets(tls, provider, certificate_seeded)

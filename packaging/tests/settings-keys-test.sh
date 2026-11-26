@@ -47,13 +47,13 @@ while read -r key; do
 done < <(awk '$3 == "setting" { print $2 }' <<<"$list")
 
 # Every key postinst and its settings writer name is in the list.
-# portikus_public_port is set only by the site job's --public-port, the
-# preview suffix only read, portikus_allow_internal_ca_on_public_address
+# portikus_public_port is set only by the site job's --public-port,
+# portikus_allow_internal_ca_on_public_address
 # only named in a message, and a name ending in _ is a prefix the writer
 # completes in a loop.
 while read -r key; do
 	case "$key" in
-	portikus_public_port | portikus_preview_suffix | portikus_allow_internal_ca_on_public_address | *_) continue ;;
+	portikus_public_port | portikus_allow_internal_ca_on_public_address | *_) continue ;;
 	esac
 	grep -q " $key " <<<"$list" || fail "postinst or write-settings names $key, which is not in settings-keys"
 done < <(grep -ohE 'portikus_[a-z_]+' "$postinst" "$writer" | sort -u)

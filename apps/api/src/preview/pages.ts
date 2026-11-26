@@ -9,17 +9,21 @@
 import { escapeHtml } from "../http.js";
 
 /** A minimal self-contained page; previews load no Portikus subresources. */
-function previewPage(title: string, body: string): string {
+function previewPage(title: string, body: string, head = "", link = ""): string {
 	return [
 		"<!doctype html>",
 		'<html lang="en"><head><meta charset="utf-8">',
+		head,
 		'<meta name="viewport" content="width=device-width, initial-scale=1">',
 		`<title>${escapeHtml(title)}</title>`,
 		"<style>body{font:16px/1.5 system-ui,sans-serif;margin:3rem auto;max-width:34rem;",
-		"padding:0 1rem;color:#1f2933}h1{font-size:1.25rem}</style>",
+		"padding:0 1rem;color:#1f2933;background:#fff}h1{font-size:1.25rem}a{color:#1d4ed8}",
+		"@media (prefers-color-scheme:dark){body{color:#e5e7eb;background:#111827}a{color:#93c5fd}}",
+		":root{color-scheme:light dark}</style>",
 		"</head><body>",
 		`<h1>${escapeHtml(title)}</h1>`,
 		`<p>${escapeHtml(body)}</p>`,
+		link,
 		"</body></html>",
 	].join("");
 }
@@ -48,11 +52,49 @@ export function signInPage(): string {
 	);
 }
 
+/**
+ * A framed preview whose cookie the browser would not keep, as Safari does
+ * with a partitioned cookie across sites (BROWSER-HANDLING.md §7.2). The
+ * session is fine; only this frame cannot use it, so the way out is the same
+ * preview in its own tab, opened from Portikus.
+ */
+export function cookieBlockedPage(openUrl: string | null): string {
+	const action = openUrl
+		? `<p><a href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">Open in new tab</a></p>`
+		: "<p>Use the Open in new tab button above the preview instead.</p>";
+	return previewPage(
+		"Preview blocked by your browser",
+		"Your browser blocked this preview from opening inside Portikus. " +
+			"You can still open it in its own tab.",
+		"",
+		action,
+	);
+}
+
 export function refusedPage(): string {
 	return previewPage(
 		"Preview not available",
 		"Portikus will not show this preview. Open the preview again from " +
 			"Portikus, or pick a different port.",
+	);
+}
+
+/**
+ * The bootstrap's answer: a page that sends the browser on to `target`
+ * itself. A redirect would not do when previews are on another site: the
+ * navigation began on the Portikus page, so the whole redirect chain counts
+ * as cross-site and the new `SameSite=Strict` cookie would be held back from
+ * the first load (BROWSER-HANDLING.md §7.2). A meta refresh starts a new
+ * navigation from the preview's own page, and needs no script under the
+ * page policy. The link is for a browser that ignores the refresh.
+ */
+export function bootstrapPage(target: string): string {
+	const href = escapeHtml(target);
+	return previewPage(
+		"Opening preview",
+		"Opening the preview.",
+		`<meta http-equiv="refresh" content="0; url=${href}">`,
+		`<p><a href="${href}">Continue to the preview</a></p>`,
 	);
 }
 

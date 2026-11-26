@@ -9,6 +9,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "../api/request.js";
+import { postOperation, useHandOffOnClose } from "./operations.js";
 
 const base = (workspaceId: string) => `/workspaces/${workspaceId}/projects`;
 
@@ -60,9 +61,18 @@ function json(method: string, body: unknown): RequestInit {
 
 export function useCreateProject(workspaceId: string) {
 	const invalidate = useInvalidateProjects(workspaceId);
+	const follow = useHandOffOnClose(workspaceId);
 	return useMutation({
-		mutationFn: (body: CreateProjectRequest) =>
-			request(Project, base(workspaceId), json("POST", body)),
+		mutationFn: async (body: CreateProjectRequest) => {
+			const run = follow();
+			try {
+				return Project.parse(
+					await postOperation(workspaceId, base(workspaceId), body, run),
+				);
+			} finally {
+				run.finish();
+			}
+		},
 		onSuccess: invalidate,
 	});
 }
@@ -78,13 +88,23 @@ export function useRenameProject(workspaceId: string) {
 
 export function useDuplicateProject(workspaceId: string) {
 	const invalidate = useInvalidateProjects(workspaceId);
+	const follow = useHandOffOnClose(workspaceId);
 	return useMutation({
-		mutationFn: ({ projectId, name }: { projectId: string; name: string }) =>
-			request(
-				Project,
-				`${base(workspaceId)}/${projectId}/duplicate`,
-				json("POST", { name }),
-			),
+		mutationFn: async ({ projectId, name }: { projectId: string; name: string }) => {
+			const run = follow();
+			try {
+				return Project.parse(
+					await postOperation(
+						workspaceId,
+						`${base(workspaceId)}/${projectId}/duplicate`,
+						{ name },
+						run,
+					),
+				);
+			} finally {
+				run.finish();
+			}
+		},
 		onSuccess: invalidate,
 	});
 }

@@ -187,6 +187,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /workspaces/:id/projects/templates": owner,
 	"POST /workspaces/:id/projects": owner,
 	"POST /workspaces/:id/projects/starter": owner,
+	"GET /workspaces/:id/project-operation": owner,
+	"HEAD /workspaces/:id/project-operation": owner,
 	"PATCH /workspaces/:id/projects/:pid": owner,
 	"DELETE /workspaces/:id/projects/:pid": owner,
 	"POST /workspaces/:id/projects/:pid/duplicate": owner,

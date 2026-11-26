@@ -2,7 +2,8 @@
 import { RecoveryAsideList, RecoveryPointList } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { request, sendJson } from "../api/request.js";
+import { request } from "../api/request.js";
+import { postOperation, useHandOffOnClose } from "../projects/operations.js";
 
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}/recovery-points`;
@@ -50,11 +51,23 @@ function useInvalidate(workspaceId: string, projectId: string) {
 		client.invalidateQueries({ queryKey: recoveryKeys.list(workspaceId, projectId) });
 }
 
+/**
+ * Archiving a large project can outlast a proxy's response timeout, so the
+ * point is made in the background and followed here; a dialog closed part
+ * way hands it to the page, which says how it went (SPEC.md §15.6).
+ */
 export function useCreateRecoveryPoint(workspaceId: string, projectId: string) {
 	const invalidate = useInvalidate(workspaceId, projectId);
+	const follow = useHandOffOnClose(workspaceId);
 	return useMutation({
-		mutationFn: () =>
-			request(z.unknown(), base(workspaceId, projectId), { method: "POST" }),
+		mutationFn: async () => {
+			const run = follow();
+			try {
+				return await postOperation(workspaceId, base(workspaceId, projectId), {}, run);
+			} finally {
+				run.finish();
+			}
+		},
 		onSettled: invalidate,
 	});
 }
@@ -70,19 +83,27 @@ export function useRestoreRecoveryPoint(workspaceId: string, projectId: string) 
 				queryKey: recoveryKeys.asides(workspaceId, projectId),
 			}),
 		]);
+	const follow = useHandOffOnClose(workspaceId);
 	return useMutation({
-		mutationFn: ({
+		mutationFn: async ({
 			pointId,
 			skipSafetyPoint,
 		}: {
 			pointId: string;
 			skipSafetyPoint: boolean;
-		}) =>
-			sendJson(
-				z.unknown(),
-				`${base(workspaceId, projectId)}/${pointId}/restore`,
-				skipSafetyPoint ? { skipSafetyPoint: true } : {},
-			),
+		}) => {
+			const run = follow();
+			try {
+				return await postOperation(
+					workspaceId,
+					`${base(workspaceId, projectId)}/${pointId}/restore`,
+					skipSafetyPoint ? { skipSafetyPoint: true } : {},
+					run,
+				);
+			} finally {
+				run.finish();
+			}
+		},
 		onSettled: invalidate,
 	});
 }

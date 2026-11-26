@@ -10,10 +10,13 @@ import { MAX_TERMINALS_PER_WORKSPACE, type WorkspaceState } from "@portikus/cont
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { settleOperation } from "../testing/project-operation.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import {
+	currentOperation,
 	holdLongOperation,
 	releaseLongOperation,
 } from "../workspaces/long-operation.js";
@@ -135,7 +138,7 @@ function list(jar: CookieJar) {
 	});
 }
 
-function create(jar: CookieJar) {
+function startCreate(jar: CookieJar) {
 	return app.inject({
 		method: "POST",
 		url: base(),
@@ -143,7 +146,23 @@ function create(jar: CookieJar) {
 	});
 }
 
-function restore(
+/**
+ * A point made by hand, followed to its end: 201 with the newest point, as
+ * the request answered before it became an operation, or the refusal.
+ */
+async function create(jar: CookieJar) {
+	const done = await settleOperation(
+		app,
+		jar.cookieHeader(),
+		workspaceId,
+		await startCreate(jar),
+	);
+	if (done.statusCode !== 204) return done;
+	const [newest] = (await list(jar)).json().points;
+	return { statusCode: 201, body: JSON.stringify(newest), json: () => newest };
+}
+
+function startRestore(
 	jar: CookieJar,
 	pointId: string,
 	payload: Record<string, unknown> = {},
@@ -154,6 +173,20 @@ function restore(
 		headers: csrfHeaders(jar, PUBLIC_URL),
 		payload,
 	});
+}
+
+/** A restore followed to its end, answered as the request did before 202. */
+async function restore(
+	jar: CookieJar,
+	pointId: string,
+	payload: Record<string, unknown> = {},
+) {
+	return settleOperation(
+		app,
+		jar.cookieHeader(),
+		workspaceId,
+		await startRestore(jar, pointId, payload),
+	);
 }
 
 function pointRows() {
@@ -242,6 +275,24 @@ test.skipIf(skip)("restore puts the files back after a safety point", async () =
 	const text = JSON.stringify(audit[0]);
 	expect(text).not.toContain("notes-about-exam");
 	expect(text).not.toContain(SLUG);
+});
+
+test.skipIf(skip)("a double-clicked restore joins the first one", async () => {
+	const pointId = (await create(alice)).json().id;
+	writeFile("ruined by an agent");
+	const [first, second] = await Promise.all([
+		startRestore(alice, pointId),
+		startRestore(alice, pointId),
+	]);
+	expect([first.statusCode, second.statusCode]).toEqual([202, 202]);
+	expect(second.json().id).toBe(first.json().id);
+	const done = await settleOperation(app, alice.cookieHeader(), workspaceId, first);
+	expect(done.statusCode).toBe(204);
+	expect(readFile()).toBe("first draft");
+	expect((await pointRows()).map((row) => row.reason)).toEqual([
+		"manual",
+		"before-restore",
+	]);
 });
 
 test.skipIf(skip)("restore is refused when the safety point fails", async () => {
@@ -529,6 +580,48 @@ test.skipIf(skip)("create and restore wait out a pending operation", async () =>
 	expect(await pointRows()).toHaveLength(1);
 });
 
+test.skipIf(skip)(
+	"a refused create records no operation and keeps the last finished one",
+	async () => {
+		// The first create finishes and is the workspace's record.
+		expect((await create(alice)).statusCode).toBe(201);
+		const finished = currentOperation(workspaceId);
+		expect(finished).toMatchObject({ kind: "recovery-point", state: "succeeded" });
+
+		// Too soon after the first: the rate limit refuses.
+		expect((await startCreate(alice)).statusCode).toBe(429);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+
+		// A pending maintenance operation refuses too.
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date().toISOString(),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+		expect((await startCreate(alice)).statusCode).toBe(409);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+
+		// And so does a project at the cap.
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ pending_operation: null, pending_operation_at: null })
+			.where("id", "=", workspaceId)
+			.execute();
+		await fillPoints(200);
+		await sql`update recovery_points set created_at = now() - interval '60 seconds' where reason = 'manual'`.execute(
+			testDb.db,
+		);
+		expect((await startCreate(alice)).statusCode).toBe(409);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		// Each refusal gave the slot back.
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
 test.skipIf(skip)("refusing for a pending operation gives the slot back", async () => {
 	const pointId = (await create(alice)).json().id;
 	await testDb.db
@@ -721,13 +814,23 @@ test.skipIf(skip)(
 				payload: { name: "other-work", source: "new" },
 			})
 		).json().id as string;
-		const otherPoint = (
+		await settleOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
 			await app.inject({
 				method: "POST",
 				url: `/workspaces/${workspaceId}/projects/${other}/recovery-points`,
 				headers: csrfHeaders(alice, PUBLIC_URL),
-			})
-		).json().id as string;
+			}),
+		);
+		const otherPoint = (
+			await testDb.db
+				.selectFrom("recovery_points")
+				.select("id")
+				.where("project_id", "=", other)
+				.executeTakeFirstOrThrow()
+		).id;
 		const stranger = "11111111-2222-4333-8444-555555555555";
 		seedAside(otherPoint);
 		seedAside(stranger);
@@ -900,3 +1003,47 @@ test.skipIf(skip)("a file in neither the point nor the project is 404", async ()
 	expect(missing.statusCode).toBe(404);
 	expect(missing.json().code).toBe("FILE_NOT_FOUND");
 });
+
+test.skipIf(skip)(
+	"making a point answers 202 at once and finishes in the background (SPEC.md 15.6)",
+	async () => {
+		const started = await startCreate(alice);
+		expect(started.statusCode).toBe(202);
+		expect(started.json()).toMatchObject({
+			kind: "recovery-point",
+			state: "running",
+			projectId,
+			pointId: null,
+		});
+		const done = await settleOperation(app, alice.cookieHeader(), workspaceId, started);
+		expect(done.statusCode).toBe(204);
+		expect(await pointRows()).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)("a point the agent cannot make fails its operation", async () => {
+	agent.recoveryFull.add("");
+	const response = await create(alice);
+	expect(response.statusCode).toBe(507);
+	expect(await pointRows()).toHaveLength(0);
+	// The slot is free again.
+	expect(holdLongOperation(workspaceId)).toBe(true);
+	releaseLongOperation(workspaceId);
+});
+
+test.skipIf(skip)(
+	"a restore answers 202 with an operation naming the point",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const started = await startRestore(alice, pointId);
+		expect(started.statusCode).toBe(202);
+		expect(started.json()).toMatchObject({
+			kind: "restore",
+			state: "running",
+			projectId,
+			pointId,
+		});
+		const done = await settleOperation(app, alice.cookieHeader(), workspaceId, started);
+		expect(done.statusCode).toBe(204);
+	},
+);

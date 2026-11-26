@@ -175,6 +175,37 @@ The rehearsal VM at 12 vCPUs and 24 GiB was measured directly. The 8 vCPU and 16
 
 Resizing the pilot is Todd's decision (docs/archive/epics/EPIC-12B.md, risk 9). The steps are under "Resizing the pilot" below.
 
+## Twenty-four students on 16 cores and 32 GB
+
+The Kitestring lab asked whether a server with 16 cores and 32 GB of memory holds a class of 24 (docs/deployments/kitestring-lab.md, section 3). It does, by this document's own figures. This is worked out from the measurements above, not measured on a server of that size: the nearest runs are 25 students on 8 vCPUs and 16 GiB, and on 12 vCPUs and 24 GiB. The server here is larger than both. The lab's VM has 32 GiB (32 768 MiB), which is assumed below.
+
+**Memory.** The estimate table gives, per Agentic student with Python and TypeScript code help on, 310 + 185 + 57 = 552 MiB. For 24 students that is 13 248 MiB. Add the platform's 1 434 MiB and the 2 048 MiB reserve:
+
+| | MiB |
+|---|---|
+| Platform | 1 434 |
+| 24 Agentic students, both languages | 13 248 |
+| Reserve kept free | 2 048 |
+| Total needed | 16 730 (16.3 GiB) |
+| Memory of the lab's VM | 32 768 |
+| Left over | 16 038 (15.7 GiB) |
+
+The Settings page's estimate for this server is (32 768 − 1 434 − 2 048) / 552, which is 53 Agentic students, or 72 in a Traditional course (402 MiB each). The page reads the kernel's total memory, which is a little under 32 GiB, so its count can be one student lower.
+
+A stand-in coding agent is lighter than a real one. If every student's real agent, dev server and Docker container doubled the workspace to 1 104 MiB, 24 students need 1 434 + 26 496 + 2 048 = 29 978 MiB. That still fits in 32 768 MiB, with about 2.7 GiB to spare, and the same arithmetic holds 26 students. So 32 GiB is enough for 24 even in the doubled case, but not with much room beyond it. 24 GiB would not be.
+
+**CPU.** The 25-student runs used between 8% and 37% of their vCPUs at steady state, and the 8 vCPU run (with code help) had a start p95 of 6 962 ms against the 10 000 ms target. Each workspace may use 2 cores while building, so by the same rule that lets three students build at full speed on 8 vCPUs, 16 cores let about seven. The platform's slice weight keeps the site responsive when the cores are all busy ("When the VM is busy").
+
+**Student storage.** The lab's disk for student files is 500 GB, which is about 465 GiB. The thin pool is 90% of the disk, so about 419 GiB. Of that, 24 started workspaces take about 26 GiB (1.1 GiB each) and the backup's staging volume 30 GiB, leaving about 363 GiB for student files, or about 15 GiB per student. The default home quota is 25 GiB. So the disk holds 24 students unless more than about 14 of them fill their whole quota. The pool warns the administrator at 70% full and refuses new workspaces at 90% ("When the storage pool fills"). The 500 GB is under half of the 1 000 GiB that docs/INSTALL.md suggests for 24, so watch the Health tab during the first weeks.
+
+## Backups on a local disk
+
+Backups always go to `/var/backups/portikus/local/` on the server. They can go to a disk of their own by mounting that disk at that path before the install (docs/INSTALL.md, "Behind a Cloudflare Tunnel"). Three things to plan for:
+
+- **Size.** Each nightly set holds the database and every workspace's home and recovery points, so a set is about the size of the students' files. The server keeps the 14 newest complete sets. A 500 GB disk (465 GiB) therefore holds 14 sets while the students' files total up to about 30 GiB. This is worked out, not measured: the first weeks of real data will show the true set size. A run needs free space of at least the newest complete set's size plus a fifth. When the disk is too full, the run is refused with "not enough free space", and the Backups tab shows it (docs/adr/0039-backup-channel-and-host-held-key.md). If the sets are larger than that, add a bigger backup disk, or copy sets elsewhere and delete older ones on the Backups tab.
+- **A disk beside the student files is not a second copy.** When the backup disk is on the same storage as the student-files disk, the backups protect against a mistake and the loss of the VM, not against losing that storage or its host. For that, use the off-site copy (docs/INSTALL.md, "Backups: copying them off the server").
+- **The disk must be mounted before the install,** or the backups land on the system disk until it is.
+
 ## Limits observed
 
 1. **Starts and provisioning ran one at a time (fixed in part).** Before PR #464, in `apps/worker/src/reconcile.ts`, each sweep walks the workspaces to provision and then those to start with `for ... await`. The controller log shows one "instance started" about every 4.5 seconds, in strict sequence. So:

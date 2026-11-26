@@ -68,6 +68,22 @@ export function project(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+/** A slow project request's operation, as the API reports it. */
+export function operation(overrides: Record<string, unknown> = {}) {
+	return {
+		id: "66666666-6666-4666-8666-666666666666",
+		kind: "create" as const,
+		state: "running" as const,
+		projectId: null,
+		pointId: null,
+		startedAt: "2026-01-01T00:00:00.000Z",
+		finishedAt: null,
+		project: null,
+		error: null,
+		...overrides,
+	};
+}
+
 export function json(status: number, body: unknown): Response {
 	return new Response(status === 204 ? null : JSON.stringify(body), {
 		status,

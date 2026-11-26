@@ -176,6 +176,8 @@
       loop:
         - {name: both.yaml, content: "# header\nportikus_cloudflare_api_token: {{ seed_test_token }}\nportikus_dex_client_secret: kept-secret\n"}
         - {name: alone.yaml, content: "# header\nportikus_cloudflare_api_token: {{ seed_test_token }}\n"}
+        - {name: two.yaml, content: "portikus_cloudflare_api_token: {{ seed_test_token }}\nportikus_cloudflare_preview_api_token: {{ seed_test_token }}-p\nportikus_dex_client_secret: kept-secret\n"}
+        - {name: preview.yaml, content: "portikus_cloudflare_preview_api_token: {{ seed_test_token }}-p\n"}
       loop_control:
         label: "{{ item.name }}"
 
@@ -183,7 +185,7 @@
       ansible.builtin.include_tasks: "{{ seed_test_tasks }}/install_token.yml"
       vars:
         caddy_install_secrets_path: "{{ seed_test_dir.path }}/{{ item }}"
-      loop: [both.yaml, alone.yaml, missing.yaml]
+      loop: [both.yaml, alone.yaml, two.yaml, preview.yaml, missing.yaml]
 
     - name: Require the token gone, the other secret kept, and a mapping left
       ansible.builtin.assert:
@@ -192,6 +194,8 @@
           - "lookup('file', seed_test_dir.path ~ '/alone.yaml') | from_yaml == {}"
           - seed_test_token not in lookup('file', seed_test_dir.path ~ '/both.yaml')
           - seed_test_token not in lookup('file', seed_test_dir.path ~ '/alone.yaml')
+          - "lookup('file', seed_test_dir.path ~ '/two.yaml') | from_yaml == {'portikus_dex_client_secret': 'kept-secret'}"
+          - "lookup('file', seed_test_dir.path ~ '/preview.yaml') | from_yaml == {}"
 
     # ── The administrator waits for a public certificate (SPEC.md 24.10) ──
     - name: Make an empty state directory

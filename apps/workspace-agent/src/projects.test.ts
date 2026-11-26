@@ -499,84 +499,6 @@ test.skipIf(!haveZip)("archive streams a zip that unzip accepts", async () => {
 	await rm(archive, { force: true });
 });
 
-test.skipIf(!haveZip)("a folder named - zips its contents, not stdin", async () => {
-	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
-	const dash = join(projectsRoot, "alpha", "-");
-	await mkdir(dash, { recursive: true });
-	await writeFile(join(dash, "file.txt"), "content\n");
-	try {
-		const stream = await archiveDir(dash, new AbortController().signal, tempBase);
-		const chunks: Buffer[] = [];
-		for await (const chunk of stream) chunks.push(chunk as Buffer);
-		const archive = join(homeDir, "dash.zip");
-		await writeFile(archive, Buffer.concat(chunks));
-		const { stdout } = await run("zipinfo", ["-1", archive]);
-		await rm(archive, { force: true });
-		expect(stdout.trim().split("\n").sort()).toEqual(["-/", "-/file.txt"]);
-	} finally {
-		await rm(tempBase, { recursive: true, force: true });
-	}
-});
-
-test.skipIf(!haveZip)("a finished archive leaves no temporary zip behind", async () => {
-	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
-	const alpha = join(projectsRoot, "alpha");
-	await mkdir(alpha, { recursive: true });
-	await writeFile(join(alpha, "file.txt"), "content\n");
-	try {
-		const stream = await archiveDir(alpha, new AbortController().signal, tempBase);
-		for await (const _chunk of stream) {
-			// Drain it, as a download would.
-		}
-		// The removal runs on close without being awaited, so poll for it.
-		await expect.poll(() => readdir(tempBase)).toEqual([]);
-	} finally {
-		await rm(tempBase, { recursive: true, force: true });
-	}
-});
-
-test("an aborted archive kills zip and leaves no temporary zip behind", async () => {
-	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
-	const fakeBin = await mkdtemp(join(tmpdir(), "portikus-fakebin-"));
-	// A zip that takes far longer than any test, and records its process id.
-	const pidFile = join(fakeBin, "pid");
-	await writeFile(
-		join(fakeBin, "zip"),
-		`#!/bin/sh\necho $$ > ${pidFile}\nexec sleep 60\n`,
-		{
-			mode: 0o755,
-		},
-	);
-	const alpha = join(projectsRoot, "alpha");
-	await mkdir(alpha, { recursive: true });
-	const realPath = process.env.PATH;
-	process.env.PATH = `${fakeBin}:${realPath}`;
-	try {
-		const controller = new AbortController();
-		const pending = archiveDir(alpha, controller.signal, tempBase).catch((e) => e);
-		await expect.poll(() => readFile(pidFile, "utf8").catch(() => "")).not.toBe("");
-		expect(await readdir(tempBase)).toHaveLength(1);
-		controller.abort();
-		expect(await pending).toBeInstanceOf(Error);
-		expect(await readdir(tempBase)).toEqual([]);
-		const pid = Number((await readFile(pidFile, "utf8")).trim());
-		await expect
-			.poll(() => {
-				try {
-					process.kill(pid, 0);
-					return true;
-				} catch {
-					return false;
-				}
-			})
-			.toBe(false);
-	} finally {
-		process.env.PATH = realPath;
-		await rm(fakeBin, { recursive: true, force: true });
-		await rm(tempBase, { recursive: true, force: true });
-	}
-});
-
 test("archiving a project that does not exist is a 404", async () => {
 	const response = await app.inject({
 		method: "GET",
@@ -647,7 +569,7 @@ test("stale half-finished clone directories are removed at startup", async () =>
 	expect((await readdir(projectsRoot)).sort()).toEqual(["alpha"]);
 });
 
-test("the agent survives an image with no zip installed", async () => {
+test("a download needs no zip program on the image", async () => {
 	const emptyBin = await mkdtemp(join(tmpdir(), "portikus-nobin-"));
 	await mkdir(join(projectsRoot, "alpha"), { recursive: true });
 	const realPath = process.env.PATH;
@@ -658,8 +580,8 @@ test("the agent survives an image with no zip installed", async () => {
 			url: "/projects/alpha/archive",
 			headers: auth(),
 		});
-		expect(response.statusCode).toBe(500);
-		expect(response.json().error.code).toBe("INTERNAL");
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["content-type"]).toContain("application/zip");
 	} finally {
 		process.env.PATH = realPath;
 		await rm(emptyBin, { recursive: true, force: true });
@@ -727,20 +649,14 @@ async function sparse(path: string, size: number) {
 	await truncate(path, size);
 }
 
-test("a folder past the download cap is refused before zip runs", async () => {
-	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
+test("a folder past the download cap is refused before any byte is sent", async () => {
 	const alpha = join(projectsRoot, "alpha");
 	await mkdir(join(alpha, "src"), { recursive: true });
 	await sparse(join(alpha, "a.bin"), MAX_DOWNLOAD_BYTES / 2);
 	await sparse(join(alpha, "src", "b.bin"), MAX_DOWNLOAD_BYTES / 2 + 1);
-	try {
-		await expect(
-			archiveDir(alpha, new AbortController().signal, tempBase),
-		).rejects.toMatchObject({ code: "FILE_TOO_LARGE" });
-		expect(await readdir(tempBase)).toEqual([]);
-	} finally {
-		await rm(tempBase, { recursive: true, force: true });
-	}
+	await expect(archiveDir(alpha, new AbortController().signal)).rejects.toMatchObject({
+		code: "FILE_TOO_LARGE",
+	});
 });
 
 test("a symlink to a file past the download cap is refused", async () => {

@@ -163,7 +163,7 @@ async function helperPreview(sid: string): Promise<string> {
 		url: `/__portikus/bootstrap?t=${encodeURIComponent(ticket)}`,
 		headers: { "x-forwarded-host": host() },
 	});
-	expect(done.statusCode).toBe(303);
+	expect(done.statusCode).toBe(200);
 	const cookie = (done.cookies as { name: string; value: string }[]).find(
 		(one) => one.name === COOKIE,
 	);

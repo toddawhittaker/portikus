@@ -3,14 +3,20 @@
 
 Used by `make lti-mock-register` and `make lti-mock-unregister`.  Other
 registrations are left as they are.
-Removing the last registration deletes the file, which turns LTI off.
+Removing the last registration deletes the file, which turns LTI off.  On an
+apt-installed host, --settings names its portikus.yaml, and the last removal
+also drops the setting that names the file, since setup stops when a named
+file is missing.
 """
 import argparse
 import json
 import os
+import re
+import stat
 import sys
 import tempfile
 
+SETTING = "portikus_lti_platforms_file"
 NAME = "mock-lms"
 # Must match packages/mock-lms/src/seed.ts; infra/tests/lti-platforms-test.sh checks it.
 CLIENT_ID = "portikus-mock"
@@ -40,10 +46,37 @@ def save(path, data):
     os.replace(tmp, path)
 
 
+def drop_setting(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return
+    kept = re.sub(rf"^{SETTING}:.*\n?", "", text, flags=re.MULTILINE)
+    if kept == text:
+        return
+    # Written beside the file and renamed, so a failed write never leaves half a
+    # file; the original's mode and owner are copied across.
+    info = os.stat(path)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".portikus.yaml.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(kept)
+        os.chmod(tmp, stat.S_IMODE(info.st_mode))
+        os.chown(tmp, info.st_uid, info.st_gid)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    print(f"{path}: removed {SETTING}; setup now finds no platforms file, so LTI is off")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["register", "unregister"])
     parser.add_argument("--file", required=True)
+    parser.add_argument("--settings", help="portikus.yaml, for the setting that names --file")
     parser.add_argument("--url", help="the mock's base URL as the VM reaches it")
     args = parser.parse_args()
 
@@ -58,6 +91,8 @@ def main():
         elif os.path.exists(args.file):
             os.remove(args.file)
             print(f"{args.file}: removed; no LMS is registered, so LTI is off")
+        if not others and args.settings:
+            drop_setting(args.settings)
         return
 
     if not args.url:

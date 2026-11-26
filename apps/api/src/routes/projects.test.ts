@@ -14,6 +14,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { settleOperation, waitForOperation } from "../testing/project-operation.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
@@ -88,13 +89,45 @@ beforeEach(async () => {
 	};
 });
 
-function createProject(jar: CookieJar, id: string, payload: Record<string, unknown>) {
+function startCreate(jar: CookieJar, id: string, payload: Record<string, unknown>) {
 	return app.inject({
 		method: "POST",
 		url: `/workspaces/${id}/projects`,
 		headers: csrfHeaders(jar, PUBLIC_URL),
 		payload,
 	});
+}
+
+/** A create followed to its end, answered as the request did before 202. */
+async function createProject(
+	jar: CookieJar,
+	id: string,
+	payload: Record<string, unknown>,
+) {
+	return settleOperation(
+		app,
+		jar.cookieHeader(),
+		id,
+		await startCreate(jar, id, payload),
+	);
+}
+
+function startDuplicate(jar: CookieJar, id: string, pid: string, name: string) {
+	return app.inject({
+		method: "POST",
+		url: `/workspaces/${id}/projects/${pid}/duplicate`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload: { name },
+	});
+}
+
+async function duplicateProject(jar: CookieJar, id: string, pid: string, name: string) {
+	return settleOperation(
+		app,
+		jar.cookieHeader(),
+		id,
+		await startDuplicate(jar, id, pid, name),
+	);
 }
 
 function listProjects(jar: CookieJar, id: string, query = "") {
@@ -597,22 +630,12 @@ test.skipIf(skip)("duplicate copies the directory into a new project", async () 
 		await createProject(alice, workspaceId, { name: "lab", source: "new" })
 	).json();
 
-	const copy = await app.inject({
-		method: "POST",
-		url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,
-		headers: csrfHeaders(alice, PUBLIC_URL),
-		payload: { name: "Lab copy" },
-	});
+	const copy = await duplicateProject(alice, workspaceId, project.id, "Lab copy");
 	expect(copy.statusCode).toBe(201);
 	expect(copy.json().slug).toBe("lab-copy");
 	expect(agent.projects.has("lab-copy")).toBe(true);
 
-	const again = await app.inject({
-		method: "POST",
-		url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,
-		headers: csrfHeaders(alice, PUBLIC_URL),
-		payload: { name: "Lab copy" },
-	});
+	const again = await duplicateProject(alice, workspaceId, project.id, "Lab copy");
 	expect(again.statusCode).toBe(409);
 });
 
@@ -639,10 +662,20 @@ test.skipIf(skip)(
 	},
 );
 
+/** Poll until a condition holds. */
+async function until(check: () => Promise<boolean>): Promise<void> {
+	const deadline = Date.now() + 5000;
+	while (!(await check())) {
+		if (Date.now() > deadline) throw new Error("condition never held");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
 test.skipIf(skip)("download streams a zip named after the slug", async () => {
 	const project = (
 		await createProject(alice, workspaceId, { name: "report", source: "new" })
 	).json();
+	const before = Date.now() - 1;
 
 	const downloaded = await app.inject({
 		method: "GET",
@@ -656,6 +689,22 @@ test.skipIf(skip)("download streams a zip named after the slug", async () => {
 	);
 	// "PK" is the zip magic number.
 	expect(downloaded.rawPayload.subarray(0, 2).toString()).toBe("PK");
+	// The stream held presence, so the idle stop waited for it, and gave it
+	// back once it ended (SPEC.md §6.4).
+	const seen = await testDb.db
+		.selectFrom("workspaces")
+		.select("last_active_connection_at")
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+	expect(seen.last_active_connection_at?.getTime()).toBeGreaterThan(before);
+	await until(async () => {
+		const rows = await testDb.db
+			.selectFrom("workspace_connections")
+			.select("id")
+			.where("workspace_id", "=", workspaceId)
+			.execute();
+		return rows.length === 0;
+	});
 });
 
 test.skipIf(skip)(
@@ -911,12 +960,7 @@ test.skipIf(skip)(
 			expect(
 				(await deleteProject(jar, workspaceId, project.id, "private")).statusCode,
 			).toBe(404);
-			const duplicated = await app.inject({
-				method: "POST",
-				url: `/workspaces/${workspaceId}/projects/${project.id}/duplicate`,
-				headers: csrfHeaders(jar, PUBLIC_URL),
-				payload: { name: "stolen" },
-			});
+			const duplicated = await duplicateProject(jar, workspaceId, project.id, "stolen");
 			expect(duplicated.statusCode).toBe(404);
 			const initialized = await app.inject({
 				method: "POST",
@@ -1195,5 +1239,126 @@ test.skipIf(skip)(
 		const listed = (await listProjects(alice, workspaceId)).json().projects;
 		expect(listed.map((p: { id: string }) => p.id)).toEqual([project.id]);
 		expect(listed[0].missing).toBe(false);
+	},
+);
+
+test.skipIf(skip)(
+	"a clone answers 202 at once, a repeat joins it, and a reload finds it",
+	async () => {
+		const payload = {
+			name: "slow lab",
+			source: "clone",
+			url: "https://example.com/slow.git",
+		};
+		const started = await startCreate(alice, workspaceId, payload);
+		expect(started.statusCode).toBe(202);
+		const operation = started.json();
+		expect(operation).toMatchObject({
+			kind: "create",
+			state: "running",
+			project: null,
+		});
+		expect(started.headers["cache-control"]).toBeUndefined();
+
+		// The same request again is the double submit of a reload: it joins.
+		const repeat = await startCreate(alice, workspaceId, payload);
+		expect(repeat.statusCode).toBe(202);
+		expect(repeat.json().id).toBe(operation.id);
+		// A different slow request still waits its turn.
+		const other = await startCreate(alice, workspaceId, {
+			...payload,
+			name: "other lab",
+		});
+		expect(other.statusCode).toBe(409);
+		expect(other.json().code).toBe("OPERATION_IN_PROGRESS");
+
+		const read = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/project-operation`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(read.statusCode).toBe(200);
+		expect(read.headers["cache-control"]).toBe("no-store");
+		expect(read.json().operation.id).toBe(operation.id);
+
+		const done = await waitForOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
+			operation.id,
+		);
+		expect(done.state).toBe("succeeded");
+		expect(done.project?.slug).toBe("slow-lab");
+		expect(agent.projects.has("slow-lab")).toBe(true);
+		// Still there after it finished, for a browser that reloads late.
+		const later = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/project-operation`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(later.json().operation).toMatchObject({
+			id: operation.id,
+			state: "succeeded",
+		});
+	},
+);
+
+test.skipIf(skip)(
+	"a clone's refusal is the operation's error, with the same text",
+	async () => {
+		const started = await startCreate(alice, workspaceId, {
+			name: "broken",
+			source: "clone",
+			url: "https://example.com/fail.git",
+		});
+		expect(started.statusCode).toBe(202);
+		const done = await waitForOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
+			started.json().id,
+		);
+		expect(done).toMatchObject({ state: "failed", project: null });
+		expect(done.error?.status).toBe(400);
+		expect(done.error?.code).toBe("GIT_FAILED");
+	},
+);
+
+test.skipIf(skip)("a new empty project still answers 201 at once", async () => {
+	const created = await startCreate(alice, workspaceId, {
+		name: "quick",
+		source: "new",
+	});
+	expect(created.statusCode).toBe(201);
+	expect(created.json().slug).toBe("quick");
+});
+
+test.skipIf(skip)("another user cannot read a workspace's operation", async () => {
+	const bob = new CookieJar();
+	await loginAs(app, "bob", bob);
+	const read = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/project-operation`,
+		headers: { cookie: bob.cookieHeader() },
+	});
+	expect(read.statusCode).toBe(404);
+});
+
+test.skipIf(skip)(
+	"a duplicate answers 202 and its operation names the source",
+	async () => {
+		const project = (
+			await createProject(alice, workspaceId, { name: "orig", source: "new" })
+		).json();
+		const started = await startDuplicate(alice, workspaceId, project.id, "orig copy");
+		expect(started.statusCode).toBe(202);
+		expect(started.json()).toMatchObject({ kind: "duplicate", projectId: project.id });
+		const done = await waitForOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
+			started.json().id,
+		);
+		expect(done.project).toMatchObject({ slug: "orig-copy", source: "new" });
 	},
 );

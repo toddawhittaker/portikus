@@ -132,8 +132,10 @@ export async function sendFile(
 	// here and the browser may rewrite it. Caddy's gzip compression
 	// otherwise appends "-gzip" to the etag, the next save sends that
 	// back as If-Match, and the agent refuses a save nobody conflicted
-	// with (SPEC.md §13.5).
-	reply.header("cache-control", "no-transform");
+	// with (SPEC.md §13.5). A student's file is never stored by a cache
+	// either, so this names no-store itself: Caddy adds its own only when
+	// the header is absent.
+	reply.header("cache-control", "private, no-store, no-transform");
 	const length = response.headers.get("content-length");
 	if (Number(length) > DOWNLOAD_RELAY_LIMIT) {
 		await body.cancel();

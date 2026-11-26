@@ -147,6 +147,48 @@ cp "$(file keep "$(platform Canvas https://canvas.instructure.com https://sso.ca
 register && helper unregister
 accepts "unregistering keeps every other platform" "${reg}" '{"on": true, "egress": ["sso.canvaslms.com:443"]}'
 
+# An apt-installed host names the file in portikus.yaml, and setup stops when
+# a named file is missing, so removing the last registration drops the setting.
+settings="${work}/portikus.yaml"
+write_settings() { printf 'portikus_public_host: lab.example\nportikus_lti_platforms_file: %s\nother: 1\n' "${reg}" >"${settings}"; }
+rm -f "${reg}"
+write_settings
+register && helper unregister --settings "${settings}"
+check "unregistering the last platform drops the setting that names the file" \
+  [ "$(cat "${settings}")" = "$(printf 'portikus_public_host: lab.example\nother: 1')" ]
+setting_is_gone() { ! grep -q portikus_lti_platforms_file "${settings}"; }
+write_settings
+helper unregister --settings "${settings}"
+check "unregistering with no file left still drops a setting that names it" \
+  setting_is_gone
+cp "$(file keep2 "$(platform Canvas https://canvas.instructure.com https://sso.canvaslms.com/jwks false)")" "${reg}"
+write_settings
+register && helper unregister --settings "${settings}"
+check "unregistering keeps the setting while another platform remains" \
+  grep -q "^portikus_lti_platforms_file: ${reg}$" "${settings}"
+# The rewrite goes through a temporary file that replaces the original, and
+# the original's mode and owner carry over. A root-owned 0640 file stays so.
+rm -f "${reg}"
+write_settings
+chmod 640 "${settings}"
+before_inode="$(stat -c %i "${settings}")"
+helper unregister --settings "${settings}"
+check "dropping the setting keeps the file's mode" [ "$(stat -c %a "${settings}")" = 640 ]
+check "dropping the setting keeps the file's owner" \
+  [ "$(stat -c %u:%g "${settings}")" = "$(id -u):$(id -g)" ]
+check "dropping the setting replaces the file instead of writing into it" \
+  [ "$(stat -c %i "${settings}")" != "${before_inode}" ]
+check "dropping the setting leaves no temporary file behind" \
+  [ -z "$(find "${work}" -maxdepth 1 -name '.portikus.yaml.*')" ]
+printf 'portikus_public_host: lab.example\n' >"${settings}"
+cp "${settings}" "${settings}.before"
+rm -f "${reg}"
+helper unregister --settings "${settings}"
+check "a portikus.yaml without the setting is left byte for byte" cmp "${settings}" "${settings}.before"
+helper unregister --settings "${work}/no-such.yaml"
+check "a missing portikus.yaml is not an error" true
+rm -f "${reg}"
+
 # make -n URL... -- the mock URL a dry run of rehearsal-lti or lti-mock-register would register.
 registered_url() {
   make --no-print-directory -n -C "${REPO_ROOT}" "$@" 2>/dev/null | sed -n 's/.* register --url \([^ ;]*\).*/\1/p' | head -1
@@ -157,6 +199,39 @@ check_output "lti-mock-register on the rehearsal keeps https" "https://10.200.0.
   registered_url lti-mock-register TOFU_ENV=rehearsal-libvirt MANAGEMENT_CIDR=10.200.0.0/24 VM_IP=10.200.0.9
 check_output "the pilot's mock LMS stays plain http" "http://192.0.2.5:8765" \
   registered_url lti-mock-register TOFU_ENV=dev-libvirt VM_IP=10.100.0.9 MOCK_LMS_HOST=192.0.2.5
+
+# An apt-installed VM's unregister passes its portikus.yaml to the helper.
+check "lti-mock-unregister gives the helper the apt host's portikus.yaml" bash -c \
+  "make --no-print-directory -n -C '${REPO_ROOT}' lti-mock-unregister VM_IP=10.100.0.9 2>/dev/null | grep -q -- '--settings /etc/portikus/portikus.yaml'"
+
+echo ""
+echo "--- Waiting for the VM's first boot (make wait-vm) ---"
+
+# A fake ssh runs the remote command here, where a fake cloud-init answers with
+# CLOUD_INIT_EXIT for 'status' after a wait that always succeeds.
+mkdir -p "${work}/fakebin"
+cat >"${work}/fakebin/ssh" <<'SH'
+#!/bin/sh
+for last; do :; done
+exec sh -c "$last"
+SH
+cat >"${work}/fakebin/cloud-init" <<'SH'
+#!/bin/sh
+case "$*" in *--wait*) exit 0 ;; esac
+exit "${CLOUD_INIT_EXIT:-0}"
+SH
+chmod +x "${work}/fakebin/ssh" "${work}/fakebin/cloud-init"
+
+# wait_vm EXIT SECONDS — the make target's own status when cloud-init status
+# exits EXIT, or 124 when it was still waiting after SECONDS.
+wait_vm() {
+  CLOUD_INIT_EXIT=$1 PATH="${work}/fakebin:${PATH}" \
+    timeout "$2" make --no-print-directory -C "${REPO_ROOT}" wait-vm VM_IP=192.0.2.9 SSH_USER=nobody >/dev/null 2>&1
+  echo $?
+}
+expect_eq "cloud-init done is ready" 0 "$(wait_vm 0 20)"
+expect_eq "cloud-init done with recoverable warnings is ready" 0 "$(wait_vm 2 20)"
+expect_eq "a cloud-init error is not ready" 124 "$(wait_vm 1 8)"
 
 # The mock LMS signs as this registration, so the two must agree.
 ids_match() {

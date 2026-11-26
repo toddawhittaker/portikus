@@ -152,6 +152,8 @@ Set-Cookie: __Host-portikus-preview=<opaque>;
 
 Top-level preview tabs may use an unpartitioned host-only cookie. The embedded and top-level cases may therefore need separate preview sessions. Portikus must run browser-compatibility tests before declaring this mode supported in a release. If a supported browser cannot establish the embedded partitioned session, Portikus must offer **Open in new tab** rather than weakening origin isolation.
 
+The embedded preview tells a blocked cookie from an ended session by timing. A session revoked, or a user signed out, within 60 seconds of the embedded preview opening shows "Preview blocked by your browser" instead of the sign-in page. A cookie the browser blocks after those 60 seconds, for example when the frame is reloaded later, shows the sign-in page.
+
 ### 7.3 Prohibited deployment shape
 
 Student applications must not be mounted below the trusted application host as paths:

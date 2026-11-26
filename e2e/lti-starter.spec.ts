@@ -152,3 +152,56 @@ test("an expired link says so, and the page has no axe violations", async ({
 	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 });
+
+test("a slow starter clone says it is being set up, survives a reload, and opens", async ({
+	page,
+}) => {
+	const name = newName();
+	const [sam] = await ltiUsers("sam");
+	// A repository link whose clone the fake agent makes take a few seconds.
+	const [starter] = await query<{ id: string }>(
+		`insert into lti_starter_launches (user_id, project_name, repository_url, expires_at)
+		 values ($1, $2, 'https://example.com/slow-motion.git', now() + interval '10 minutes')
+		 returning id`,
+		[sam?.id, name],
+	);
+	await launchAs(page, { person: "sam" });
+	const workspaceId = await samWorkspaceId();
+	const answers: number[] = [];
+	page.on("response", (response) => {
+		if (response.url().endsWith("/projects/starter")) answers.push(response.status());
+	});
+	await page.goto(`${WEB_ORIGIN}/workspaces/${workspaceId}?starter=${starter?.id}`);
+
+	await expect(toast(page, "Setting up your starter project…")).toBeVisible();
+	// The request itself was answered at once.
+	await expect.poll(() => answers).toEqual([202]);
+
+	// A reload part way finds the same clone rather than starting a second:
+	// the starter joins it, or, when the project index has already moved on
+	// from the starter address, the page resumes it as a create.
+	await page.reload();
+	await expect(
+		page
+			.locator(".pk-toast")
+			.filter({
+				hasText: /Setting up your starter project…|Still creating your project…/,
+			})
+			.last(),
+	).toBeVisible();
+	const done = page
+		.locator(".pk-toast")
+		.filter({ hasText: new RegExp(`${CREATED}|${name} created`) })
+		.last();
+	await expect(done).toBeVisible({ timeout: 30_000 });
+	// Resumed as a create, the page offers the project rather than switching to it.
+	const open = done.getByRole("button", { name: "Open project" });
+	if (await open.isVisible()) await open.click();
+	const rows = await projectRows(name);
+	expect(rows).toHaveLength(1);
+	await expect(page).toHaveURL(
+		new RegExp(`/workspaces/[0-9a-f-]+/projects/${rows[0]?.id}$`),
+	);
+	// Never a second clone: at most the joining request, also answered 202.
+	expect(answers.every((status) => status === 202)).toBe(true);
+});

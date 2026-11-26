@@ -23,8 +23,33 @@ Description: Web address of this server:
  The host name people type in their browser to reach Portikus, such as
  portikus.example.edu. It should already point at this server in DNS.
  .
- Student previews use names under preview.<this name>, so a wildcard
- record for *.preview.<this name> should point here too.
+ Student previews use names under a separate domain, preview.<this name>
+ unless you choose another, and a wildcard record for it should point here
+ too.
+
+Template: portikus/preview_suffix
+Type: string
+Description: Domain for student previews:
+ Each running student application is shown at a name under this domain,
+ such as tw7-5173.<this domain>. A wildcard DNS record, *.<this domain>,
+ must point at this server.
+ .
+ It must not be the web address or a domain above it. A domain of its
+ own, such as example-previews.dev, keeps student pages furthest from
+ Portikus. If the certificate is already set up and the new preview
+ domain is in another DNS zone, add that zone's account on the
+ administration Certificate page.
+
+Template: portikus/trusted_proxies
+Type: string
+Description: Addresses of a trusted reverse proxy or Cloudflare Tunnel connector, if any:
+ Leave blank when browsers connect to this server directly.
+ .
+ If every visitor arrives through a reverse proxy or a Cloudflare Tunnel
+ connector, give its addresses as networks with a prefix length, such as
+ 10.20.20.10/32 or 2001:db8::/64, separated by spaces. Portikus then
+ takes each visitor's own address from the CF-Connecting-IP header, but
+ only on connections from these addresses.
 
 Template: portikus/admin_email
 Type: string
@@ -64,16 +89,28 @@ Description: Email for Let's Encrypt:
 Template: portikus/cloudflare_api_token
 Type: password
 Description: Cloudflare API token:
- Paste a Cloudflare API token with the "Edit zone DNS" permission for this
- domain.
+ Paste a Cloudflare API token with the "Edit zone DNS" permission for the
+ zone that holds the web address, ${host}.
  .
  Student previews need a wildcard certificate, which Let's Encrypt issues
  only after a DNS check. Portikus makes that check through Cloudflare, so
- your domain's DNS must be hosted there.
+ that zone's DNS must be hosted there. A preview domain in another zone
+ takes a token of its own, which `dpkg-reconfigure portikus` asks for
+ after this one.
  .
  Setup keeps the token under /etc/portikus/certificate, which only root
  and Caddy can read. Until the administrator is made, a copy also stays in
  /etc/portikus/secrets.yaml, which only root can read. ${keep}
+
+Template: portikus/cloudflare_preview_api_token
+Type: password
+Description: Cloudflare API token for the preview domain (optional):
+ Leave blank when the preview domain is in the same Cloudflare zone as the
+ web address, or the token above can edit both.
+ .
+ If the preview domain is a zone of its own, paste a token with the "Edit
+ zone DNS" permission for that zone. Portikus then uses it for the preview
+ wildcard certificate only. It is kept like the token above. ${keep}
 
 Template: portikus/tls_cert
 Type: string

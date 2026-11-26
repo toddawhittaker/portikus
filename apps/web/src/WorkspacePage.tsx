@@ -16,6 +16,7 @@ import { CodeHelpContext, useCodeHelpManager } from "./lsp/context.js";
 import { usePageTitle } from "./pageTitle.js";
 import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
+import { ResumeProjectOperation } from "./projects/ResumeProjectOperation.js";
 import { StarterLaunch } from "./projects/StarterLaunch.js";
 import { ListeningContext, useListeningQuery } from "./running/services.js";
 import { AppHeader } from "./shell/AppHeader.js";
@@ -219,6 +220,8 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 			{/* Shown while stopped too: a session outlasts a stop, and only the student ends it early. */}
 			<LiveHelpBar workspaceId={workspaceId} fallbackFocus={workRef} />
 			<StarterLaunch workspaceId={workspaceId} starterId={starter} running={running} />
+			{/* A course link resumes its own starter; see StarterLaunch. */}
+			<ResumeProjectOperation workspaceId={workspaceId} running={running && !starter} />
 			<Group
 				className="pk-shell"
 				orientation="horizontal"

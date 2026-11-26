@@ -10,6 +10,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
+import { PING_INTERVAL_MS } from "../ws-keepalive.js";
 
 /**
  * WebSocket authorization and isolation (SPEC.md §5.3, §5.4, §6.4):
@@ -244,8 +245,12 @@ test.skipIf(skip)(
 			await second.next();
 			await joinedWatcher(second.ws);
 
-			expect(started).toHaveBeenCalledTimes(1);
-			const handle = started.mock.results[0]?.value;
+			// Each socket also has its own keep-alive ping timer; only the watcher is shared.
+			const watcherCalls = started.mock.calls
+				.map((call, index) => ({ delay: call[1], index }))
+				.filter((call) => call.delay !== PING_INTERVAL_MS);
+			expect(watcherCalls).toHaveLength(1);
+			const handle = started.mock.results[watcherCalls[0]?.index ?? -1]?.value;
 
 			await first.close();
 			await new Promise((resolve) => setTimeout(resolve, 200));

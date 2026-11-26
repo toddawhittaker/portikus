@@ -11,7 +11,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { parseOr400, sendError } from "../http.js";
 import { consumeStarterLaunch, findStarterLaunch } from "../lti/starter.js";
-import { createProject } from "../workspaces/create-project.js";
+import {
+	planProject,
+	replyWithBackgroundCreate,
+} from "../workspaces/create-project.js";
 import { ownedScope, toProject } from "../workspaces/project-scope.js";
 
 /**
@@ -81,15 +84,20 @@ export function registerProjectStarterRoute(
 							url: starter.repository_url ?? "",
 							gitInit: true,
 						};
-			const created = await createProject(db, config, scope, reply, input);
+			// A clone or template copy can outlast a proxy's response timeout,
+			// so it is answered at once and finished in the background.
+			const plan = await planProject(db, config, scope, reply, input);
+			if (!plan) return;
 			// A refusal keeps the starter, so the student can try again once the cause is gone.
-			if (!created) return;
-			await consumeStarterLaunch(db, starter.id);
-			const answer: StarterProjectResponse = {
-				project: toProject(created.row, created.isGitRepo, false),
-				created: true,
-			};
-			return reply.status(201).send(answer);
+			return replyWithBackgroundCreate(
+				db,
+				request,
+				reply,
+				scope,
+				plan,
+				`starter:${starter.id}`,
+				() => consumeStarterLaunch(db, starter.id),
+			);
 		},
 	);
 }

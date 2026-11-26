@@ -1,6 +1,6 @@
 import { type Project, slugify } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { DialogError } from "../common/DialogError.js";
 import { useDuplicateProject } from "./queries.js";
 
@@ -18,11 +18,23 @@ export function DuplicateDialog({
 }) {
 	const [name, setName] = useState(`${project.name} copy`);
 	const duplicate = useDuplicateProject(workspaceId);
+	// `isPending` only changes on the next render, so two Enter presses in
+	// one batch would both pass it; the ref closes at once.
+	const submitting = useRef(false);
 	const slug = slugify(name);
 
 	function submit() {
-		if (duplicate.isPending || slug === "") return;
-		duplicate.mutate({ projectId: project.id, name }, { onSuccess: onDuplicated });
+		if (submitting.current || slug === "") return;
+		submitting.current = true;
+		duplicate.mutate(
+			{ projectId: project.id, name },
+			{
+				onSuccess: onDuplicated,
+				onSettled: () => {
+					submitting.current = false;
+				},
+			},
+		);
 	}
 
 	return (
@@ -41,7 +53,7 @@ export function DuplicateDialog({
 							data-testid="dialog-confirm"
 							variant="primary"
 							loading={duplicate.isPending}
-							disabled={slug === "" || duplicate.isPending}
+							disabled={slug === ""}
 							onClick={submit}
 						>
 							{duplicate.isPending ? "Duplicating…" : "Duplicate project"}

@@ -4,6 +4,7 @@ import { type ApiError, HealthResponse } from "@portikus/contracts";
 import { isDatabaseUnavailable } from "@portikus/db";
 import { quietLogController, registerRequestLogging } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import type { WebSocket } from "ws";
 import { registerApiKeyGate } from "./api-keys/gate.js";
 import { toAuthOptions } from "./auth-options.js";
 import {
@@ -97,6 +98,7 @@ import {
 } from "./signin-throttle.js";
 import { CounterUnavailable, registerCounterPrune } from "./stored-counter.js";
 import { createWorkspaceHub } from "./workspaces/workspace-hub.js";
+import { keepAlive } from "./ws-keepalive.js";
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -216,6 +218,10 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// One megabyte is the largest frame a browser may send us (SPEC.md §9.7).
 	app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
+	// Every socket this server accepts faces a browser, so each one is kept alive.
+	app.after(() => {
+		app.websocketServer.on("connection", (socket: WebSocket) => keepAlive(socket));
+	});
 
 	// Never let a driver or runtime message reach the client (SPEC.md §24, §27).
 	app.setErrorHandler((error, request, reply) => {

@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
 	json,
 	openToggletip,
+	operation,
 	project,
 	renderWithQuery,
 	stubFetch,
@@ -39,6 +40,16 @@ function render(handler: (url: string, init?: RequestInit) => Response) {
 	return { fetchMock, onClose };
 }
 
+const RESTORE = operation({
+	kind: "restore",
+	projectId: PROJECT.id,
+	pointId: POINT.id,
+});
+const RESTORED = {
+	operation: { ...RESTORE, state: "succeeded", finishedAt: RESTORE.startedAt },
+};
+const isOperationRead = (url: string) => url.endsWith("/project-operation");
+
 const posts = (fetchMock: ReturnType<typeof stubFetch>, suffix: string) =>
 	fetchMock.mock.calls.filter(
 		([url, init]) => init?.method === "POST" && String(url) === `${base}${suffix}`,
@@ -70,19 +81,58 @@ test("an empty list says so", async () => {
 	);
 });
 
-test("Create recovery point now posts and announces the result", async () => {
-	const { fetchMock } = render((_url, init) =>
-		init?.method === "POST" ? json(201, POINT) : json(200, LIST),
-	);
+const MAKING = operation({ kind: "recovery-point", projectId: PROJECT.id });
+
+test("Create recovery point now follows the operation and announces the result", async () => {
+	let reads = 0;
+	const { fetchMock } = render((url, init) => {
+		if (init?.method === "POST") return json(202, MAKING);
+		if (!isOperationRead(url)) return json(200, LIST);
+		reads += 1;
+		// Still running on the first read, done on the next (SPEC.md 15.6).
+		return json(200, {
+			operation:
+				reads === 1
+					? MAKING
+					: { ...MAKING, state: "succeeded", finishedAt: MAKING.startedAt },
+		});
+	});
 
 	fireEvent.click(await screen.findByTestId("recovery-create"));
 
-	await waitFor(() =>
-		expect(screen.getByTestId("recovery-status").textContent).toBe(
-			"Recovery point created.",
-		),
+	await waitFor(
+		() =>
+			expect(screen.getByTestId("recovery-status").textContent).toBe(
+				"Recovery point created.",
+			),
+		{ timeout: 5000 },
 	);
+	expect(reads).toBe(2);
 	expect(posts(fetchMock, "")).toHaveLength(1);
+});
+
+test("a recovery point that fails in the background is shown as an alert", async () => {
+	render((url, init) => {
+		if (init?.method === "POST") return json(202, MAKING);
+		if (!isOperationRead(url)) return json(200, LIST);
+		return json(200, {
+			operation: {
+				...MAKING,
+				state: "failed",
+				finishedAt: MAKING.startedAt,
+				error: {
+					status: 507,
+					code: "STORAGE_FULL",
+					message: "Recovery storage is full.",
+				},
+			},
+		});
+	});
+
+	fireEvent.click(await screen.findByTestId("recovery-create"));
+
+	const alert = await screen.findByRole("alert", {}, { timeout: 5000 });
+	expect(alert.textContent).toContain("Recovery storage is full.");
 });
 
 test("Create keeps focus and ignores repeats while it runs (Gate E)", async () => {
@@ -119,9 +169,10 @@ test("a failed create is shown as an alert", async () => {
 });
 
 test("restore confirms with the project and time, then posts", async () => {
-	const { fetchMock, onClose } = render((_url, init) =>
-		init?.method === "POST" ? json(200, { ok: true }) : json(200, LIST),
-	);
+	const { fetchMock, onClose } = render((url, init) => {
+		if (init?.method === "POST") return json(202, RESTORE);
+		return isOperationRead(url) ? json(200, RESTORED) : json(200, LIST);
+	});
 
 	fireEvent.click(await screen.findByTestId(`recovery-restore-${POINT.id}`));
 	const dialog = screen.getByTestId("dialog-restore-point");
@@ -138,10 +189,11 @@ test("restore confirms with the project and time, then posts", async () => {
 });
 
 test("storage full offers a restore without the safety point", async () => {
-	const { fetchMock, onClose } = render((_url, init) => {
+	const { fetchMock, onClose } = render((url, init) => {
+		if (isOperationRead(url)) return json(200, RESTORED);
 		if (init?.method !== "POST") return json(200, LIST);
 		return JSON.parse(String(init.body)).skipSafetyPoint
-			? json(200, { ok: true })
+			? json(202, RESTORE)
 			: json(507, { code: "STORAGE_FULL", message: "Recovery storage is full." });
 	});
 

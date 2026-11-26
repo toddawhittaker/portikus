@@ -319,8 +319,10 @@ echo "$before $plain $after" >&2
   # gateway is the host on the management network, whichever one this VM is on.
   mgmt_gateway=$(ssh_cmd "ip -4 route show default" | awk '{ print $3; exit }')
   if [ -n "$mgmt_gateway" ]; then
-    check "the VM itself reaches ${mgmt_gateway} (control)" ssh_cmd "ping -c1 -W2 ${mgmt_gateway}"
-    check "management network (${mgmt_gateway}) blocked" ws_exec "! ping -c1 -W2 ${mgmt_gateway}"
+    # TCP 53, not ping: a gateway may drop ICMP but still serve DNS, and the
+    # control and the blocked check must probe the same thing.
+    check "the VM itself reaches ${mgmt_gateway} (control)" ssh_cmd "timeout 3 bash -c 'echo >/dev/tcp/${mgmt_gateway}/53'"
+    check "management network (${mgmt_gateway}) blocked" ws_exec "! timeout 3 bash -c 'echo >/dev/tcp/${mgmt_gateway}/53' 2>/dev/null"
   else
     bad "management network: the VM has no default gateway to probe"
   fi

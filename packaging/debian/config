@@ -28,8 +28,8 @@ certificate_seeded() {
 
 # The questions in the order they are asked; step() skips the ones that do
 # not apply to the answers so far.
-STEPS="welcome public_host admin_email tls acme_email cloudflare_api_token
-tls_cert tls_key provider entra_tenant_id entra_role_source google_domains
+STEPS="welcome public_host preview_suffix trusted_proxies admin_email tls acme_email
+cloudflare_api_token cloudflare_preview_api_token tls_cert tls_key provider entra_tenant_id entra_role_source google_domains
 google_admin_email oidc_issuer client_id client_secret oidc_groups_claim ldap_host ldap_schema ldap_ip_allow
 ldap_bind_dn ldap_bind_password ldap_user_base_dn ldap_user_filter
 ldap_group_base_dn ldap_root_ca student_group instructor_group admin_group
@@ -47,6 +47,7 @@ import_config_file() {
 import sys, yaml
 names = {
     "portikus_public_host": "public_host", "portikus_admin_email": "admin_email",
+    "portikus_preview_suffix": "preview_suffix", "portikus_trusted_proxies": "trusted_proxies",
     "portikus_tls": "tls", "portikus_acme_email": "acme_email",
     "portikus_tls_cert": "tls_cert", "portikus_tls_key": "tls_key",
     "portikus_dex_upstream": "provider", "portikus_entra_tenant_id": "entra_tenant_id",
@@ -73,8 +74,13 @@ except (OSError, yaml.YAMLError):
     sys.exit(0)
 if not isinstance(data, dict):
     sys.exit(0)
+# Written only when set, so a missing one is reported for the shell to
+# blank unless a preseed gave it.
+blank_when_missing = ("portikus_preview_suffix", "portikus_trusted_proxies")
 for key, question in names.items():
     if key not in data or data[key] is None:
+        if key in blank_when_missing:
+            print("-" + question + "\t")
         continue
     value = data[key]
     if isinstance(value, list):
@@ -92,7 +98,21 @@ PY
 )
 	# db_set talks over stdin and stdout, so the lines come in on fd 4.
 	while IFS='	' read -r question value <&4; do
-		[ -z "$question" ] || db_set "portikus/$question" "$value"
+		case "$question" in
+		"") ;;
+		-*)
+			# Missing from the file: blank, unless debconf-set-selections
+			# or an earlier answer marked the question seen, as a preseed
+			# before a non-interactive upgrade does.
+			question=${question#-}
+			db_fget "portikus/$question" seen
+			[ "$RET" = true ] || db_set "portikus/$question" ""
+			;;
+		*)
+			[ "$question" != preview_suffix ] || SUFFIX_IN_FILE=1
+			db_set "portikus/$question" "$value"
+			;;
+		esac
 	done 4<<EOF
 $answers
 EOF
@@ -216,7 +236,7 @@ relevant() {
 	tls)
 		! certificate_seeded
 		;;
-	acme_email | cloudflare_api_token)
+	acme_email | cloudflare_api_token | cloudflare_preview_api_token)
 		! certificate_seeded || return 1
 		db_get portikus/tls
 		[ "$RET" = letsencrypt ]
@@ -290,6 +310,18 @@ prepare() {
 			db_set portikus/public_host "$suggestion"
 		fi
 		;;
+	preview_suffix)
+		# The suggestion follows the web address until someone picks another.
+		db_get portikus/public_host
+		host=$RET
+		# A suffix portikus.yaml names is kept, even when it equals the old
+		# default, as the administration page keeps it.
+		db_get portikus/preview_suffix
+		if [ -z "$RET" ] || { [ "$RET" = "$SUFFIX_DEFAULT" ] && [ "$SUFFIX_IN_FILE" = 0 ]; }; then
+			db_set portikus/preview_suffix "preview.$host"
+		fi
+		SUFFIX_DEFAULT="preview.$host"
+		;;
 	admin_email)
 		db_get portikus/admin_email
 		if [ -z "$RET" ]; then
@@ -304,7 +336,11 @@ prepare() {
 			db_set portikus/acme_email "$RET"
 		fi
 		;;
-	cloudflare_api_token | client_secret | ldap_bind_password)
+	cloudflare_api_token | cloudflare_preview_api_token | client_secret | ldap_bind_password)
+		if [ "$1" = cloudflare_api_token ]; then
+			db_get portikus/public_host
+			db_subst portikus/cloudflare_api_token host "$RET"
+		fi
 		# debconf keeps a password answered blank, but cannot show it.
 		db_get "portikus/$1"
 		if [ -n "$RET" ]; then
@@ -353,6 +389,7 @@ prepare() {
 secret_key() {
 	case "$1" in
 	cloudflare_api_token) echo portikus_cloudflare_api_token ;;
+	cloudflare_preview_api_token) echo portikus_cloudflare_preview_api_token ;;
 	client_secret) echo portikus_dex_upstream_client_secret ;;
 	ldap_bind_password) echo portikus_ldap_bind_password ;;
 	esac
@@ -366,6 +403,10 @@ summary() {
 	}
 	db_get portikus/public_host
 	line "Web address: https://$RET"
+	db_get portikus/preview_suffix
+	line "Student previews: under $RET"
+	db_get portikus/trusted_proxies
+	[ -z "$RET" ] || line "Trusted proxies: $RET"
 	db_get portikus/admin_email
 	line "Administrator: $RET"
 	db_get portikus/tls
@@ -457,6 +498,22 @@ is_hostname() {
 	echo "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
 }
 
+# An IPv4 or IPv6 network with a prefix length. Before python3 is unpacked on
+# a first install only the shape is checked; setup checks the rest.
+is_cidr() {
+	case "$1" in */*) ;; *) return 1 ;; esac
+	if command -v python3 >/dev/null 2>&1; then
+		python3 -c 'import ipaddress, sys; ipaddress.ip_network(sys.argv[1], strict=False)' "$1" 2>/dev/null
+	else
+		echo "$1" | grep -Eq '^[0-9A-Fa-f.:]+/[0-9]{1,3}$'
+	fi
+}
+
+# A prefix length of zero, as in 0.0.0.0/0 or ::/0, covers every address.
+is_everyone() {
+	case "$1" in */0 | */00 | */000) return 0 ;; *) return 1 ;; esac
+}
+
 is_email() {
 	echo "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9-]+$'
 }
@@ -501,6 +558,32 @@ check() {
 			PROBLEM="\"$value\" is not a full host name. Use letters, digits, hyphens and dots, such as portikus.example.edu."
 			return 1
 		}
+		;;
+	preview_suffix)
+		lower=$(echo "$value" | tr '[:upper:]' '[:lower:]')
+		[ "$lower" = "$value" ] || db_set portikus/preview_suffix "$lower"
+		is_hostname "$lower" || {
+			PROBLEM="\"$value\" is not a domain name, such as preview.portikus.example.edu."
+			return 1
+		}
+		db_get portikus/public_host
+		# BROWSER-HANDLING section 23: *.<suffix> must never match the web address.
+		if [ "$lower" = "$RET" ] || [ "${RET#*.}" = "$lower" ]; then
+			PROBLEM="The preview domain cannot be the web address ($RET) or the domain just above it. Use, for example, preview.$RET."
+			return 1
+		fi
+		;;
+	trusted_proxies)
+		for net in $(echo "$value" | tr ',' ' '); do
+			is_cidr "$net" || {
+				PROBLEM="\"$net\" is not a network with a prefix length, such as 10.20.20.10/32 or 2001:db8::/64."
+				return 1
+			}
+			! is_everyone "$net" || {
+				PROBLEM="\"$net\" would trust every address, so anyone could claim to be any visitor. Give only the proxy's own addresses, such as 10.20.20.10/32."
+				return 1
+			}
+		done
 		;;
 	google_admin_email)
 		[ -z "$value" ] && return 0
@@ -635,8 +718,22 @@ check() {
 	return 0
 }
 
-import_config_file
+# Most servers keep the suggested preview domain and have no proxy or second
+# zone, so an install asks these only at medium priority; dpkg-reconfigure
+# and a preseed reach them.
+priority() {
+	case "$1" in
+	preview_suffix | trusted_proxies | cloudflare_preview_api_token) echo medium ;;
+	*) echo high ;;
+	esac
+}
 
+# The default the remembered suffix was suggested from: the remembered host,
+# read before the file can move it.
+db_get portikus/public_host
+SUFFIX_DEFAULT="preview.$RET"
+SUFFIX_IN_FILE=0
+import_config_file
 db_get portikus/storage_size
 ORIGINAL_SIZE=$RET
 db_get portikus/registry_cache_gib
@@ -660,7 +757,7 @@ while [ "$STATE" -ge 1 ] && [ "$STATE" -le "$LAST" ]; do
 	STORAGE_BEFORE=$RET
 	prepare "$name"
 	rc=0
-	db_input high "portikus/$name" || rc=$?
+	db_input "$(priority "$name")" "portikus/$name" || rc=$?
 	shown=0
 	if [ "$rc" = 0 ]; then
 		shown=1

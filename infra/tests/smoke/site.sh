@@ -25,6 +25,16 @@ API_PORT="${PORTIKUS_API_PORT:-3000}"
 # Caddy signs with its own internal authority, so every request has to
 # trust the root certificate the Ansible caddy role copied here.
 CURL="curl -s --cacert /etc/portikus/caddy-root.crt"
+# PORTIKUS_SMOKE_EDGE, a proxy in front of the VM such as the stand-in for a
+# Cloudflare Tunnel connector: the site's requests go through it instead of
+# loopback, trusting PORTIKUS_SMOKE_EDGE_CA, a file on the VM.
+# Checks that pick their own loopback source with --interface test the
+# VM's per-address handling, so they keep this one.
+CURL_LOOPBACK="${CURL}"
+SMOKE_EDGE="${PORTIKUS_SMOKE_EDGE:-127.0.0.1}"
+if [ -n "${PORTIKUS_SMOKE_EDGE:-}" ]; then
+  CURL="curl -s --cacert ${PORTIKUS_SMOKE_EDGE_CA:?PORTIKUS_SMOKE_EDGE needs PORTIKUS_SMOKE_EDGE_CA} --resolve ${PUBLIC_HOST}:${PUBLIC_PORT}:${SMOKE_EDGE}"
+fi
 # The session cookie is named for the __Host- prefix, which browsers only
 # accept on a secure, host-scoped, path-/ cookie.
 SESSION_COOKIE_NAME="__Host-portikus_session"

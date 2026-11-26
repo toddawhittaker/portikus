@@ -51,6 +51,28 @@ export async function findReusablePass({ api, repo, sha, workflowPath }) {
 	return null;
 }
 
+/**
+ * For a push to an epic branch, return its open pull request into main, or
+ * null. That pull request's run starts for the same push and is the run the
+ * main ruleset reads, so a push run beside it only doubles the wait. A failed
+ * lookup returns null, so everything runs.
+ */
+export async function openEpicPullRequest(env, api) {
+	const prefix = "refs/heads/epic/";
+	if (!env.GITHUB_REF?.startsWith(prefix)) return null;
+	const branch = env.GITHUB_REF.slice("refs/heads/".length);
+	const owner = env.GITHUB_REPOSITORY.split("/")[0];
+	try {
+		const pulls = await api(
+			`/repos/${env.GITHUB_REPOSITORY}/pulls?state=open&base=main&head=${encodeURIComponent(`${owner}:${branch}`)}`,
+		);
+		const pr = Array.isArray(pulls) ? pulls[0] : undefined;
+		return Number.isInteger(pr?.number) ? { branch, number: pr.number } : null;
+	} catch {
+		return null;
+	}
+}
+
 /** Decide for one run. Never throws: an error means run everything. */
 export async function decide(env, api) {
 	try {
@@ -68,6 +90,13 @@ export async function decide(env, api) {
 			workflowPath,
 		});
 		if (!pass) {
+			const epicPr = await openEpicPullRequest(env, api);
+			if (epicPr) {
+				return {
+					skip: true,
+					summary: `Skipped the heavy jobs: ${epicPr.branch} has an open pull request into main (#${epicPr.number}), whose run starts for this same push and tests it merged onto main.`,
+				};
+			}
 			return {
 				skip: false,
 				summary: "No passing pull request run for this exact tree, so every job runs.",

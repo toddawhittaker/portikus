@@ -99,7 +99,9 @@ certificate covers only one level of names below your domain, so it
 cannot serve `alice-5173.preview.portikus.example.edu`, and the proxy
 would also stand between students and the server's own certificate.
 The rehearsals made no public records, so this follows Cloudflare's
-documentation rather than a test.
+documentation rather than a test. A server with no public address, reached
+through a Cloudflare Tunnel, uses proxied records instead: see "Behind a
+Cloudflare Tunnel" below.
 
 Check the first record from your own computer before going on:
 
@@ -786,6 +788,146 @@ on Let's Encrypt through Cloudflare's DNS. Certificate files named in the
 preseed are used as they are. With either, the administrator's one-time
 password appears only once the site serves that certificate ("First
 sign-in"). From then on the Certificate tab owns the certificate.
+
+## Behind a Cloudflare Tunnel
+
+This layout has no public address on the server. Browsers reach
+Cloudflare, Cloudflare sends the request down a tunnel that `cloudflared`
+(Cloudflare's connector program) opened outward, and `cloudflared`
+connects to the server on port 443. It was rehearsed with a stand-in
+connector, and measured on a real tunnel in the Kitestring lab
+(docs/deployments/kitestring-lab-reply.md). The example uses these names:
+
+| Name | What |
+|---|---|
+| `portikus.kitestringlabs.org` | The site (the web address) |
+| `*.kitestringlabs.dev` | Student previews: the preview domain is `kitestringlabs.dev` |
+| `10.20.20.10` | The machine that runs `cloudflared` |
+| `10.20.30.30` | The Portikus server |
+
+The preview domain is a registrable domain of its own, a different site
+from the web address. That is the layout with the strongest separation
+between student pages and Portikus (docs/BROWSER-HANDLING.md, section 7.2).
+A bare registrable domain works as the suffix: previews are named
+`alice-5173.kitestringlabs.dev`. A subdomain of the web address also works
+(`preview.portikus.example.edu`, the default); it just does not isolate as
+well.
+
+### What to set up at Cloudflare
+
+- **DNS.** Both names proxied (orange cloud) to the tunnel. Cloudflare's
+  free certificate covers both, because each is one level below its zone.
+- **Tunnel routes.** Both names go to `https://<server address>:443`, with
+  the request's own host name sent as the server name (`matchSNItoHost`)
+  and the server's certificate verified. Portikus therefore still needs
+  real certificates, from Let's Encrypt through Cloudflare DNS, below.
+- **Caching.** Add Cache Rules that bypass the cache on both zones.
+  Cloudflare caches `.js`, `.css` and images by default. Portikus marks
+  its authenticated answers and previews as private as a second guard
+  (see the reply for what each response sends), but do not rely on it alone.
+- **Turn off Web Analytics** on both names. It injects a script that
+  Portikus's Content Security Policy blocks, so it only fills browser
+  consoles with errors.
+- **No Cloudflare Access** on either name: it blocks LTI launches and
+  API-key clients. Leave bot-blocking features off on the preview domain.
+- **Firewall.** The server needs port 443 open to the `cloudflared`
+  machine only. Port 80 is not needed.
+
+### Before you install: the backup disk
+
+There is no setting for where backups go: they always go to
+`/var/backups/portikus/local` (see "Backups: copying them off the
+server"). To keep them on a disk of their own, make a filesystem on that
+disk and mount it there **before** you install, naming the disk by its ID.
+Letters such as `/dev/sdb` can change from one boot to the next; paths
+under `/dev/disk/by-id/` do not. Check which disk is which with
+`ls -l /dev/disk/by-id/`, and check that the disk is empty, because
+`mkfs` erases it:
+
+```
+sudo mkfs.ext4 /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2
+sudo mkdir -p /var/backups/portikus/local
+echo '/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2 /var/backups/portikus/local ext4 defaults 0 2' | sudo tee -a /etc/fstab
+sudo systemctl daemon-reload
+sudo mount /var/backups/portikus/local
+findmnt /var/backups/portikus/local
+```
+
+Use your own disk's path in place of the example. Setup then makes the
+backup folders on the mounted disk. A disk that is on the same storage as
+the student files protects against mistakes and the loss of the server,
+not against losing that storage (docs/CAPACITY.md, "Backups on a local
+disk"). The student-files disk is named in the install answers in the same
+way, by its ID, below.
+
+### Answers for this layout
+
+The questions about the preview domain, the trusted addresses and the
+second Cloudflare token are asked at debconf's medium priority, and a
+plain `apt install portikus` only shows high-priority ones. Set them in a
+preseed file (see "Unattended installs"), or run
+`sudo dpkg-reconfigure portikus`, which shows them. For this layout:
+
+```
+portikus portikus/public_host string portikus.kitestringlabs.org
+portikus portikus/preview_suffix string kitestringlabs.dev
+portikus portikus/trusted_proxies string 10.20.20.10/32
+portikus portikus/admin_email string admin@portikus.kitestringlabs.org
+portikus portikus/tls select letsencrypt
+portikus portikus/acme_email string you@example.edu
+portikus portikus/cloudflare_api_token password REPLACE-WITH-CLOUDFLARE-TOKEN
+portikus portikus/provider select dex
+portikus portikus/storage select /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+portikus portikus/storage_confirm boolean true
+```
+
+Then install as under "Unattended installs", and delete the preseed file.
+The install took about 13 minutes on a server with 16 cores, a little
+longer than the usual ten.
+
+- **Certificates.** Let's Encrypt proves the names through DNS records at
+  Cloudflare, so nothing needs to reach the server from the internet. One
+  API token with "Edit zone DNS" and "Zone Read" on **both** zones works.
+  If the preview domain is in a different Cloudflare account, leave the
+  token above for the web address, and add one more line for the preview
+  domain's own token:
+  `portikus portikus/cloudflare_preview_api_token password REPLACE-WITH-PREVIEW-ZONE-TOKEN`.
+  After the administrator exists, the **Certificate** page of the admin
+  screen owns the tokens. `dpkg-reconfigure portikus` no longer changes
+  them (see "Once the administrator exists" above). To move the preview
+  domain to another account later, change the preview token there.
+- **Signing in.** The administrator signs in with the email address given
+  above, not with a username. The one-time password is in
+  `/etc/portikus/admin-password` once the site serves its certificate.
+- **Real visitor addresses.** `trusted_proxies` makes Caddy (the web
+  server) take each visitor's address from the `CF-Connecting-IP` header
+  that Cloudflare sets, but only on connections from the listed networks.
+  The header from any other source is ignored. Caddy's log, the audit log,
+  sign-in records and the rate limits then see the visitor, not
+  `cloudflared`. Give it networks with a prefix length, separated by
+  spaces. Leave it blank when browsers connect to the server directly.
+
+**Warning: list only addresses that nobody else can send from.** A listed
+address is exempt from the firewall's limit of 8192 open web connections
+per address (every visitor would otherwise share one limit), and its
+`CF-Connecting-IP` is believed without question. Anyone who can send from a
+listed address can claim to be any visitor and skip the connection limit.
+Use the single address of the connector (`/32`), on a network that only
+you control. Do not list a whole office or campus network, and do not list
+`0.0.0.0/0` or `::/0` (the install screen refuses them). The API's per-address rate
+limits, which use the real address, are what limits one visitor.
+
+### Known limits of this layout
+
+- A preview opened inside the Portikus page needs a cookie that Safari
+  refuses on a different site. The preview opens in its own tab instead.
+- Inside a learning system's frame, Portikus shows "Open Portikus in a new
+  tab", and that tab completes the LTI launch. Portikus does not run
+  inside a frame.
+- No page on the web address's registrable domain (`kitestringlabs.org`)
+  may be controlled by anyone you do not trust: previews framed by such a
+  page would receive the preview cookie. Keep untrusted pages on the
+  preview domain.
 
 ## Changing your answers
 

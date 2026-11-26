@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BrowserContext, Frame, Page, Request } from "@playwright/test";
-import { cookiePairs, headersOf } from "./helpers";
+import { headersOf } from "./helpers";
 import { API_ORIGIN, WEB_ORIGIN } from "./ports";
 
 /**
@@ -18,17 +18,16 @@ import { API_ORIGIN, WEB_ORIGIN } from "./ports";
  *     (BROWSER-HANDLING.md §12.1), served from the build under the rules of
  *     the real Caddy route; see `frameAnswer`;
  *   - the rest of `/__portikus/*` goes to the API, which consumes the
- *     bootstrap ticket, mints the preview-host session cookie and redirects to
- *     the wrapper page, or to `/` for a preview opened in its own tab;
+ *     bootstrap ticket, mints the preview-host session cookie and answers
+ *     with a page that sends the browser on to the wrapper page, or to `/`
+ *     for a preview opened in its own tab;
  *   - every other path is authorized by the API's `/preview/authorize`
  *     subrequest and then proxied to the upstream that answer names, which is
  *     the little application the fake agent is really running.
  *
- * The bootstrap's redirect to the wrapper page is handed to the browser (see
- * `frameRedirect`), so the browser makes its own request to
- * `/__portikus/frame/` with its own `Sec-Fetch-*` headers, and Caddy's rules
- * for that path are answered for a real browser request. The redirect to an
- * application page is still followed inside each gateway.
+ * The bootstrap's page is handed to the browser as it is, so the browser
+ * makes its own next request with its own `Sec-Fetch-*` headers, and Caddy's
+ * rules for that path are answered for a real browser request.
  */
 
 /** The preview suffix the end-to-end API is configured with. */
@@ -255,6 +254,36 @@ function navigationDest(request: Request): string | null {
 }
 
 /**
+ * The site of a host name: an IP address is its own site, and a name is its
+ * last two labels. Enough for the hosts this suite uses; a deployment's
+ * browser uses the public suffix list.
+ */
+function siteOf(hostname: string): string {
+	if (/^[\d.]+$/.test(hostname)) return hostname;
+	return hostname.split(".").slice(-2).join(".");
+}
+
+/**
+ * The `Sec-Fetch-Dest` and `Sec-Fetch-Site` a navigation would carry, which a
+ * route handler cannot read (see `navigationDest`). The site compares the
+ * request with the top-level page, as a browser does for a framed request.
+ * A request with no known top page, such as the reset fetch from the
+ * Portikus page, is compared with the page that made it.
+ */
+function fetchMetadata(request: Request): Record<string, string> {
+	const dest = navigationDest(request);
+	let top = request.frame();
+	while (top.parentFrame() !== null) top = top.parentFrame() as Frame;
+	const own = siteOf(new URL(request.url()).hostname);
+	const from = siteOf(new URL(top.url() || request.url()).hostname);
+	const site = dest === "document" ? "none" : own === from ? "same-site" : "cross-site";
+	return {
+		...(dest === null ? {} : { "sec-fetch-dest": dest }),
+		"sec-fetch-site": site,
+	};
+}
+
+/**
  * The wrapper page's answer to a browser request for a wrapper path, with the
  * cookie the edge holds for it; null for any other path.
  */
@@ -278,38 +307,6 @@ export async function frameAnswerFor(
 }
 
 /**
- * The API's bootstrap answer when it sends an embedded preview to the wrapper
- * page, as a response to fulfil with; null for any other answer.
- *
- * A real 303 cannot be handed to the browser here: Chromium follows a fulfilled
- * redirect without asking the route again, so the follow-up request would go
- * to `https://` on a host this environment has no certificate for. A
- * `Refresh: 0` response is the nearest thing that still makes the browser
- * request the wrapper page itself, as a frame navigation with its own
- * `Sec-Fetch-*` headers, through the route. The cookie the API set rides on
- * this response, and `edgeCookieJar` holds the copy the follow-up request needs.
- */
-export function frameRedirect(answer: Response): {
-	status: number;
-	headers: Record<string, string>;
-} | null {
-	const location = answer.headers.get("location");
-	if (answer.status !== 303 || location === null || !isFramePath(location)) return null;
-	const headers = {
-		...headersOf(answer, PASSED_HEADERS),
-		refresh: `0; url=${location}`,
-	};
-	const setCookie = answer.headers.getSetCookie();
-	return {
-		status: 200,
-		headers:
-			setCookie.length > 0
-				? { ...headers, "set-cookie": setCookie.join("\n") }
-				: headers,
-	};
-}
-
-/**
  * Stand in for Caddy for the browser's requests to preview hosts. Returns a
  * count of the requests that reached the student application, which is how a
  * test says the application itself was really fetched. Pass the context
@@ -317,10 +314,23 @@ export function frameRedirect(answer: Response): {
  */
 export async function previewGateway(
 	page: Page | BrowserContext,
+	options: {
+		browserCookies?: boolean;
+		/** Drop the partitioned cookie of an embedded bootstrap, as Safari does. */
+		refusePartitioned?: boolean;
+	} = {},
 ): Promise<{ app: number }> {
 	requireFrameBuild();
 	const counts = { app: 0 };
-	const jar = edgeCookieJar();
+	const edgeJar = edgeCookieJar();
+	// With browser cookies the browser alone keeps the preview cookie, as it
+	// does in a deployment, and the API sees the Fetch Metadata it decides by.
+	const jar = options.browserCookies
+		? {
+				withJar: (_host: string, browser: string) => browser,
+				remember: () => undefined,
+			}
+		: edgeJar;
 
 	/** Authorize one request and proxy it to the upstream the API names. */
 	async function proxy(
@@ -378,38 +388,24 @@ export async function previewGateway(
 						"x-forwarded-host": host,
 						"x-forwarded-proto": "https",
 						cookie,
+						...(options.browserCookies ? fetchMetadata(request) : {}),
 					},
 					redirect: "manual",
 				});
 				jar.remember(host, answer);
 				const headers = headersOf(answer, PASSED_HEADERS);
-				const setCookie = answer.headers.getSetCookie();
+				const setCookie = answer.headers
+					.getSetCookie()
+					.filter(
+						(line) => !(options.refusePartitioned && /;\s*Partitioned/i.test(line)),
+					);
 				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
 
-				// Anything but the bootstrap redirect is a Portikus page, passed
-				// straight through.
-				const location = answer.headers.get("location");
-				if (answer.status !== 303 || location === null) {
-					return route.fulfill({
-						status: answer.status,
-						headers,
-						body: Buffer.from(await answer.arrayBuffer()),
-					});
-				}
-
-				const toWrapper = frameRedirect(answer);
-				if (toWrapper) return route.fulfill(toWrapper);
-
-				// The bootstrap just minted a session: follow the redirect with
-				// that cookie alone, never a stale one the jar still holds.
-				const withSession = [fromBrowser, cookiePairs(answer)]
-					.filter(Boolean)
-					.join("; ");
-				const app = await proxy(host, location, withSession);
+				// A Portikus page, the bootstrap's included, passed straight through.
 				return route.fulfill({
-					status: app.status,
-					headers: { ...app.headers, ...headers },
-					body: app.body,
+					status: answer.status,
+					headers,
+					body: Buffer.from(await answer.arrayBuffer()),
 				});
 			}
 

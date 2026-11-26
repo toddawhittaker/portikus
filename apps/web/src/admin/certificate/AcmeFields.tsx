@@ -3,7 +3,8 @@ import {
 	DNS_PROVIDER_FIELDS,
 	type DnsProvider,
 } from "@portikus/contracts";
-import { HINT_CLASS, Select, TextField, Toggletip } from "@portikus/ui";
+import { Checkbox, HINT_CLASS, Select, TextField, Toggletip } from "@portikus/ui";
+import type { ReactNode } from "react";
 import { TextAreaField } from "../TextAreaField.js";
 import { Choice } from "./Choice.js";
 import {
@@ -12,17 +13,20 @@ import {
 	DIRECTORY_CHOICES,
 	DIRECTORY_LABEL,
 	type DirectoryChoice,
+	type DnsAccount,
 	FIELD_ID,
 	fieldLabel,
 	hmacStored,
 	PROVIDER_LABEL,
 	PROVIDERS,
 	plainValue,
+	providerOf,
 	SECRET_KEPT,
 	SECRET_NONE,
 	secretStored,
 	secretValue,
 	withPlain,
+	withProvider,
 	withSecret,
 } from "./form.js";
 
@@ -30,7 +34,7 @@ const MODES: { value: ChallengeMode; label: string; text: string }[] = [
 	{
 		value: "dns01",
 		label: "DNS-01",
-		text: "Proves the name with a DNS record your DNS provider adds. One wildcard certificate covers the site and every preview name.",
+		text: "Proves the name with a DNS record your DNS provider adds. The site gets one certificate, and every preview name is covered by one wildcard certificate.",
 	},
 	{
 		value: "http01",
@@ -54,7 +58,6 @@ export function AcmeFields({
 	onEdit: (id: string) => void;
 }) {
 	const settings = data.settings;
-	const fields = DNS_PROVIDER_FIELDS[form.provider];
 	const hmacSet = hmacStored(settings);
 	return (
 		<div className="grid gap-5">
@@ -150,50 +153,42 @@ export function AcmeFields({
 				onChange={(mode) => onChange({ ...form, mode })}
 			/>
 			{form.mode === "dns01" ? (
-				<fieldset className="m-0 grid gap-3 border-0 p-0" data-testid="cert-dns">
-					<legend className="mb-2 p-0 font-medium text-[13px] text-ink">
-						DNS provider
-					</legend>
-					<Select
-						id="cert-provider"
-						label="Provider"
-						value={form.provider}
-						options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
+				<>
+					<DnsAccountFields
+						account="site"
+						legend="DNS provider"
+						testId="cert-dns"
+						selectId="cert-provider"
 						hint={`The credentials need permission to edit DNS records for ${data.siteName}.`}
-						onValueChange={(v) => onChange({ ...form, provider: v as DnsProvider })}
+						form={form}
+						errors={errors}
+						settings={settings}
+						onChange={onChange}
+						onEdit={onEdit}
 					/>
-					{fields.plain.map((name) => (
-						<TextField
-							key={`${form.provider}-${name}`}
-							id={FIELD_ID.provider(name)}
-							label={fieldLabel(name)}
-							mono
-							autoComplete="off"
-							spellCheck={false}
-							value={plainValue(form, name)}
-							error={errors[FIELD_ID.provider(name)]}
-							onChange={(event) => {
-								onEdit(FIELD_ID.provider(name));
-								onChange(withPlain(form, name, event.target.value));
-							}}
+					<Checkbox
+						label="Preview domain in its own DNS zone"
+						description={`Use a second DNS account when ${data.previewSuffix} is not in the same DNS zone as ${data.siteName}. Turn this off and apply to remove the stored preview account.`}
+						checked={form.previewDns}
+						onChange={(event) =>
+							onChange({ ...form, previewDns: event.target.checked })
+						}
+					/>
+					{form.previewDns ? (
+						<DnsAccountFields
+							account="preview"
+							legend="Preview domain DNS provider"
+							testId="cert-dns-preview"
+							selectId="cert-preview-provider"
+							hint={`The credentials need permission to edit DNS records for ${data.previewSuffix}.`}
+							form={form}
+							errors={errors}
+							settings={settings}
+							onChange={onChange}
+							onEdit={onEdit}
 						/>
-					))}
-					{fields.secret.map((name) => (
-						<SecretField
-							key={`${form.provider}-${name}`}
-							id={FIELD_ID.provider(name)}
-							label={fieldLabel(name)}
-							multiline={name === "service_account_json"}
-							set={secretStored(settings, form.provider, name)}
-							value={secretValue(form, name)}
-							error={errors[FIELD_ID.provider(name)]}
-							onChange={(value) => {
-								onEdit(FIELD_ID.provider(name));
-								onChange(withSecret(form, name, value));
-							}}
-						/>
-					))}
-				</fieldset>
+					) : null}
+				</>
 			) : (
 				<p className={HINT_CLASS} data-testid="cert-http01-note">
 					Port 80 must reach this server from the internet, for {data.siteName} and
@@ -202,6 +197,94 @@ export function AcmeFields({
 				</p>
 			)}
 		</div>
+	);
+}
+
+/** One DNS account: its provider, that provider's plain fields, and its write-only secrets. */
+function DnsAccountFields({
+	account,
+	legend,
+	testId,
+	selectId,
+	hint,
+	form,
+	errors,
+	settings,
+	onChange,
+	onEdit,
+}: {
+	account: DnsAccount;
+	legend: string;
+	testId: string;
+	selectId: string;
+	hint: string;
+	form: CertificateForm;
+	errors: Record<string, string>;
+	settings: AdminCertificate["settings"];
+	onChange: (form: CertificateForm) => void;
+	onEdit: (id: string) => void;
+}) {
+	const provider = providerOf(form, account);
+	const fields = DNS_PROVIDER_FIELDS[provider];
+	// The preview account's fields repeat the site's labels, so a screen
+	// reader hears which account each belongs to (SPEC.md section 25.8).
+	const named = (label: string) =>
+		account === "preview" ? (
+			<>
+				<span className="sr-only">Preview domain</span> {label}
+			</>
+		) : (
+			label
+		);
+	return (
+		<fieldset className="m-0 grid gap-3 border-0 p-0" data-testid={testId}>
+			<legend className="mb-2 p-0 font-medium text-[13px] text-ink">{legend}</legend>
+			<Select
+				id={selectId}
+				label={named("Provider")}
+				value={provider}
+				options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
+				hint={hint}
+				onValueChange={(v) => onChange(withProvider(form, v as DnsProvider, account))}
+			/>
+			{fields.plain.map((name) => {
+				const id = FIELD_ID.provider(name, account);
+				return (
+					<TextField
+						key={`${provider}-${name}`}
+						id={id}
+						label={named(fieldLabel(name))}
+						mono
+						autoComplete="off"
+						spellCheck={false}
+						value={plainValue(form, name, account)}
+						error={errors[id]}
+						onChange={(event) => {
+							onEdit(id);
+							onChange(withPlain(form, name, event.target.value, account));
+						}}
+					/>
+				);
+			})}
+			{fields.secret.map((name) => {
+				const id = FIELD_ID.provider(name, account);
+				return (
+					<SecretField
+						key={`${provider}-${name}`}
+						id={id}
+						label={named(fieldLabel(name))}
+						multiline={name === "service_account_json"}
+						set={secretStored(settings, provider, name, account)}
+						value={secretValue(form, name, account)}
+						error={errors[id]}
+						onChange={(value) => {
+							onEdit(id);
+							onChange(withSecret(form, name, value, account));
+						}}
+					/>
+				);
+			})}
+		</fieldset>
 	);
 }
 
@@ -216,7 +299,7 @@ function SecretField({
 	onChange,
 }: {
 	id: string;
-	label: string;
+	label: ReactNode;
 	multiline: boolean;
 	set: boolean;
 	value: string;

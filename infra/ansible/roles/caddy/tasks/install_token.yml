@@ -1,5 +1,5 @@
 ---
-# Removes the Cloudflare token from the install answers' secrets, which
+# Removes the Cloudflare tokens from the install answers' secrets, which
 # `portikus setup` hands Ansible as a mapping (docs/SPEC.md section 24.8).
 # A VM set up from a workstation has no such file.
 - name: Look for the install answers' secrets
@@ -21,16 +21,19 @@
   no_log: true
 
 # Rewritten whole, as postinst writes it, so a file left with no key is
-# still a mapping.
-- name: Write the secrets back without the token
+# still a mapping.  Both Cloudflare tokens go: the site's and the preview
+# domain's, when it lives in another zone (docs/SPEC.md section 20.1).
+- name: Write the secrets back without the tokens
   ansible.builtin.copy:
     dest: "{{ caddy_install_secrets_path }}"
     content: |
       # Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.
-      {{ caddy_install_secrets_map | dict2items | rejectattr('key', 'equalto', 'portikus_cloudflare_api_token')
-         | items2dict | to_nice_yaml if caddy_install_secrets_map | length > 1 else '{}' }}
+      {{ caddy_install_secrets_kept | to_nice_yaml if caddy_install_secrets_kept | length > 0 else '{}' }}
     mode: "0600"
+  vars:
+    caddy_install_token_keys: [portikus_cloudflare_api_token, portikus_cloudflare_preview_api_token]
+    caddy_install_secrets_kept: "{{ caddy_install_secrets_map | dict2items | rejectattr('key', 'in', caddy_install_token_keys) | items2dict }}"
   when:
     - caddy_install_secrets_file.stat.exists
-    - "'portikus_cloudflare_api_token' in caddy_install_secrets_map"
+    - caddy_install_secrets_map.keys() | intersect(caddy_install_token_keys) | length > 0
   no_log: true
