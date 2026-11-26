@@ -15,6 +15,19 @@
 # portikus_public_host
 portikus portikus/public_host string portikus.example.edu
 
+# The domain student previews live under; a wildcard DNS record for it must
+# point here. Default: preview.<public_host>. It may be a domain of its own,
+# such as example-previews.dev, but never public_host or the domain just
+# above it. Written only when it differs from the default.
+# portikus_preview_suffix
+#portikus portikus/preview_suffix string preview.portikus.example.edu
+
+# Behind a reverse proxy or Cloudflare Tunnel connector: its addresses as
+# networks with a prefix length, separated by spaces (portikus_trusted_proxies,
+# a list). Visitors' addresses then come from CF-Connecting-IP, on those
+# connections only. Default: blank, no proxy.
+#portikus portikus/trusted_proxies string 10.20.20.10/32
+
 # The local administrator's email. Default: admin@<public_host>.
 # portikus_admin_email
 portikus portikus/admin_email string admin@example.edu
@@ -29,10 +42,15 @@ portikus portikus/admin_email string admin@example.edu
 portikus portikus/tls select internal
 
 # For letsencrypt: the account email (portikus_acme_email) and a Cloudflare
-# API token with "Edit zone DNS" permission, for the preview wildcard
-# (secrets.yaml: portikus_cloudflare_api_token).
+# API token with "Edit zone DNS" permission, for the site's name and, unless
+# a second token is given, the preview wildcard (secrets.yaml:
+# portikus_cloudflare_api_token).
 #portikus portikus/acme_email string admin@example.edu
 #portikus portikus/cloudflare_api_token password REPLACE-WITH-CLOUDFLARE-TOKEN
+# Optional: when the preview domain is a Cloudflare zone of its own, a token
+# for that zone, used for the preview wildcard only (secrets.yaml:
+# portikus_cloudflare_preview_api_token). Blank: the token above covers both.
+#portikus portikus/cloudflare_preview_api_token password REPLACE-WITH-PREVIEW-ZONE-TOKEN
 
 # For files: PEM certificate and key paths on this host
 # (portikus_tls_cert, portikus_tls_key).

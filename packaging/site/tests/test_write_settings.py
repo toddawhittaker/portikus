@@ -95,11 +95,60 @@ class WriteSettings(unittest.TestCase):
                       "secrets.yaml": "portikus_dex_upstream_client_secret: fake-secret-value\n"
                                       "portikus_ldap_bind_password: ''\n"})
         out = self.read()
-        self.assertEqual(out["answers"], {"provider": "oidc"})
+        self.assertEqual(out["answers"], {"provider": "oidc", "preview_suffix": "apps.example.edu"})
         self.assertEqual(out["publicPort"], 8443)
         self.assertEqual(out["previewSuffix"], "apps.example.edu")
         self.assertEqual(out["secretsSet"], ["portikus_dex_upstream_client_secret"])
         self.assertNotIn("fake-secret-value", json.dumps(out))
+
+    BASE = {"public_host": "portikus.example.edu", "admin_email": "admin@example.edu", "storage": "file",
+            "storage_size": "50"}
+
+    def config(self):
+        return Path(self.etc, "portikus.yaml").read_text()
+
+    def test_the_default_preview_suffix_is_not_written_so_it_follows_the_host(self):
+        self.write({**self.BASE, "preview_suffix": "preview.portikus.example.edu"})
+        self.assertNotIn("portikus_preview_suffix", self.config())
+        self.assertNotIn("preview_suffix", self.read()["answers"])
+
+    def test_a_preview_domain_of_its_own_is_written_and_kept(self):
+        """The lab layout: previews under a registrable domain of their own (BROWSER-HANDLING 7.2)."""
+        answers = {**self.BASE, "public_host": "portikus.kitestringlabs.org", "preview_suffix": "KitestringLabs.dev"}
+        self.write(answers)
+        self.assertIn("portikus_preview_suffix: kitestringlabs.dev\n", self.config())
+        self.assertEqual(self.read()["answers"]["preview_suffix"], "kitestringlabs.dev")
+        # Written again from what it reads back, as the site job does, it stays.
+        self.write({**self.read()["answers"], "public_host": "lab.kitestringlabs.org"})
+        self.assertIn("portikus_preview_suffix: kitestringlabs.dev\n", self.config())
+
+    def test_a_hand_written_default_suffix_stays(self):
+        self.lay_out({"portikus.yaml": "portikus_preview_suffix: preview.portikus.example.edu\n"})
+        self.write({**self.BASE, "preview_suffix": "preview.portikus.example.edu"})
+        self.assertIn("portikus_preview_suffix: preview.portikus.example.edu\n", self.config())
+
+    def test_trusted_proxies_are_a_list_and_blank_is_off(self):
+        self.write({**self.BASE, "trusted_proxies": "10.20.20.10/32, 2001:db8::/64"})
+        self.assertIn("portikus_trusted_proxies:\n- 10.20.20.10/32\n- 2001:db8::/64\n", self.config())
+        self.assertEqual(self.read()["answers"]["trusted_proxies"], "10.20.20.10/32 2001:db8::/64")
+        self.write({**self.BASE, "trusted_proxies": ""})
+        self.assertNotIn("trusted_proxies", self.config())
+
+    def test_the_preview_token_is_optional_and_kept_like_the_first(self):
+        answers = {**self.BASE, "tls": "letsencrypt", "acme_email": "admin@example.edu",
+                   "cloudflare_api_token": "fake-cloudflare-token-one"}
+        self.assertEqual(self.write(answers), "")
+        self.assertNotIn("preview_api_token", Path(self.etc, "secrets.yaml").read_text())
+        self.write({**answers, "cloudflare_preview_api_token": "fake-cloudflare-token-two"})
+        secrets = Path(self.etc, "secrets.yaml").read_text()
+        self.assertIn("portikus_cloudflare_preview_api_token: fake-cloudflare-token-two\n", secrets)
+        # Blank keeps the stored token, as for every secret.
+        self.write({**answers, "cloudflare_api_token": ""})
+        self.assertIn("fake-cloudflare-token-two", Path(self.etc, "secrets.yaml").read_text())
+        self.assertNotIn("fake-cloudflare-token", self.config())
+        # Another kind of certificate drops it.
+        self.write({**answers, "tls": "internal"})
+        self.assertNotIn("preview_api_token", Path(self.etc, "secrets.yaml").read_text())
 
     def test_google_groups_are_written_in_lowercase_only_with_an_administrator(self):
         """Dex matches the lowercase group emails Google returns (SPEC.md 5.1)."""

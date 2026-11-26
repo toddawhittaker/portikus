@@ -280,12 +280,14 @@ def _validate_dns(dns):
 
 
 def _validate_challenge(challenge):
-    _keys(challenge, ["mode"], ["dns"], "the challenge")
+    _keys(challenge, ["mode"], ["dns", "previewDns"], "the challenge")
     if challenge["mode"] == "http01":
         _keys(challenge, ["mode"], what="the HTTP-01 challenge")
     elif challenge["mode"] == "dns01":
-        _keys(challenge, ["mode", "dns"], what="the DNS-01 challenge")
+        _keys(challenge, ["mode", "dns"], ["previewDns"], "the DNS-01 challenge")
         _validate_dns(challenge["dns"])
+        if "previewDns" in challenge:
+            _validate_dns(challenge["previewDns"])
     else:
         raise Refused("unknown challenge mode")
 
@@ -925,13 +927,27 @@ SNIPPET_HEADER = (
 )
 
 
+# The owner of a secret for the preview wildcard's own DNS account is its
+# provider with this prefix, so the two accounts' secrets never share a file.
+PREVIEW_OWNER = "preview_"
+
+
 def secret_file(owner, field):
     """The file in secrets/ that holds one secret."""
     if owner == "eab":
         return "eab_hmac_key"
-    if (owner, field) in PATH_SECRET_FIELDS:
+    if (owner.removeprefix(PREVIEW_OWNER), field) in PATH_SECRET_FIELDS:
         return f"{owner}_{field}.json"
     return f"{owner}_{field}"
+
+
+def dns_accounts(challenge):
+    """(owner, dns) for each DNS account a DNS-01 challenge names: the site's, then the preview
+    wildcard's own when it has one (a different zone, ADR 0046)."""
+    accounts = [(challenge["dns"]["provider"], challenge["dns"])]
+    if challenge.get("previewDns"):
+        accounts.append((PREVIEW_OWNER + challenge["previewDns"]["provider"], challenge["previewDns"]))
+    return accounts
 
 
 def tls_lines(settings, base, preview=False, alt_http_port=None):
@@ -953,13 +969,13 @@ def tls_lines(settings, base, preview=False, alt_http_port=None):
         lines.append(f"\t\teab {settings['eab']['keyId']} {{file.{secrets_dir}/{secret_file('eab', '')}}}")
     challenge = settings["challenge"]
     if challenge["mode"] == "dns01":
-        provider = challenge["dns"]["provider"]
-        fields = challenge["dns"]["fields"]
+        owner, dns = dns_accounts(challenge)[-1 if preview else 0]
+        provider, fields = dns["provider"], dns["fields"]
         lines.append(f"\t\tdns {provider} {{")
         for name in DNS_PROVIDER_FIELDS[provider]["plain"]:
             lines.append(f"\t\t\t{name} {fields[name]}")
         for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
-            path = f"{secrets_dir}/{secret_file(provider, name)}"
+            path = f"{secrets_dir}/{secret_file(owner, name)}"
             directive = PATH_SECRET_FIELDS.get((provider, name))
             lines.append(f"\t\t\t{directive} {path}" if directive else f"\t\t\t{name} {{file.{path}}}")
         lines.append("\t\t}")
@@ -974,6 +990,12 @@ def tls_lines(settings, base, preview=False, alt_http_port=None):
             lines.append("\ton_demand")
     lines.append("}")
     return lines
+
+
+def throwaway_snippet(name):
+    """The snippet a throwaway site block for name imports: the wildcard is a preview name, whose
+    DNS account may differ from the site's."""
+    return "portikus_tls_preview" if name.startswith("*.") else "portikus_tls_site"
 
 
 def snippets(settings, base, alt_http_port=None):
@@ -1092,13 +1114,17 @@ class Runner:
             return kept
         cur_challenge = current.get("challenge") or {}
         challenge = settings["challenge"]
-        if challenge["mode"] == "dns01" and cur_challenge.get("mode") == "dns01" \
-                and cur_challenge.get("provider") == challenge["dns"]["provider"]:
-            provider = challenge["dns"]["provider"]
-            for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
-                data = read_bytes(self.state(f"secrets/{secret_file(provider, name)}"))
-                if data:
-                    kept[(provider, name)] = data.decode("utf-8", "replace")
+        if challenge["mode"] == "dns01" and cur_challenge.get("mode") == "dns01":
+            in_force = {cur_challenge.get("provider")}
+            if isinstance(cur_challenge.get("previewDns"), dict):
+                in_force.add(PREVIEW_OWNER + str(cur_challenge["previewDns"].get("provider")))
+            for owner, dns in dns_accounts(challenge):
+                if owner not in in_force:
+                    continue
+                for name in DNS_PROVIDER_FIELDS[dns["provider"]]["secret"]:
+                    data = read_bytes(self.state(f"secrets/{secret_file(owner, name)}"))
+                    if data:
+                        kept[(owner, name)] = data.decode("utf-8", "replace")
         eab = current.get("eab")
         if settings.get("eab") and eab and eab.get("keyId") == settings["eab"]["keyId"]:
             data = read_bytes(self.state(f"secrets/{secret_file('eab', '')}"))
@@ -1113,12 +1139,14 @@ class Runner:
         kept = self.stored_secrets(settings)
         secrets = {}
         if settings["challenge"]["mode"] == "dns01":
-            provider = settings["challenge"]["dns"]["provider"]
-            for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
-                value = settings["challenge"]["dns"]["fields"].get(name, kept.get((provider, name)))
-                if value is None:
-                    raise Refused(f"the {provider} secret {name} is not set")
-                secrets[(provider, name)] = value
+            for owner, dns in dns_accounts(settings["challenge"]):
+                provider = dns["provider"]
+                for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
+                    value = dns["fields"].get(name, kept.get((owner, name)))
+                    if value is None:
+                        which = "preview " if owner != provider else ""
+                        raise Refused(f"the {which}{provider} secret {name} is not set")
+                    secrets[(owner, name)] = value
         if settings.get("eab"):
             value = settings["eab"].get("hmacKey", kept.get(("eab", "hmacKey")))
             if value is None:
@@ -1138,13 +1166,18 @@ class Runner:
                     "preview": part("preview") if "preview" in uploads else None}
         challenge = settings["challenge"]
         if challenge["mode"] == "dns01":
-            provider = challenge["dns"]["provider"]
-            challenge_view = {
-                "mode": "dns01",
-                "provider": provider,
-                "fields": {n: challenge["dns"]["fields"][n] for n in DNS_PROVIDER_FIELDS[provider]["plain"]},
-                "secretsSet": {n: (provider, n) in secrets for n in DNS_PROVIDER_FIELDS[provider]["secret"]},
-            }
+            def account(owner, dns):
+                provider = dns["provider"]
+                return {
+                    "provider": provider,
+                    "fields": {n: dns["fields"][n] for n in DNS_PROVIDER_FIELDS[provider]["plain"]},
+                    "secretsSet": {n: (owner, n) in secrets for n in DNS_PROVIDER_FIELDS[provider]["secret"]},
+                }
+            accounts = dns_accounts(challenge)
+            challenge_view = {"mode": "dns01", **account(*accounts[0])}
+            # Only when set, so a one-account view keeps its shape.
+            if len(accounts) > 1:
+                challenge_view["previewDns"] = account(*accounts[1])
         else:
             challenge_view = {"mode": "http01"}
         eab = settings.get("eab")
@@ -1479,8 +1512,8 @@ class Runner:
             f"\thttp_port {http_port}\n\thttps_port {https_port}\n"
             "\tauto_https disable_redirects\n\tdefault_bind 127.0.0.1\n}\n\n"
             + tls.replace(SNIPPET_HEADER, "")
-            + f"\n{', '.join(f'https://{n}' for n in names)} {{\n"
-            "\timport portikus_tls_site\n\trespond \"portikus certificate test\"\n}\n"
+            + "".join(f"\nhttps://{n} {{\n\timport {throwaway_snippet(n)}\n"
+                      "\trespond \"portikus certificate test\"\n}\n" for n in names)
         )
 
     def throwaway_account(self, work):
@@ -1924,6 +1957,10 @@ class Runner:
         if view["challenge"]["mode"] == "dns01":
             settings["challenge"]["dns"] = {"provider": view["challenge"]["provider"],
                                             "fields": dict(view["challenge"]["fields"])}
+            preview = view["challenge"].get("previewDns")
+            if preview:
+                settings["challenge"]["previewDns"] = {"provider": preview["provider"],
+                                                       "fields": dict(preview["fields"])}
         return settings
 
     def check(self, job, request):
