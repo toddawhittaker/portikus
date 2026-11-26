@@ -1,13 +1,13 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, type ReadStream, type Stats } from "node:fs";
 import {
 	access,
 	lstat,
 	mkdir,
-	mkdtemp,
 	readdir,
 	readFile,
+	readlink,
 	realpath,
 	rename,
 	rm,
@@ -16,7 +16,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
-import type { Readable } from "node:stream";
+import type { PassThrough, Readable } from "node:stream";
 import { promisify } from "node:util";
 import {
 	type AgentProject,
@@ -26,6 +26,7 @@ import {
 	projectNameFromRepository,
 } from "@portikus/contracts";
 import { errorMessage } from "@portikus/observability";
+import { ZipFile } from "yazl";
 import { AgentFailure, saysNoSpace } from "./errors.js";
 import { runGit, STDERR_LIMIT } from "./git-runner.js";
 import {
@@ -449,8 +450,8 @@ export async function gitInitProject(
 }
 
 /**
- * Zip the project. `-y` stores symlinks rather than following them, so a
- * link out of the project cannot leak its target.
+ * Zip the project. Symlinks are stored as links, never followed
+ * (SPEC.md §24.6).
  */
 export async function archiveProject(
 	slug: string,
@@ -468,12 +469,8 @@ export async function archiveProject(
  * Zip one directory from its parent, so the archive holds a single top-level
  * entry named after that directory (SPEC.md §11.2).
  */
-export function archiveDir(
-	dir: string,
-	signal: AbortSignal,
-	tempBase = "/var/tmp",
-): Promise<Readable> {
-	return archiveEntries(dirname(dir), [dir], signal, tempBase);
+export function archiveDir(dir: string, signal: AbortSignal): Promise<Readable> {
+	return archiveEntries(dirname(dir), [dir], signal);
 }
 
 /**
@@ -502,40 +499,104 @@ export function commonParent(paths: readonly string[]): string {
 export function archiveSelection(
 	paths: readonly string[],
 	signal: AbortSignal,
-	tempBase = "/var/tmp",
 ): Promise<Readable> {
 	const outer = outermostPaths(paths);
-	return archiveEntries(commonParent(outer), outer, signal, tempBase);
+	return archiveEntries(commonParent(outer), outer, signal);
 }
 
 /**
- * Zip `paths`, named relative to `parent`. zip writes to a private
- * temporary file, because it cannot store a symlink entry on a pipe;
- * the returned stream deletes that file when it closes. Aborting `signal`
- * kills zip. The file goes under /var/tmp because /tmp is a tmpfs on
- * Debian 13, and a large zip there would count against the memory limit.
+ * Zip `paths`, named relative to `parent`, as a stream that starts at once,
+ * so a large download sends its first byte long before a proxy's
+ * time-to-first-byte limit. A symlink is stored as a link entry holding its
+ * target's name and is never followed, so a link out of the project cannot
+ * leak what it points at (SPEC.md §24.6). Any failure, or aborting
+ * `signal`, destroys the stream, so the download fails instead of ending
+ * as a short zip that looks complete.
  */
 async function archiveEntries(
 	parent: string,
 	paths: readonly string[],
 	signal: AbortSignal,
-	tempBase: string,
 ): Promise<Readable> {
 	await checkDownloadSize(paths);
-	const tempDir = await mkdtemp(join(tempBase, "portikus-archive-"));
-	const zipPath = join(tempDir, "archive.zip");
-	try {
-		// zip reads a bare "-" as stdin even after "--"; "./" keeps it a name.
-		const names = paths.map((path) => `./${relative(parent, path)}`);
-		await runZip(parent, names, zipPath, signal);
-		const stream = createReadStream(zipPath);
-		stream.once("close", () => {
-			void rm(tempDir, { recursive: true, force: true });
-		});
-		return stream;
-	} catch (error) {
-		await rm(tempDir, { recursive: true, force: true });
-		throw error;
+	const zip = new ZipFile();
+	const output = zip.outputStream as PassThrough;
+	const fail = (error: unknown): void => {
+		if (!output.destroyed)
+			output.destroy(error instanceof Error ? error : new Error(String(error)));
+	};
+	zip.on("error", fail);
+	// The caller listens for errors once it has the stream; this keeps an
+	// early failure from becoming an uncaught error event before then.
+	output.on("error", () => {});
+	const onAbort = (): void => fail(new Error("archive aborted"));
+	signal.addEventListener("abort", onAbort, { once: true });
+	output.once("close", () => signal.removeEventListener("abort", onAbort));
+	if (signal.aborted) onAbort();
+	addEntries(zip, parent, paths, output, fail).then(() => {
+		if (!output.destroyed) zip.end();
+	}, fail);
+	return output;
+}
+
+/** Add every entry under `paths` to the zip, depth first, in name order. */
+async function addEntries(
+	zip: ZipFile,
+	parent: string,
+	paths: readonly string[],
+	output: PassThrough,
+	fail: (error: unknown) => void,
+): Promise<void> {
+	// A download that ends early closes the file it was reading.
+	const open = new Set<ReadStream>();
+	output.once("close", () => {
+		for (const file of open) file.destroy();
+	});
+	const pending = [...paths].sort().reverse();
+	while (pending.length > 0 && !output.destroyed) {
+		const path = pending.pop() as string;
+		const name = relative(parent, path);
+		let info: Stats;
+		try {
+			info = await lstat(path);
+		} catch (error) {
+			// A file removed mid-walk is left out, as the size check leaves it out.
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+			throw error;
+		}
+		const options = { mtime: info.mtime, mode: info.mode & 0xffff };
+		if (info.isSymbolicLink()) {
+			zip.addBuffer(Buffer.from(await readlink(path)), name, {
+				...options,
+				compress: false,
+			});
+		} else if (info.isDirectory()) {
+			let children: string[];
+			try {
+				children = await readdir(path);
+			} catch (error) {
+				// The size check counts an unreadable folder as empty; so does the zip.
+				if ((error as NodeJS.ErrnoException).code !== "EACCES") throw error;
+				children = [];
+			}
+			zip.addEmptyDirectory(name, options);
+			pending.push(
+				...children
+					.sort()
+					.reverse()
+					.map((child) => join(path, child)),
+			);
+		} else if (info.isFile()) {
+			zip.addReadStreamLazy(name, { ...options, size: info.size }, (done) => {
+				const file = createReadStream(path);
+				// yazl does not watch its input, so a read error must end the download here.
+				file.once("error", fail);
+				open.add(file);
+				file.once("close", () => open.delete(file));
+				done(null, file);
+			});
+		}
+		// Sockets, FIFOs and devices hold no file content, so they are left out.
 	}
 }
 
@@ -583,35 +644,4 @@ async function downloadEntry(
 		if (code !== "ENOENT" && code !== "EACCES") throw error;
 	}
 	return { bytes: 0, children: [] };
-}
-
-function runZip(
-	cwd: string,
-	names: readonly string[],
-	zipPath: string,
-	signal: AbortSignal,
-): Promise<void> {
-	return new Promise<void>((resolve, reject) => {
-		const child = spawn("zip", ["-r", "-y", "-q", zipPath, "--", ...names], {
-			cwd,
-			stdio: ["ignore", "ignore", "pipe"],
-			signal,
-		});
-		let stderr = "";
-		child.stderr.on("data", (chunk: Buffer) => {
-			stderr = (stderr + chunk.toString()).slice(-STDERR_LIMIT);
-		});
-		// An image without zip installed fails here, and an unhandled "error"
-		// event would take the whole agent down.
-		child.once("error", (error: Error) => {
-			reject(new AgentFailure("INTERNAL", `could not start zip: ${error.message}`));
-		});
-		child.once("close", (code) => {
-			if (code === 0) {
-				resolve();
-			} else {
-				reject(new AgentFailure("INTERNAL", `zip failed: ${stderr.trim()}`));
-			}
-		});
-	});
 }
