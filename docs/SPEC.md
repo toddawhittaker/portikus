@@ -551,6 +551,8 @@ The system must not rely on browser `beforeunload` events to determine disconnec
 
 Connection presence must be determined server-side using active WebSocket/session state and heartbeat/timeout behavior.
 
+Added by Epic 76: a project zip download that is streaming counts as a connection. The API records it when the stream starts, refreshes it every 15 seconds like a socket, and drops it when the stream closes or fails, so neither the disconnect timer nor idle stop can stop a workspace in the middle of a large download.
+
 The grace period is an administrator setting, not a deployment constant. There is one platform-wide default and an optional override for each user; a user's override wins over the default. An administrator changes either value while the platform runs, and the change takes effect immediately, including for workspaces that are already disconnected and counting down. Shortening the value below the time a workspace has already been disconnected stops it on the next sweep.
 
 A grace period of **0** disables the timer: the workspace keeps running until it is stopped by hand. This applies at both levels, so 0 as one user's override keeps that user's workspace up while everyone else's still stops.
@@ -715,6 +717,13 @@ project is created only when no project with that slug exists; otherwise
 the existing one opens, or the student is told it is archived. A starter
 never overwrites a project or a folder.
 
+Added by Epic 76: a clone, a template copy and a starter's first project run
+as background operations (§7.3), so a slow clone cannot outlast a proxy's
+response timeout. The starter route answers 200 at once for an existing
+project, and 202 for a clone or copy; the same starter sent again while it
+runs (a reload) joins the running operation. The starter is used up only once
+the project exists, so a failed clone keeps it.
+
 ### 7.3 Project operations
 
 P0:
@@ -725,6 +734,30 @@ P0:
 - archive;
 - permanent delete, behind a confirmation that requires typing the project's
   slug.
+
+Added by Epic 76: behind a proxy such as Cloudflare, a request that sends no
+response headers for 100 seconds is cut off with error 524, so a slow project
+operation never holds a request open. Creating a project by clone or
+template, duplicating a project, restoring a recovery point (§15.8), making a
+recovery point (§15.6) and the LTI starter (§7.2) answer 202 at once with an
+operation record, and finish in the background. Every quick check
+(ownership, slug, name taken, template, a pending operation) still answers
+immediately with its usual status and code, and a new empty project still
+answers 201. The control plane keeps the operation's id, kind, state and its
+result or error in memory for each workspace, in the same slot that allows
+only one long operation at a time, and keeps a finished record for five
+minutes. The owner reads it with `GET /workspaces/:id/project-operation`,
+answered `no-store`. The same request sent again while one runs joins the
+running operation; a different slow request gets 409 `OPERATION_IN_PROGRESS`.
+There is no migration. If the API restarts mid-job the record is gone, which
+rests on the single-API-process assumption (ADR 0010), and the browser says
+Portikus lost track of the request. The browser follows the operation, so a
+dialog behaves as before, finds the operation again after a reload and, when
+the dialog was closed part way, announces the outcome with an "Open project"
+action, in the tab that started it. A status check that keeps failing makes
+the browser say the outcome is unknown, never that the job failed. The create
+and duplicate dialogs take one submit at a time. Permissions, audit rows and
+the write rate limit are unchanged.
 
 ### 7.4 Archive semantics
 
@@ -839,10 +872,17 @@ Archive is a state flag on the row plus an archive timestamp, and it writes an
 audit event. The directory is left in place, which is how §7.4 recoverability
 is met. Unarchiving is a change of the same field back to active.
 
-Download is a zip named `<slug>.zip`. The agent streams `zip -r -y`, so a
-symbolic link is stored as a link and never followed out of the project, and
-the control plane pipes the bytes through with a fixed filename taken from the
-slug. There is no size cap in P0.
+Download is a zip named `<slug>.zip`. Since Epic 76 the agent walks the tree
+itself and streams the zip from its first byte, with no temporary file, so
+the first byte never waits behind a proxy's 100-second limit on a large
+project. A symbolic link is stored as a link and never followed, inside or
+outside the project. A file or link that vanishes during the walk, an
+unreadable folder, a socket, a FIFO, a device, and a name with a backslash or
+a drive letter are left out. Any other failure, or the browser giving up,
+destroys the stream, so the browser sees a failed download and never a short
+zip that looks complete. The control plane pipes the bytes through with a
+fixed filename taken from the slug, and counts the stream as a browser
+connection while it runs (§6.4). There is no size cap in P0.
 
 Templates are configuration: one control-plane setting, `PROJECT_TEMPLATES`,
 of the form `name=url,name=url`, empty by default, and the template option is
@@ -1116,6 +1156,8 @@ Within the 10-minute disconnect grace period, terminal processes must continue e
 A server-side PTY/session mechanism such as tmux is recommended.
 
 The browser WebSocket must not itself own the lifetime of the shell process.
+
+Added by Epic 76: a proxy such as Cloudflare closes a WebSocket that is idle for about 100 seconds. The API therefore sends a WebSocket ping every 30 seconds on every socket it accepts from a browser (workspace, terminals, project events, chat, assistant, live help, root shell, checks and language servers), and terminates a socket that answers two pings in a row with no pong; the browser's reconnect takes over. It never pings a socket that is not open. Sockets between the API and a workspace agent do not cross the proxy and are left alone.
 
 ### 9.3 Multiple terminals
 
@@ -2280,6 +2322,8 @@ In the "Open a preview" dialog each listening port is a bordered row with a trai
 
 Added by Epic 75 (ADR 0084): a student can pick an element in an embedded preview and send it to an agent. The Preview toolbar has a pick button. The student first chooses the target, one of the open agent terminals and chats (with one open, picking starts at once; with none, the button is disabled and says why), then points at an element. Two files are written to `.portikus/pastes/<stamp>/`: `picked-element.md`, holding the page's port and path, the time, a short selector, the element's trimmed HTML, its matching CSS rules and some computed values, and `picked-element.png`, a screenshot drawn from the preview's own page. The files follow the drop folder's existing 7-day cleanup. A terminal gets the two quoted paths and a space, never Enter; a chat gets the files as attachments; the view then switches to that agent. A pick whose picture is over the size limit arrives without it, and the file says so. The screenshot library fetches the element's images from the preview's own origin, so an image from another site comes out blank in the picture. Pick mode stops if the app reloads or the target agent's pane closes. The button is hidden in a Traditional course and in an instructor's live-help view. Picking works through a Portikus wrapper page on the preview origin (BROWSER-HANDLING.md section 12.1), a pick can be sent only by that page (code on the preview origin can still shape what a pick contains), and the file says its contents came from the page and are to be treated as data, not instructions. Picked content is never logged.
 
+Added by Epic 76 (ADR 0085): the preview suffix may be a registrable domain of its own, so an embedded preview is cross-site from the app (§24.3). A browser that refuses the partitioned cookie that an embedded preview then needs (real Safari does) must not show "Preview session ended". The API remembers each embedded bootstrap for 60 seconds, in memory, keyed on the preview host and the client address, and capped at 10,000 entries. A framed request (`Sec-Fetch-Dest: iframe`) with no preview cookie at all, on that host and from that address inside that window, is taken as a blocked cookie. The frame then shows "Preview blocked by your browser" with an **Open in new tab** link. A session that really ended still sends its revoked cookie and keeps "Preview session ended". The link goes to the Portikus page `/workspaces/:id/preview/:port/open`, which asks for a top-level grant with the usual CSRF-checked POST and replaces itself with the bootstrap address, the same steps as the toolbar's Open in new tab. A live-help (instructor) preview shows the same page without the link and points to the toolbar button, because its grant comes from another route. The page has a heading, sets the document title, and announces its wait in a polite live region. A preview opened in its own tab keeps working in every browser. The blocked-cookie message has not been tried on real Safari.
+
 ### 14.7 Port discovery
 
 The workspace agent should detect listening TCP ports.
@@ -2372,6 +2416,13 @@ session starts (§10.9). Reset Docker makes no point: it touches neither
 `~/projects` nor anything a point holds, so a point would protect nothing.
 A rebuild is the "platform-initiated destructive action" this list means.
 
+Added by Epic 76: making a point on request is a background operation (§7.3).
+`POST .../recovery-points` answers 202 with a `recovery-point` operation, so
+a large project cannot pass a proxy's 100-second limit. A refusal (409 for a
+pending operation or the point cap, 429 for the rate limit) answers at once,
+gives the operation slot back and records nothing, so a reload shows no
+second error.
+
 ### 15.7 Retention
 
 Retention must be configurable and bounded by quota.
@@ -2388,6 +2439,8 @@ Restoring a recovery point must:
 - not alter Git through hidden commits.
 
 A restore puts back the whole project, its `.git` folder included, so the repository returns to the state it was in at that point, commits and all. Portikus never makes Git commits for the student; the recovery dialog says so (Epic 25).
+
+Added by Epic 76: a restore is a background operation (§7.3) answering 202. A double click joins the running restore. A restore refused for a pending operation still records a failed operation, so a reload can show a second error toast (#2219).
 
 If a restore stops part way, the earlier files stay in a `~/projects/.portikus-aside-<pointId>` folder (§15.10). The student deletes it from the Recovery points dialog, not in a terminal.
 
@@ -3341,6 +3394,15 @@ non-system listening port in a running workspace, and at most 10 new
 names per workspace per fixed clock hour (the count resets at the start
 of each window, it does not roll), counted in memory so an API restart
 resets it. Changing the site's address is out (#935).
+
+Added by Epic 76: under DNS-01 the tab offers an optional **Preview domain in
+its own DNS zone**, a second DNS account (its own provider and fields) for the
+preview wildcard, for a preview suffix that lives in another zone than the
+site. Its secret fields are write-only like the first account's. Unticking it
+and applying clears the stored preview account, and the form is hidden under
+HTTP-01. Without it, one account covers both names. The summary line says
+"previews through <provider>", and a missing secret is refused in words, such
+as "The preview domain's Cloudflare API token is not set."
 
 Added by Epic 35 (ADRs 0051 and 0052):
 
@@ -4489,6 +4551,25 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   ACME DNS-01 with Cloudflare, and the token then leaves `secrets.yaml`.
   Secrets live in `/etc/portikus/certificate/secrets/` (root:caddy, 0640)
   and reach Caddy only through `{file.…}` placeholders.
+- **Proxy and preview settings (Epic 76).** `trusted_proxies` is a list of
+  IPv4 or IPv6 CIDRs, each with a prefix length, empty by default; it has a
+  debconf question after the web address, a preseed key and
+  `dpkg-reconfigure` support, and the site play refuses anything else, and
+  also `0.0.0.0/0` and `::/0` (§24.10). The preview suffix has a question
+  whose default, `preview.<public host>`, follows the host until someone
+  changes it. A bare registrable domain such as `kitestringlabs.dev` is
+  accepted, never the app host or its parent (§24.3). The installer writes
+  either key to `portikus.yaml` only when it differs from the default or the
+  file already holds it. The file is the owner: a key deleted from it by hand
+  stays deleted across an upgrade, because `postinst` clears the question's
+  "seen" flag after the answers are applied, while a value preseeded with
+  `debconf-set-selections` before a non-interactive upgrade is kept.
+  `cloudflare_preview_api_token` is an optional secret, asked only for
+  Let's Encrypt; blank keeps a stored one, and it is never listed as missing.
+  The first-install request then carries `previewDns`, its secrets live in
+  `secrets/preview_<provider>_<field>`, and the throwaway Caddy issues the
+  wildcard under `portikus_tls_preview`. Both Cloudflare tokens leave
+  `secrets.yaml` after the first install.
 - **The certificate job.** The API writes a 0600 request file into
   `/var/lib/portikus/certificate-jobs/` by rename; a path unit starts the
   root job `certificate-job` (Python standard library only, like the
@@ -4559,7 +4640,13 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   from the checkout on this host, installs it on a throwaway rehearsal VM
   (never the pilot), signs in as the local administrator, runs the smoke
   test, upgrades, and with `IMAGE_JOBS=1` rehearses the image jobs and a
-  rebuild from an off-site backup.
+  rebuild from an off-site backup. Since Epic 76, `make install-test
+  STANDIN=1` installs the Cloudflare Tunnel layout instead (an app host and
+  a preview suffix on two registrable domains, `trusted_proxies` set,
+  internal certificates) and runs the smoke test through a stand-in for
+  `cloudflared`, a Caddy that ends the browser's TLS, verifies the VM's
+  certificate, and sets `CF-Connecting-IP`. Real Cloudflare behaviour is
+  measured only on a real install.
 
 ### 21.13 Signed apt repository and image releases
 
@@ -5254,6 +5341,28 @@ Preview embedding must use appropriate iframe sandboxing and content-security po
 The control-plane UI sends a content security policy that limits scripts
 to its own (#1143).
 
+Added by Epic 76 (ADR 0085, BROWSER-HANDLING.md section 7.2): the preview
+suffix may be a registrable domain of its own, for example
+`kitestringlabs.dev` with the app at `portikus.kitestringlabs.org`. The
+preview suffix is the only setting that decides where previews live, and
+nothing assumes it sits under the app host. The preview session cookie is
+host-only, `HttpOnly` and `Path=/`. When the grant is embedded and the
+bootstrap request carries `Sec-Fetch-Site: cross-site`, the cookie is also
+`Secure; SameSite=None; Partitioned`, so a browser sends it only inside the
+Portikus top-level site that framed it. In every other case, including a
+missing header and every grant for a tab, it is `SameSite=Strict`. The
+platform decides from the request's own header, not from a public-suffix
+list. `/__portikus/reset` expires the cookie, and the app's own cookies, with
+the same attributes they were set with, so a cross-site reset clears only the
+partitioned ones; a service worker a tab registered survives it. Cookies the
+student's own app sets inside a cross-site frame work only if the app sets
+`SameSite=None; Partitioned` itself. The bootstrap answers 200 with a small
+`no-store`, `no-referrer` page whose meta refresh (no script) and fallback
+link send the browser on to `/` or `/__portikus/frame/`, for both grant kinds
+in every layout: a redirect would leave a cross-site chain that withholds the
+new `SameSite=Strict` cookie. The Origin and Host checks compare with the
+app's own origin only, so a preview origin is refused whatever its site.
+
 ### 24.4 Container isolation
 
 Student LXC containers must be unprivileged.
@@ -5406,7 +5515,14 @@ list keeps each service's port and reachability and drops process and
 container details. Ending a session deletes its preview grants and
 sessions, clears the in-process preview lookup cache and closes its
 bridge forwards, so access stops at once. Student code in a preview still
-runs in the helper's browser on the preview origin (#1236).
+runs in the helper's browser on the preview origin, which is a different site from the app when the preview suffix is a domain of its own (§24.3).
+
+Added by Epic 76: a preview response is never stored by a shared cache.
+Caddy drops `CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control` and
+`Surrogate-Control`, removes `public`, `s-maxage` and any `private` from the
+app's `Cache-Control`, and puts a plain `private` first, or sets `private` when the app sent
+none. Vite's `max-age=31536000,immutable` therefore arrives as `private,
+max-age=31536000, immutable`.
 
 ### 24.8 Secrets
 
@@ -5665,6 +5781,29 @@ file carrying it is refused. `portikus reset-certificate` always works.
 The hourly certificate check repeats the test, and while the internal
 authority serves a public address it raises one warning site alert per
 settings change and the Certificate tab shows a banner.
+
+Added by Epic 76 (docs/INSTALL.md, "Behind a Cloudflare Tunnel"): behind a
+reverse proxy or a tunnel connector, the install setting `trusted_proxies` is
+a list of CIDRs, empty and off by default. Caddy believes `CF-Connecting-IP`
+(the header is fixed; there is no generic header choice) only from a source on
+the list, and ignores it from every other source. Each proxy to the API, to
+Dex and to a student's application then sends one `X-Forwarded-For` holding
+that address, and drops `CF-Connecting-IP`, so the API's `trustProxy:
+127.0.0.1` is unchanged. The app host also drops forwarded headers a client
+sent. With an empty list the upstreams see what they saw before. The list
+must name only addresses no one else can send from: a listed source is
+believed, and the host firewall accepts it before the per-source cap of 8,192
+tracked connections, so the API's per-address rate limits (§24.13), now keyed
+on the real client address, are the protection that remains. `0.0.0.0/0` and
+`::/0` are refused.
+
+Caching follows the same rule for a shared cache in front of the site: an API
+response and a response under `/workspaces*` with no `Cache-Control` gets
+`private, no-store`, and file reads and saves send `private, no-store,
+no-transform`. Files under `/assets/` are hashed and get `public,
+max-age=31536000, immutable`; the entry page and the single-page fallback,
+including a missing `/assets/` file, get `no-cache`. Preview responses are
+covered by §24.7.
 
 ### 24.11 Audit logging
 
@@ -5957,7 +6096,8 @@ built them (ADRs 0048 to 0050, 0053 and 0054).
 
 - Rate limits never refuse one client because of other clients'
   failures. They count per account as well as per address, and treat
-  each IPv6 /64 as one address (#1133).
+  each IPv6 /64 as one address (#1133). Behind a trusted proxy (§24.10)
+  the address is the real client's, not the proxy's.
 - **The password relay.** The API relays Dex's password posts. It counts
   each post against the account before forwarding it, and gives the count
   back when the post did not fail: 10 wrong passwords in ten minutes
@@ -8439,6 +8579,26 @@ Acceptance:
 - picking works from the keyboard, announces what is highlighted and the delivery, and passes the accessibility checks;
 - the pick button is hidden in a Traditional course and in an instructor's live-help view;
 - after a reconnect, focus in a side answer falls back to the side composer, or to Stop while a question runs, and never to the page body.
+
+### Epic 76 — Portikus behind a Cloudflare Tunnel
+
+Built on `epic/76-kitestring-lab`, closing #1236. No migration. See sections 6.4, 7.2, 7.3, 9.2, 14.6, 15.6, 15.8, 20.1, 21.12, 24.3, 24.7, 24.10 and 24.13, ADR 0085 and docs/INSTALL.md, "Behind a Cloudflare Tunnel".
+
+Includes:
+
+- the `trusted_proxies` setting, with Caddy believing `CF-Connecting-IP` from listed sources only and the firewall skipping them;
+- a preview suffix that may be a registrable domain of its own, with a partitioned embedded cookie, a bootstrap page, a blocked-cookie page that offers a new tab, and a second DNS account for the preview wildcard;
+- never-shared-cache headers on previews and the API, and long-lived headers on the hashed web bundle;
+- WebSocket pings, clone, duplicate, restore, LTI starter and recovery-point creation as background operations, and a zip download that streams and holds presence;
+- an install test through a stand-in `cloudflared`, and measurements on a lab VM through a real tunnel.
+
+Acceptance:
+
+- a request from a listed proxy carries the real client address to the API, and the same header from any other source is ignored;
+- an embedded preview on another site keeps its session across reloads, a preview in its own tab works in every browser, and a browser that refuses the cookie is offered the preview in its own tab;
+- no preview or API response is stored by a shared cache;
+- no request waits more than 100 seconds for its first byte, and a browser WebSocket idle for minutes stays open;
+- a download in progress keeps the workspace from stopping.
 
 ### Estimated total
 

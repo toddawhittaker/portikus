@@ -1,6 +1,6 @@
 # 0084. Picking an element in the application preview
 
-- **Status**: Accepted (Epic 75)
+- **Status**: Accepted (Epic 75); the bootstrap now answers with a page, not a redirect (ADR 0085)
 - **Date**: 2026-11-19
 - **References**: SPEC.md sections 14.6, 24 and 25.8; BROWSER-HANDLING.md sections 12, 13 and 16.4; STACK.md section 15; ADR 0012, ADR 0032; issue #1708
 
