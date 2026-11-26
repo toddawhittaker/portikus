@@ -87,7 +87,8 @@ export const AGENT_EXTRACT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
 /**
  * How long the agent has to send response headers for a download. The agent
- * zips the whole project before its headers go out, so this is minutes.
+ * walks the tree for its size check before the headers go out, and a slow
+ * disk can make that walk long.
  */
 export const AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -462,9 +463,8 @@ export class AgentClient {
 	}
 
 	/**
-	 * The upstream zip response, still streaming. The agent builds the zip
-	 * before it sends headers, so the header budget is long; once bytes are
-	 * flowing there is no further cap. Aborting `cancel` drops the upstream
+	 * The upstream zip response, still streaming. The agent zips while it
+	 * sends, after a size check; once bytes are flowing there is no further cap. Aborting `cancel` drops the upstream
 	 * request, which makes the agent stop zipping. No paths is the whole
 	 * project, one is a directory, several are a selection (SPEC.md §11.2).
 	 */
