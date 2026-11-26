@@ -10,6 +10,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { settleOperation, waitForOperation } from "../testing/project-operation.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { folderExistsMessage } from "../workspaces/create-project.js";
 
@@ -115,13 +116,29 @@ async function addStarter(
 	return row.id;
 }
 
-function useStarter(starterId: unknown, jar = alice, id = workspaceId) {
+function startStarter(starterId: unknown, jar = alice, id = workspaceId) {
 	return app.inject({
 		method: "POST",
 		url: `/workspaces/${id}/projects/starter`,
 		headers: csrfHeaders(jar, PUBLIC_URL),
 		payload: { starterId },
 	});
+}
+
+/**
+ * A starter followed to its end. A created project comes back as the route
+ * answered before 202: 201 with `{ project, created: true }`.
+ */
+async function useStarter(starterId: unknown, jar = alice, id = workspaceId) {
+	const settled = await settleOperation(
+		app,
+		jar.cookieHeader(),
+		id,
+		await startStarter(starterId, jar, id),
+	);
+	if (settled.statusCode !== 201) return settled;
+	const body = JSON.stringify({ project: settled.json(), created: true });
+	return { ...settled, body, json: () => JSON.parse(body) };
 }
 
 async function starterCount(): Promise<number> {
@@ -251,6 +268,44 @@ describe.skipIf(skip)("POST /workspaces/:id/projects/starter", () => {
 			.execute();
 		const res = await useStarter(await addStarter(aliceId, { template: "Starter" }));
 		expect(res.statusCode).toBe(409);
+		expect(await starterCount()).toBe(1);
+	});
+});
+
+describe.skipIf(skip)("a starter that clones slowly", () => {
+	test("answers 202 at once, a repeat joins it, and it finishes as before", async () => {
+		const id = await addStarter(aliceId, {
+			repository_url: "https://example.com/slow.git",
+		});
+		const started = await startStarter(id);
+		expect(started.statusCode).toBe(202);
+		const operation = started.json();
+		expect(operation).toMatchObject({ kind: "create", state: "running" });
+		// A reload sends the same starter again while it runs: it joins.
+		const repeat = await startStarter(id);
+		expect(repeat.statusCode).toBe(202);
+		expect(repeat.json().id).toBe(operation.id);
+		// Not used up until the project exists.
+		expect(await starterCount()).toBe(1);
+
+		const done = await waitForOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
+			operation.id,
+		);
+		expect(done.state).toBe("succeeded");
+		expect(done.project).toMatchObject({ slug: "lab-one", source: "clone" });
+		expect(await starterCount()).toBe(0);
+	});
+
+	test("a failed clone keeps the starter and reports the agent's error", async () => {
+		const id = await addStarter(aliceId, {
+			repository_url: "https://example.com/fail.git",
+		});
+		const settled = await useStarter(id);
+		expect(settled.statusCode).toBe(400);
+		expect(settled.json().code).toBe("GIT_FAILED");
 		expect(await starterCount()).toBe(1);
 	});
 });

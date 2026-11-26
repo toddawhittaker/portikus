@@ -16,6 +16,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { buildServer as buildAgentServer } from "@portikus/workspace-agent";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { settleOperation } from "../testing/project-operation.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { userTaskCount } from "../testing/user-tasks.js";
 
@@ -155,7 +156,12 @@ describe.skipIf(skip)("projects", () => {
 			readFile(join(home, "projects", slug, ".git", "HEAD"), "utf8"),
 		).resolves.toContain("ref:");
 
-		const copy = await send("POST", `/${projectId}/duplicate`, { name: "copy" });
+		const copy = await settleOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
+			await send("POST", `/${projectId}/duplicate`, { name: "copy" }),
+		);
 		expect(copy.statusCode).toBe(201);
 		expect(copy.json()).toMatchObject({ name: "copy", slug: "copy" });
 		await expect(
@@ -167,7 +173,12 @@ describe.skipIf(skip)("projects", () => {
 		// The directory exists on disk but not yet in the control plane's rows,
 		// so only the agent can refuse.
 		await mkdir(join(home, "projects", "taken"), { recursive: true });
-		const response = await send("POST", `/${projectId}/duplicate`, { name: "taken" });
+		const response = await settleOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
+			await send("POST", `/${projectId}/duplicate`, { name: "taken" }),
+		);
 		expect(response.statusCode).toBe(409);
 		expect(response.json().code).toBe("PROJECT_EXISTS");
 	});

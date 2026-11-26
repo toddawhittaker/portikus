@@ -8,6 +8,7 @@ import {
 	rekeyTree,
 	removeTree,
 } from "./fs-model.js";
+import { slowMotionIfMarked } from "./slow-motion.js";
 import { emptyStatus, type FakeAgentState } from "./state.js";
 
 /** The ~/projects routes, like the agent's projects.ts (SPEC.md §10). */
@@ -61,6 +62,7 @@ export function registerProjectRoutes(app: FastifyInstance, s: FakeAgentState): 
 				error: { code: "STORAGE_FULL", message: "no space left in the home folder" },
 			});
 		}
+		await slowMotionIfMarked(body.url);
 		// A url the test marks as failing stands in for a clone that goes wrong.
 		if (body.source !== "new" && (body.url ?? "").includes("fail")) {
 			return reply
@@ -112,6 +114,7 @@ export function registerProjectRoutes(app: FastifyInstance, s: FakeAgentState): 
 		const here = dirs(request);
 		const project = here.get(slug);
 		if (!project) return projectNotFound(reply);
+		await slowMotionIfMarked(slug);
 		if (here.has(to)) {
 			return reply
 				.status(409)
@@ -129,6 +132,7 @@ export function registerProjectRoutes(app: FastifyInstance, s: FakeAgentState): 
 		const here = dirs(request);
 		const project = here.get(slug);
 		if (!project) return projectNotFound(reply);
+		await slowMotionIfMarked(slug);
 		if (here.has(to)) {
 			return reply
 				.status(409)
