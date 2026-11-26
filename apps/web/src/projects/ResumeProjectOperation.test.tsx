@@ -101,6 +101,16 @@ test("a finished restore this tab started shows that it finished", async () => {
 	expect(await screen.findByText("Project restored")).toBeDefined();
 });
 
+test("a recovery point found running after a reload is announced when made", async () => {
+	const making = operation({ kind: "recovery-point", projectId: project().id });
+	serve(making, { ...making, state: "succeeded" });
+	show();
+	expect(await screen.findByText("Still making a recovery point…")).toBeDefined();
+	expect(
+		await screen.findByText("Recovery point created", {}, { timeout: 3000 }),
+	).toBeDefined();
+});
+
 test("a finished operation another tab started is not replayed", async () => {
 	const fetchMock = serve({ ...RUNNING, state: "succeeded", project: project() });
 	show();

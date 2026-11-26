@@ -81,19 +81,58 @@ test("an empty list says so", async () => {
 	);
 });
 
-test("Create recovery point now posts and announces the result", async () => {
-	const { fetchMock } = render((_url, init) =>
-		init?.method === "POST" ? json(201, POINT) : json(200, LIST),
-	);
+const MAKING = operation({ kind: "recovery-point", projectId: PROJECT.id });
+
+test("Create recovery point now follows the operation and announces the result", async () => {
+	let reads = 0;
+	const { fetchMock } = render((url, init) => {
+		if (init?.method === "POST") return json(202, MAKING);
+		if (!isOperationRead(url)) return json(200, LIST);
+		reads += 1;
+		// Still running on the first read, done on the next (SPEC.md 15.6).
+		return json(200, {
+			operation:
+				reads === 1
+					? MAKING
+					: { ...MAKING, state: "succeeded", finishedAt: MAKING.startedAt },
+		});
+	});
 
 	fireEvent.click(await screen.findByTestId("recovery-create"));
 
-	await waitFor(() =>
-		expect(screen.getByTestId("recovery-status").textContent).toBe(
-			"Recovery point created.",
-		),
+	await waitFor(
+		() =>
+			expect(screen.getByTestId("recovery-status").textContent).toBe(
+				"Recovery point created.",
+			),
+		{ timeout: 5000 },
 	);
+	expect(reads).toBe(2);
 	expect(posts(fetchMock, "")).toHaveLength(1);
+});
+
+test("a recovery point that fails in the background is shown as an alert", async () => {
+	render((url, init) => {
+		if (init?.method === "POST") return json(202, MAKING);
+		if (!isOperationRead(url)) return json(200, LIST);
+		return json(200, {
+			operation: {
+				...MAKING,
+				state: "failed",
+				finishedAt: MAKING.startedAt,
+				error: {
+					status: 507,
+					code: "STORAGE_FULL",
+					message: "Recovery storage is full.",
+				},
+			},
+		});
+	});
+
+	fireEvent.click(await screen.findByTestId("recovery-create"));
+
+	const alert = await screen.findByRole("alert", {}, { timeout: 5000 });
+	expect(alert.textContent).toContain("Recovery storage is full.");
 });
 
 test("Create keeps focus and ignores repeats while it runs (Gate E)", async () => {

@@ -224,3 +224,56 @@ test("a slow restore keeps its dialog busy, then reports, and survives a reload"
 	);
 	expect(audits.map((row) => row.result)).toEqual(["ok", "ok"]);
 });
+
+test("a slow recovery point answers at once, and a closed dialog hands it to a toast", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, {
+		name: "slow-points notes",
+	});
+	await seedFile(student.workspaceId, project.slug, "notes.txt", "first draft\n");
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	const answers: number[] = [];
+	page.on("response", (response) => {
+		if (
+			response.request().method() === "POST" &&
+			response.url().endsWith("/recovery-points")
+		) {
+			answers.push(response.status());
+		}
+	});
+
+	// In the dialog: busy while it runs, answered at once (SPEC.md 15.6).
+	await projectAction(page, project.id, "Recovery points…");
+	const dialog = page.getByTestId("dialog-recovery-points");
+	const create = dialog.getByRole("button", { name: /^Create recovery point now/ });
+	await create.click();
+	await expect(create).toHaveAttribute("aria-busy", "true");
+	await expect.poll(() => answers).toEqual([202]);
+	await expect(dialog.getByTestId("recovery-status")).toHaveText(
+		"Recovery point created.",
+		{ timeout: 15_000 },
+	);
+	await expect(dialog.locator("[data-testid^=recovery-row-]")).toHaveCount(1);
+
+	// Closed part way: the page follows it and says how it went. Points made
+	// by hand are 30 seconds apart, so the clock is moved on in the database.
+	await query(
+		"update recovery_points set created_at = created_at - interval '1 minute' where project_id = $1",
+		[project.id],
+	);
+	await create.click();
+	await expect(create).toHaveAttribute("aria-busy", "true");
+	await expect.poll(() => answers).toEqual([202, 202]);
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+	await expect(toast(page, "Still making a recovery point…")).toBeVisible();
+	await expect(toast(page, "Recovery point created")).toBeVisible({ timeout: 15_000 });
+	const rows = await query<{ reason: string }>(
+		"select reason from recovery_points where project_id = $1",
+		[project.id],
+	);
+	expect(rows.map((row) => row.reason)).toEqual(["manual", "manual"]);
+});

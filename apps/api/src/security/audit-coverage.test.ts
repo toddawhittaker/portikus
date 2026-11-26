@@ -516,9 +516,20 @@ describe.skipIf(skip)("projects and recovery", () => {
 	it("a recovery restore writes recovery.restored", async () => {
 		const { workspaceId, projectId, jar, userId } = world.a;
 		const base = `/workspaces/${workspaceId}/projects/${projectId}/recovery-points`;
-		const made = await post(jar, base, {});
-		expect(made.statusCode, made.body).toBe(201);
-		const pointId = made.json().id as string;
+		const made = await settleOperation(
+			app,
+			jar.cookieHeader(),
+			workspaceId,
+			await post(jar, base, {}),
+		);
+		expect(made.statusCode, made.body).toBe(204);
+		const pointId = (
+			await app.inject({
+				method: "GET",
+				url: base,
+				headers: { cookie: jar.cookieHeader() },
+			})
+		).json().points[0].id as string;
 		await expectAudit(
 			async () =>
 				settleOperation(

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { requireUser } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
 import type { Database } from "@portikus/db";
@@ -63,6 +64,41 @@ export async function touchPresence(
 		.set({ last_seen_at: new Date().toISOString() })
 		.where("id", "=", connectionId)
 		.execute();
+}
+
+/**
+ * Hold presence while `stream` is open: a zip download streaming with no page
+ * open must not be cut off by the idle stop (SPEC.md §6.4, §11.2). The row is
+ * refreshed like a socket's and dropped when the stream ends or is aborted.
+ */
+export async function holdPresenceWhile(
+	db: Kysely<Database>,
+	workspaceId: string,
+	stream: NodeJS.EventEmitter,
+): Promise<void> {
+	const connectionId = randomUUID();
+	let ended = false;
+	let opened = false;
+	let timer: NodeJS.Timeout | undefined;
+	const release = () => {
+		if (ended) return;
+		ended = true;
+		clearInterval(timer);
+		if (opened) void dropPresence(db, connectionId).catch(() => {});
+	};
+	// Listened for before the insert, so an end during it is not missed.
+	stream.once("close", release);
+	stream.once("error", release);
+	await openPresence(db, workspaceId, connectionId);
+	opened = true;
+	if (ended) {
+		await dropPresence(db, connectionId);
+		return;
+	}
+	timer = setInterval(() => {
+		void touchPresence(db, connectionId).catch(() => {});
+	}, PRESENCE_INTERVAL_MS);
+	timer.unref();
 }
 
 /** Concurrent sockets allowed per workspace (SPEC.md §24.2). */

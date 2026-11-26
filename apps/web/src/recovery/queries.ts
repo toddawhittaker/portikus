@@ -51,11 +51,23 @@ function useInvalidate(workspaceId: string, projectId: string) {
 		client.invalidateQueries({ queryKey: recoveryKeys.list(workspaceId, projectId) });
 }
 
+/**
+ * Archiving a large project can outlast a proxy's response timeout, so the
+ * point is made in the background and followed here; a dialog closed part
+ * way hands it to the page, which says how it went (SPEC.md §15.6).
+ */
 export function useCreateRecoveryPoint(workspaceId: string, projectId: string) {
 	const invalidate = useInvalidate(workspaceId, projectId);
+	const follow = useHandOffOnClose(workspaceId);
 	return useMutation({
-		mutationFn: () =>
-			request(z.unknown(), base(workspaceId, projectId), { method: "POST" }),
+		mutationFn: async () => {
+			const run = follow();
+			try {
+				return await postOperation(workspaceId, base(workspaceId, projectId), {}, run);
+			} finally {
+				run.finish();
+			}
+		},
 		onSettled: invalidate,
 	});
 }

@@ -136,12 +136,28 @@ function list(jar: CookieJar) {
 	});
 }
 
-function create(jar: CookieJar) {
+function startCreate(jar: CookieJar) {
 	return app.inject({
 		method: "POST",
 		url: base(),
 		headers: csrfHeaders(jar, PUBLIC_URL),
 	});
+}
+
+/**
+ * A point made by hand, followed to its end: 201 with the newest point, as
+ * the request answered before it became an operation, or the refusal.
+ */
+async function create(jar: CookieJar) {
+	const done = await settleOperation(
+		app,
+		jar.cookieHeader(),
+		workspaceId,
+		await startCreate(jar),
+	);
+	if (done.statusCode !== 204) return done;
+	const [newest] = (await list(jar)).json().points;
+	return { statusCode: 201, body: JSON.stringify(newest), json: () => newest };
 }
 
 function startRestore(
@@ -754,13 +770,23 @@ test.skipIf(skip)(
 				payload: { name: "other-work", source: "new" },
 			})
 		).json().id as string;
-		const otherPoint = (
+		await settleOperation(
+			app,
+			alice.cookieHeader(),
+			workspaceId,
 			await app.inject({
 				method: "POST",
 				url: `/workspaces/${workspaceId}/projects/${other}/recovery-points`,
 				headers: csrfHeaders(alice, PUBLIC_URL),
-			})
-		).json().id as string;
+			}),
+		);
+		const otherPoint = (
+			await testDb.db
+				.selectFrom("recovery_points")
+				.select("id")
+				.where("project_id", "=", other)
+				.executeTakeFirstOrThrow()
+		).id;
 		const stranger = "11111111-2222-4333-8444-555555555555";
 		seedAside(otherPoint);
 		seedAside(stranger);
@@ -932,6 +958,33 @@ test.skipIf(skip)("a file in neither the point nor the project is 404", async ()
 	const missing = await diff(alice, pointId, "never-there.txt");
 	expect(missing.statusCode).toBe(404);
 	expect(missing.json().code).toBe("FILE_NOT_FOUND");
+});
+
+test.skipIf(skip)(
+	"making a point answers 202 at once and finishes in the background (SPEC.md 15.6)",
+	async () => {
+		const started = await startCreate(alice);
+		expect(started.statusCode).toBe(202);
+		expect(started.json()).toMatchObject({
+			kind: "recovery-point",
+			state: "running",
+			projectId,
+			pointId: null,
+		});
+		const done = await settleOperation(app, alice.cookieHeader(), workspaceId, started);
+		expect(done.statusCode).toBe(204);
+		expect(await pointRows()).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)("a point the agent cannot make fails its operation", async () => {
+	agent.recoveryFull.add("");
+	const response = await create(alice);
+	expect(response.statusCode).toBe(507);
+	expect(await pointRows()).toHaveLength(0);
+	// The slot is free again.
+	expect(holdLongOperation(workspaceId)).toBe(true);
+	releaseLongOperation(workspaceId);
 });
 
 test.skipIf(skip)(

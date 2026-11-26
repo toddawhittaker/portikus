@@ -10,3 +10,9 @@ export async function slowMotionIfMarked(value: string | undefined): Promise<voi
 	if (!(value ?? "").includes(SLOW_MOTION_MARKER)) return;
 	await new Promise((resolve) => setTimeout(resolve, SLOW_MOTION_MS));
 }
+
+/** The same for a recovery point, kept apart so a slow restore's safety point is not slowed too. */
+export async function slowPointIfMarked(slug: string): Promise<void> {
+	if (!slug.includes("slow-points")) return;
+	await new Promise((resolve) => setTimeout(resolve, SLOW_MOTION_MS));
+}

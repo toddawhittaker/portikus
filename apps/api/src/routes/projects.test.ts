@@ -662,10 +662,20 @@ test.skipIf(skip)(
 	},
 );
 
+/** Poll until a condition holds. */
+async function until(check: () => Promise<boolean>): Promise<void> {
+	const deadline = Date.now() + 5000;
+	while (!(await check())) {
+		if (Date.now() > deadline) throw new Error("condition never held");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
 test.skipIf(skip)("download streams a zip named after the slug", async () => {
 	const project = (
 		await createProject(alice, workspaceId, { name: "report", source: "new" })
 	).json();
+	const before = Date.now() - 1;
 
 	const downloaded = await app.inject({
 		method: "GET",
@@ -679,6 +689,22 @@ test.skipIf(skip)("download streams a zip named after the slug", async () => {
 	);
 	// "PK" is the zip magic number.
 	expect(downloaded.rawPayload.subarray(0, 2).toString()).toBe("PK");
+	// The stream held presence, so the idle stop waited for it, and gave it
+	// back once it ended (SPEC.md §6.4).
+	const seen = await testDb.db
+		.selectFrom("workspaces")
+		.select("last_active_connection_at")
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+	expect(seen.last_active_connection_at?.getTime()).toBeGreaterThan(before);
+	await until(async () => {
+		const rows = await testDb.db
+			.selectFrom("workspace_connections")
+			.select("id")
+			.where("workspace_id", "=", workspaceId)
+			.execute();
+		return rows.length === 0;
+	});
 });
 
 test.skipIf(skip)(

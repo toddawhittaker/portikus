@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type FakeNode, removeTree } from "./fs-model.js";
-import { slowMotionIfMarked } from "./slow-motion.js";
+import { slowMotionIfMarked, slowPointIfMarked } from "./slow-motion.js";
 import type { FakeAgentState } from "./state.js";
 
 /** Recovery points held in memory, like the agent's recovery-routes.ts (ADR 0020). */
@@ -58,6 +58,7 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 		};
 		const key = keyOf(request);
 		if (!dirs(request).has(slug)) return projectNotFound(reply);
+		await slowPointIfMarked(slug);
 		if (recoveryFull.has(key)) return recoveryError(reply, 507, "STORAGE_FULL");
 		const entries = projectEntries(fsOf(request), slug);
 		const fingerprint = fingerprintOf(entries);

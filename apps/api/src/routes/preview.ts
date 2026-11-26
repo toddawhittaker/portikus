@@ -33,6 +33,7 @@ import {
 } from "../preview/grants.js";
 import {
 	bootstrapPage,
+	cookieBlockedPage,
 	inactiveServicePage,
 	missLimitPage,
 	refusedPage,
@@ -80,6 +81,14 @@ const WRAPPER_PATH = "/__portikus/frame/";
 /** RFC 6265 cookie-name characters, so nothing else reaches a header. */
 const COOKIE_NAME = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
 
+/**
+ * How long after an embedded bootstrap a framed request without the cookie
+ * is taken to mean the browser refused it, rather than an ended session.
+ */
+const BLOCKED_COOKIE_WINDOW_MS = 60_000;
+/** Bound on remembered bootstraps, so a flood cannot grow the map without end. */
+const BLOCKED_COOKIE_MAX_ENTRIES = 10_000;
+
 const IdParams = z.object({ id: z.string().uuid() });
 const TicketQuery = z.object({ t: z.string().min(1).max(200) });
 /** A port, wherever it arrives: in the path for one route, in the query for
@@ -120,6 +129,45 @@ export function registerPreviewRoutes(
 	const secure = config.PUBLIC_URL.startsWith("https:");
 	// The Preview tab frames these pages, so they carry their own policy.
 	const pagePolicy = previewPagePolicy(config.PUBLIC_URL);
+	// Embedded bootstraps by preview host and client address, so a framed
+	// request that arrives without the cookie just set can be told apart from
+	// a session that ended (BROWSER-HANDLING.md §7.2).
+	const recentEmbedded = new Map<
+		string,
+		{ at: number; workspaceId: string; port: number; liveHelp: boolean }
+	>();
+	const embeddedKey = (host: string, ip: string) => `${host}\n${addressKey(ip)}`;
+
+	function rememberEmbedded(
+		key: string,
+		entry: { workspaceId: string; port: number; liveHelp: boolean },
+	): void {
+		const now = Date.now();
+		for (const [old, value] of recentEmbedded) {
+			if (
+				now - value.at < BLOCKED_COOKIE_WINDOW_MS &&
+				recentEmbedded.size < BLOCKED_COOKIE_MAX_ENTRIES
+			)
+				break;
+			recentEmbedded.delete(old);
+		}
+		recentEmbedded.delete(key);
+		recentEmbedded.set(key, { at: now, ...entry });
+	}
+
+	/** The page for a request with no preview cookie at all. */
+	function noCookiePage(request: FastifyRequest, reply: FastifyReply, host: string) {
+		const entry = recentEmbedded.get(embeddedKey(host, request.ip));
+		const framed = request.headers["sec-fetch-dest"] === "iframe";
+		if (!framed || !entry || Date.now() - entry.at >= BLOCKED_COOKIE_WINDOW_MS) {
+			return page(reply, 401, signInPage());
+		}
+		// A live-help preview is opened from the instructor's page, not this route.
+		const openUrl = entry.liveHelp
+			? null
+			: `${config.PUBLIC_URL.replace(/\/$/, "")}/workspaces/${entry.workspaceId}/preview/${entry.port}/open`;
+		return page(reply, 401, cookieBlockedPage(openUrl));
+	}
 
 	/** Send a Portikus-owned page. Nothing from the request is echoed. */
 	function page(reply: FastifyReply, status: number, html: string): FastifyReply {
@@ -435,6 +483,13 @@ export function registerPreviewRoutes(
 			liveHelpSessionId: grant.live_help_session_id,
 		});
 
+		if (grant.presentation === "embedded") {
+			rememberEmbedded(embeddedKey(host, request.ip), {
+				workspaceId: grant.workspace_id,
+				port: grant.port,
+				liveHelp: grant.live_help_session_id !== null,
+			});
+		}
 		reply.setCookie(
 			cookieName,
 			token,
@@ -557,7 +612,7 @@ export function registerPreviewRoutes(
 		if (!parsed) return { refused: page(reply, 403, refusedPage()) };
 
 		const token = request.cookies[cookieName];
-		if (!token) return { refused: page(reply, 401, signInPage()) };
+		if (!token) return { refused: noCookiePage(request, reply, host) };
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace, liveHelp } = await lookups.get(token);

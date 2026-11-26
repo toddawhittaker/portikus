@@ -734,7 +734,7 @@ export function registerProjectRoutes(
 	);
 	// jscpd:ignore-end
 
-	registerProjectDownloadRoute(app, owned, ownedProject);
+	registerProjectDownloadRoute(app, db, owned, ownedProject);
 
 	registerProjectLayoutRoutes(app, db, workspaceHub, limitWrites, owned, ownedProject);
 	registerProjectChatSettingsRoutes(app, db, limitWrites, owned, ownedProject);
