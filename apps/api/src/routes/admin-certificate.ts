@@ -14,6 +14,8 @@ import {
 	type CertificateSettings,
 	type CertificateSettingsView,
 	DNS_PROVIDER_FIELDS,
+	type DnsChallenge,
+	type DnsProvider,
 	isJobActive,
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
@@ -51,13 +53,18 @@ import {
 const adminOnly = { preHandler: requireRole("administrator") };
 const BUSY_MESSAGE = "A certificate job is already waiting or running.";
 
+interface DnsBody {
+	provider?: unknown;
+	fields?: Record<string, unknown>;
+}
+
 /** An empty secret field means "keep the stored one", the same as leaving it out. */
 function dropBlankSecrets(body: unknown): unknown {
 	if (!body || typeof body !== "object") return body;
 	const copy = structuredClone(body) as {
 		settings?: {
 			eab?: Record<string, unknown>;
-			challenge?: { dns?: { provider?: unknown; fields?: Record<string, unknown> } };
+			challenge?: { dns?: DnsBody; previewDns?: DnsBody };
 			site?: Record<string, unknown>;
 			preview?: Record<string, unknown>;
 		};
@@ -71,11 +78,16 @@ function dropBlankSecrets(body: unknown): unknown {
 	blank(settings.eab, "hmacKey");
 	blank(settings.site, "privateKey");
 	blank(settings.preview, "privateKey");
-	const dns = settings.challenge?.dns;
-	if (dns && typeof dns.provider === "string" && dns.provider in DNS_PROVIDER_FIELDS) {
-		const fields =
-			DNS_PROVIDER_FIELDS[dns.provider as keyof typeof DNS_PROVIDER_FIELDS];
-		for (const name of fields.secret) blank(dns.fields, name);
+	for (const dns of [settings.challenge?.dns, settings.challenge?.previewDns]) {
+		if (
+			dns &&
+			typeof dns.provider === "string" &&
+			dns.provider in DNS_PROVIDER_FIELDS
+		) {
+			const fields =
+				DNS_PROVIDER_FIELDS[dns.provider as keyof typeof DNS_PROVIDER_FIELDS];
+			for (const name of fields.secret) blank(dns.fields, name);
+		}
 	}
 	return copy;
 }
@@ -102,14 +114,27 @@ function missingAcmeSecret(
 		return "the EAB HMAC key";
 	}
 	if (settings.challenge.mode !== "dns01") return null;
-	const { provider, fields } = settings.challenge.dns;
-	const storedDns =
-		stored?.challenge.mode === "dns01" && stored.challenge.provider === provider
-			? stored.challenge.secretsSet
-			: {};
-	const values = fields as Record<string, string | undefined>;
-	for (const name of DNS_PROVIDER_FIELDS[provider].secret) {
-		if (values[name] === undefined && storedDns[name] !== true) return name;
+	const storedChallenge = stored?.challenge.mode === "dns01" ? stored.challenge : null;
+	const site = missingDnsSecret(settings.challenge.dns, storedChallenge);
+	if (site) return site;
+	const preview = settings.challenge.previewDns;
+	if (!preview) return null;
+	const name = missingDnsSecret(preview, storedChallenge?.previewDns);
+	return name ? `the preview ${name}` : null;
+}
+
+/** The first secret of one DNS account left blank with none stored for the same provider. */
+function missingDnsSecret(
+	dns: DnsChallenge,
+	stored:
+		| { provider: DnsProvider; secretsSet: Record<string, boolean> }
+		| null
+		| undefined,
+): string | null {
+	const storedSet = stored?.provider === dns.provider ? stored.secretsSet : {};
+	const values = dns.fields as Record<string, string | undefined>;
+	for (const name of DNS_PROVIDER_FIELDS[dns.provider].secret) {
+		if (values[name] === undefined && storedSet[name] !== true) return name;
 	}
 	return null;
 }

@@ -44,6 +44,11 @@ export interface CertificateForm {
 	/** Keyed `provider.field`, so one provider's values never leak into another's. */
 	plain: Record<string, string>;
 	secrets: Record<string, string>;
+	/** Whether the preview domain is in a DNS zone of its own, with its own account. */
+	previewDns: boolean;
+	previewProvider: DnsProvider;
+	previewPlain: Record<string, string>;
+	previewSecrets: Record<string, string>;
 	site: UploadDraft;
 	separatePreview: boolean;
 	preview: UploadDraft;
@@ -183,6 +188,10 @@ export function initialForm(settings: CertificateSettingsView | null): Certifica
 		provider: "cloudflare",
 		plain: {},
 		secrets: {},
+		previewDns: false,
+		previewProvider: "cloudflare",
+		previewPlain: {},
+		previewSecrets: {},
 		site: NO_UPLOAD,
 		separatePreview: false,
 		preview: NO_UPLOAD,
@@ -194,10 +203,17 @@ export function initialForm(settings: CertificateSettingsView | null): Certifica
 		form.eabKeyId = settings.eab?.keyId ?? "";
 		form.mode = settings.challenge.mode;
 		if (settings.challenge.mode === "dns01") {
-			const { provider, fields } = settings.challenge;
+			const { provider, fields, previewDns } = settings.challenge;
 			form.provider = provider;
 			for (const [name, value] of Object.entries(fields)) {
 				form.plain[key(provider, name)] = value;
+			}
+			if (previewDns) {
+				form.previewDns = true;
+				form.previewProvider = previewDns.provider;
+				for (const [name, value] of Object.entries(previewDns.fields)) {
+					form.previewPlain[key(previewDns.provider, name)] = value;
+				}
 			}
 		}
 	}
@@ -205,34 +221,92 @@ export function initialForm(settings: CertificateSettingsView | null): Certifica
 	return form;
 }
 
-export function plainValue(form: CertificateForm, field: string): string {
-	return form.plain[key(form.provider, field)] ?? "";
+/** The two DNS accounts: the one for the site, and the optional one for the preview domain. */
+export type DnsAccount = "site" | "preview";
+
+/** One account's provider and draft values, whichever account it is. */
+function accountOf(form: CertificateForm, account: DnsAccount) {
+	return account === "site"
+		? { provider: form.provider, plain: form.plain, secrets: form.secrets }
+		: {
+				provider: form.previewProvider,
+				plain: form.previewPlain,
+				secrets: form.previewSecrets,
+			};
 }
 
-export function secretValue(form: CertificateForm, field: string): string {
-	return form.secrets[key(form.provider, field)] ?? "";
+export function providerOf(form: CertificateForm, account: DnsAccount = "site") {
+	return accountOf(form, account).provider;
 }
 
-export function withPlain(form: CertificateForm, field: string, value: string) {
-	return { ...form, plain: { ...form.plain, [key(form.provider, field)]: value } };
+export function withProvider(
+	form: CertificateForm,
+	provider: DnsProvider,
+	account: DnsAccount = "site",
+): CertificateForm {
+	return account === "site"
+		? { ...form, provider }
+		: { ...form, previewProvider: provider };
 }
 
-export function withSecret(form: CertificateForm, field: string, value: string) {
-	return { ...form, secrets: { ...form.secrets, [key(form.provider, field)]: value } };
+export function plainValue(
+	form: CertificateForm,
+	field: string,
+	account: DnsAccount = "site",
+): string {
+	const { provider, plain } = accountOf(form, account);
+	return plain[key(provider, field)] ?? "";
 }
 
-/** Whether the settings in force hold this provider secret, so a blank field keeps it. */
+export function secretValue(
+	form: CertificateForm,
+	field: string,
+	account: DnsAccount = "site",
+): string {
+	const { provider, secrets } = accountOf(form, account);
+	return secrets[key(provider, field)] ?? "";
+}
+
+export function withPlain(
+	form: CertificateForm,
+	field: string,
+	value: string,
+	account: DnsAccount = "site",
+): CertificateForm {
+	const { provider, plain } = accountOf(form, account);
+	const next = { ...plain, [key(provider, field)]: value };
+	return account === "site"
+		? { ...form, plain: next }
+		: { ...form, previewPlain: next };
+}
+
+export function withSecret(
+	form: CertificateForm,
+	field: string,
+	value: string,
+	account: DnsAccount = "site",
+): CertificateForm {
+	const { provider, secrets } = accountOf(form, account);
+	const next = { ...secrets, [key(provider, field)]: value };
+	return account === "site"
+		? { ...form, secrets: next }
+		: { ...form, previewSecrets: next };
+}
+
+/**
+ * Whether the settings in force hold this provider secret, so a blank field
+ * keeps it. A stored secret is kept only for the same provider in the same account.
+ */
 export function secretStored(
 	settings: CertificateSettingsView | null,
 	provider: DnsProvider,
 	field: string,
+	account: DnsAccount = "site",
 ): boolean {
-	return (
-		settings?.source === "acme" &&
-		settings.challenge.mode === "dns01" &&
-		settings.challenge.provider === provider &&
-		settings.challenge.secretsSet[field] === true
-	);
+	if (settings?.source !== "acme" || settings.challenge.mode !== "dns01") return false;
+	const stored =
+		account === "site" ? settings.challenge : settings.challenge.previewDns;
+	return stored?.provider === provider && stored.secretsSet[field] === true;
 }
 
 export function hmacStored(settings: CertificateSettingsView | null): boolean {
@@ -255,7 +329,8 @@ export const FIELD_ID = {
 	customDirectory: "cert-directory-url",
 	eabKeyId: "cert-eab-key-id",
 	eabHmacKey: "cert-eab-hmac",
-	provider: (field: string) => `cert-dns-${field}`,
+	provider: (field: string, account: DnsAccount = "site") =>
+		account === "site" ? `cert-dns-${field}` : `cert-preview-dns-${field}`,
 	upload: (which: "site" | "preview", part: keyof UploadDraft) =>
 		`cert-${which}-${part === "privateKey" ? "key" : part}`,
 } as const;
@@ -377,7 +452,10 @@ function checkAcme(
 		errors[FIELD_ID.email] = "Enter an email address, such as it@example.edu.";
 	}
 	checkEab(errors, form, settings);
-	if (form.mode === "dns01") checkDnsProvider(errors, form, settings);
+	if (form.mode === "dns01") {
+		checkDnsProvider(errors, form, settings, "site");
+		if (form.previewDns) checkDnsProvider(errors, form, settings, "preview");
+	}
 }
 
 /** The external account binding: a key ID and HMAC key that go together. */
@@ -406,24 +484,25 @@ function checkDnsProvider(
 	errors: Record<string, string>,
 	form: CertificateForm,
 	settings: CertificateSettingsView | null,
+	account: DnsAccount,
 ) {
-	const fields = DNS_PROVIDER_FIELDS[form.provider];
+	const provider = providerOf(form, account);
+	const fields = DNS_PROVIDER_FIELDS[provider];
 	for (const name of fields.plain) {
-		const value = plainValue(form, name).trim();
-		if (value === "")
-			errors[FIELD_ID.provider(name)] = `Enter the ${fieldLabel(name)}.`;
+		const id = FIELD_ID.provider(name, account);
+		const value = plainValue(form, name, account).trim();
+		if (value === "") errors[id] = `Enter the ${fieldLabel(name)}.`;
 		else if (!PLAIN.test(value)) {
-			errors[FIELD_ID.provider(name)] =
-				"Use only letters, digits and . _ : / @ -, with no spaces.";
+			errors[id] = "Use only letters, digits and . _ : / @ -, with no spaces.";
 		}
 	}
 	for (const name of fields.secret) {
 		const problem = secretProblem(
 			name,
-			secretValue(form, name),
-			secretStored(settings, form.provider, name),
+			secretValue(form, name, account),
+			secretStored(settings, provider, name, account),
 		);
-		if (problem) errors[FIELD_ID.provider(name)] = problem;
+		if (problem) errors[FIELD_ID.provider(name, account)] = problem;
 	}
 }
 
@@ -468,13 +547,6 @@ export function toSettings(form: CertificateForm): CertificateSettings {
 	}
 	const keyId = form.eabKeyId.trim();
 	const hmac = form.eabHmacKey.trim();
-	const fields: Record<string, string> = {};
-	const names = DNS_PROVIDER_FIELDS[form.provider];
-	for (const name of names.plain) fields[name] = plainValue(form, name).trim();
-	for (const name of names.secret) {
-		const value = secretValue(form, name);
-		if (value !== "") fields[name] = value;
-	}
 	return {
 		source: "acme",
 		directory: directoryUrl(form),
@@ -485,9 +557,27 @@ export function toSettings(form: CertificateForm): CertificateSettings {
 		challenge:
 			form.mode === "http01"
 				? { mode: "http01" }
-				: // Built from DNS_PROVIDER_FIELDS, so the names match; the API parses it again.
-					{ mode: "dns01", dns: { provider: form.provider, fields } as DnsChallenge },
+				: {
+						mode: "dns01",
+						dns: dnsAccount(form, "site"),
+						// Left out, the job drops the stored preview account: that is how it is cleared.
+						...(form.previewDns ? { previewDns: dnsAccount(form, "preview") } : {}),
+					},
 	};
+}
+
+/** One DNS account's request. A blank secret is left out so the job keeps the stored one. */
+function dnsAccount(form: CertificateForm, account: DnsAccount): DnsChallenge {
+	const provider = providerOf(form, account);
+	const fields: Record<string, string> = {};
+	const names = DNS_PROVIDER_FIELDS[provider];
+	for (const name of names.plain) fields[name] = plainValue(form, name, account).trim();
+	for (const name of names.secret) {
+		const value = secretValue(form, name, account);
+		if (value !== "") fields[name] = value;
+	}
+	// Built from DNS_PROVIDER_FIELDS, so the names match; the API parses it again.
+	return { provider, fields } as DnsChallenge;
 }
 
 /** One line on what is in force, such as "ACME with Let's Encrypt, DNS-01 through Cloudflare". */
@@ -496,10 +586,15 @@ export function settingsText(settings: CertificateSettingsView): string {
 	if (settings.source === "files") return "Uploaded files";
 	const choice = directoryChoice(settings.directory);
 	const where = choice === "custom" ? settings.directory : DIRECTORY_LABEL[choice];
+	const challenge = settings.challenge;
+	const preview =
+		challenge.mode === "dns01" && challenge.previewDns
+			? `, previews through ${PROVIDER_LABEL[challenge.previewDns.provider]}`
+			: "";
 	const how =
-		settings.challenge.mode === "http01"
+		challenge.mode === "http01"
 			? "HTTP-01"
-			: `DNS-01 through ${PROVIDER_LABEL[settings.challenge.provider]}`;
+			: `DNS-01 through ${PROVIDER_LABEL[challenge.provider]}${preview}`;
 	return `ACME with ${where}, ${how}`;
 }
 

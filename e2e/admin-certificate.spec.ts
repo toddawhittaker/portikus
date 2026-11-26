@@ -36,6 +36,7 @@ import {
 const LETS_ENCRYPT = "https://acme-v02.api.letsencrypt.org/directory";
 // Obviously fake: secrets in tests must never look real.
 const FAKE_TOKEN = "fake-cloudflare-token-for-e2e";
+const FAKE_PREVIEW_TOKEN = "fake-preview-zone-token-for-e2e";
 
 const PASSED = {
 	ok: true,
@@ -63,6 +64,19 @@ const ACME_SETTINGS = {
 		provider: "cloudflare",
 		fields: {},
 		secretsSet: { api_token: true },
+	},
+};
+
+/** The same account, plus a second DNS account for the preview wildcard's zone. */
+const TWO_ZONES = {
+	...ACME_SETTINGS,
+	challenge: {
+		...ACME_SETTINGS.challenge,
+		previewDns: {
+			provider: "digitalocean",
+			fields: {},
+			secretsSet: { api_token: true },
+		},
 	},
 };
 
@@ -313,6 +327,136 @@ test.describe("with the fake root job", () => {
 		await page.emulateMedia({ colorScheme: "light" });
 		await expectNoViolations(page, "main");
 		await job.screenshot({ path: "/tmp/epic69/fr2/shots/cert-job-diagnose-light.png" });
+	});
+
+	test("a preview domain in its own DNS zone: both accounts are sent, secrets stay write-only", async ({
+		page,
+	}) => {
+		await routePreflight(page);
+		await open(page);
+		await page.getByRole("radio", { name: /^ACME/ }).check();
+		await page.getByLabel("Account email").fill("it@example.edu");
+		const site = page.getByTestId("cert-dns");
+		await site.getByLabel("API token").fill(FAKE_TOKEN);
+		await expect(page.getByTestId("cert-dns-preview")).toHaveCount(0);
+
+		// The checkbox is reachable and operable from the keyboard.
+		const zone = page.getByRole("checkbox", {
+			name: "Preview domain in its own DNS zone",
+		});
+		await zone.focus();
+		await page.keyboard.press("Space");
+		const preview = page.getByTestId("cert-dns-preview");
+		await expect(preview).toBeVisible();
+		const token = preview.getByLabel("API token");
+		await expect(token).toHaveAttribute("type", "password");
+		await expect(token).toHaveAccessibleDescription("Not set.");
+
+		// An empty secret with none stored stops the request and takes focus.
+		await page.getByRole("button", { name: "Test only" }).click();
+		await expect(token).toBeFocused();
+		await expect(token).toHaveAccessibleDescription(/Enter the API token\./);
+		expect(await requestFiles()).toEqual([]);
+
+		await token.fill(FAKE_PREVIEW_TOKEN);
+		await page.getByRole("button", { name: "Apply" }).click();
+		await page
+			.getByTestId("cert-apply-confirm")
+			.getByRole("button", { name: "Apply" })
+			.click();
+		const { id, mode, request } = await takeRequest();
+		expect(mode).toBe(0o600);
+		expect(request).toEqual({
+			kind: "apply",
+			settings: {
+				source: "acme",
+				directory: LETS_ENCRYPT,
+				email: "it@example.edu",
+				challenge: {
+					mode: "dns01",
+					dns: { provider: "cloudflare", fields: { api_token: FAKE_TOKEN } },
+					previewDns: {
+						provider: "cloudflare",
+						fields: { api_token: FAKE_PREVIEW_TOKEN },
+					},
+				},
+			},
+		});
+		await writeStatus(id, "apply", "succeeded", "Applied");
+		await expect(page.getByTestId("cert-job-state")).toContainText("Finished", {
+			timeout: 5_000,
+		});
+		// Neither token is shown, and the job's record on disk keeps neither.
+		await expect(page.locator("body")).not.toContainText(FAKE_TOKEN);
+		await expect(page.locator("body")).not.toContainText(FAKE_PREVIEW_TOKEN);
+		const record = await readFile(
+			join(CERTIFICATE_JOBS_DIR, id, "request.json"),
+			"utf8",
+		);
+		expect(record).not.toContain(FAKE_TOKEN);
+		expect(record).not.toContain(FAKE_PREVIEW_TOKEN);
+	});
+
+	test("a stored preview account shows as set, keeps its secret, and can be cleared", async ({
+		page,
+	}) => {
+		await putStatus({ settings: TWO_ZONES, issuer: LE_ISSUER });
+		await routePreflight(page);
+		await open(page);
+		await expect(page.getByTestId("cert-current")).toContainText(
+			"previews through DigitalOcean",
+		);
+		const preview = page.getByTestId("cert-dns-preview");
+		const token = preview.getByLabel("API token");
+		await expect(token).toHaveValue("");
+		await expect(token).toHaveAccessibleDescription("Set. Leave blank to keep it.");
+
+		// Blank secrets keep both stored values: the request names the accounts and no token.
+		await page.getByRole("button", { name: "Test only" }).click();
+		const first = await takeRequest();
+		expect(first.request.settings).toMatchObject({
+			challenge: {
+				dns: { provider: "cloudflare", fields: {} },
+				previewDns: { provider: "digitalocean", fields: {} },
+			},
+		});
+		await writeStatus(first.id, "test", "succeeded", "The test certificate was issued");
+		await expect(page.getByTestId("cert-job-state")).toContainText("Finished", {
+			timeout: 5_000,
+		});
+
+		// Clearing: untick and apply. The request leaves the account out, so the job drops it.
+		await page
+			.getByRole("checkbox", { name: "Preview domain in its own DNS zone" })
+			.uncheck();
+		await expect(preview).toHaveCount(0);
+		await page.getByRole("button", { name: "Apply" }).click();
+		await page
+			.getByTestId("cert-apply-confirm")
+			.getByRole("button", { name: "Apply" })
+			.click();
+		const second = await takeRequest();
+		expect(second.request).toEqual({
+			kind: "apply",
+			settings: {
+				source: "acme",
+				directory: LETS_ENCRYPT,
+				email: "it@example.edu",
+				challenge: { mode: "dns01", dns: { provider: "cloudflare", fields: {} } },
+			},
+		});
+	});
+
+	test("the job's refusal for a missing preview secret is shown", async ({ page }) => {
+		const id = crypto.randomUUID();
+		await writeStatus(id, "apply", "refused", "Refused", {
+			message: "the preview cloudflare secret api_token is not set",
+		});
+		await open(page);
+		await expect(page.getByTestId("cert-job-state")).toContainText("Refused");
+		await expect(page.getByTestId("cert-job-message")).toHaveText(
+			"the preview cloudflare secret api_token is not set",
+		);
 	});
 
 	test("a failed HTTP-01 pre-flight check blocks the test and names the wrong name", async ({
@@ -634,6 +778,27 @@ for (const colorScheme of ["light", "dark"] as const) {
 		// The log takes focus, so it scrolls from the keyboard.
 		await page.getByTestId("cert-job-log").focus();
 		await expect(page.getByTestId("cert-job-log")).toBeFocused();
+	});
+
+	test(`the preview domain's own DNS account has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await routePage(page);
+		// Registered last, so it answers first: the page with a stored second account.
+		await routeApi(page, "**/admin/certificate", (route) =>
+			route.fulfill({ json: { ...PAGE, settings: TWO_ZONES } }),
+		);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin/certificate");
+		const preview = page.getByTestId("cert-dns-preview");
+		await expect(preview).toBeVisible({ timeout: 15_000 });
+		// The two accounts' fields are told apart by their groups.
+		await expect(preview.getByRole("combobox", { name: /Provider/ })).toBeVisible();
+		await expect(
+			page.getByRole("group", { name: "Preview domain DNS provider" }),
+		).toBeVisible();
+		await expectNoViolations(page);
 	});
 
 	test(`the public-address warning has no automatic accessibility violations (${colorScheme})`, async ({

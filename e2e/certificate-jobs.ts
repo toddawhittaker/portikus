@@ -86,6 +86,20 @@ export async function requestFiles(): Promise<string[]> {
 	);
 }
 
+interface DnsRequest {
+	provider: string;
+	fields: Record<string, string>;
+}
+
+/** One DNS account as the record keeps it: no values, only which secrets were sent. */
+function accountView(dns: DnsRequest) {
+	return {
+		provider: dns.provider,
+		fields: {},
+		secretsSet: Object.fromEntries(Object.keys(dns.fields).map((k) => [k, true])),
+	};
+}
+
 /** Every secret becomes a "set" flag, as the job's record of a request does. */
 function recordOf(request: { kind: string; settings?: Record<string, unknown> }) {
 	const settings = request.settings as
@@ -96,7 +110,8 @@ function recordOf(request: { kind: string; settings?: Record<string, unknown> })
 				eab?: { keyId: string; hmacKey?: string };
 				challenge?: {
 					mode: string;
-					dns?: { provider: string; fields: Record<string, string> };
+					dns?: DnsRequest;
+					previewDns?: DnsRequest;
 				};
 		  }
 		| undefined;
@@ -129,11 +144,10 @@ function recordOf(request: { kind: string; settings?: Record<string, unknown> })
 				challenge?.mode === "dns01" && challenge.dns
 					? {
 							mode: "dns01",
-							provider: challenge.dns.provider,
-							fields: {},
-							secretsSet: Object.fromEntries(
-								Object.keys(challenge.dns.fields).map((k) => [k, true]),
-							),
+							...accountView(challenge.dns),
+							...(challenge.previewDns
+								? { previewDns: accountView(challenge.previewDns) }
+								: {}),
 						}
 					: { mode: "http01" },
 		},
