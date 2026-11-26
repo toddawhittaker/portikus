@@ -13,6 +13,8 @@ export function keepAlive(socket: WebSocket, intervalMs = PING_INTERVAL_MS): voi
 		missed = 0;
 	});
 	const timer = setInterval(() => {
+		// ping throws on a socket that is closing, and a throw here would end the process.
+		if (socket.readyState !== socket.OPEN) return;
 		if (missed >= 2) {
 			socket.terminate();
 			return;

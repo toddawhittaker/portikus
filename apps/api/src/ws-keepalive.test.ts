@@ -4,7 +4,12 @@ import type { WebSocket } from "ws";
 import { keepAlive, PING_INTERVAL_MS } from "./ws-keepalive.js";
 
 class FakeSocket extends EventEmitter {
-	ping = vi.fn();
+	readonly OPEN = 1;
+	readyState = 1;
+	ping = vi.fn(() => {
+		// ws throws when a socket that is not open is pinged.
+		if (this.readyState !== this.OPEN) throw new Error("WebSocket is not open");
+	});
 	terminate = vi.fn();
 }
 
@@ -61,5 +66,12 @@ describe("keepAlive", () => {
 		vi.advanceTimersByTime(PING_INTERVAL_MS * 5);
 		expect(socket.ping).not.toHaveBeenCalled();
 		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("never pings a socket that is closing, which would throw out of the timer", () => {
+		const socket = start();
+		socket.readyState = 2;
+		expect(() => vi.advanceTimersByTime(PING_INTERVAL_MS * 3)).not.toThrow();
+		expect(socket.ping).not.toHaveBeenCalled();
 	});
 });
