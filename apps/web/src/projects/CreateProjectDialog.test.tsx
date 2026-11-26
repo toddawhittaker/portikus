@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, project, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
 import { CreateProjectDialog } from "./CreateProjectDialog.js";
@@ -271,4 +271,35 @@ test("What to create is a segmented control with one pressed option", async () =
 
 	fireEvent.click(screen.getByRole("button", { name: "Clone repository" }));
 	expect(pressed().map((button) => button.textContent)).toEqual(["Clone repository"]);
+});
+
+test("a second submit while the first is still running sends no second request", async () => {
+	const created = project({ slug: "lab", name: "lab" });
+	let posts = 0;
+	let answer: (response: Response) => void = () => {};
+	stubFetch((url, init) => {
+		if (url.endsWith("/templates")) return json(200, { templates: [] });
+		if (init?.method !== "POST") return json(200, { projects: [] });
+		posts += 1;
+		return new Promise<Response>((resolve) => {
+			answer = resolve;
+		});
+	});
+	const onCreated = vi.fn();
+	open("new", onCreated);
+
+	fireEvent.change(screen.getByTestId("field-name"), { target: { value: "lab" } });
+	const form = screen.getByTestId("field-name").closest("form") as HTMLFormElement;
+	// Two Enter presses can land before React renders the pending state.
+	act(() => {
+		fireEvent.submit(form);
+		fireEvent.submit(form);
+	});
+	await waitFor(() => expect(posts).toBe(1));
+	fireEvent.submit(form);
+	expect(posts).toBe(1);
+
+	answer(json(201, created));
+	await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+	expect(posts).toBe(1);
 });

@@ -594,7 +594,14 @@ async function addEntries(
 		}
 		const options = { mtime: info.mtime, mode: info.mode & 0xffff };
 		if (info.isSymbolicLink()) {
-			const target = Buffer.from(await readlink(path));
+			let target: Buffer;
+			try {
+				target = Buffer.from(await readlink(path));
+			} catch (error) {
+				// Deleted since the lstat: left out, like a file removed mid-walk.
+				if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+				throw error;
+			}
 			add(() => zip.addBuffer(target, name, { ...options, compress: false }));
 		} else if (info.isDirectory()) {
 			let children: string[];

@@ -1,6 +1,6 @@
 import { displayNameFromDirectory, type Project, slugify } from "@portikus/contracts";
 import { Button, Checkbox, Dialog, DialogRoot, Select, TextField } from "@portikus/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ApiError } from "../api/request.js";
 import { DialogError } from "../common/DialogError.js";
 import { isStorageFull, STORAGE_FULL_MESSAGE } from "../files/errors.js";
@@ -43,6 +43,9 @@ export function CreateProjectDialog({
 	const activeProjects = useProjects(workspaceId, "active");
 	const archivedProjects = useProjects(workspaceId, "archived");
 	const create = useCreateProject(workspaceId);
+	// `isPending` only changes on the next render, so two Enter presses in
+	// one batch would both pass it; the ref closes at once.
+	const submitting = useRef(false);
 
 	const slug = slugify(name);
 	const takenSlugs = new Set(
@@ -61,7 +64,8 @@ export function CreateProjectDialog({
 	];
 
 	function submit() {
-		if (create.isPending) return;
+		if (submitting.current) return;
+		submitting.current = true;
 		create.mutate(
 			{
 				name,
@@ -72,7 +76,12 @@ export function CreateProjectDialog({
 					: {}),
 				...(mode === "template" ? { template } : {}),
 			},
-			{ onSuccess: onCreated },
+			{
+				onSuccess: onCreated,
+				onSettled: () => {
+					submitting.current = false;
+				},
+			},
 		);
 	}
 
