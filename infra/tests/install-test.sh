@@ -50,6 +50,11 @@
 #   UPGRADE_FROM_PUBLISHED=1  install the newest published release first, and
 #                        upgrade from it to this checkout's build; the smoke
 #                        test then runs after the upgrade, not before it
+#   STANDIN=1            the lab's layout behind a Cloudflare Tunnel instead:
+#                        the app host and the preview suffix on two different
+#                        registrable domains, trusted_proxies set, and the
+#                        smoke test through standin-proxy.sh; it stops after
+#                        the smoke test and keeps the VM and the stand-in
 #   INSTALL_TEST_PORT    the port this host serves on (default 8780)
 #   REHEARSAL_IMAGE_DIR  incus.tar.xz, rootfs.squashfs and manifest.json of
 #                        the recipe's VERSION.  Default: a cache filled once
@@ -68,6 +73,13 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 REHEARSAL_NAME=portikus-rehearsal
 PORT="${INSTALL_TEST_PORT:-8780}"
 PUBLIC_HOST=rehearsal.portikus.thewhittakers.org
+PREVIEW_SUFFIX=""
+if [ -n "${STANDIN:-}" ]; then
+  # Wildcard DNS names for the stand-in's address, on two registrable domains.
+  PUBLIC_HOST=portikus.172.31.76.10.nip.io
+  PREVIEW_SUFFIX=172.31.76.10.sslip.io
+  KEEP_VM=1
+fi
 ADMIN_EMAIL="admin@${PUBLIC_HOST}"
 RECIPE_VERSION=$(cat "${ROOT}/infra/workspace-image/VERSION")
 CADDY_VERSION=$(sed -n "s/^ *caddy_version: v//p" "${ROOT}/infra/ansible/site.yml")
@@ -384,6 +396,12 @@ portikus portikus/provider select dex
 portikus portikus/storage select /dev/vdb
 portikus portikus/storage_confirm boolean true
 EOF
+  if [ -n "${STANDIN:-}" ]; then
+    vm_stdin "sudo debconf-set-selections" <<EOF
+portikus portikus/preview_suffix string ${PREVIEW_SUFFIX}
+portikus portikus/trusted_proxies string ${HOST_IP}/32
+EOF
+  fi
   vm "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y portikus 2>&1" | tee "${LOGS}/apt-install.txt"
   grep -q "Portikus setup is running in the background" "${LOGS}/apt-install.txt" \
     || { echo "postinst did not start setup"; return 1; }
@@ -479,8 +497,21 @@ register_mock_lms() {
   [ "${PIPESTATUS[0]}" -eq 0 ]
 }
 
+# The stand-in for cloudflared, and a CA file on the VM that trusts both
+# its certificate and the VM's own, for the smoke test through it.
+start_standin() {
+  scp -q -o BatchMode=yes "deploy@${IP}:/etc/portikus/caddy-root.crt" "${LOGS}/vm-root.crt"
+  bash "${ROOT}/infra/tests/standin-proxy.sh" up "$IP" "${LOGS}/vm-root.crt" "$PUBLIC_HOST" "*.${PREVIEW_SUFFIX}"
+  bash "${ROOT}/infra/tests/standin-proxy.sh" root "${LOGS}/standin-root.crt"
+  cat "${LOGS}/vm-root.crt" "${LOGS}/standin-root.crt" | vm_stdin "cat >/tmp/portikus-smoke-edge-ca.crt"
+  curl -fsS --cacert "${LOGS}/standin-root.crt" --resolve "${PUBLIC_HOST}:443:172.31.76.10" -o /dev/null -w 'through the stand-in: /health %{http_code}\n' "https://${PUBLIC_HOST}/health"
+}
+
 smoke() {
-  "${M[@]}" smoke-test PORTIKUS_PUBLIC_HOST="$PUBLIC_HOST" PORTIKUS_PUBLIC_PORT=443 \
+  local edge=()
+  [ -z "${STANDIN:-}" ] || edge=(PORTIKUS_PREVIEW_SUFFIX="$PREVIEW_SUFFIX" PORTIKUS_SMOKE_EDGE=172.31.76.10
+    PORTIKUS_SMOKE_EDGE_CA=/tmp/portikus-smoke-edge-ca.crt)
+  env "${edge[@]}" "${M[@]}" smoke-test PORTIKUS_PUBLIC_HOST="$PUBLIC_HOST" PORTIKUS_PUBLIC_PORT=443 \
     PORTIKUS_SMOKE_SIGNIN_FILE="${LOGS}/admin-signin" 2>&1 | tee "${LOGS}/smoke.txt"
   grep -qE '^--- Results: [0-9]+ passed, 0 failed ---$' "${LOGS}/smoke.txt" || return 1
   # A skipped LTI check means the mock LMS was not in effect.
@@ -953,6 +984,13 @@ step "fetch the key and add the repository" add_repository
 step "preseed and apt install portikus" install_package
 step "follow setup to its end (portikus setup --follow)" follow_setup install
 step "sign in with the one-time password and change it" first_signin
+if [ -n "${STANDIN:-}" ]; then
+  step "trust the mock LMS on the VM (lti-mock-register)" register_mock_lms
+  step "start the stand-in for cloudflared (standin-proxy.sh)" start_standin
+  step "smoke test through the stand-in, with the administrator's Dex sign-in" smoke
+  echo "The stand-in stays up; stop it with bash infra/tests/standin-proxy.sh down. Dex sign-in file: ${LOGS}/admin-signin"
+  exit 0
+fi
 if [ -z "${UPGRADE_FROM_PUBLISHED:-}" ]; then
   step "trust the mock LMS on the VM (lti-mock-register)" register_mock_lms
   step "smoke test, with the administrator's Dex sign-in" smoke

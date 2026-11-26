@@ -96,8 +96,8 @@ sys.stdout.write(urllib.parse.urlencode({"login": sys.argv[1], "password": passw
 # knows.  With an upstream connector Dex first shows a choice; the sed
 # picks its own passwords, and changes nothing when there is no choice.
 dex_form_url() {
-  ssh_cmd "rm -f ${SIGNIN_JAR}; page=\$(${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login') \
-      && ${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' \"\$(printf '%s' \"\$page\" | sed 's|/dex/auth?|/dex/auth/local?|')\""
+  ssh_cmd "rm -f ${SIGNIN_JAR}; page=\$(${CURL_LOOPBACK} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login') \
+      && ${CURL_LOOPBACK} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -o /dev/null -w '%{url_effective}' \"\$(printf '%s' \"\$page\" | sed 's|/dex/auth?|/dex/auth/local?|')\""
 }
 
 # dex_signin SOURCE -- the whole browser flow: open the password form,
@@ -106,7 +106,7 @@ dex_form_url() {
 dex_signin() {
   local form_url
   form_url=$(dex_form_url "$1") || return
-  ssh_cmd_stdin "${CURL} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -H 'Origin: ${API}' --data-binary @- -o /dev/null -w '%{http_code}' '${form_url}'"
+  ssh_cmd_stdin "${CURL_LOOPBACK} --interface $1 -c ${SIGNIN_JAR} -b ${SIGNIN_JAR} -L -H 'Origin: ${API}' --data-binary @- -o /dev/null -w '%{http_code}' '${form_url}'"
 }
 signin_has_session() {
   ssh_cmd "awk '\$6 == \"${SESSION_COOKIE_NAME}\"' ${SIGNIN_JAR} | grep -q ."
@@ -156,7 +156,7 @@ throttle_source=$(random_loopback)
 throttle_statuses() {
   local form_url
   form_url=$(dex_form_url "$throttle_source") || return
-  ssh_cmd "for i in \$(seq 1 $((password_limit + 1))); do ${CURL} --interface ${throttle_source} -b ${SIGNIN_JAR} -o /dev/null -w '%{http_code}\n' -H 'Origin: ${API}' \
+  ssh_cmd "for i in \$(seq 1 $((password_limit + 1))); do ${CURL_LOOPBACK} --interface ${throttle_source} -b ${SIGNIN_JAR} -o /dev/null -w '%{http_code}\n' -H 'Origin: ${API}' \
       --data \"login=smoke-throttle-\$i%40example.invalid&password=x\" '${form_url}'; done; rm -f ${SIGNIN_JAR}"
 }
 throttle_result() {
@@ -179,7 +179,7 @@ throttle_after_restart() {
   api_ready || { echo "API not back"; return; }
   local form_url
   form_url=$(dex_form_url "$throttle_source") || return
-  ssh_cmd "${CURL} --interface ${throttle_source} -b ${SIGNIN_JAR} -o /dev/null -w '%{http_code}' -H 'Origin: ${API}' \
+  ssh_cmd "${CURL_LOOPBACK} --interface ${throttle_source} -b ${SIGNIN_JAR} -o /dev/null -w '%{http_code}' -H 'Origin: ${API}' \
       --data 'login=smoke-throttle-restart%40example.invalid&password=x' '${form_url}'; rm -f ${SIGNIN_JAR}"
 }
 if [ "$(ssh_cmd hostname 2>/dev/null || true)" = portikus ]; then
@@ -192,5 +192,5 @@ fi
 # The relay sits behind the API's cross-site check, so another site cannot
 # sign a browser in to an account of its choosing (SPEC.md 24.13).
 check_output "a password post from another site is refused" "403" \
-  ssh_cmd "${CURL} --interface $(random_loopback) -o /dev/null -w '%{http_code}' -H 'Origin: https://elsewhere.example' \
+  ssh_cmd "${CURL_LOOPBACK} --interface $(random_loopback) -o /dev/null -w '%{http_code}' -H 'Origin: https://elsewhere.example' \
       --data 'login=smoke-csrf%40example.invalid&password=x' '${API}/dex/auth/local/login?back=&state=smoke-csrf'"

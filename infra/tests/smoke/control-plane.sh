@@ -171,7 +171,7 @@ anonymous_limit=$(api_env ANONYMOUS_REQUEST_LIMIT_PER_MINUTE)
 anonymous_limit="${anonymous_limit:-600}"
 anonymous_source=$(random_loopback)
 anonymous_result() {
-  ssh_cmd "for i in \$(seq 1 $((anonymous_limit + 1))); do ${CURL} --interface ${anonymous_source} -o /dev/null -w '%{http_code}\n' '${API}/lti/jwks'; done" |
+  ssh_cmd "for i in \$(seq 1 $((anonymous_limit + 1))); do ${CURL_LOOPBACK} --interface ${anonymous_source} -o /dev/null -w '%{http_code}\n' '${API}/lti/jwks'; done" |
     awk -v n="$((anonymous_limit + 1))" \
       'NR < n && $1 == 429 { early++ } NR == n { last = $1 } END { print (early ? "early 429" : "last " last) }'
 }

@@ -17,8 +17,8 @@ else
   PREVIEW_AUTHORITY="${PREVIEW_HOST}:${PUBLIC_PORT}"
 fi
 # The VM resolves the application host to loopback but knows nothing about
-# preview names, so point curl at loopback by hand.
-PREVIEW_RESOLVE="--resolve ${PREVIEW_HOST}:${PUBLIC_PORT}:127.0.0.1"
+# preview names, so point curl at loopback, or the edge proxy, by hand.
+PREVIEW_RESOLVE="--resolve ${PREVIEW_HOST}:${PUBLIC_PORT}:${SMOKE_EDGE}"
 
 preview_status() { # PATH [EXTRA_CURL_ARGS]
   ssh_cmd "${CURL} ${PREVIEW_RESOLVE} ${2:-} -o /dev/null -w '%{http_code}' 'https://${PREVIEW_AUTHORITY}$1'"
