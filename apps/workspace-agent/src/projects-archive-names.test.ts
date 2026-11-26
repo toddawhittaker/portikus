@@ -14,6 +14,25 @@ const VANISHES = "vanishes.txt";
 /** A file whose name ends so cannot be read for another reason. */
 const UNREADABLE = "unreadable.txt";
 
+/** A symlink whose name ends so is deleted between its lstat and its readlink. */
+const VANISHING_LINK = "vanishes.link";
+/** A symlink whose name ends so cannot be read for another reason. */
+const UNREADABLE_LINK = "unreadable.link";
+
+vi.mock("node:fs/promises", async (original) => {
+	const fs = await original<typeof import("node:fs/promises")>();
+	return {
+		...fs,
+		readlink: (path: string, ...rest: unknown[]) => {
+			const fail = (code: string) =>
+				Promise.reject(Object.assign(new Error(code), { code }));
+			if (String(path).endsWith(VANISHING_LINK)) return fail("ENOENT");
+			if (String(path).endsWith(UNREADABLE_LINK)) return fail("EACCES");
+			return (fs.readlink as (...args: unknown[]) => Promise<string>)(path, ...rest);
+		},
+	};
+});
+
 vi.mock("node:fs", async (original) => {
 	const fs = await original<typeof import("node:fs")>();
 	const open = fs.createReadStream as (...args: unknown[]) => unknown;
@@ -103,4 +122,24 @@ test("any other read error still ends the download", async () => {
 
 	const stream = await archiveDir(project, new AbortController().signal);
 	await expect(collect(stream)).rejects.toMatchObject({ code: "EISDIR" });
+});
+
+test("a symlink deleted between lstat and readlink is left out", async () => {
+	const project = join(root, "lab");
+	await mkdir(project);
+	await writeFile(join(project, "keep.txt"), "kept\n");
+	await symlink("keep.txt", join(project, VANISHING_LINK));
+
+	const zip = await collect(await archiveDir(project, new AbortController().signal));
+	expect(await entries(zip)).toEqual(["lab/", "lab/keep.txt"]);
+});
+
+test("any other readlink error still ends the download", async () => {
+	const project = join(root, "lab");
+	await mkdir(project);
+	await symlink("keep.txt", join(project, UNREADABLE_LINK));
+
+	await expect(
+		archiveDir(project, new AbortController().signal).then(collect),
+	).rejects.toMatchObject({ code: "EACCES" });
 });
