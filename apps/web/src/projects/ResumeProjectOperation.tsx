@@ -1,13 +1,14 @@
 import type { ProjectOperation } from "@portikus/contracts";
-import { useToast } from "@portikus/ui";
+import { Button, useToast } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { errorText } from "../api/request.js";
 import {
-	followOperation,
+	followHere,
 	isOperationHandled,
-	markOperationHandled,
+	isOperationStartedHere,
+	onOperationHandOff,
 	readOperation,
 } from "./operations.js";
 
@@ -23,10 +24,18 @@ const FAILED_TITLE: Record<ProjectOperation["kind"], string> = {
 	restore: "The restore did not finish",
 };
 
+const DONE_VERB: Record<ProjectOperation["kind"], string> = {
+	create: "created",
+	duplicate: "duplicated",
+	restore: "restored",
+};
+
 /**
- * After a reload, finds a clone, duplicate or restore the page started and
- * shows its progress and outcome, as the dialog would have (SPEC.md §7.2,
- * §7.3, §15.8). An outcome this tab already showed is not shown again.
+ * Follows a clone, duplicate or restore the page no longer shows in a dialog:
+ * one still running after a reload, one this tab started and has not shown
+ * yet, or one a dialog closed on (SPEC.md §7.2, §7.3, §15.8). The outcome is
+ * announced in a toast; the page stays where the student is, with an "Open
+ * project" action, because switching it could interrupt their typing.
  */
 export function ResumeProjectOperation({
 	workspaceId,
@@ -41,27 +50,35 @@ export function ResumeProjectOperation({
 
 	useEffect(() => {
 		if (!running) return;
-		let cancelled = false;
-		let dismiss: (() => void) | undefined;
+		const controller = new AbortController();
+		const { signal } = controller;
+		const following = new Set<string>();
+		const dismissals = new Set<() => void>();
 
-		async function resume() {
-			const found = await readOperation(workspaceId).catch(() => null);
-			if (cancelled || !found) return;
-			if (found.state !== "running" && isOperationHandled(found.id)) return;
+		async function follow(found: ProjectOperation) {
+			if (following.has(found.id)) return;
+			following.add(found.id);
+			let dismiss: (() => void) | undefined;
 			if (found.state === "running") {
 				dismiss = toast.show({
 					title: RUNNING_TITLE[found.kind],
 					persistent: true,
 					unrecorded: true,
 				});
+				dismissals.add(dismiss);
 			}
+			const settle = () => {
+				if (dismiss) {
+					dismiss();
+					dismissals.delete(dismiss);
+				}
+			};
 			let done: ProjectOperation;
 			try {
-				done = await followOperation(workspaceId, found);
+				done = await followHere(workspaceId, found, signal);
 			} catch (error) {
-				dismiss?.();
-				if (cancelled) return;
-				markOperationHandled(found.id);
+				settle();
+				if (signal.aborted) return;
 				toast.show({
 					tone: "danger",
 					title: FAILED_TITLE[found.kind],
@@ -69,25 +86,55 @@ export function ResumeProjectOperation({
 				});
 				return;
 			}
-			dismiss?.();
-			if (cancelled) return;
-			markOperationHandled(found.id);
+			settle();
+			if (signal.aborted) return;
 			await client.invalidateQueries();
-			if (done.project) {
-				toast.show({ tone: "success", title: `${done.project.name} created` });
-				void navigate({
-					to: "/workspaces/$id/projects/$projectId",
-					params: { id: workspaceId, projectId: done.project.id },
+			const made = done.project;
+			if (made) {
+				toast.show({
+					tone: "success",
+					title: `${made.name} ${DONE_VERB[found.kind]}`,
+					actions: (
+						<Button
+							size="sm"
+							variant="secondary"
+							onClick={() =>
+								void navigate({
+									to: "/workspaces/$id/projects/$projectId",
+									params: { id: workspaceId, projectId: made.id },
+								})
+							}
+						>
+							Open project
+						</Button>
+					),
 				});
 			} else {
-				toast.show({ tone: "success", title: "Restore finished" });
+				toast.show({ tone: "success", title: `Project ${DONE_VERB[found.kind]}` });
 			}
 		}
 
-		void resume();
+		const stopListening = onOperationHandOff((id, operation) => {
+			if (id === workspaceId) void follow(operation);
+		});
+
+		void (async () => {
+			const found = await readOperation(workspaceId, signal).catch(() => null);
+			if (signal.aborted || !found) return;
+			// A finished operation is replayed only in the tab that started it,
+			// and only once there.
+			if (
+				found.state !== "running" &&
+				(!isOperationStartedHere(found.id) || isOperationHandled(found.id))
+			)
+				return;
+			void follow(found);
+		})();
+
 		return () => {
-			cancelled = true;
-			dismiss?.();
+			controller.abort();
+			stopListening();
+			for (const dismiss of dismissals) dismiss();
 		};
 	}, [workspaceId, running, toast, client, navigate]);
 

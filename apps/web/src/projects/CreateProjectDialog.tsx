@@ -98,7 +98,7 @@ export function CreateProjectDialog({
 							data-testid="dialog-confirm"
 							variant="primary"
 							loading={create.isPending}
-							disabled={!ready || create.isPending}
+							disabled={!ready}
 							onClick={submit}
 						>
 							{create.isPending

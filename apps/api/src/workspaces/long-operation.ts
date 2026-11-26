@@ -99,6 +99,47 @@ export function runningOperation(
 	return record.operation;
 }
 
+type OperationInput = {
+	workspaceId: string;
+	key: string;
+	kind: ProjectOperationKind;
+	projectId: string | null;
+	pointId: string | null;
+	log: FastifyBaseLogger;
+};
+
+type OperationFailure = NonNullable<ProjectOperation["error"]>;
+
+/** A recorded operation whose work has not started yet. */
+export interface ClaimedOperation {
+	operation: ProjectOperation;
+	/** Run `work` in the background; see startOperation. */
+	start(work: (reply: FastifyReply) => Promise<Project | null>): ProjectOperation;
+	/** End it before its work starts, with the answer the request gets. */
+	abandon(error: OperationFailure): void;
+}
+
+/**
+ * Join the running operation `key` names, answering 202 with it, or claim the
+ * workspace's long-operation slot and record a new operation in the same
+ * step, so a repeat sent while the caller still checks things joins it
+ * instead of meeting a held slot. Null after answering (202 to join, 409
+ * when another operation holds the slot).
+ */
+export function claimOperation(
+	input: OperationInput,
+	reply: FastifyReply,
+): ClaimedOperation | null {
+	const same = runningOperation(input.workspaceId, input.key);
+	if (same) {
+		// The caller returns the reply when this answers null.
+		void reply.status(202).send(same);
+		return null;
+	}
+	if (!claimLongOperation(input.workspaceId, reply)) return null;
+	return recordOperation(input);
+}
+
 /**
  * Run `work` in the background. The caller already holds the workspace's
  * long-operation slot; it is released when the work ends. `work` answers on
@@ -106,16 +147,13 @@ export function runningOperation(
  * operation's failure, anything else its success with the project returned.
  */
 export function startOperation(
-	input: {
-		workspaceId: string;
-		key: string;
-		kind: ProjectOperationKind;
-		projectId: string | null;
-		pointId: string | null;
-		log: FastifyBaseLogger;
-	},
+	input: OperationInput,
 	work: (reply: FastifyReply) => Promise<Project | null>,
 ): ProjectOperation {
+	return recordOperation(input).start(work);
+}
+
+function recordOperation(input: OperationInput): ClaimedOperation {
 	const operation: ProjectOperation = {
 		id: randomUUID(),
 		kind: input.kind,
@@ -129,40 +167,50 @@ export function startOperation(
 	};
 	const record: OperationRecord = { operation, key: input.key };
 	operations.set(input.workspaceId, record);
-	const reply = new OperationReply();
-	void work(reply.asReply())
-		.then((project) => {
-			const failed = ApiErrorBody.safeParse(reply.body);
-			if (reply.statusCode >= 400) {
-				finish(record, {
-					state: "failed",
-					error: failed.success
-						? { status: reply.statusCode, ...failed.data }
-						: { status: reply.statusCode, ...UNEXPECTED },
-				});
-			} else {
-				finish(record, { state: "succeeded", project });
+	const ended = () => {
+		releaseLongOperation(input.workspaceId);
+		setTimeout(() => {
+			if (operations.get(input.workspaceId) === record) {
+				operations.delete(input.workspaceId);
 			}
-		})
-		.catch((error: unknown) => {
-			input.log.error(
-				{ workspaceId: input.workspaceId, kind: input.kind, err: error },
-				"project operation failed unexpectedly",
-			);
-			finish(record, { state: "failed", error: { status: 500, ...UNEXPECTED } });
-		})
-		.finally(() => {
-			releaseLongOperation(input.workspaceId);
-			setTimeout(() => {
-				if (operations.get(input.workspaceId) === record) {
-					operations.delete(input.workspaceId);
-				}
-			}, FINISHED_OPERATION_KEEP_MS).unref();
-		});
-	return operation;
+		}, FINISHED_OPERATION_KEEP_MS).unref();
+	};
+	return {
+		operation,
+		abandon(error) {
+			finish(record, { state: "failed", error });
+			ended();
+		},
+		start(work) {
+			const reply = new OperationReply();
+			void work(reply.asReply())
+				.then((project) => {
+					const failed = ApiErrorBody.safeParse(reply.body);
+					if (reply.statusCode >= 400) {
+						finish(record, {
+							state: "failed",
+							error: failed.success
+								? { status: reply.statusCode, ...failed.data }
+								: { status: reply.statusCode, ...UNEXPECTED },
+						});
+					} else {
+						finish(record, { state: "succeeded", project });
+					}
+				})
+				.catch((error: unknown) => {
+					input.log.error(
+						{ workspaceId: input.workspaceId, kind: input.kind, err: error },
+						"project operation failed unexpectedly",
+					);
+					finish(record, { state: "failed", error: { status: 500, ...UNEXPECTED } });
+				})
+				.finally(ended);
+			return operation;
+		},
+	};
 }
 
-const UNEXPECTED = {
+export const UNEXPECTED = {
 	code: "INTERNAL",
 	message: "Something went wrong. Please try again.",
 } as const;

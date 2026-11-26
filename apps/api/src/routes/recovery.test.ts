@@ -259,6 +259,24 @@ test.skipIf(skip)("restore puts the files back after a safety point", async () =
 	expect(text).not.toContain(SLUG);
 });
 
+test.skipIf(skip)("a double-clicked restore joins the first one", async () => {
+	const pointId = (await create(alice)).json().id;
+	writeFile("ruined by an agent");
+	const [first, second] = await Promise.all([
+		startRestore(alice, pointId),
+		startRestore(alice, pointId),
+	]);
+	expect([first.statusCode, second.statusCode]).toEqual([202, 202]);
+	expect(second.json().id).toBe(first.json().id);
+	const done = await settleOperation(app, alice.cookieHeader(), workspaceId, first);
+	expect(done.statusCode).toBe(204);
+	expect(readFile()).toBe("first draft");
+	expect((await pointRows()).map((row) => row.reason)).toEqual([
+		"manual",
+		"before-restore",
+	]);
+});
+
 test.skipIf(skip)("restore is refused when the safety point fails", async () => {
 	const pointId = (await create(alice)).json().id;
 	writeFile("current work");

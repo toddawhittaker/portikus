@@ -3,7 +3,7 @@ import { RecoveryAsideList, RecoveryPointList } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "../api/request.js";
-import { postOperation } from "../projects/operations.js";
+import { postOperation, useHandOffOnClose } from "../projects/operations.js";
 
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}/recovery-points`;
@@ -71,19 +71,27 @@ export function useRestoreRecoveryPoint(workspaceId: string, projectId: string) 
 				queryKey: recoveryKeys.asides(workspaceId, projectId),
 			}),
 		]);
+	const follow = useHandOffOnClose(workspaceId);
 	return useMutation({
-		mutationFn: ({
+		mutationFn: async ({
 			pointId,
 			skipSafetyPoint,
 		}: {
 			pointId: string;
 			skipSafetyPoint: boolean;
-		}) =>
-			postOperation(
-				workspaceId,
-				`${base(workspaceId, projectId)}/${pointId}/restore`,
-				skipSafetyPoint ? { skipSafetyPoint: true } : {},
-			),
+		}) => {
+			const run = follow();
+			try {
+				return await postOperation(
+					workspaceId,
+					`${base(workspaceId, projectId)}/${pointId}/restore`,
+					skipSafetyPoint ? { skipSafetyPoint: true } : {},
+					run,
+				);
+			} finally {
+				run.finish();
+			}
+		},
 		onSettled: invalidate,
 	});
 }

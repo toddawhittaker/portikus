@@ -186,7 +186,7 @@ test.skipIf(skip)("the owner reads a tree and a file with its etag", async () =>
 	// API may rewrite it: Caddy's gzip compression appends "-gzip" to an etag
 	// it compresses, and the next save would then be refused as a conflict
 	// nobody caused (SPEC.md §13.5).
-	expect(file.headers["cache-control"]).toBe("no-transform");
+	expect(file.headers["cache-control"]).toBe("private, no-store, no-transform");
 	expect(file.headers["content-type"]).toBe("text/plain; charset=utf-8");
 	expect(file.headers["content-length"]).toBe("6");
 });
@@ -350,7 +350,7 @@ test.skipIf(skip)(
 		expect(created.json()).toEqual({ etag: await etagOf("first\n"), size: 6 });
 		expect(created.headers.etag).toBe(await etagOf("first\n"));
 		// The next save is conditional on this etag too.
-		expect(created.headers["cache-control"]).toBe("no-transform");
+		expect(created.headers["cache-control"]).toBe("private, no-store, no-transform");
 		expect(agent.files.get("lab/notes.md")).toEqual({
 			type: "file",
 			content: Buffer.from("first\n"),

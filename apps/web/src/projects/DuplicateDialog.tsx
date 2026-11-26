@@ -41,7 +41,7 @@ export function DuplicateDialog({
 							data-testid="dialog-confirm"
 							variant="primary"
 							loading={duplicate.isPending}
-							disabled={slug === "" || duplicate.isPending}
+							disabled={slug === ""}
 							onClick={submit}
 						>
 							{duplicate.isPending ? "Duplicating…" : "Duplicate project"}

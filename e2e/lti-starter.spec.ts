@@ -189,12 +189,14 @@ test("a slow starter clone says it is being set up, survives a reload, and opens
 			})
 			.last(),
 	).toBeVisible();
-	await expect(
-		page
-			.locator(".pk-toast")
-			.filter({ hasText: new RegExp(`${CREATED}|${name} created`) })
-			.last(),
-	).toBeVisible({ timeout: 30_000 });
+	const done = page
+		.locator(".pk-toast")
+		.filter({ hasText: new RegExp(`${CREATED}|${name} created`) })
+		.last();
+	await expect(done).toBeVisible({ timeout: 30_000 });
+	// Resumed as a create, the page offers the project rather than switching to it.
+	const open = done.getByRole("button", { name: "Open project" });
+	if (await open.isVisible()) await open.click();
 	const rows = await projectRows(name);
 	expect(rows).toHaveLength(1);
 	await expect(page).toHaveURL(

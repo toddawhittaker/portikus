@@ -539,6 +539,23 @@ async function archiveEntries(
 	return output;
 }
 
+/** Whether yazl stores `name` as it is: no backslash and no drive letter. */
+function isPortableName(name: string): boolean {
+	return !name.includes("\\") && !/^[A-Za-z]:/.test(name);
+}
+
+/** A read stream once the file is open, so a missing file is known before it is added. */
+function openForRead(path: string): Promise<ReadStream> {
+	return new Promise((resolve, reject) => {
+		const file = createReadStream(path);
+		file.once("open", () => {
+			file.off("error", reject);
+			resolve(file);
+		});
+		file.once("error", reject);
+	});
+}
+
 /** Add every entry under `paths` to the zip, depth first, in name order. */
 async function addEntries(
 	zip: ZipFile,
@@ -552,10 +569,21 @@ async function addEntries(
 	output.once("close", () => {
 		for (const file of open) file.destroy();
 	});
+	// Every entry is added through this chain, so the zip keeps the walk's
+	// order while the walk runs ahead and files are opened one at a time.
+	let adding: Promise<void> = Promise.resolve();
+	const add = (step: () => void | Promise<void>): void => {
+		adding = adding.then(step);
+		adding.catch(fail);
+	};
 	const pending = [...paths].sort().reverse();
 	while (pending.length > 0 && !output.destroyed) {
 		const path = pending.pop() as string;
 		const name = relative(parent, path);
+		// yazl reads a backslash as a folder separator, so `d\x` beside a
+		// symlink `d` would unzip through the link; it also throws on a drive
+		// letter, which would end the whole download. Such names are left out.
+		if (!isPortableName(name)) continue;
 		let info: Stats;
 		try {
 			info = await lstat(path);
@@ -566,10 +594,8 @@ async function addEntries(
 		}
 		const options = { mtime: info.mtime, mode: info.mode & 0xffff };
 		if (info.isSymbolicLink()) {
-			zip.addBuffer(Buffer.from(await readlink(path)), name, {
-				...options,
-				compress: false,
-			});
+			const target = Buffer.from(await readlink(path));
+			add(() => zip.addBuffer(target, name, { ...options, compress: false }));
 		} else if (info.isDirectory()) {
 			let children: string[];
 			try {
@@ -579,7 +605,7 @@ async function addEntries(
 				if ((error as NodeJS.ErrnoException).code !== "EACCES") throw error;
 				children = [];
 			}
-			zip.addEmptyDirectory(name, options);
+			add(() => zip.addEmptyDirectory(name, options));
 			pending.push(
 				...children
 					.sort()
@@ -587,17 +613,28 @@ async function addEntries(
 					.map((child) => join(path, child)),
 			);
 		} else if (info.isFile()) {
-			zip.addReadStreamLazy(name, { ...options, size: info.size }, (done) => {
-				const file = createReadStream(path);
+			add(async () => {
+				if (output.destroyed) return;
+				let file: ReadStream;
+				try {
+					file = await openForRead(path);
+				} catch (error) {
+					// Deleted since the walk found it: left out, as the size check leaves it out.
+					if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+					throw error;
+				}
 				// yazl does not watch its input, so a read error must end the download here.
 				file.once("error", fail);
 				open.add(file);
-				file.once("close", () => open.delete(file));
-				done(null, file);
+				const closed = new Promise<void>((resolve) => file.once("close", resolve));
+				zip.addReadStream(file, name, { ...options, size: info.size });
+				await closed;
+				open.delete(file);
 			});
 		}
 		// Sockets, FIFOs and devices hold no file content, so they are left out.
 	}
+	await adding;
 }
 
 /**

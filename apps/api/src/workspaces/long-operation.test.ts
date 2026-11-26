@@ -4,6 +4,7 @@ import type { FastifyBaseLogger } from "fastify";
 import { afterEach, expect, test, vi } from "vitest";
 import { sendError } from "../http.js";
 import {
+	claimOperation,
 	currentOperation,
 	FINISHED_OPERATION_KEEP_MS,
 	holdLongOperation,
@@ -168,4 +169,60 @@ test("a newer operation is not forgotten when an older one's time runs out", asy
 	const newer = begin(workspaceId, async () => PROJECT);
 	await vi.advanceTimersByTimeAsync(1000);
 	expect(currentOperation(workspaceId)?.id).toBe(newer.id);
+});
+
+/** Enough of a reply to see what claimOperation answered. */
+function fakeReply() {
+	const sent: { status?: number; body?: unknown } = {};
+	const reply = {
+		status(code: number) {
+			sent.status = code;
+			return reply;
+		},
+		code(code: number) {
+			return reply.status(code);
+		},
+		header() {
+			return reply;
+		},
+		send(body?: unknown) {
+			sent.body = body;
+			return reply;
+		},
+	};
+	return { reply: reply as unknown as Parameters<typeof claimOperation>[1], sent };
+}
+
+const input = (workspaceId: string, key = "restore:a") => ({
+	workspaceId,
+	key,
+	kind: "restore" as const,
+	projectId: null,
+	pointId: null,
+	log,
+});
+
+test("a claim records the operation at once, so a repeat joins it before the work starts", () => {
+	const workspaceId = randomUUID();
+	const claimed = claimOperation(input(workspaceId), fakeReply().reply);
+	expect(claimed).not.toBeNull();
+	const repeat = fakeReply();
+	expect(claimOperation(input(workspaceId), repeat.reply)).toBeNull();
+	expect(repeat.sent).toEqual({ status: 202, body: claimed?.operation });
+	const other = fakeReply();
+	expect(claimOperation(input(workspaceId, "restore:b"), other.reply)).toBeNull();
+	expect(other.sent.status).toBe(409);
+	claimed?.abandon({ status: 409, code: "OPERATION_PENDING", message: "Wait." });
+});
+
+test("an abandoned claim fails with the refusal and gives the slot back", () => {
+	const workspaceId = randomUUID();
+	const claimed = claimOperation(input(workspaceId), fakeReply().reply);
+	claimed?.abandon({ status: 409, code: "OPERATION_PENDING", message: "Wait." });
+	expect(currentOperation(workspaceId)).toMatchObject({
+		state: "failed",
+		error: { status: 409, code: "OPERATION_PENDING", message: "Wait." },
+	});
+	expect(holdLongOperation(workspaceId)).toBe(true);
+	releaseLongOperation(workspaceId);
 });

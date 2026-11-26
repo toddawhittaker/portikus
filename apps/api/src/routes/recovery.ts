@@ -34,9 +34,9 @@ import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import {
 	claimLongOperation,
+	claimOperation,
 	releaseLongOperation,
-	runningOperation,
-	startOperation,
+	UNEXPECTED,
 } from "../workspaces/long-operation.js";
 import {
 	agentUrl,
@@ -58,24 +58,30 @@ const MANUAL_POINT_INTERVAL_MS = 30_000;
 /** Workspaces with a point diff in flight; per API process, like long-operation.ts. */
 const diffsRunning = new Set<string>();
 
+const PENDING = {
+	code: "OPERATION_PENDING",
+	message:
+		"A maintenance operation is waiting on this workspace. Try again when it is done.",
+} as const;
+
+/** Whether a maintenance operation waits on the workspace. */
+async function isPending(db: Kysely<Database>, workspaceId: string): Promise<boolean> {
+	const row = await db
+		.selectFrom("workspaces")
+		.select("pending_operation")
+		.where("id", "=", workspaceId)
+		.executeTakeFirst();
+	return Boolean(row?.pending_operation);
+}
+
 /** Answer 409 while a maintenance operation waits on the workspace. */
 async function refusePending(
 	db: Kysely<Database>,
 	workspaceId: string,
 	reply: FastifyReply,
 ): Promise<boolean> {
-	const row = await db
-		.selectFrom("workspaces")
-		.select("pending_operation")
-		.where("id", "=", workspaceId)
-		.executeTakeFirst();
-	if (!row?.pending_operation) return false;
-	sendError(
-		reply,
-		409,
-		"OPERATION_PENDING",
-		"A maintenance operation is waiting on this workspace. Try again when it is done.",
-	);
+	if (!(await isPending(db, workspaceId))) return false;
+	sendError(reply, 409, PENDING.code, PENDING.message);
 	return true;
 }
 
@@ -248,22 +254,8 @@ export function registerRecoveryRoutes(
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
 			const key = `restore:${project.id}:${point.id}:${body.skipSafetyPoint === true}`;
-			const same = runningOperation(scope.workspaceId, key);
-			if (same) return reply.status(202).send(same);
-			// Claimed before the pending check; see the create route.
-			if (!claimLongOperation(scope.workspaceId, reply)) return;
-			try {
-				if (await refusePending(db, scope.workspaceId, reply)) {
-					releaseLongOperation(scope.workspaceId);
-					return;
-				}
-			} catch (error) {
-				releaseLongOperation(scope.workspaceId);
-				throw error;
-			}
-			// A restore can outlast a proxy's response timeout, so it is
-			// answered at once and finished in the background.
-			const operation = startOperation(
+			// Recorded before the pending check, so a double-click joins it.
+			const claimed = claimOperation(
 				{
 					workspaceId: scope.workspaceId,
 					key,
@@ -272,18 +264,33 @@ export function registerRecoveryRoutes(
 					pointId: point.id,
 					log: request.log,
 				},
-				async (background) => {
-					await restore(request, background, {
-						agent,
-						userId: user.id,
-						workspaceId: scope.workspaceId,
-						project,
-						point,
-						skipSafetyPoint: body.skipSafetyPoint === true,
-					});
-					return null;
-				},
+				reply,
 			);
+			if (!claimed) return reply;
+			let pending: boolean;
+			try {
+				pending = await isPending(db, scope.workspaceId);
+			} catch (error) {
+				claimed.abandon({ status: 500, ...UNEXPECTED });
+				throw error;
+			}
+			if (pending) {
+				claimed.abandon({ status: 409, ...PENDING });
+				return sendError(reply, 409, PENDING.code, PENDING.message);
+			}
+			// A restore can outlast a proxy's response timeout, so it is
+			// answered at once and finished in the background.
+			const operation = claimed.start(async (background) => {
+				await restore(request, background, {
+					agent,
+					userId: user.id,
+					workspaceId: scope.workspaceId,
+					project,
+					point,
+					skipSafetyPoint: body.skipSafetyPoint === true,
+				});
+				return null;
+			});
 			return reply.status(202).send(operation);
 		},
 	);
