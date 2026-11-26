@@ -17,6 +17,9 @@ export function OpenPreviewPage({
 	// One grant per visit, even when a development render runs effects twice.
 	const asked = useRef(false);
 	useEffect(() => {
+		document.title = "Opening preview";
+	}, []);
+	useEffect(() => {
 		if (port === undefined || asked.current) return;
 		asked.current = true;
 		requestGrant(workspaceId, port, "top-level").then(
@@ -26,13 +29,14 @@ export function OpenPreviewPage({
 	}, [workspaceId, port]);
 	return (
 		<main className="pk-root" aria-busy={!failed}>
+			<h1>Opening preview</h1>
 			{failed ? (
 				<p role="alert">
 					This preview could not be opened. Make sure the workspace is running, then
 					open the preview again from Portikus.
 				</p>
 			) : (
-				<p>Opening the preview…</p>
+				<p role="status">Opening the preview…</p>
 			)}
 		</main>
 	);

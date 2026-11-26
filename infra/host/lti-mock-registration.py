@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 
@@ -54,9 +55,20 @@ def drop_setting(path):
     kept = re.sub(rf"^{SETTING}:.*\n?", "", text, flags=re.MULTILINE)
     if kept == text:
         return
-    # Rewritten in place, so the file keeps its owner and mode.
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(kept)
+    # Written beside the file and renamed, so a failed write never leaves half a
+    # file; the original's mode and owner are copied across.
+    info = os.stat(path)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".portikus.yaml.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(kept)
+        os.chmod(tmp, stat.S_IMODE(info.st_mode))
+        os.chown(tmp, info.st_uid, info.st_gid)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
     print(f"{path}: removed {SETTING}; setup now finds no platforms file, so LTI is off")
 
 

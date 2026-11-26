@@ -166,6 +166,20 @@ write_settings
 register && helper unregister --settings "${settings}"
 check "unregistering keeps the setting while another platform remains" \
   grep -q "^portikus_lti_platforms_file: ${reg}$" "${settings}"
+# The rewrite goes through a temporary file that replaces the original, and
+# the original's mode and owner carry over. A root-owned 0640 file stays so.
+rm -f "${reg}"
+write_settings
+chmod 640 "${settings}"
+before_inode="$(stat -c %i "${settings}")"
+helper unregister --settings "${settings}"
+check "dropping the setting keeps the file's mode" [ "$(stat -c %a "${settings}")" = 640 ]
+check "dropping the setting keeps the file's owner" \
+  [ "$(stat -c %u:%g "${settings}")" = "$(id -u):$(id -g)" ]
+check "dropping the setting replaces the file instead of writing into it" \
+  [ "$(stat -c %i "${settings}")" != "${before_inode}" ]
+check "dropping the setting leaves no temporary file behind" \
+  [ -z "$(find "${work}" -maxdepth 1 -name '.portikus.yaml.*')" ]
 printf 'portikus_public_host: lab.example\n' >"${settings}"
 cp "${settings}" "${settings}.before"
 rm -f "${reg}"

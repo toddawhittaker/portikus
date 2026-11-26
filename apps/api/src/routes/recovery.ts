@@ -33,7 +33,14 @@ import {
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
-import { claimOperation, UNEXPECTED } from "../workspaces/long-operation.js";
+import {
+	claimLongOperation,
+	claimOperation,
+	releaseLongOperation,
+	runningOperation,
+	startOperation,
+	UNEXPECTED,
+} from "../workspaces/long-operation.js";
 import {
 	agentUrl,
 	ownedProject,
@@ -169,22 +176,24 @@ export function registerRecoveryRoutes(
 		const { scope, project } = found;
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
-		// Recorded before the checks, so a double-click joins it and a
-		// maintenance request cannot slip in between them.
-		const claimed = claimOperation(
-			{
-				workspaceId: scope.workspaceId,
-				key: `recovery-point:${project.id}`,
-				kind: "recovery-point",
-				projectId: project.id,
-				pointId: null,
-				log: request.log,
-			},
-			reply,
-		);
-		if (!claimed) return reply;
+		const input = {
+			workspaceId: scope.workspaceId,
+			key: `recovery-point:${project.id}`,
+			kind: "recovery-point",
+			projectId: project.id,
+			pointId: null,
+			log: request.log,
+		} as const;
+		// A double-click joins the running point instead of meeting the held slot.
+		const same = runningOperation(input.workspaceId, input.key);
+		if (same) return reply.status(202).send(same);
+		// The slot is held through the checks so maintenance cannot slip in
+		// between them. A refusal is a plain error, not a recorded operation:
+		// recording it would replace the workspace's last finished one and show
+		// the student a second failure toast on reload.
+		if (!claimLongOperation(scope.workspaceId, reply)) return reply;
 		const refuse = (status: number, code: ApiErrorCode, message: string) => {
-			claimed.abandon({ status, code, message });
+			releaseLongOperation(scope.workspaceId);
 			return sendError(reply, status, code, message);
 		};
 		try {
@@ -217,10 +226,10 @@ export function registerRecoveryRoutes(
 				);
 			}
 		} catch (error) {
-			claimed.abandon({ status: 500, ...UNEXPECTED });
+			releaseLongOperation(scope.workspaceId);
 			throw error;
 		}
-		const operation = claimed.start(async (background) => {
+		const operation = startOperation(input, async (background) => {
 			let row: RecoveryPointRow;
 			try {
 				row = await makeRecoveryPoint(db, config, agent, {

@@ -10,11 +10,13 @@ import { MAX_TERMINALS_PER_WORKSPACE, type WorkspaceState } from "@portikus/cont
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
+import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { settleOperation } from "../testing/project-operation.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import {
+	currentOperation,
 	holdLongOperation,
 	releaseLongOperation,
 } from "../workspaces/long-operation.js";
@@ -577,6 +579,48 @@ test.skipIf(skip)("create and restore wait out a pending operation", async () =>
 	}
 	expect(await pointRows()).toHaveLength(1);
 });
+
+test.skipIf(skip)(
+	"a refused create records no operation and keeps the last finished one",
+	async () => {
+		// The first create finishes and is the workspace's record.
+		expect((await create(alice)).statusCode).toBe(201);
+		const finished = currentOperation(workspaceId);
+		expect(finished).toMatchObject({ kind: "recovery-point", state: "succeeded" });
+
+		// Too soon after the first: the rate limit refuses.
+		expect((await startCreate(alice)).statusCode).toBe(429);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+
+		// A pending maintenance operation refuses too.
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date().toISOString(),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+		expect((await startCreate(alice)).statusCode).toBe(409);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+
+		// And so does a project at the cap.
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ pending_operation: null, pending_operation_at: null })
+			.where("id", "=", workspaceId)
+			.execute();
+		await fillPoints(200);
+		await sql`update recovery_points set created_at = now() - interval '60 seconds' where reason = 'manual'`.execute(
+			testDb.db,
+		);
+		expect((await startCreate(alice)).statusCode).toBe(409);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		// Each refusal gave the slot back.
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
 
 test.skipIf(skip)("refusing for a pending operation gives the slot back", async () => {
 	const pointId = (await create(alice)).json().id;

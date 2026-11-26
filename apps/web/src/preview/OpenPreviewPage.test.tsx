@@ -21,7 +21,10 @@ test("asks for a tab grant once and goes to its bootstrap URL", async () => {
 		bootstrapUrl: "https://p.example/__portikus/bootstrap?t=x",
 	});
 	render(<OpenPreviewPage workspaceId="w1" port={5173} />);
-	expect(screen.getByText("Opening the preview…")).toBeTruthy();
+	expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Opening preview");
+	expect(document.title).toBe("Opening preview");
+	// A polite live region, so a screen reader hears the wait.
+	expect(screen.getByRole("status").textContent).toBe("Opening the preview…");
 	await waitFor(() =>
 		expect(replace).toHaveBeenCalledWith("https://p.example/__portikus/bootstrap?t=x"),
 	);
@@ -35,6 +38,7 @@ test("says so when the grant is refused", async () => {
 	expect((await screen.findByRole("alert")).textContent).toContain(
 		"could not be opened",
 	);
+	expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Opening preview");
 });
 
 test("a bad port asks for nothing", () => {
