@@ -16,7 +16,10 @@ import {
 	PROVIDER_LABEL,
 	PROVIDERS,
 	pemProblem,
+	plainValue,
 	secretProblem,
+	secretStored,
+	secretValue,
 	settingsText,
 	testIsReal,
 	toSettings,
@@ -24,6 +27,7 @@ import {
 	uploadRefusalText,
 	validate,
 	withPlain,
+	withProvider,
 	withSecret,
 } from "./form.js";
 
@@ -393,4 +397,112 @@ test("a refused upload points at the file its check reads (SPEC.md section 25.8)
 		uploadRefusalField("Site certificate: the unknown-thing check failed. x"),
 	).toBeNull();
 	expect(uploadRefusalField("Something else went wrong.")).toBeNull();
+});
+
+// ---- A preview domain in its own DNS zone ----
+
+const TWO_ZONES: CertificateSettingsView = {
+	...ACME_VIEW,
+	challenge: {
+		mode: "dns01",
+		provider: "route53",
+		fields: { region: "us-east-1", access_key_id: "AKIAFAKE" },
+		secretsSet: { secret_access_key: true },
+		previewDns: { provider: "cloudflare", fields: {}, secretsSet: { api_token: true } },
+	},
+};
+
+test("one account sends no preview account, and the form starts without one", () => {
+	expect(initialForm(ACME_VIEW).previewDns).toBe(false);
+	const settings = toSettings(initialForm(ACME_VIEW));
+	expect(JSON.stringify(settings)).not.toContain("previewDns");
+});
+
+test("the form starts from a stored preview account, secrets blank", () => {
+	const form = initialForm(TWO_ZONES);
+	expect(form.previewDns).toBe(true);
+	expect(form.previewProvider).toBe("cloudflare");
+	expect(secretValue(form, "api_token", "preview")).toBe("");
+	expect(secretStored(TWO_ZONES, "cloudflare", "api_token", "preview")).toBe(true);
+	// The stored secret belongs to the preview account, not the site's.
+	expect(secretStored(TWO_ZONES, "cloudflare", "api_token", "site")).toBe(false);
+	expect(secretStored(TWO_ZONES, "route53", "secret_access_key", "preview")).toBe(
+		false,
+	);
+	expect(secretStored(ACME_VIEW, "cloudflare", "api_token", "preview")).toBe(false);
+});
+
+test("a blank preview secret keeps the stored one and is left out of the request", () => {
+	const form = initialForm(TWO_ZONES);
+	expect(validate(form, TWO_ZONES)).toEqual({});
+	const settings = toSettings(form);
+	expect(settings).toMatchObject({
+		challenge: {
+			mode: "dns01",
+			dns: { provider: "route53" },
+			previewDns: { provider: "cloudflare", fields: {} },
+		},
+	});
+	expect(CertificateJobRequest.safeParse({ kind: "apply", settings }).success).toBe(
+		true,
+	);
+});
+
+test("a preview secret not stored for its provider must be entered, under its own id", () => {
+	// Same provider as the site, but nothing stored for the preview account.
+	const form = {
+		...initialForm(ACME_VIEW),
+		previewDns: true,
+		previewProvider: "route53" as const,
+	};
+	expect(Object.keys(validate(form, ACME_VIEW)).sort()).toEqual(
+		[
+			FIELD_ID.provider("region", "preview"),
+			FIELD_ID.provider("access_key_id", "preview"),
+			FIELD_ID.provider("secret_access_key", "preview"),
+		].sort(),
+	);
+	// Changing the stored preview provider drops the right to keep its secret.
+	const switched = withProvider(initialForm(TWO_ZONES), "digitalocean", "preview");
+	expect(validate(switched, TWO_ZONES)).toEqual({
+		[FIELD_ID.provider("api_token", "preview")]: "Enter the API token.",
+	});
+});
+
+test("the two accounts keep their values apart, even for one provider", () => {
+	let form = acme({ provider: "cloudflare", previewDns: true });
+	form = withSecret(form, "api_token", "fake-site-token");
+	form = withSecret(form, "api_token", "fake-preview-token", "preview");
+	expect(toSettings(form)).toMatchObject({
+		challenge: {
+			dns: { fields: { api_token: "fake-site-token" } },
+			previewDns: {
+				provider: "cloudflare",
+				fields: { api_token: "fake-preview-token" },
+			},
+		},
+	});
+	const route = withProvider(form, "porkbun", "preview");
+	const typed = withPlain(route, "api_key", "pk", "preview");
+	expect(plainValue(typed, "api_key", "preview")).toBe("pk");
+	expect(typed.plain).toEqual({});
+});
+
+test("turning the preview account off removes it from the request", () => {
+	const off = { ...initialForm(TWO_ZONES), previewDns: false };
+	expect(validate(off, TWO_ZONES)).toEqual({});
+	expect(JSON.stringify(toSettings(off))).not.toContain("previewDns");
+});
+
+test("HTTP-01 sends no preview account even when the toggle was on", () => {
+	const form = acme({ mode: "http01", previewDns: true });
+	expect(validate(form, null)).toEqual({});
+	expect(toSettings(form)).toMatchObject({ challenge: { mode: "http01" } });
+	expect(JSON.stringify(toSettings(form))).not.toContain("previewDns");
+});
+
+test("the settings in force name the preview account", () => {
+	expect(settingsText(TWO_ZONES)).toBe(
+		"ACME with Let's Encrypt, DNS-01 through Amazon Route 53, previews through Cloudflare",
+	);
 });
