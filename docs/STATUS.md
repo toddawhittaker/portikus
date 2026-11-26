@@ -97,6 +97,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 73, fix batch from the open items.** The chat's sign-in button selects the agent's open terminal tab before opening a new one; Codex subagent panels are titled by the first line of their prompt; the terminal question's "Answered in the terminal or timed out" notice stays until it is closed; the Move to dialog and the file viewer reach later pages of a long folder; a set-password link whose email failed to send is revoked; and turning a code help language off closes its open sockets (SPEC.md sections 10.2, 10.8, 11.2, 13.6, 5.3 and 25.8).
 - **Epic 74, side conversations.** A student can type `/btw` in a Claude Code (GUI) or Codex (GUI) chat tab to ask a side question, or press Side question beside the composer's microphone, in a split beside the chat: it is answered from the conversation as it stands, never enters it or steers the running turn, runs read-only, and is kept across a reload (SPEC.md section 10.2, ADR 0083).
 - **Epic 75, picking an element in the preview.** A student can pick an element in an embedded preview and send its HTML, CSS and a screenshot to an agent terminal or chat, through a Portikus wrapper page on the preview origin (SPEC.md sections 14.6 and 24, ADR 0084); and a side answer keeps keyboard focus across a reconnect (#2176).
+- **Epic 76, Portikus behind a Cloudflare Tunnel.** Portikus runs behind a Cloudflare Tunnel with real client addresses (`trusted_proxies`), previews on a separate registrable domain with a partitioned embedded cookie and a new-tab fallback, and long operations (clone, duplicate, restore, LTI starter, recovery point, zip download) as background jobs or streams that stay under Cloudflare's 100-second limit; it was staged and measured on the Kitestring lab VM (SPEC.md sections 7, 14.6, 15.6, 21.12, 24.3 and 24.10 to 24.13, ADR 0085, closes #1236).
 
 ## Open items
 
@@ -105,7 +106,9 @@ list was made and may already be fixed.
 
 ### Security
 
-- Previews are served under the site's own registrable domain; a separate preview domain is #1236, and the stronger binding of preview tickets than the `Sec-Fetch-Dest` header is #1240. Until #1236, administrators who sign in through Google or LTI should teach from a separate instructor-only account.
+- Previews of a default install are served under the site's own registrable domain; a separate preview domain is now supported (Epic 76, ADR 0085), and the stronger binding of preview tickets than the `Sec-Fetch-Dest` header is #1240. Administrators who sign in through Google or LTI should teach from a separate instructor-only account unless the install uses a separate preview domain.
+- Real Safari refuses the partitioned embedded-preview cookie, so on Safari a preview opens in its own tab; the new "Preview blocked by your browser" message has not been tried on real Safari.
+- A cross-site preview reset clears only partitioned storage, so a tab's service worker survives it, and cookies a student's own app sets inside a cross-site preview frame work only if the app sets `SameSite=None; Partitioned` itself.
 - Traffic between the API and each workspace agent is plain HTTP on the workspace bridge, protected by the per-workspace bearer token and the network ACL.
 - Accepted: the agent's token is readable by the student, so a student can call their own agent's API directly; the control plane trusts none of the agent's claims (`docs/BROWSER-HANDLING.md` section 11.2).
 - Accepted: a hard link inside a project to a file outside it gets past the agent's path confinement; the student already has a shell in the container.
@@ -162,6 +165,7 @@ list was made and may already be fixed.
 - HTML, CSS and JSON code help ignores the site's code-help switch, and HTML has no diagnostics in Monaco 0.57.
 - Java, C/C++ and SQL code help is still open (#1652). A debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
 - The Playwright projects other than `terminal-webgl` run Chromium with 3D off, so most terminal specs exercise the DOM renderer; only `e2e/terminal-webgl.spec.ts` covers WebGL.
+- A restore refused because another project operation is pending still records a failed operation, so a reload shows a second error toast (#2219).
 
 ### Chat and coding agents
 
@@ -199,6 +203,7 @@ list was made and may already be fixed.
 
 - A manual VoiceOver pass over headings inside `<summary>` elements is #1260.
 - The preview's pick menu is named "Pick an element" for screen readers, not "Send the picked element to", because Radix points the menu's name at its trigger (#2196).
+- iPad Safari: the space bar in the terminal scrolls the page instead of typing a space (#2214).
 - A toast can cover a focused row near the bottom of a drawer (WCAG 2.4.11), and the plan meter popover can cover a toast.
 - The Audit tab and the other refreshing admin tabs do not announce new rows to screen readers. The Health heat map's cell values are not readable by sighted keyboard users.
 - The shared Checkbox's unavailable look is faint in both themes.
