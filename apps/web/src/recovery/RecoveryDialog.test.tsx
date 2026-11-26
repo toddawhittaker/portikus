@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
 	json,
 	openToggletip,
+	operation,
 	project,
 	renderWithQuery,
 	stubFetch,
@@ -38,6 +39,16 @@ function render(handler: (url: string, init?: RequestInit) => Response) {
 	);
 	return { fetchMock, onClose };
 }
+
+const RESTORE = operation({
+	kind: "restore",
+	projectId: PROJECT.id,
+	pointId: POINT.id,
+});
+const RESTORED = {
+	operation: { ...RESTORE, state: "succeeded", finishedAt: RESTORE.startedAt },
+};
+const isOperationRead = (url: string) => url.endsWith("/project-operation");
 
 const posts = (fetchMock: ReturnType<typeof stubFetch>, suffix: string) =>
 	fetchMock.mock.calls.filter(
@@ -119,9 +130,10 @@ test("a failed create is shown as an alert", async () => {
 });
 
 test("restore confirms with the project and time, then posts", async () => {
-	const { fetchMock, onClose } = render((_url, init) =>
-		init?.method === "POST" ? json(200, { ok: true }) : json(200, LIST),
-	);
+	const { fetchMock, onClose } = render((url, init) => {
+		if (init?.method === "POST") return json(202, RESTORE);
+		return isOperationRead(url) ? json(200, RESTORED) : json(200, LIST);
+	});
 
 	fireEvent.click(await screen.findByTestId(`recovery-restore-${POINT.id}`));
 	const dialog = screen.getByTestId("dialog-restore-point");
@@ -138,10 +150,11 @@ test("restore confirms with the project and time, then posts", async () => {
 });
 
 test("storage full offers a restore without the safety point", async () => {
-	const { fetchMock, onClose } = render((_url, init) => {
+	const { fetchMock, onClose } = render((url, init) => {
+		if (isOperationRead(url)) return json(200, RESTORED);
 		if (init?.method !== "POST") return json(200, LIST);
 		return JSON.parse(String(init.body)).skipSafetyPoint
-			? json(200, { ok: true })
+			? json(202, RESTORE)
 			: json(507, { code: "STORAGE_FULL", message: "Recovery storage is full." });
 	});
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type FakeNode, removeTree } from "./fs-model.js";
+import { slowMotionIfMarked } from "./slow-motion.js";
 import type { FakeAgentState } from "./state.js";
 
 /** Recovery points held in memory, like the agent's recovery-routes.ts (ADR 0020). */
@@ -94,6 +95,7 @@ export function registerRecoveryRoutes(app: FastifyInstance, s: FakeAgentState):
 			) {
 				return recoveryError(reply, 422, "RECOVERY_POINT_INVALID");
 			}
+			await slowMotionIfMarked(slug);
 			const failure = restoreFailure.get(keyOf(request));
 			if (failure) return recoveryError(reply, failure[0], failure[1]);
 			if (restoreIncomplete.has(keyOf(request))) {
