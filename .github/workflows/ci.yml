@@ -860,6 +860,9 @@ jobs:
           fi
           "$CADDY" version
           bash infra/tests/caddy-preview-test.sh
+          # The firewall template's ansible.utils.ipaddr filter needs netaddr,
+          # as infra/host/dev-libvirt/bootstrap.sh gives the host's Ansible.
+          pipx inject ansible-core netaddr==1.3.0
           bash infra/tests/caddy-proxy-test.sh
       # Pebble, Let's Encrypt's test ACME server, pinned by version and checksum.
       - name: Cache Pebble
