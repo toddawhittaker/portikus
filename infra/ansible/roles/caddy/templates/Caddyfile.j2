@@ -408,6 +408,17 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle {
 		root * /usr/lib/portikus/web
 		try_files {path} /index.html
+		# The build names each file under /assets by its content, so one
+		# that exists never changes.  Everything else, the entry page and
+		# the fallback to it included, is checked on every load so a new
+		# release shows at once.  A path under /assets with no file falls
+		# back to the page, which must not be kept for a year.
+		@web_hashed {
+			path /assets/*
+			file {path}
+		}
+		header @web_hashed Cache-Control "public, max-age=31536000, immutable"
+		header ?Cache-Control no-cache
 		file_server
 	}
 }

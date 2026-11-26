@@ -277,11 +277,17 @@ print(*(s.getsockname()[1] for s in held))')
 python3 "${work}/stubs.py" "${api_port}" "${app_port}" "${work}/authorize-seen" >"${work}/stubs.log" 2>&1 &
 stubs_pid=$!
 
+# A stand-in for the browser bundle the Caddyfile serves from /usr/lib/portikus/web.
+mkdir -p "${work}/web/assets"
+echo '<!doctype html><title>portikus</title>' >"${work}/web/index.html"
+echo 'console.log(1)' >"${work}/web/assets/app-3fa9c1.js"
+
 # start TRUSTED_JSON — a live Caddy on loopback with that trusted list.
 start() {
   [ -n "${caddy_pid}" ] && { kill "${caddy_pid}" 2>/dev/null; wait "${caddy_pid}" 2>/dev/null; }
   render "${work}/Caddyfile.live" "${public}" "${api_port}" "$1"
-  awk -v data="${work}/caddy-data" -v port="${http}" '
+  awk -v data="${work}/caddy-data" -v port="${http}" -v web="${work}/web" '
+    /^[[:space:]]*root \* \/usr\/lib\/portikus\/web$/ { print "\troot * " web; next }
     /^[[:space:]]*admin unix\// {
       printf "\tadmin off\n\tskip_install_trust\n\tstorage file_system %s\n\thttp_port %s\n", data, port
       next
@@ -378,6 +384,17 @@ for p in /health /me/settings /workspaces/w1/files/a.txt /admin/settings /course
   expect_eq "an API response to ${p} without Cache-Control is private, no-store" "private, no-store" "$(acc "${p}")"
 done
 expect_eq "an API response's own Cache-Control is kept" "max-age=5" "$(acc /me/cached)"
+
+echo ""
+echo "--- Live: the browser bundle is cached by file name, the page is always checked ---"
+expect_eq "a hashed bundle file is cached for a year" "public, max-age=31536000, immutable" "$(acc /assets/app-3fa9c1.js)"
+expect_eq "the entry page is checked on every load" "no-cache" "$(acc /index.html)"
+expect_eq "the site root is checked on every load" "no-cache" "$(acc /)"
+expect_eq "a single-page route falls back to a page that is checked" "no-cache" "$(acc /projects/p1)"
+expect_eq "a missing bundle file is never cached as immutable" "no-cache" "$(acc /assets/app-old000.js)"
+expect_eq "the page that shares an API path is never stored" "no-store" "$(app /workspaces/w1 -H 'Accept: text/html' -D - -o /dev/null | tr -d '\r' | sed -n 's/^cache-control: //Ip')"
+expect_eq "an API response is still private, no-store beside it" "private, no-store" "$(acc /me/settings)"
+expect_eq "a preview response is still private beside it" "private" "$(cc /plain)"
 
 echo ""
 echo "${pass} passed, ${fail} failed"

@@ -272,8 +272,10 @@ PORTIKUS_IMAGE_VERSION ?= none
 
 # Block until the VM answers SSH and cloud-init has finished, so Ansible does
 # not race the first-boot apt update. A host without cloud-init is ready once
-# it answers. The known-hosts options are for the wait only: a rebuilt VM has
-# a new host key at the same address.
+# it answers. cloud-init status exits 2 when it finished with recoverable
+# warnings, which is ready; only a failed boot (1) keeps waiting. The
+# known-hosts options are for the wait only: a rebuilt VM has a new host key
+# at the same address.
 wait-vm: ## Wait for the platform VM to finish first boot
 	@ip='$(VM_IP)'; \
 	if [ -z "$$ip" ] && [ -n '$(TOFU_VM_NAME)' ]; then \
@@ -283,7 +285,7 @@ wait-vm: ## Wait for the platform VM to finish first boot
 	test -n "$$ip" || { echo "wait-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }; \
 	for i in $$(seq 1 60); do \
 		ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-			-o LogLevel=ERROR '$(SSH_USER)'@$$ip 'command -v cloud-init >/dev/null || exit 0; cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
+			-o LogLevel=ERROR '$(SSH_USER)'@$$ip 'command -v cloud-init >/dev/null || exit 0; cloud-init status --wait >/dev/null 2>&1; cloud-init status; rc=$$?; [ $$rc -eq 0 ] || [ $$rc -eq 2 ]' 2>/dev/null && exit 0; \
 		sleep 5; \
 	done; echo "wait-vm: $$ip did not become ready"; exit 1
 
@@ -361,7 +363,7 @@ LTI_MOCK_APPLY = @set -e; \
 		file=$$(ssh -n -o BatchMode=yes $(SSH_USER)@$(VM_IP) "sudo sed -n 's/^portikus_lti_platforms_file: *//p' /etc/portikus/portikus.yaml"); \
 		test -n "$$file" || { echo "$@: $(VM_IP) is installed with apt, and its /etc/portikus/portikus.yaml names no portikus_lti_platforms_file; add portikus_lti_platforms_file: /etc/portikus/lti-platforms.source.json there (docs/OPERATIONS.md)"; exit 1; }; \
 		echo "$@: $(VM_IP) is installed with apt; changing $$file there and running its setup"; \
-		ssh -o BatchMode=yes $(SSH_USER)@$(VM_IP) sudo python3 - --file "$$file" $(1) <infra/host/lti-mock-registration.py; \
+		ssh -o BatchMode=yes $(SSH_USER)@$(VM_IP) sudo python3 - --file "$$file" --settings /etc/portikus/portikus.yaml $(1) <infra/host/lti-mock-registration.py; \
 		ssh -n -o BatchMode=yes $(SSH_USER)@$(VM_IP) 'log=$$(mktemp); sudo portikus setup >"$$log" 2>&1 || { tail -30 "$$log"; exit 1; }; rm -f "$$log"' \
 			|| { echo "$@: setup failed on $(VM_IP)"; exit 1; }; \
 		echo "$@: setup applied it" ;; \
