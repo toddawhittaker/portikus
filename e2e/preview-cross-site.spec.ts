@@ -102,11 +102,18 @@ test("a browser that refuses the embedded cookie is told so and offered a tab", 
 	).toBeVisible({ timeout: 20_000 });
 	await expect(frame.getByText("Preview session ended")).toHaveCount(0);
 
+	// The link is clicked inside the real sandboxed frame, so the tab it opens
+	// inherits those flags. The frame does not let popups escape its sandbox.
+	const sandbox = await page.getByTestId("preview-frame").getAttribute("sandbox");
+	expect(sandbox).toContain("allow-popups");
+	expect(sandbox).not.toContain("allow-popups-to-escape-sandbox");
+
 	// The way out opens the same preview in a tab of its own.
 	const opened = context.waitForEvent("page");
 	await frame.getByRole("link", { name: "Open in new tab" }).click();
 	const tab = await opened;
 	await expect(tab.locator("h1")).toHaveText("Blocked here", { timeout: 20_000 });
+	expect(new URL(tab.url()).host).toContain(PREVIEW_SUFFIX);
 });
 
 test("a preview in its own tab still works", async ({ page, context, browserName }) => {

@@ -12,10 +12,11 @@ lab's Cloudflare Cache Rules on, running Portikus `0.1.1900+ga95d2b79`.
 That is the build at the head of the Epic 76 branch. The release that
 carries the epic has a later number; install that one for the class.
 
-Three things in this reply are still being finished in the same epic and
-are not in the measured build. Each is marked "in this epic" below: the
-recovery-point create becoming a background operation, the message inside
-a Safari frame, and cache headers for the web app's own files.
+Three things in this reply were finished after that build was measured. They
+are in the Epic 76 build you will install, but they were not part of the
+measurement on 0.1.1900. Each is marked "not measured" below: the
+recovery-point create is now a background operation, the message inside a
+Safari frame, and cache headers for the web app's own files.
 
 ## 1. Required items
 
@@ -104,9 +105,10 @@ which we checked separately:
 | Student previews | `private` (Caddy adds it when the student's app sends none, and turns a `public` into `private`) |
 | Gateway pages | `no-store` |
 
-In this epic: the web app's hashed files will be sent `immutable` and
-`index.html` `no-cache`. Until then they carry no cache header, and the
-lab's cache bypass is what keeps them from being stored.
+Not measured, in the Epic 76 build: the web app's hashed files are sent
+`immutable` and `index.html` is sent `no-cache`. The measured 0.1.1900
+build carried no cache header on them, and the lab's cache bypass is what
+kept them from being stored.
 
 **WebSockets.** The API now sends a ping every 30 seconds on every
 browser-facing socket (workspace, terminal, project events). Measured: the
@@ -124,8 +126,9 @@ files and 880 MB:
   valid.
 - Cloning a project and restoring a backup answer `202` at once and finish
   as background operations (55 s and 116 s in these runs).
-- Creating a recovery point on a very large project can still run long.
-  In this epic it moves to the same background pattern.
+- Creating a recovery point on a very large project could run long in the
+  measured build. It is now a background operation too, in the Epic 76
+  build; this was not part of the measurement on 0.1.1900.
 
 **Uploads.** The largest upload is 50 MiB (file upload and zip extract),
 under the free plan's 100 MB. We know of no other request body that comes
@@ -146,8 +149,9 @@ two different sites.
   'none'`), so this is expected for every LMS. The mock's registration was
   removed from the lab VM afterwards.
 - Safari: real Safari (on an iPad) refuses the partitioned cookie for the
-  embedded preview. The same preview opened in its own tab works. In this
-  epic the message inside the frame says so and offers "Open in new tab".
+  embedded preview. The same preview opened in its own tab works. The Epic 76
+  build now shows a message inside the frame that says so and offers "Open in
+  new tab"; this was not part of the measurement on 0.1.1900.
   Known limit: cookies that a student's own app sets inside a cross-site
   frame are blocked or partitioned by the browser, in Safari most strictly.
   Portikus cannot change that.
