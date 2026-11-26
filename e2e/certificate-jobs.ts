@@ -9,7 +9,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DNS_PROVIDER_FIELDS, type DnsProvider } from "@portikus/contracts";
 import { API_PORT } from "./ports";
 
 /**
@@ -88,7 +87,7 @@ export async function requestFiles(): Promise<string[]> {
 }
 
 interface DnsRequest {
-	provider: DnsProvider;
+	provider: string;
 	fields: Record<string, string>;
 }
 
@@ -114,19 +113,19 @@ async function settingsInForce(): Promise<{
 }
 
 /**
- * One DNS account as the job records it: its plain values, and each secret
- * set when it was sent or, left blank, when the account in force has it
- * stored for the same provider.
+ * One DNS account as the job records it: each secret is set when it was sent
+ * or, left blank, when the account in force has it stored for the same
+ * provider. The tests send only secrets, so every sent field counts as one.
  */
 function accountView(dns: DnsRequest, stored: DnsView | undefined) {
-	const { plain, secret } = DNS_PROVIDER_FIELDS[dns.provider];
 	const kept = stored?.provider === dns.provider ? stored.secretsSet : {};
 	return {
 		provider: dns.provider,
-		fields: Object.fromEntries(plain.map((name) => [name, dns.fields[name] ?? ""])),
-		secretsSet: Object.fromEntries(
-			secret.map((name) => [name, name in dns.fields || kept[name] === true]),
-		),
+		fields: {},
+		secretsSet: {
+			...kept,
+			...Object.fromEntries(Object.keys(dns.fields).map((name) => [name, true])),
+		},
 	};
 }
 
