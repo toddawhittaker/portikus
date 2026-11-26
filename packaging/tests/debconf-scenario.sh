@@ -842,6 +842,68 @@ EOF
 	expect "$CONFIG" portikus_trusted_proxies '["10.20.20.10/32"]'
 	expect "$SECRETS" portikus_cloudflare_preview_api_token '"CF-TOKEN-preview-0123456789abcdef"'
 	;;
+upgrade-preseed)
+	# A preview domain and proxy preseeded before a non-interactive upgrade
+	# are kept, though portikus.yaml does not hold them yet.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.kitestringlabs.org
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	expect "$CONFIG" portikus_preview_suffix null
+	expect "$CONFIG" portikus_trusted_proxies null
+	debconf-set-selections <<'EOF'
+portikus portikus/preview_suffix string kitestringlabs.dev
+portikus portikus/trusted_proxies string 10.20.20.10/32
+EOF
+	DEBIAN_FRONTEND=noninteractive dpkg -i /t/portikus.deb >/tmp/install.log 2>&1 || {
+		cat /tmp/install.log >&2
+		fail "the upgrade failed"
+	}
+	expect "$CONFIG" portikus_preview_suffix '"kitestringlabs.dev"'
+	expect "$CONFIG" portikus_trusted_proxies '["10.20.20.10/32"]'
+	;;
+ui-move-hand-suffix)
+	# A suffix written into portikus.yaml by hand stays when dpkg-reconfigure
+	# moves the host, even though it equals the old host's default.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	echo 'portikus_preview_suffix: preview.portikus.example.edu' >>"$CONFIG"
+	tmux new-session -d -s ui -x 100 -y 30 \
+		"DEBIAN_FRONTEND=dialog dpkg-reconfigure portikus 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
+	wait_for "Welcome to Portikus"
+	keys Enter
+	wait_for "Web address of this server"
+	clear_field
+	typed lab.example.edu
+	keys Enter
+	wait_for "Domain for student previews"
+	screen | grep -qF "preview.portikus.example.edu" || fail "the hand-set preview domain was replaced"
+	keys Enter
+	wait_for "trusted reverse proxy"
+	keys Enter
+	wait_for "Email of the Portikus administrator"
+	keys Enter
+	ui_own_authority
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Size of the storage file"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_public_host '"lab.example.edu"'
+	expect "$CONFIG" portikus_preview_suffix '"preview.portikus.example.edu"'
+	;;
 ui-preview)
 	# The preview domain and proxy questions check their answers.
 	ui_start medium
@@ -866,6 +928,12 @@ ui-preview)
 	typed "10.20.20.10"
 	keys Enter
 	wait_for "is not a network with a prefix length"
+	keys Enter
+	wait_for "trusted reverse proxy"
+	clear_field
+	typed "10.20.20.10/32 0.0.0.0/0"
+	keys Enter
+	wait_for "would trust every address"
 	keys Enter
 	wait_for "trusted reverse proxy"
 	clear_field

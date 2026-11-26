@@ -146,6 +146,42 @@ expect_eq "an IPv4-only list adds no IPv6 rule" \
   "tcp dport { 80, 8443 } ip saddr { 127.0.0.1/32 } accept" \
   "$(firewall '["127.0.0.1/32"]' | grep saddr | grep -v 'ct count')"
 
+echo ""
+echo "--- site.yml refuses a trusted list that would trust everyone ---"
+
+# site.yml's own check, copied out as a task file once.
+cat >"${work}/extract.yml" <<EOF
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - ansible.builtin.copy:
+        dest: ${work}/trusted-check.yml
+        content: "{{ [(lookup('ansible.builtin.file', '${REPO_ROOT}/infra/ansible/site.yml') | from_yaml)[0].pre_tasks
+                      | selectattr('name', 'defined') | selectattr('name', 'search', 'trusted proxies') | first] | to_nice_yaml }}"
+        mode: "0644"
+EOF
+ansible-playbook "${work}/extract.yml" >"${work}/extract.log" 2>&1 || { cat "${work}/extract.log" >&2; exit 1; }
+
+# accepts TRUSTED_JSON — whether site.yml's trusted proxies check passes.
+accepts() {
+  cat >"${work}/accepts.yml" <<EOF
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    portikus_trusted_proxies: ${1}
+  tasks:
+    - ansible.builtin.include_tasks: ${work}/trusted-check.yml
+EOF
+  ansible-playbook "${work}/accepts.yml" >"${work}/accepts.log" 2>&1 && echo yes || echo no
+}
+expect_eq "a /32 and a /64 are accepted" yes "$(accepts '["10.20.20.10/32", "2001:db8::/64"]')"
+expect_eq "an empty list is accepted" yes "$(accepts '[]')"
+expect_eq "0.0.0.0/0 is refused" no "$(accepts '["10.20.20.10/32", "0.0.0.0/0"]')"
+expect_eq "::/0 is refused" no "$(accepts '["::/0"]')"
+expect_eq "a bare address is refused" no "$(accepts '["10.20.20.10"]')"
+
 if [ -z "${caddy_bin}" ]; then
   echo ""
   echo "SKIP  the live proxy checks: no caddy binary (set CADDY to one)"
@@ -164,7 +200,11 @@ import base64, hashlib, http.server, sys, threading
 
 api_port, app_port = sys.argv[1:3]
 CACHE = {"/cc/public": "public, max-age=60", "/cc/Public": "Public", "/cc/nostore": "no-store",
-         "/cc/private": "private, max-age=5"}
+         "/cc/private": "private, max-age=5", "/cc/vite": "max-age=31536000,immutable",
+         "/cc/shared": "public, s-maxage=600, max-age=60", "/cc/onlyshared": "s-maxage=600",
+         "/cc/fields": 'private="Set-Cookie", max-age=5', "/me/cached": "max-age=5"}
+# Cache directions meant for a CDN, which no preview response may carry.
+CDN = ("CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control")
 
 def seen(h):
     return "xff=%s cf=%s xfh=%s xfp=%s" % (h.get("X-Forwarded-For"), h.get("CF-Connecting-IP"),
@@ -186,6 +226,9 @@ def handler(name):
             self.send_response(200)
             if self.path in CACHE:
                 self.send_header("Cache-Control", CACHE[self.path])
+            if self.path == "/cc/cdn":
+                for h in CDN:
+                    self.send_header(h, "max-age=600")
             self.send_header("Content-Length", str(len(body))); self.end_headers()
             self.wfile.write(body)
         def websocket(self):
@@ -318,10 +361,23 @@ cc() { preview "$1" -D - -o /dev/null | tr -d '\r' | sed -n 's/^cache-control: /
 expect_eq "no Cache-Control from the application becomes private" "private" "$(cc /plain)"
 expect_eq "public becomes private, the rest kept" "private, max-age=60" "$(cc /cc/public)"
 expect_eq "public in any case becomes private" "private" "$(cc /cc/Public)"
-expect_eq "no-store is kept" "no-store" "$(cc /cc/nostore)"
+expect_eq "no-store is kept, private added" "private, no-store" "$(cc /cc/nostore)"
 expect_eq "private is kept" "private, max-age=5" "$(cc /cc/private)"
-expect_eq "the application host's own responses are untouched" "" \
-  "$(app /health -D - -o /dev/null | tr -d '\r' | sed -n 's/^cache-control: //Ip')"
+expect_eq "a Vite asset is cached by the browser alone" "private, max-age=31536000, immutable" "$(cc /cc/vite)"
+expect_eq "s-maxage is dropped" "private, max-age=60" "$(cc /cc/shared)"
+expect_eq "s-maxage alone leaves private" "private" "$(cc /cc/onlyshared)"
+expect_eq "private naming fields becomes plain private" "private, max-age=5" "$(cc /cc/fields)"
+cdn="$(preview /cc/cdn -D - -o /dev/null | tr -d '\r' | grep -ci -E '^(cdn-cache-control|cloudflare-cdn-cache-control|surrogate-control):' || true)"
+expect_eq "no CDN cache direction reaches the browser" "0" "${cdn}"
+
+echo ""
+echo "--- Live: API responses are never stored by a shared cache ---"
+# acc PATH — the Cache-Control an application-host response arrived with.
+acc() { app "$1" -D - -o /dev/null | tr -d '\r' | sed -n 's/^cache-control: //Ip'; }
+for p in /health /me/settings /workspaces/w1/files/a.txt /admin/settings /courses; do
+  expect_eq "an API response to ${p} without Cache-Control is private, no-store" "private, no-store" "$(acc "${p}")"
+done
+expect_eq "an API response's own Cache-Control is kept" "max-age=5" "$(acc /me/cached)"
 
 echo ""
 echo "${pass} passed, ${fail} failed"

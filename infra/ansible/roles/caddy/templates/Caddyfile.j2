@@ -152,9 +152,20 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	# A shared cache between the browser and Portikus, such as a proxy's,
 	# must never hand one student's preview to another, so a preview
 	# response is only ever cacheable by the browser.  A Cache-Control the
-	# application sent is kept, with public turned into private; one it did
-	# not send is added at the site.
-	header_down Cache-Control "(?i)\bpublic\b" "private"
+	# application sent keeps its other directives, with public, s-maxage
+	# and any private of its own taken out and a plain private put first:
+	# Vite's max-age=31536000,immutable arrives as private, max-age=31536000,
+	# immutable.  One it did not send is added at the site.  The directions
+	# a CDN reads instead of Cache-Control are dropped.  The replacements
+	# run in the order written.
+	header_down -CDN-Cache-Control
+	header_down -Cloudflare-CDN-Cache-Control
+	header_down -Surrogate-Control
+	header_down Cache-Control "(?i)\b(public|private(\s*=\s*\"[^\"]*\")?|s-maxage\s*=\s*\"?[0-9]*\"?)" ""
+	header_down Cache-Control "\s*,[\s,]*" ", "
+	header_down Cache-Control "^[\s,]+|[\s,]+$" ""
+	header_down Cache-Control "^(.+)$" "private, ${1}"
+	header_down Cache-Control "^$" "private"
 
 	# A reload keeps a student application's WebSockets (such as a dev
 	# server's live reload) open, for the reason given at /workspaces*.
@@ -222,6 +233,12 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	}
 }
 
+# An API response is one user's data, so one that names no caching of its
+# own is never stored, by the browser or by a cache in between.
+(portikus_api_no_store) {
+	header ?Cache-Control "private, no-store"
+}
+
 https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	import portikus_tls_site
 	encode gzip
@@ -269,6 +286,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	}
 	# The workspace WebSocket lives at /workspaces/<id>/ws.
 	handle /workspaces* {
+		import portikus_api_no_store
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
 			import portikus_client_address
 			# Every WebSocket the API serves lives here.  A reload (a
@@ -310,6 +328,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# /pricing the public price list; the bundle has no page at either.
 	@api path /auth/* /admin* /lti/* /courses* /me/* /health /mcp /openapi.json /assistant* /pricing /.well-known/portikus-preflight/*
 	handle @api {
+		import portikus_api_no_store
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
 			import portikus_client_address
 		}

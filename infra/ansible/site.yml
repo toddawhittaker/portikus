@@ -480,10 +480,13 @@
           - portikus_trusted_proxies | reject('string') | list | length == 0
           - portikus_trusted_proxies | reject('search', '/') | list | length == 0
           - portikus_trusted_proxies | map('ansible.utils.ipaddr') | reject | list | length == 0
+          # 0.0.0.0/0 or ::/0 would let any client name its own address.
+          - portikus_trusted_proxies | map('ansible.utils.ipaddr', 'prefix') | select('equalto', 0) | list | length == 0
         fail_msg: >-
           portikus_trusted_proxies ({{ portikus_trusted_proxies }}) must be a
           list of networks with a prefix length, such as 10.20.20.10/32 or
-          2001:db8::/64.  Leave it empty when no proxy forwards to this server.
+          2001:db8::/64, and none may be 0.0.0.0/0 or ::/0, which would trust
+          every address.  Leave it empty when no proxy forwards to this server.
       tags: always
 
     - name: Check the TLS settings

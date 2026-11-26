@@ -623,7 +623,7 @@ class Apply(JobTest):
         self.submit({"kind": "apply", "settings": acme(eab={"keyId": "kid", "hmacKey": HMAC})}, ID)
         status = self.submit({"kind": "apply", "settings": acme(provider="hetzner", fields={})}, ID2)
         self.assertEqual(status["state"], "refused")
-        self.assertIn("hetzner secret api_token is not set", status["message"])
+        self.assertIn("The site's Hetzner Cloud DNS API token is not set.", status["message"])
         shutil.rmtree(Path(self.runner.jobs_dir, ID2))
         status = self.submit({"kind": "apply", "settings": acme(fields={}, eab={"keyId": "other"})}, ID2)
         self.assertIn("EAB HMAC key is not set", status["message"])
@@ -664,7 +664,18 @@ class Apply(JobTest):
     def test_a_preview_zone_with_no_token_is_refused(self):
         status = self.submit({"kind": "apply", "settings": two_zones(preview_fields={})})
         self.assertEqual(status["state"], "refused")
-        self.assertIn("preview cloudflare secret api_token is not set", status["message"])
+        self.assertIn("The preview domain's Cloudflare API token is not set.", status["message"])
+
+    def test_every_secret_field_has_a_label(self):
+        for provider, fields in cj.DNS_PROVIDER_FIELDS.items():
+            self.assertIn(provider, cj.DNS_PROVIDER_LABEL)
+            for name in fields["secret"]:
+                self.assertIn(name, cj.SECRET_FIELD_LABEL)
+
+    def test_a_site_zone_with_no_token_is_refused_in_words(self):
+        status = self.submit({"kind": "apply", "settings": acme(fields={})})
+        self.assertEqual(status["state"], "refused")
+        self.assertIn("The site's Cloudflare API token is not set.", status["message"])
 
     def test_google_writes_its_json_to_a_file(self):
         account = json.dumps({"type": "service_account", "project_id": "proj-1", "private_key_id": "fake-id",
