@@ -341,7 +341,11 @@ workflow (`scripts/ci-reuse-pass.mjs`); when the pushed tree matches
 exactly, as after a squash merge into an up-to-date base, it skips the
 heavy jobs and says which run it reused in the run summary. Any doubt,
 such as an API error or another merge in between, means the push run
-runs everything; pull request runs always run in full.
+runs everything; pull request runs always run in full. Once an epic branch
+has an open pull request into `main`, a push to it skips the heavy jobs
+too: the same push starts that pull request's run, which tests the branch
+merged onto `main` and is the run the ruleset reads. If the pull request
+lookup fails, everything runs.
 
 - **Secret scan**: gitleaks over the full history of the branch.
 - **Docs links**: `scripts/check-docs-links.py` fails when a relative link
