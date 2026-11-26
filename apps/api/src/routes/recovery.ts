@@ -35,6 +35,8 @@ import { ProjectParam, parseOr400, sendError } from "../http.js";
 import {
 	claimLongOperation,
 	releaseLongOperation,
+	runningOperation,
+	startOperation,
 } from "../workspaces/long-operation.js";
 import {
 	agentUrl,
@@ -245,21 +247,44 @@ export function registerRecoveryRoutes(
 			if (!point) return;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
+			const key = `restore:${project.id}:${point.id}:${body.skipSafetyPoint === true}`;
+			const same = runningOperation(scope.workspaceId, key);
+			if (same) return reply.status(202).send(same);
 			// Claimed before the pending check; see the create route.
 			if (!claimLongOperation(scope.workspaceId, reply)) return;
 			try {
-				if (await refusePending(db, scope.workspaceId, reply)) return;
-				return await restore(request, reply, {
-					agent,
-					userId: user.id,
-					workspaceId: scope.workspaceId,
-					project,
-					point,
-					skipSafetyPoint: body.skipSafetyPoint === true,
-				});
-			} finally {
+				if (await refusePending(db, scope.workspaceId, reply)) {
+					releaseLongOperation(scope.workspaceId);
+					return;
+				}
+			} catch (error) {
 				releaseLongOperation(scope.workspaceId);
+				throw error;
 			}
+			// A restore can outlast a proxy's response timeout, so it is
+			// answered at once and finished in the background.
+			const operation = startOperation(
+				{
+					workspaceId: scope.workspaceId,
+					key,
+					kind: "restore",
+					projectId: project.id,
+					pointId: point.id,
+					log: request.log,
+				},
+				async (background) => {
+					await restore(request, background, {
+						agent,
+						userId: user.id,
+						workspaceId: scope.workspaceId,
+						project,
+						point,
+						skipSafetyPoint: body.skipSafetyPoint === true,
+					});
+					return null;
+				},
+			);
+			return reply.status(202).send(operation);
 		},
 	);
 

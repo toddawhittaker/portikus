@@ -12,6 +12,7 @@ import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { settleOperation } from "../testing/project-operation.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import {
 	holdLongOperation,
@@ -143,7 +144,7 @@ function create(jar: CookieJar) {
 	});
 }
 
-function restore(
+function startRestore(
 	jar: CookieJar,
 	pointId: string,
 	payload: Record<string, unknown> = {},
@@ -154,6 +155,20 @@ function restore(
 		headers: csrfHeaders(jar, PUBLIC_URL),
 		payload,
 	});
+}
+
+/** A restore followed to its end, answered as the request did before 202. */
+async function restore(
+	jar: CookieJar,
+	pointId: string,
+	payload: Record<string, unknown> = {},
+) {
+	return settleOperation(
+		app,
+		jar.cookieHeader(),
+		workspaceId,
+		await startRestore(jar, pointId, payload),
+	);
 }
 
 function pointRows() {
@@ -900,3 +915,20 @@ test.skipIf(skip)("a file in neither the point nor the project is 404", async ()
 	expect(missing.statusCode).toBe(404);
 	expect(missing.json().code).toBe("FILE_NOT_FOUND");
 });
+
+test.skipIf(skip)(
+	"a restore answers 202 with an operation naming the point",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const started = await startRestore(alice, pointId);
+		expect(started.statusCode).toBe(202);
+		expect(started.json()).toMatchObject({
+			kind: "restore",
+			state: "running",
+			projectId,
+			pointId,
+		});
+		const done = await settleOperation(app, alice.cookieHeader(), workspaceId, started);
+		expect(done.statusCode).toBe(204);
+	},
+);

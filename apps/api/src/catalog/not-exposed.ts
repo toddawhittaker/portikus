@@ -216,6 +216,7 @@ export const NOT_EXPOSED: Readonly<Record<string, NotExposed>> = {
 			"GET /workspaces/:id/projects/templates",
 			"POST /workspaces/:id/projects",
 			"POST /workspaces/:id/projects/starter",
+			"GET /workspaces/:id/project-operation",
 			"PATCH /workspaces/:id/projects/:pid",
 			"DELETE /workspaces/:id/projects/:pid",
 			"POST /workspaces/:id/projects/:pid/duplicate",

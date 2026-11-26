@@ -11,6 +11,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { settleOperation } from "../testing/project-operation.js";
 import { REPO_ROOT, specActionNames, walkFiles } from "../testing/spec-actions.js";
 import {
 	buildMatrixWorld,
@@ -185,7 +186,7 @@ function expectNoSecrets(rows: Row[]): void {
  * `expected`, and no secret in any new row.
  */
 async function expectAudit(
-	act: () => Promise<LightMyRequestResponse | undefined>,
+	act: () => Promise<{ statusCode: number; body: string } | undefined>,
 	action: string,
 	expected: Partial<Row>,
 	status?: number,
@@ -519,7 +520,13 @@ describe.skipIf(skip)("projects and recovery", () => {
 		expect(made.statusCode, made.body).toBe(201);
 		const pointId = made.json().id as string;
 		await expectAudit(
-			() => post(jar, `${base}/${pointId}/restore`, {}),
+			async () =>
+				settleOperation(
+					app,
+					jar.cookieHeader(),
+					workspaceId,
+					await post(jar, `${base}/${pointId}/restore`, {}),
+				),
 			"recovery.restored",
 			{ actor: `user:${userId}`, target: projectId, result: "ok" },
 		);
