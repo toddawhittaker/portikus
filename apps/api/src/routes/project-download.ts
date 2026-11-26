@@ -4,7 +4,9 @@ import {
 	MAX_DOWNLOAD_PATHS,
 	ProjectPath,
 } from "@portikus/contracts";
+import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { Kysely } from "kysely";
 import {
 	AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
 	type AgentClient,
@@ -17,6 +19,7 @@ import {
 	claimLongOperation,
 	releaseLongOperation,
 } from "../workspaces/long-operation.js";
+import { holdPresenceWhile } from "../workspaces/presence.js";
 import {
 	type OwnedProject,
 	type OwnedScope,
@@ -27,6 +30,7 @@ import {
 /** The project's zip download and its size check (SPEC.md §11.2). */
 export function registerProjectDownloadRoute(
 	app: FastifyInstance,
+	db: Kysely<Database>,
 	owned: OwnedScope,
 	ownedProject: OwnedProject,
 ): void {
@@ -114,6 +118,13 @@ export function registerProjectDownloadRoute(
 		const stream = cappedDownload(upstream.body);
 		stream.on("close", release);
 		stream.on("error", release);
+		// Streaming counts as presence, so the idle stop waits for it.
+		try {
+			await holdPresenceWhile(db, scope.workspaceId, stream);
+		} catch (error) {
+			stream.destroy();
+			throw error;
+		}
 
 		// The name is the slug, or the one directory that was asked for; either
 		// way it is escaped rather than sent through as typed.

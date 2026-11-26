@@ -16,24 +16,32 @@ const RUNNING_TITLE: Record<ProjectOperation["kind"], string> = {
 	create: "Still creating your project…",
 	duplicate: "Still duplicating your project…",
 	restore: "Still restoring your project…",
+	"recovery-point": "Still making a recovery point…",
 };
 
 const FAILED_TITLE: Record<ProjectOperation["kind"], string> = {
 	create: "The project was not created",
 	duplicate: "The project was not duplicated",
 	restore: "The restore did not finish",
+	"recovery-point": "The recovery point was not made",
 };
 
 const DONE_VERB: Record<ProjectOperation["kind"], string> = {
 	create: "created",
 	duplicate: "duplicated",
 	restore: "restored",
+	"recovery-point": "given a recovery point",
+};
+
+/** The success title when no project came back. */
+const DONE_TITLE: Partial<Record<ProjectOperation["kind"], string>> = {
+	"recovery-point": "Recovery point created",
 };
 
 /**
- * Follows a clone, duplicate or restore the page no longer shows in a dialog:
+ * Follows a clone, duplicate, restore or recovery point the page no longer shows in a dialog:
  * one still running after a reload, one this tab started and has not shown
- * yet, or one a dialog closed on (SPEC.md §7.2, §7.3, §15.8). The outcome is
+ * yet, or one a dialog closed on (SPEC.md §7.2, §7.3, §15.6, §15.8). The outcome is
  * announced in a toast; the page stays where the student is, with an "Open
  * project" action, because switching it could interrupt their typing.
  */
@@ -110,7 +118,10 @@ export function ResumeProjectOperation({
 					),
 				});
 			} else {
-				toast.show({ tone: "success", title: `Project ${DONE_VERB[found.kind]}` });
+				toast.show({
+					tone: "success",
+					title: DONE_TITLE[found.kind] ?? `Project ${DONE_VERB[found.kind]}`,
+				});
 			}
 		}
 

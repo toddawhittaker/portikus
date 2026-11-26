@@ -81,6 +81,34 @@ test("an embedded preview keeps its session across reloads", async ({
 	await expect.poll(() => counts.app).toBeGreaterThan(before);
 });
 
+test("a browser that refuses the embedded cookie is told so and offered a tab", async ({
+	page,
+	context,
+	browserName,
+}) => {
+	test.skip(
+		browserName === "webkit",
+		"WebKit refuses a cookie set in a cross-site frame",
+	);
+	const student = await createStudent(context);
+	await previewGateway(context, { browserCookies: true, refusePartitioned: true });
+	const port = await startPreviewApp(student.workspaceId, "Blocked here");
+	await openRunning(page, student.workspaceId, port);
+
+	await page.getByTestId(`running-open-${port}`).click();
+	const frame = page.frameLocator("[data-testid=preview-frame]");
+	await expect(
+		frame.getByRole("heading", { name: "Preview blocked by your browser" }),
+	).toBeVisible({ timeout: 20_000 });
+	await expect(frame.getByText("Preview session ended")).toHaveCount(0);
+
+	// The way out opens the same preview in a tab of its own.
+	const opened = context.waitForEvent("page");
+	await frame.getByRole("link", { name: "Open in new tab" }).click();
+	const tab = await opened;
+	await expect(tab.locator("h1")).toHaveText("Blocked here", { timeout: 20_000 });
+});
+
 test("a preview in its own tab still works", async ({ page, context, browserName }) => {
 	const student = await createStudent(context);
 	// A WebKit route never sees the request's cookies, so there the edge

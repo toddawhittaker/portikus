@@ -314,7 +314,11 @@ export async function frameAnswerFor(
  */
 export async function previewGateway(
 	page: Page | BrowserContext,
-	options: { browserCookies?: boolean } = {},
+	options: {
+		browserCookies?: boolean;
+		/** Drop the partitioned cookie of an embedded bootstrap, as Safari does. */
+		refusePartitioned?: boolean;
+	} = {},
 ): Promise<{ app: number }> {
 	requireFrameBuild();
 	const counts = { app: 0 };
@@ -390,7 +394,11 @@ export async function previewGateway(
 				});
 				jar.remember(host, answer);
 				const headers = headersOf(answer, PASSED_HEADERS);
-				const setCookie = answer.headers.getSetCookie();
+				const setCookie = answer.headers
+					.getSetCookie()
+					.filter(
+						(line) => !(options.refusePartitioned && /;\s*Partitioned/i.test(line)),
+					);
 				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
 
 				// A Portikus page, the bootstrap's included, passed straight through.

@@ -2286,3 +2286,65 @@ test.skipIf(skip)(
 	},
 	60_000,
 );
+
+// ── A browser that blocks the embedded cookie (BROWSER-HANDLING.md §7.2) ──
+
+test.skipIf(skip)(
+	"a framed request with no cookie right after an embedded bootstrap says the browser blocked it",
+	async () => {
+		const created = await grant(alice, workspaceId, 5173);
+		const host = previewHostFor(5173);
+		expect(
+			(await bootstrap(host, ticketOf(created.json().bootstrapUrl))).statusCode,
+		).toBe(200);
+		const response = await authorize(null, host, {
+			extra: { "sec-fetch-dest": "iframe" },
+		});
+		expect(response.statusCode).toBe(401);
+		expect(response.body).toContain("blocked");
+		expect(response.body).not.toContain("Preview session ended");
+		// The way out opens the same preview in its own tab, from Portikus.
+		expect(response.body).toContain(
+			`href="${PUBLIC_URL}/workspaces/${workspaceId}/preview/5173/open"`,
+		);
+		expect(response.body).toContain('target="_blank"');
+		expect(response.body).toContain("Open in new tab");
+	},
+);
+
+test.skipIf(skip)(
+	"a missing cookie with no recent bootstrap still says the session ended",
+	async () => {
+		const created = await grant(alice, workspaceId, 5173);
+		await bootstrap(previewHostFor(5173), ticketOf(created.json().bootstrapUrl));
+		// Another address, or a non-framed request, was not the one just bootstrapped.
+		const elsewhere = await authorize(null, previewHostFor(5173), {
+			extra: { "sec-fetch-dest": "iframe", "x-forwarded-for": "198.51.100.90" },
+		});
+		expect(elsewhere.body).toContain("Preview session ended");
+		const document = await authorize(null, previewHostFor(5173), {
+			extra: { "sec-fetch-dest": "document" },
+		});
+		expect(document.body).toContain("Preview session ended");
+		const otherHost = await authorize(null, previewHostFor(3000), {
+			extra: { "sec-fetch-dest": "iframe" },
+		});
+		expect(otherHost.body).toContain("Preview session ended");
+	},
+);
+
+test.skipIf(skip)(
+	"a tab bootstrap does not count as a blocked embedded cookie",
+	async () => {
+		const from = { "x-forwarded-for": "198.51.100.91" };
+		const tab = await grant(alice, workspaceId, 5173, {}, "top-level");
+		await bootstrap(previewHostFor(5173), ticketOf(tab.json().bootstrapUrl), {
+			"sec-fetch-dest": "document",
+			...from,
+		});
+		const response = await authorize(null, previewHostFor(5173), {
+			extra: { "sec-fetch-dest": "iframe", ...from },
+		});
+		expect(response.body).toContain("Preview session ended");
+	},
+);

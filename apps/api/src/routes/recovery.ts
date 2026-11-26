@@ -2,6 +2,7 @@ import { requireUser } from "@portikus/auth";
 import {
 	type AgentRecoveryAside,
 	type AgentRecoveryDiffQuery,
+	type ApiErrorCode,
 	GitDiff,
 	ProjectPath,
 	RECOVERY_ASIDE_PREFIX,
@@ -32,12 +33,7 @@ import {
 } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
-import {
-	claimLongOperation,
-	claimOperation,
-	releaseLongOperation,
-	UNEXPECTED,
-} from "../workspaces/long-operation.js";
+import { claimOperation, UNEXPECTED } from "../workspaces/long-operation.js";
 import {
 	agentUrl,
 	ownedProject,
@@ -72,17 +68,6 @@ async function isPending(db: Kysely<Database>, workspaceId: string): Promise<boo
 		.where("id", "=", workspaceId)
 		.executeTakeFirst();
 	return Boolean(row?.pending_operation);
-}
-
-/** Answer 409 while a maintenance operation waits on the workspace. */
-async function refusePending(
-	db: Kysely<Database>,
-	workspaceId: string,
-	reply: FastifyReply,
-): Promise<boolean> {
-	if (!(await isPending(db, workspaceId))) return false;
-	sendError(reply, 409, PENDING.code, PENDING.message);
-	return true;
 }
 
 function toRecoveryPoint(row: RecoveryPointRow): RecoveryPoint {
@@ -174,7 +159,9 @@ export function registerRecoveryRoutes(
 		return body;
 	});
 
-	// "Create recovery point now" (SPEC.md §15.6).
+	// "Create recovery point now" (SPEC.md §15.6). Archiving a large project
+	// can outlast a proxy's response timeout, so it is answered with 202 at
+	// once and finished in the background, as a restore is.
 	app.post("/workspaces/:id/projects/:pid/recovery-points", async (request, reply) => {
 		const user = requireUser(request);
 		const found = await scoped(request, reply);
@@ -182,12 +169,28 @@ export function registerRecoveryRoutes(
 		const { scope, project } = found;
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
-		// Claimed before the pending check, so a maintenance request cannot slip
-		// in between them (it holds the same slot while it sets its operation).
-		if (!claimLongOperation(scope.workspaceId, reply)) return;
-		let row: RecoveryPointRow;
+		// Recorded before the checks, so a double-click joins it and a
+		// maintenance request cannot slip in between them.
+		const claimed = claimOperation(
+			{
+				workspaceId: scope.workspaceId,
+				key: `recovery-point:${project.id}`,
+				kind: "recovery-point",
+				projectId: project.id,
+				pointId: null,
+				log: request.log,
+			},
+			reply,
+		);
+		if (!claimed) return reply;
+		const refuse = (status: number, code: ApiErrorCode, message: string) => {
+			claimed.abandon({ status, code, message });
+			return sendError(reply, status, code, message);
+		};
 		try {
-			if (await refusePending(db, scope.workspaceId, reply)) return;
+			if (await isPending(db, scope.workspaceId)) {
+				return refuse(409, PENDING.code, PENDING.message);
+			}
 			const latest = await db
 				.selectFrom("recovery_points")
 				.select("created_at")
@@ -200,22 +203,25 @@ export function registerRecoveryRoutes(
 				latest &&
 				Date.now() - latest.created_at.getTime() < MANUAL_POINT_INTERVAL_MS
 			) {
-				return sendError(
-					reply,
+				return refuse(
 					429,
 					"RATE_LIMITED",
 					"A recovery point was made moments ago. Wait 30 seconds and try again.",
 				);
 			}
 			if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
-				return sendError(
-					reply,
+				return refuse(
 					409,
 					"BUSY",
 					`This project already has ${MAX_POINTS_PER_PROJECT} recovery points, the most it can keep. Older points expire on their own; try again later.`,
 				);
 			}
-
+		} catch (error) {
+			claimed.abandon({ status: 500, ...UNEXPECTED });
+			throw error;
+		}
+		const operation = claimed.start(async (background) => {
+			let row: RecoveryPointRow;
 			try {
 				row = await makeRecoveryPoint(db, config, agent, {
 					workspaceId: scope.workspaceId,
@@ -224,16 +230,16 @@ export function registerRecoveryRoutes(
 					createdBy: user.id,
 				});
 			} catch (error) {
-				return sendAgentError(reply, error);
+				sendAgentError(background, error);
+				return null;
 			}
-		} finally {
-			releaseLongOperation(scope.workspaceId);
-		}
-		request.log.info(
-			{ workspaceId: scope.workspaceId, projectId: project.id, pointId: row.id },
-			"recovery point created",
-		);
-		return reply.status(201).send(toRecoveryPoint(row));
+			request.log.info(
+				{ workspaceId: scope.workspaceId, projectId: project.id, pointId: row.id },
+				"recovery point created",
+			);
+			return null;
+		});
+		return reply.status(202).send(operation);
 	});
 
 	// SPEC.md §15.8.

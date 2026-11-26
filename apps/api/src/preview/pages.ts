@@ -17,7 +17,9 @@ function previewPage(title: string, body: string, head = "", link = ""): string 
 		'<meta name="viewport" content="width=device-width, initial-scale=1">',
 		`<title>${escapeHtml(title)}</title>`,
 		"<style>body{font:16px/1.5 system-ui,sans-serif;margin:3rem auto;max-width:34rem;",
-		"padding:0 1rem;color:#1f2933}h1{font-size:1.25rem}</style>",
+		"padding:0 1rem;color:#1f2933;background:#fff}h1{font-size:1.25rem}a{color:#1d4ed8}",
+		"@media (prefers-color-scheme:dark){body{color:#e5e7eb;background:#111827}a{color:#93c5fd}}",
+		":root{color-scheme:light dark}</style>",
 		"</head><body>",
 		`<h1>${escapeHtml(title)}</h1>`,
 		`<p>${escapeHtml(body)}</p>`,
@@ -47,6 +49,25 @@ export function signInPage(): string {
 	return previewPage(
 		"Preview session ended",
 		"This preview session has ended. Open the preview again from Portikus.",
+	);
+}
+
+/**
+ * A framed preview whose cookie the browser would not keep, as Safari does
+ * with a partitioned cookie across sites (BROWSER-HANDLING.md §7.2). The
+ * session is fine; only this frame cannot use it, so the way out is the same
+ * preview in its own tab, opened from Portikus.
+ */
+export function cookieBlockedPage(openUrl: string | null): string {
+	const action = openUrl
+		? `<p><a href="${escapeHtml(openUrl)}" target="_blank" rel="noopener">Open in new tab</a></p>`
+		: "<p>Use the Open in new tab button above the preview instead.</p>";
+	return previewPage(
+		"Preview blocked by your browser",
+		"Your browser blocked this preview from opening inside Portikus. " +
+			"You can still open it in its own tab.",
+		"",
+		action,
 	);
 }
 

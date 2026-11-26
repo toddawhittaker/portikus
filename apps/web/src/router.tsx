@@ -38,6 +38,7 @@ import { Unlinked } from "./pages/Unlinked.js";
 import { ChangePasswordPage } from "./password/ChangePasswordPage.js";
 import { ForgotPasswordPage } from "./password/ForgotPasswordPage.js";
 import { ResetPasswordPage } from "./password/ResetPasswordPage.js";
+import { OpenPreviewPage } from "./preview/OpenPreviewPage.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
 import { SecondFactorPage } from "./second-factor/SecondFactorPage.js";
@@ -478,6 +479,16 @@ const previewRoute = createRoute({
 	},
 });
 
+/** The same preview in a tab of its own (BROWSER-HANDLING.md §7.2). */
+const openPreviewRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/workspaces/$id/preview/$port/open",
+	component: function OpenPreview() {
+		const params = useParams({ from: "/workspaces/$id/preview/$port/open" });
+		return <OpenPreviewPage workspaceId={params.id} port={safePort(params.port)} />;
+	},
+});
+
 export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
@@ -502,6 +513,7 @@ export const routeTree = rootRoute.addChildren([
 	workspaceRoute.addChildren([workspaceIndexRoute, projectRoute]),
 	filesRoute,
 	previewRoute,
+	openPreviewRoute,
 ]);
 
 export const router = createRouter({ routeTree });
