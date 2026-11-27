@@ -8606,7 +8606,7 @@ Acceptance:
 
 ### Epic 77 — Fix batch after Epic 76
 
-Built on `epic/77-fix-batch`, closing #2214, #2219, #2196 and #1829. No migration. See sections 9.1, 15.6, 15.8 and 25.8.
+Built on `epic/77-fix-batch`, closing #2214, #2219, #2196, #1829 and #1263. No migration. See sections 9.1, 15.6, 15.8 and 25.8.
 
 Includes:
 
@@ -8614,6 +8614,7 @@ Includes:
 - a restore refused for a pending operation answering a plain 409 and recording no operation;
 - a labelled menu named by its label, so the pick menu reads "Send the picked element to";
 - monaco-editor 0.58.0, which bundles DOMPurify 3.4.17.
+- the `PORTIKUS_VERSION` pin tested between two published releases, the smoke and security suites brought up to Epic 76's background recovery points and bootstrap page, and workspace image version 2026.10.7.
 
 Acceptance:
 
@@ -8621,6 +8622,7 @@ Acceptance:
 - a refused restore leaves no operation record and keeps the last finished one, and a repeat during the check gets the same answer;
 - the pick menu's accessible name is "Send the picked element to", and focus returns to a menu's trigger after its dialog closes;
 - the editor specs pass unchanged on Monaco 0.58.0.
+- on the rehearsal VM, 0.1.1910 rolls back to 0.1.1887 and forward again, and the full smoke passes with no skips on image 2026.10.7.
 
 ### Estimated total
 

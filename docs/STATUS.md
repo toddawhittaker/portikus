@@ -98,7 +98,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 74, side conversations.** A student can type `/btw` in a Claude Code (GUI) or Codex (GUI) chat tab to ask a side question, or press Side question beside the composer's microphone, in a split beside the chat: it is answered from the conversation as it stands, never enters it or steers the running turn, runs read-only, and is kept across a reload (SPEC.md section 10.2, ADR 0083).
 - **Epic 75, picking an element in the preview.** A student can pick an element in an embedded preview and send its HTML, CSS and a screenshot to an agent terminal or chat, through a Portikus wrapper page on the preview origin (SPEC.md sections 14.6 and 24, ADR 0084); and a side answer keeps keyboard focus across a reconnect (#2176).
 - **Epic 76, Portikus behind a Cloudflare Tunnel.** Portikus runs behind a Cloudflare Tunnel with real client addresses (`trusted_proxies`), previews on a separate registrable domain with a partitioned embedded cookie and a new-tab fallback, and long operations (clone, duplicate, restore, LTI starter, recovery point, zip download) as background jobs or streams that stay under Cloudflare's 100-second limit; it was staged and measured on the Kitestring lab VM (SPEC.md sections 7, 14.6, 15.6, 21.12, 24.3 and 24.10 to 24.13, ADR 0085, closes #1236).
-- **Epic 77, fix batch after Epic 76.** Space types a space in the terminal on iPad Safari with a hardware keyboard; a restore refused for a pending operation answers a plain 409 and records no operation, as recovery-point creation does; a labelled menu is named by its label (the pick menu reads "Send the picked element to"); Monaco is upgraded to 0.58.0 with DOMPurify 3.4.17 (SPEC.md sections 9.1, 15.8 and 25.8).
+- **Epic 77, fix batch after Epic 76.** Space types a space in the terminal on iPad Safari with a hardware keyboard; a restore refused for a pending operation answers a plain 409 and records no operation, as recovery-point creation does; a labelled menu is named by its label (the pick menu reads "Send the picked element to"); Monaco is upgraded to 0.58.0 with DOMPurify 3.4.17; the `PORTIKUS_VERSION` pin was tested from 0.1.1910 back to 0.1.1887 and forward again, and the workspace image version is raised to 2026.10.7 (SPEC.md sections 9.1, 15.8 and 25.8; INSTALL.md, "Upgrades").
 
 ## Open items
 
@@ -221,7 +221,7 @@ list was made and may already be fixed.
 - Setup fetches a provider's discovery document directly as root rather than through Squid (accepted, ADR 0059).
 - The shared coding-agent tools arrive only when setup runs, about two minutes after an upgrade restart.
 - Certificates: only Cloudflare DNS-01 is tested end to end, re-applying the same settings leaves Caddy serving its old certificate until renewal, split-horizon DNS can make a public name read as private, and the internal authority's 12-hour certificates show the red expiry notice.
-- Pinning between two published versions is untested (#1263). Wanted: the libvirt provider 0.9 (#767).
+- Wanted: the libvirt provider 0.9 (#767).
 
 ### Tests and docs
 
@@ -230,6 +230,7 @@ list was made and may already be fixed.
 - Under heavy machine load some chat Playwright specs time out; each passes when run alone; two chat composer specs are #1887. The workspace-agent unit suite has order dependence under `--sequence.shuffle`.
 - Two browser tests, `e2e/editor-schemes.spec.ts` (line 193) and `e2e/guard-settings.spec.ts` (line 125), failed even on retry in one run and passed when CI was rerun.
 - An MCP tool call whose inner request is refused by the key's rate limit (429) writes no audit row, matching direct rate-limited requests (accepted).
-- The rehearsal smoke still skips two checks: a packaged host has no `workspace.sh`, and the 2026.10.6 workspace image predates the Codex wait setting.
+- The rehearsal smoke still skips one check: a packaged host has no `workspace.sh`.
+- On a host with many addresses, the security suite's network probe outruns the per-workspace connection limit, so one inner Docker control check fails (#2236).
 - Nothing checks that the guides and the in-app Help agree, and the documentation images show scripted data.
 - The build script for `design/mockups/portikus-console.css` is not committed, so the file cannot be rebuilt from the repository (`design/README.md`).
