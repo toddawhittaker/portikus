@@ -10,7 +10,7 @@ Check items, and the exact install settings. Everything marked "measured"
 was measured on the lab VM (10.20.30.30) through the real tunnel, with the
 lab's Cloudflare Cache Rules on, running Portikus `0.1.1900+ga95d2b79`.
 That is the build at the head of the Epic 76 branch. The release that
-carries the epic has a later number; install that one for the class.
+carries the epic is `0.1.1910`; install that one for the class.
 
 Three things in this reply were finished after that build was measured. They
 are in the Epic 76 build you will install, but they were not part of the

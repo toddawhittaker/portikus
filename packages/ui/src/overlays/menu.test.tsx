@@ -56,6 +56,30 @@ describe("Menu", () => {
 		expect(onSelect).toHaveBeenCalledTimes(1);
 	});
 
+	it("is named by its label, not by the button that opened it", () => {
+		render(<Fixture onSelect={vi.fn()} />);
+		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0, ctrlKey: false });
+
+		const menu = screen.getByRole("menu", { name: "Project actions" });
+		expect(menu.hasAttribute("aria-labelledby")).toBe(false);
+		expect(menu.getAttribute("aria-label")).toBe("Project actions");
+	});
+
+	it("is named by its button when it has no label", () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu>
+					<MenuItem>Rename</MenuItem>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0, ctrlKey: false });
+
+		const menu = screen.getByRole("menu", { name: "Actions" });
+		expect(menu.getAttribute("aria-labelledby")).toBe(screen.getByText("Actions").id);
+	});
+
 	it("opens from the keyboard", () => {
 		render(<Fixture onSelect={vi.fn()} />);
 

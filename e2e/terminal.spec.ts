@@ -128,6 +128,74 @@ test("a new terminal echoes what is typed into it", async ({ page, context }) =>
 	await typeAndExpectEcho(page, rowsOf(page, terminalId), "echo hi");
 });
 
+test("Space types one space, Ctrl+Space sends NUL, and a composing Space is left alone", async ({
+	page,
+	context,
+}) => {
+	// iPad Safari scrolled the page on a Space keydown xterm left uncancelled
+	// and typed nothing (SPEC.md §9.1).
+	const inputs: string[] = [];
+	page.on("websocket", (socket) => {
+		socket.on("framesent", ({ payload }) => {
+			if (typeof payload !== "string" || !payload.includes('"input"')) return;
+			inputs.push((JSON.parse(payload) as { data: string }).data);
+		});
+	});
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+	const rows = rowsOf(page, terminalId);
+	// The attachment may still be opening; wait until typing lands.
+	await typeAndExpectEcho(page, rows, "ready");
+	await page.evaluate(() => {
+		const seen: boolean[] = [];
+		(window as unknown as { spaceSeen: boolean[] }).spaceSeen = seen;
+		window.addEventListener("keydown", (event) => {
+			if (event.key === " ") seen.push(event.defaultPrevented);
+		});
+	});
+	inputs.length = 0;
+
+	await page.keyboard.press("x");
+	await page.keyboard.press("Space");
+	await page.keyboard.press("y");
+	await expect(rows).toContainText('"data":"y"');
+	expect(inputs).toEqual(["x", " ", "y"]);
+	expect(
+		await page.evaluate(
+			() => (window as unknown as { spaceSeen: boolean[] }).spaceSeen,
+		),
+	).toEqual([true]);
+	// Exactly one space reached the shell and came back.
+	await expect(rows).toContainText(
+		'"data":"x"}echo:{"type":"input","data":" "}echo:{"type":"input","data":"y"}',
+	);
+
+	inputs.length = 0;
+	await page.keyboard.press("Control+Space");
+	await expect.poll(() => inputs).toEqual(["\u0000"]);
+
+	inputs.length = 0;
+	const claimed = await page.evaluate(() => {
+		const target = document.activeElement as HTMLElement;
+		const results: boolean[] = [];
+		for (const init of [{ isComposing: true }, { keyCode: 229 }]) {
+			const event = new KeyboardEvent("keydown", {
+				key: " ",
+				code: "Space",
+				bubbles: true,
+				cancelable: true,
+				...init,
+			});
+			target.dispatchEvent(event);
+			results.push(event.defaultPrevented);
+		}
+		return results;
+	});
+	expect(claimed).toEqual([false, false]);
+	await page.waitForTimeout(300);
+	expect(inputs).toEqual([]);
+});
+
 test("terminals keep their own output, can be renamed and closed", async ({
 	page,
 	context,

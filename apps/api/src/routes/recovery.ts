@@ -4,6 +4,7 @@ import {
 	type AgentRecoveryDiffQuery,
 	type ApiErrorCode,
 	GitDiff,
+	type ProjectOperation,
 	ProjectPath,
 	RECOVERY_ASIDE_PREFIX,
 	RECOVERY_DIFF_TIMEOUT_MS,
@@ -35,7 +36,6 @@ import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import {
 	claimLongOperation,
-	claimOperation,
 	releaseLongOperation,
 	runningOperation,
 	startOperation,
@@ -60,6 +60,11 @@ const DIFF_BUDGET_MS = RECOVERY_DIFF_TIMEOUT_MS + AGENT_TIMEOUT_MS;
 const MANUAL_POINT_INTERVAL_MS = 30_000;
 /** Workspaces with a point diff in flight; per API process, like long-operation.ts. */
 const diffsRunning = new Set<string>();
+
+/** How a restore's pending check ended, for a repeat that arrived while it ran. */
+type RestoreCheck = { operation: ProjectOperation } | { refused: "pending" | "failed" };
+/** Restores holding the slot before their pending check ends, by workspace and key. */
+const checkingRestores = new Map<string, Promise<RestoreCheck>>();
 
 const PENDING = {
 	code: "OPERATION_PENDING",
@@ -269,43 +274,78 @@ export function registerRecoveryRoutes(
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
 			const key = `restore:${project.id}:${point.id}:${body.skipSafetyPoint === true}`;
-			// Recorded before the pending check, so a double-click joins it.
-			const claimed = claimOperation(
-				{
-					workspaceId: scope.workspaceId,
-					key,
-					kind: "restore",
-					projectId: project.id,
-					pointId: point.id,
-					log: request.log,
-				},
-				reply,
+			const input = {
+				workspaceId: scope.workspaceId,
+				key,
+				kind: "restore",
+				projectId: project.id,
+				pointId: point.id,
+				log: request.log,
+			} as const;
+			// A double-click joins the running restore instead of meeting the held slot.
+			const same = runningOperation(input.workspaceId, key);
+			if (same) return reply.status(202).send(same);
+			const checkKey = `${scope.workspaceId}:${key}`;
+			const checking = checkingRestores.get(checkKey);
+			if (checking) {
+				const outcome = await checking;
+				if ("operation" in outcome) return reply.status(202).send(outcome.operation);
+				return outcome.refused === "pending"
+					? sendError(reply, 409, PENDING.code, PENDING.message)
+					: sendError(reply, 500, UNEXPECTED.code, UNEXPECTED.message);
+			}
+			// The slot is held through the check so maintenance cannot slip in
+			// between. A refusal is a plain error, not a recorded operation:
+			// recording it would replace the workspace's last finished one and show
+			// the student a second failure toast on reload.
+			if (!claimLongOperation(scope.workspaceId, reply)) return reply;
+			let settle: (outcome: RestoreCheck) => void = () => {};
+			checkingRestores.set(
+				checkKey,
+				new Promise((resolve) => {
+					settle = resolve;
+				}),
 			);
-			if (!claimed) return reply;
+			const finishCheck = (outcome: RestoreCheck) => {
+				checkingRestores.delete(checkKey);
+				settle(outcome);
+			};
 			let pending: boolean;
 			try {
 				pending = await isPending(db, scope.workspaceId);
 			} catch (error) {
-				claimed.abandon({ status: 500, ...UNEXPECTED });
+				releaseLongOperation(scope.workspaceId);
+				finishCheck({ refused: "failed" });
 				throw error;
 			}
 			if (pending) {
-				claimed.abandon({ status: 409, ...PENDING });
+				releaseLongOperation(scope.workspaceId);
+				finishCheck({ refused: "pending" });
 				return sendError(reply, 409, PENDING.code, PENDING.message);
 			}
 			// A restore can outlast a proxy's response timeout, so it is
 			// answered at once and finished in the background.
-			const operation = claimed.start(async (background) => {
-				await restore(request, background, {
-					agent,
-					userId: user.id,
-					workspaceId: scope.workspaceId,
-					project,
-					point,
-					skipSafetyPoint: body.skipSafetyPoint === true,
+			let operation: ProjectOperation;
+			try {
+				operation = startOperation(input, async (background) => {
+					await restore(request, background, {
+						agent,
+						userId: user.id,
+						workspaceId: scope.workspaceId,
+						project,
+						point,
+						skipSafetyPoint: body.skipSafetyPoint === true,
+					});
+					return null;
 				});
-				return null;
-			});
+			} catch (error) {
+				// The operation never started, so nothing else will free the slot or
+				// answer a repeat that is waiting on this check.
+				releaseLongOperation(scope.workspaceId);
+				finishCheck({ refused: "failed" });
+				throw error;
+			}
+			finishCheck({ operation });
 			return reply.status(202).send(operation);
 		},
 	);

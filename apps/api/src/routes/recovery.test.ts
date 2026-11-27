@@ -11,7 +11,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { settleOperation } from "../testing/project-operation.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
@@ -19,7 +19,14 @@ import {
 	currentOperation,
 	holdLongOperation,
 	releaseLongOperation,
+	startOperation,
 } from "../workspaces/long-operation.js";
+
+vi.mock("../workspaces/long-operation.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../workspaces/long-operation.js")>();
+	return { ...actual, startOperation: vi.fn(actual.startOperation) };
+});
 
 /**
  * Recovery points through the API (SPEC.md §15, ADR 0020): owner only,
@@ -617,6 +624,171 @@ test.skipIf(skip)(
 		expect((await startCreate(alice)).statusCode).toBe(409);
 		expect(currentOperation(workspaceId)).toEqual(finished);
 		// Each refusal gave the slot back.
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a restore refused for a pending operation records no operation and keeps the last finished one",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		// A finished restore is the workspace's record.
+		expect((await restore(alice, pointId)).statusCode).toBe(204);
+		const finished = currentOperation(workspaceId);
+		expect(finished).toMatchObject({ kind: "restore", state: "succeeded" });
+
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date().toISOString(),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+		const refused = await startRestore(alice, pointId);
+		expect(refused.statusCode).toBe(409);
+		expect(refused.json().code).toBe("OPERATION_PENDING");
+		// A reload would read this record; it must still be the finished restore.
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+/**
+ * Holds the next restore's pending check open until `release` is called, so
+ * a repeat can arrive while the first still holds the slot. `fail` makes the
+ * check throw instead.
+ */
+function holdPendingCheck() {
+	let used = false;
+	let open!: (failure: boolean) => void;
+	const gate = new Promise<boolean>((resolve) => {
+		open = resolve;
+	});
+	let reached!: () => void;
+	const waiting = new Promise<void>((resolve) => {
+		reached = resolve;
+	});
+	const original = testDb.db.selectFrom.bind(testDb.db);
+	const hold = <T extends object>(target: T): T =>
+		new Proxy(target, {
+			get(object, property) {
+				const value = Reflect.get(object, property) as unknown;
+				if (property === "executeTakeFirst") {
+					return async (...args: unknown[]) => {
+						reached();
+						if (await gate) throw new Error("the pending check failed");
+						return (value as (...a: unknown[]) => unknown).apply(object, args);
+					};
+				}
+				if (typeof value !== "function") return value;
+				return (...args: unknown[]) => {
+					const next = (value as (...a: unknown[]) => unknown).apply(object, args);
+					return typeof next === "object" && next !== null ? hold(next) : next;
+				};
+			},
+		});
+	// Only the first read of `pending_operation` is held: the restore's own check.
+	const spy = vi.spyOn(testDb.db, "selectFrom").mockImplementation(((table: string) => {
+		const builder = (original as (t: string) => object)(table);
+		if (table !== "workspaces") return builder;
+		return new Proxy(builder, {
+			get(object, property) {
+				const value = Reflect.get(object, property) as (...a: unknown[]) => object;
+				if (property !== "select") return value.bind(object);
+				return (...args: unknown[]) => {
+					const next = value.apply(object, args);
+					if (args[0] !== "pending_operation" || used) return next;
+					used = true;
+					return hold(next);
+				};
+			},
+		});
+	}) as never);
+	return {
+		waiting,
+		release: (fail = false) => open(fail),
+		restore: () => spy.mockRestore(),
+	};
+}
+
+/** Two clicks on one restore, the second while the first's pending check is held. */
+async function doubleClickDuringCheck(pointId: string, fail = false) {
+	const held = holdPendingCheck();
+	try {
+		const first = startRestore(alice, pointId);
+		await held.waiting;
+		const second = startRestore(alice, pointId);
+		// Let the second reach the first's check.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		held.release(fail);
+		return await Promise.all([first, second]);
+	} finally {
+		held.restore();
+	}
+}
+
+test.skipIf(skip)(
+	"a repeat sent while the pending check runs joins the restore that follows",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const [first, second] = await doubleClickDuringCheck(pointId);
+		expect([first.statusCode, second.statusCode]).toEqual([202, 202]);
+		expect(second.json().id).toBe(first.json().id);
+		await settleOperation(app, alice.cookieHeader(), workspaceId, first);
+	},
+);
+
+test.skipIf(skip)(
+	"a repeat sent while the pending check runs gets the same refusal and no record",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const finished = currentOperation(workspaceId);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date().toISOString(),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+		const answers = await doubleClickDuringCheck(pointId);
+		for (const answer of answers) {
+			expect(answer.statusCode).toBe(409);
+			expect(answer.json().code).toBe("OPERATION_PENDING");
+		}
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a pending check that fails answers a repeat with an error and gives the slot back",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const finished = currentOperation(workspaceId);
+		const answers = await doubleClickDuringCheck(pointId, true);
+		expect(answers.map((answer) => answer.statusCode)).toEqual([500, 500]);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a restore that cannot start answers a waiting repeat with an error and gives the slot back",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const finished = currentOperation(workspaceId);
+		vi.mocked(startOperation).mockImplementationOnce(() => {
+			throw new Error("the operation could not start");
+		});
+		const answers = await doubleClickDuringCheck(pointId);
+		expect(answers.map((answer) => answer.statusCode)).toEqual([500, 500]);
+		expect(currentOperation(workspaceId)).toEqual(finished);
 		expect(holdLongOperation(workspaceId)).toBe(true);
 		releaseLongOperation(workspaceId);
 	},

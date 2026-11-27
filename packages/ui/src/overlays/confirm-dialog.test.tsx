@@ -58,11 +58,11 @@ function RowMenuFixture() {
 	const [open, setOpen] = React.useState(false);
 	return (
 		<>
-			<button type="button" id="row-menu">
+			<button type="button" id="row-menu" aria-controls="row-menu-list">
 				Row actions
 			</button>
 			{menuOpen ? (
-				<div role="menu" aria-labelledby="row-menu">
+				<div role="menu" id="row-menu-list" aria-label="Row actions">
 					<button
 						type="button"
 						role="menuitem"
@@ -88,13 +88,13 @@ function DensityMenuFixture() {
 	return (
 		<>
 			<div data-density="compact">
-				<button type="button" id="row-menu">
+				<button type="button" id="row-menu" aria-controls="row-menu-list">
 					Row actions
 				</button>
 			</div>
 			{/* A menu portals to the body, outside the compact area. */}
 			{menuOpen ? (
-				<div role="menu" aria-labelledby="row-menu">
+				<div role="menu" id="row-menu-list" aria-label="Row actions">
 					<button
 						type="button"
 						role="menuitem"

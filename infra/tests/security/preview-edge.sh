@@ -60,15 +60,25 @@ pe_grant() {
 pe_host_of() { sed -E 's#^https://([^:/]+).*#\1#'; }
 
 # pe_bootstrap URL COOKIE-FILE -- open a bootstrap URL as a top-level page and
-# keep the preview cookie it sets, on the VM only.  Prints the status.
+# keep the preview cookie it sets, on the VM only.  Prints the status and
+# the properties below that the response has.
 pe_bootstrap() {
-  local url="$1" out="$2" host status
+  local url="$1" out="$2" host status props
   host=$(printf '%s' "$url" | pe_host_of)
   status=$(sec_http - GET "$url" --resolve "${host}:${SEC_PUBLIC_PORT}:127.0.0.1" \
     -H 'Sec-Fetch-Dest: document' -D "${SEC_REMOTE_DIR}/pe-headers")
-  sec_ssh "grep -i '^set-cookie: __Host-portikus-preview=' ${SEC_REMOTE_DIR}/pe-headers \
-    | sed -E 's/^[^:]*: *([^;]*).*/Cookie: \\1/' | tr -d '\\r' > ${SEC_REMOTE_DIR}/${out}; rm -f ${SEC_REMOTE_DIR}/pe-headers"
-  printf '%s' "$status"
+  # The redeemed ticket's page (BROWSER-HANDLING.md 9.1, 9.2): a Strict,
+  # host-only session cookie, nothing cached or referred, and a move to /.
+  # A refused ticket is a 403 with no cookie.
+  props=$(sec_ssh "h=${SEC_REMOTE_DIR}/pe-headers; tr -d '\r' <\$h >\$h.n; \
+    grep -i '^set-cookie: __Host-portikus-preview=[^;]' \$h.n \
+      | grep -i '; *Secure' | grep -i '; *HttpOnly' | grep -i '; *SameSite=Strict' | grep -qi '; *Path=/' && printf ' strict-cookie'; \
+    grep -qix 'cache-control: no-store' \$h.n && printf ' no-store'; \
+    grep -qix 'referrer-policy: no-referrer' \$h.n && printf ' no-referrer'; \
+    grep -i '^set-cookie: __Host-portikus-preview=' \$h.n \
+      | sed -E 's/^[^:]*: *([^;]*).*/Cookie: \\1/' > ${SEC_REMOTE_DIR}/${out}; rm -f \$h \$h.n")
+  grep -qF '<meta http-equiv="refresh" content="0; url=/">' "$SEC_LAST_BODY" && props+=" moves-to-/"
+  printf '%s%s' "$status" "$props"
 }
 
 # pe_get COOKIE-FILE|- URL [curl args] -- a request on a preview host.
@@ -113,8 +123,8 @@ echo "Preview hosts: a ${pe_a_host:-?}, b ${pe_b_host:-?}"
 if [ -z "$pe_a_boot" ] || [ -z "$pe_b_boot" ]; then
   bad "preview setup: both workspaces got a bootstrap URL"
 else
-  check_output "a's bootstrap sets a preview session (control)" "303" pe_bootstrap "$pe_a_boot" pe-a.cookie
-  check_output "b's bootstrap sets a preview session (control)" "303" pe_bootstrap "$pe_b_boot" pe-b.cookie
+  check_output "a's bootstrap sets a preview session (control)" "200 strict-cookie no-store no-referrer moves-to-/" pe_bootstrap "$pe_a_boot" pe-a.cookie
+  check_output "b's bootstrap sets a preview session (control)" "200 strict-cookie no-store no-referrer moves-to-/" pe_bootstrap "$pe_b_boot" pe-b.cookie
   check_output "a sees its own page through its preview host (control)" "200 sectest-pe-a" \
     pe_serves pe-a.cookie "${pe_a_origin}/"
   check_output "b sees its own page through its preview host (control)" "200 sectest-pe-b" \
@@ -146,7 +156,7 @@ else
     status=$(pe_bootstrap "${pe_a_origin}/__portikus/bootstrap${pe_b_ticket}" pe-stolen.cookie)
     echo "${status} $(sec_ssh "cat ${SEC_REMOTE_DIR}/pe-stolen.cookie")"
   }
-  check_output "b's ticket opened on a's preview host sets no session" "403 " pe_ticket_elsewhere
+  check_output "b's ticket opened on a's preview host sets no session" "403 no-store no-referrer " pe_ticket_elsewhere
 
   # Forged forwarding headers never choose the upstream: Caddy drops them and
   # the API answers from the preview session alone.
@@ -182,7 +192,7 @@ else
   pe_a_boot2=$(jq -r '.bootstrapUrl // empty' "$SEC_LAST_BODY" 2>/dev/null)
   check_output "/__portikus/bootstrap on the main site is only the front page" "same" \
     pe_main_site "/__portikus/bootstrap${pe_a_boot2#*/__portikus/bootstrap}" -H 'Sec-Fetch-Dest: document'
-  check_output "the ticket offered to the main site is still unused on a's host" "303" \
+  check_output "the ticket offered to the main site is still unused on a's host" "200 strict-cookie no-store no-referrer moves-to-/" \
     pe_bootstrap "$pe_a_boot2" pe-a2.cookie
   check_output "/__portikus/reset on the main site is only the front page" "same" \
     pe_main_site /__portikus/reset -H "@${SEC_REMOTE_DIR}/pe-a.cookie"

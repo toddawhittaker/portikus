@@ -141,7 +141,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		await me.focus();
 		await page.keyboard.press("Enter");
-		const menu = page.getByRole("menu", { name: "Carol Admin" });
+		const menu = page.getByRole("menu", { name: "Account" });
 		await expect(menu).toBeVisible();
 		const name = menu.getByTestId("account-menu-name");
 		await expect(name).toHaveText("Carol Admin");

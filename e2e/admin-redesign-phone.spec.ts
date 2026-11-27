@@ -135,7 +135,7 @@ test("Add user and More are 44 px targets, and More still opens Invite and Impor
 	expect(await height(more)).toBeGreaterThanOrEqual(TARGET);
 
 	await more.tap();
-	const menu = page.getByRole("menu", { name: "More", exact: true });
+	const menu = page.getByRole("menu", { name: "More ways to add people" });
 	await expect(menu).toBeVisible();
 	const box = await menu.boundingBox();
 	if (!box) throw new Error("the menu has no box");

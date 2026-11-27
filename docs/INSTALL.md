@@ -1001,6 +1001,13 @@ terminals. They keep the old agent until they are next stopped and
 started, and each one is named in the controller's log:
 `sudo journalctl -u portikus-controller | grep "old workspace agent"`.
 
+**Rolling back.** Installing an older release with `sudo apt install
+--allow-downgrades portikus=<version>` does not undo database changes. A
+release older than a database migration that has already run leaves the
+API stopped, with the error "corrupted migrations: previously executed
+migration … is missing". Roll forward again, or restore a backup taken
+before the upgrade.
+
 ## Removing Portikus
 
 `sudo apt remove portikus` stops Portikus's services and keeps your data and

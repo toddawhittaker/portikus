@@ -108,15 +108,11 @@ type OperationInput = {
 	log: FastifyBaseLogger;
 };
 
-type OperationFailure = NonNullable<ProjectOperation["error"]>;
-
 /** A recorded operation whose work has not started yet. */
 export interface ClaimedOperation {
 	operation: ProjectOperation;
 	/** Run `work` in the background; see startOperation. */
 	start(work: (reply: FastifyReply) => Promise<Project | null>): ProjectOperation;
-	/** End it before its work starts, with the answer the request gets. */
-	abandon(error: OperationFailure): void;
 }
 
 /**
@@ -177,10 +173,6 @@ function recordOperation(input: OperationInput): ClaimedOperation {
 	};
 	return {
 		operation,
-		abandon(error) {
-			finish(record, { state: "failed", error });
-			ended();
-		},
 		start(work) {
 			const reply = new OperationReply();
 			void work(reply.asReply())

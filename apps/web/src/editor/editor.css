@@ -59,7 +59,7 @@
 
 /* Monaco draws a diagnostic's source at 60% opacity with an inline style,
    under 4.5:1 in the light theme (SPEC.md §25.8). */
-.monaco-hover .marker.hover-contents > span + span {
+.monaco-hover .marker.hover-contents .marker-message > span + span {
 	/* biome-ignore lint/complexity/noImportantStyles: Monaco sets this opacity inline */
 	opacity: 1 !important;
 }

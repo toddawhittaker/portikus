@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Dialog, DialogRoot, DialogTrigger } from "./dialog";
+import { Menu, MenuItem, MenuRoot, MenuTrigger } from "./menu";
 
 function Fixture() {
 	return (
@@ -55,11 +56,16 @@ function MenuFixture() {
 	const [open, setOpen] = React.useState(false);
 	return (
 		<>
-			<button type="button" id="menu-trigger">
+			<button
+				type="button"
+				id="menu-trigger"
+				aria-haspopup="menu"
+				aria-controls="project-menu"
+			>
 				Project actions
 			</button>
 			{menuOpen ? (
-				<div role="menu" aria-labelledby="menu-trigger">
+				<div role="menu" id="project-menu" aria-label="Project actions">
 					<button
 						type="button"
 						role="menuitem"
@@ -79,14 +85,37 @@ function MenuFixture() {
 	);
 }
 
+// The real shared Menu: its label names it, so the trigger is found by aria-controls.
+function LabelledMenuFixture() {
+	const [open, setOpen] = React.useState(false);
+	return (
+		<>
+			<MenuRoot>
+				<MenuTrigger>Project actions</MenuTrigger>
+				<Menu label="Actions for the project">
+					<MenuItem onSelect={() => setOpen(true)}>Rename…</MenuItem>
+				</Menu>
+			</MenuRoot>
+			<DialogRoot open={open} onOpenChange={setOpen}>
+				<Dialog title="Rename project" />
+			</DialogRoot>
+		</>
+	);
+}
+
 function HiddenItemFixture() {
 	const [open, setOpen] = React.useState(false);
 	return (
 		<>
-			<button type="button" id="hidden-trigger">
+			<button
+				type="button"
+				id="hidden-trigger"
+				aria-haspopup="menu"
+				aria-controls="tab-menu"
+			>
 				Tab actions
 			</button>
-			<div role="menu" aria-labelledby="hidden-trigger">
+			<div role="menu" id="tab-menu" aria-label="Tab actions">
 				<button type="button" role="menuitem" onClick={() => setOpen(true)}>
 					Rename…
 				</button>
@@ -209,6 +238,22 @@ describe("Dialog", () => {
 		await waitFor(() =>
 			expect(document.activeElement).toBe(screen.getByText("Project actions")),
 		);
+	});
+
+	it("finds the trigger of a labelled shared menu through aria-controls", async () => {
+		render(<LabelledMenuFixture />);
+		const trigger = screen.getByText("Project actions");
+		fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+		const menu = screen.getByRole("menu", { name: "Actions for the project" });
+		expect(menu.hasAttribute("aria-labelledby")).toBe(false);
+		expect(trigger.getAttribute("aria-controls")).toBe(menu.id);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+
+		fireEvent.keyDown(await screen.findByRole("dialog"), { key: "Escape" });
+
+		await waitFor(() => expect(document.activeElement).toBe(trigger));
 	});
 
 	it("skips a return target that is still mounted but hidden", async () => {
