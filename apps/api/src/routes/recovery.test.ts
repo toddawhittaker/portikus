@@ -19,7 +19,14 @@ import {
 	currentOperation,
 	holdLongOperation,
 	releaseLongOperation,
+	startOperation,
 } from "../workspaces/long-operation.js";
+
+vi.mock("../workspaces/long-operation.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../workspaces/long-operation.js")>();
+	return { ...actual, startOperation: vi.fn(actual.startOperation) };
+});
 
 /**
  * Recovery points through the API (SPEC.md §15, ADR 0020): owner only,
@@ -764,6 +771,22 @@ test.skipIf(skip)(
 		const pointId = (await create(alice)).json().id;
 		const finished = currentOperation(workspaceId);
 		const answers = await doubleClickDuringCheck(pointId, true);
+		expect(answers.map((answer) => answer.statusCode)).toEqual([500, 500]);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a restore that cannot start answers a waiting repeat with an error and gives the slot back",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const finished = currentOperation(workspaceId);
+		vi.mocked(startOperation).mockImplementationOnce(() => {
+			throw new Error("the operation could not start");
+		});
+		const answers = await doubleClickDuringCheck(pointId);
 		expect(answers.map((answer) => answer.statusCode)).toEqual([500, 500]);
 		expect(currentOperation(workspaceId)).toEqual(finished);
 		expect(holdLongOperation(workspaceId)).toBe(true);

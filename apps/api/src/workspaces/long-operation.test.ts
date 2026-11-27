@@ -212,17 +212,5 @@ test("a claim records the operation at once, so a repeat joins it before the wor
 	const other = fakeReply();
 	expect(claimOperation(input(workspaceId, "restore:b"), other.reply)).toBeNull();
 	expect(other.sent.status).toBe(409);
-	claimed?.abandon({ status: 409, code: "OPERATION_PENDING", message: "Wait." });
-});
-
-test("an abandoned claim fails with the refusal and gives the slot back", () => {
-	const workspaceId = randomUUID();
-	const claimed = claimOperation(input(workspaceId), fakeReply().reply);
-	claimed?.abandon({ status: 409, code: "OPERATION_PENDING", message: "Wait." });
-	expect(currentOperation(workspaceId)).toMatchObject({
-		state: "failed",
-		error: { status: 409, code: "OPERATION_PENDING", message: "Wait." },
-	});
-	expect(holdLongOperation(workspaceId)).toBe(true);
-	releaseLongOperation(workspaceId);
+	claimed?.start(async () => null);
 });
