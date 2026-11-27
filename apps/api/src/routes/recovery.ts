@@ -325,17 +325,26 @@ export function registerRecoveryRoutes(
 			}
 			// A restore can outlast a proxy's response timeout, so it is
 			// answered at once and finished in the background.
-			const operation = startOperation(input, async (background) => {
-				await restore(request, background, {
-					agent,
-					userId: user.id,
-					workspaceId: scope.workspaceId,
-					project,
-					point,
-					skipSafetyPoint: body.skipSafetyPoint === true,
+			let operation: ProjectOperation;
+			try {
+				operation = startOperation(input, async (background) => {
+					await restore(request, background, {
+						agent,
+						userId: user.id,
+						workspaceId: scope.workspaceId,
+						project,
+						point,
+						skipSafetyPoint: body.skipSafetyPoint === true,
+					});
+					return null;
 				});
-				return null;
-			});
+			} catch (error) {
+				// The operation never started, so nothing else will free the slot or
+				// answer a repeat that is waiting on this check.
+				releaseLongOperation(scope.workspaceId);
+				finishCheck({ refused: "failed" });
+				throw error;
+			}
 			finishCheck({ operation });
 			return reply.status(202).send(operation);
 		},
