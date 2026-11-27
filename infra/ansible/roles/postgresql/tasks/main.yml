@@ -87,8 +87,8 @@
     state: started
 
 - name: Ensure PostgreSQL listens on localhost only
-  community.postgresql.postgresql_set:
-    name: listen_addresses
+  community.postgresql.postgresql_alter_system:
+    param: listen_addresses
     value: localhost
   become: true
   become_user: postgres
