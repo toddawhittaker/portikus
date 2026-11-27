@@ -85,10 +85,22 @@ Do not put epic status in memory.
     review, then have each reviewer confirm its findings are closed.
 11. **Rehearsal VM full smoke** when the epic touches install, packaging
     or infra. One infra agent owns the rehearsal VM for the run. It must
-    make a Dex sign-in file (two lines, email and password, mode 0600) the
+    make a Dex sign-in file (email and password, mode 0600) the
     way `infra/tests/install-test.sh` `first_signin()` does; a smoke that
     skips the Dex sign-in is incomplete. The rehearsal VM is ours to
     change freely; this never applies to the pilot.
+    Give that agent the whole sequence up front, because each VM round
+    costs one to two hours: `make rehearsal-up`, install (`configure-vm`
+    or apt), the first sign-in file (it has a third line, the
+    second-factor secret, as install-test writes it), `make
+    build-workspace-image` (needed after `configure-vm`; it builds the
+    installed package's recipe), the full smoke, then `make
+    security-test`. Delete a workspace row left in `error` by a stopped
+    run before rerunning, and keep the VM until the results are read.
+    In a fix batch, plan VM-only verification (a version pin, an install
+    test) as its own pull request into main unless the code fixes depend
+    on it, so the epic does not wait on it; offer Todd that split at
+    plan time.
 12. **Fold task** (last task PR): draft it while the fix round runs,
     since the task PR bodies already hold the STATUS lines, and finish it
     when the last fix lands. In STATUS.md add the epic's entry of one or

@@ -1149,6 +1149,8 @@ The terminal's line height is 1.1. Each terminal zooms on its own (section 13.1)
 
 Added by Epic 63: every terminal view (terminal panes, the administrator's root shell, the live-help helper view and a check's output) draws with WebGL where the browser has it, so box and block characters fill their cells and vertical lines show no gaps at line height 1.1. A browser without WebGL2, or a terminal whose WebGL context is lost (a browser keeps about 16 live contexts per page and drops the oldest), falls back to the DOM renderer without a log and without retrying (STACK.md section 34).
 
+Added by Epic 77: xterm.js 6 leaves a Space keydown uncancelled, so Safari on an iPad with a hardware keyboard scrolled the page and typed nothing. The terminal's key handler claims a plain Space (Shift allowed; no Ctrl, Alt or Meta; not composing): it cancels the keydown, sends one space and drops the matching keypress. Ctrl+Space still sends NUL, and a Space during IME composition is left to the input method. The terminal keeps focus.
+
 ### 9.2 Terminal persistence during browser disconnect
 
 Within the 10-minute disconnect grace period, terminal processes must continue even when no browser is attached.
@@ -2440,7 +2442,7 @@ Restoring a recovery point must:
 
 A restore puts back the whole project, its `.git` folder included, so the repository returns to the state it was in at that point, commits and all. Portikus never makes Git commits for the student; the recovery dialog says so (Epic 25).
 
-Added by Epic 76: a restore is a background operation (§7.3) answering 202. A double click joins the running restore. A restore refused for a pending operation still records a failed operation, so a reload can show a second error toast (#2219).
+Added by Epic 76: a restore is a background operation (§7.3) answering 202. A double click joins the running restore. Since Epic 77, a restore refused for a pending operation (§15.6) answers a plain 409 `OPERATION_PENDING` and records no operation, so a reload shows no second error toast and the workspace's last finished record stays; a repeat sent while that check runs gets the same answer as the first request.
 
 If a restore stops part way, the earlier files stay in a `~/projects/.portikus-aside-<pointId>` folder (§15.10). The student deletes it from the Recovery points dialog, not in a terminal.
 
@@ -6532,6 +6534,8 @@ Added by Epic 63: a terminal's question card takes the keyboard only when focus 
 
 Added by Epic 75 (ADR 0084, section 14.6): pick mode in the preview can be driven from the keyboard. The pick button reports its state with `aria-pressed`. When two open agents are of one kind, the pick menu numbers them. Pick mode starts at the application's focused element. Up moves to the parent element, Down to its first child, Left and Right to its siblings, Enter picks, and Escape leaves pick mode, from the Portikus page or the wrapper page; Escape returns focus to the pick button. The highlighted element's label is read through the preview's polite status region, throttled so a fast walk through the page does not flood it. After a pick, focus moves into the agent that got it, and "Picked element sent to <agent>" is announced.
 
+Added by Epic 77: a menu given a label is named by that label, not by its trigger button, so the pick menu reads "Send the picked element to". A menu with no label is still named by its button. A dialog opened from a menu item returns focus to that menu's trigger.
+
 Added by Epic 75: in a chat's side conversation (section 10.2), a reconnect makes the host replay the side conversation, and the browser empties and rebuilds its message list. If focus was on a control inside a side answer when that happens, it falls back to the side composer, or to Stop while a question is running, and never to the page body.
 
 ### 25.9 Browser support
@@ -8599,6 +8603,26 @@ Acceptance:
 - no preview or API response is stored by a shared cache;
 - no request waits more than 100 seconds for its first byte, and a browser WebSocket idle for minutes stays open;
 - a download in progress keeps the workspace from stopping.
+
+### Epic 77 — Fix batch after Epic 76
+
+Built on `epic/77-fix-batch`, closing #2214, #2219, #2196, #1829 and #1263. No migration. See sections 9.1, 15.6, 15.8 and 25.8.
+
+Includes:
+
+- Space typing a space in the terminal on iPad Safari with a hardware keyboard;
+- a restore refused for a pending operation answering a plain 409 and recording no operation;
+- a labelled menu named by its label, so the pick menu reads "Send the picked element to";
+- monaco-editor 0.58.0, which bundles DOMPurify 3.4.17.
+- the `PORTIKUS_VERSION` pin tested between two published releases, the smoke and security suites brought up to Epic 76's background recovery points and bootstrap page, and workspace image version 2026.10.7.
+
+Acceptance:
+
+- a plain Space in a terminal is cancelled and types exactly one space, Ctrl+Space still sends NUL, and a composing Space is left alone;
+- a refused restore leaves no operation record and keeps the last finished one, and a repeat during the check gets the same answer;
+- the pick menu's accessible name is "Send the picked element to", and focus returns to a menu's trigger after its dialog closes;
+- the editor specs pass unchanged on Monaco 0.58.0.
+- on the rehearsal VM, 0.1.1910 rolls back to 0.1.1887 and forward again, and the full smoke passes with no skips on image 2026.10.7.
 
 ### Estimated total
 
