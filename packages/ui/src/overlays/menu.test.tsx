@@ -77,9 +77,7 @@ describe("Menu", () => {
 		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0, ctrlKey: false });
 
 		const menu = screen.getByRole("menu", { name: "Actions" });
-		expect(menu.getAttribute("aria-labelledby")).toBe(
-			screen.getByText("Actions").id,
-		);
+		expect(menu.getAttribute("aria-labelledby")).toBe(screen.getByText("Actions").id);
 	});
 
 	it("opens from the keyboard", () => {
