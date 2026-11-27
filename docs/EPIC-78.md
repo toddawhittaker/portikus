@@ -12,11 +12,15 @@ architect pass. This plan is deleted by the fold task.
 | T3 | #2228 recovery-point double-click gets a false "already in progress" | builder (Sonnet, high) | `apps/api/src/routes/recovery.ts`, `apps/api/src/routes/recovery.test.ts` | none |
 | T4 | #2236 security test's network probe outruns the connection limit | infra (Sonnet, high) | `infra/tests/security/network.sh` | none |
 | T5 | #2233 the smoke test's 20-minute Codex wait | infra (Opus, low) | `infra/tests/smoke/`, and the Codex config writer in `apps/workspace-controller/` only if the finding needs it | none |
-| T6 | fold: STATUS.md, SPEC.md lasting rules, delete this plan | orchestrator | `docs/STATUS.md`, `docs/SPEC.md`, this file | T1-T5 and the fix round |
+| T7 | #2241 setup: replace the deprecated `postgresql_set` with `postgresql_alter_system` | infra (Sonnet, high) | `infra/ansible/roles/postgresql/`, `infra/ansible/requirements.yml` | none |
+| T6 | fold: STATUS.md, SPEC.md lasting rules, delete this plan | orchestrator | `docs/STATUS.md`, `docs/SPEC.md`, this file | T1-T5, T7 and the fix round |
 
-All of T1-T5 run in parallel; no two touch the same files.
+All of T1-T5 and T7 run in parallel; no two touch the same files.
 
 ## Rulings
+
+- Todd approved this plan on 2026-11-27, with the rehearsal VM run inside
+  the epic, and added #2241 as T7.
 
 - T1 sends the user to the next gate they owe (`gatePath(me) ?? "/"`) from
   both the continue button and the fallback redirect (SPEC.md 5.1, 24.13).
@@ -37,7 +41,7 @@ All of T1-T5 run in parallel; no two touch the same files.
 - Each task: unit and e2e tests for what it touches, CI green on its PR.
 - Reviews: code-reviewer over the epic; security-reviewer (T1 touches the
   sign-in gates, T2 the Dex page); a11y-reviewer (T1, T2).
-- Rehearsal VM, one infra agent, after T1-T5 land: install the epic head,
+- Rehearsal VM, one infra agent, after T1-T5 and T7 land: install the epic head,
   Dex sign-in file, `make build-workspace-image`, the full smoke, then
-  `make security-test`. This is what proves T2, T4 and T5.
+  `make security-test`. This is what proves T2, T4, T5 and T7.
 - Lab VM: never `make smoke-test` or `make security-test` without Todd.
