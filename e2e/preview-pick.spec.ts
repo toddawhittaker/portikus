@@ -175,7 +175,8 @@ test.describe("the pick button", () => {
 		const scene = await openScene(page, context, { terminal: true, chat: true });
 		await pickButton(page).focus();
 		await page.keyboard.press("Enter");
-		const menu = page.getByRole("menu");
+		// Named for what it does, not by the button that opened it (SPEC.md §25.8).
+		const menu = page.getByRole("menu", { name: "Send the picked element to" });
 		await expect(menu).toBeVisible();
 		await expect(menu.getByRole("menuitem").first()).toBeFocused();
 		await page.keyboard.press("Enter");

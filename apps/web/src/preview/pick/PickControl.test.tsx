@@ -106,6 +106,16 @@ test("with several agents open it asks which, then starts for that one", async (
 	await vi.waitFor(() => expect(pick.start).toHaveBeenCalledWith(second, "Agent t2"));
 });
 
+test("the target menu is named for what it does, not by the button", async () => {
+	addTarget("t1");
+	addTarget("t2");
+	render(<PickControl pick={mode()} ready={true} />);
+	fireEvent.pointerDown(button(), { button: 0, pointerType: "mouse" });
+	expect(
+		await screen.findByRole("menu", { name: "Send the picked element to" }),
+	).toBeTruthy();
+});
+
 test("two agents of one kind are told apart by number in the menu", async () => {
 	addTarget("t1", "Claude Code (TUI)");
 	addTarget("t2", "Codex (TUI)");

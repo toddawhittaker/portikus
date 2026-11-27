@@ -232,7 +232,8 @@ function Pick({
 					</span>
 				</button>
 			</MenuTrigger>
-			<Menu label={label} align="start" className="pk-picker-menu">
+			{/* Named like its button, "Model Opus": the label alone would drop the value in force. */}
+			<Menu label={`${label} ${shown}`} align="start" className="pk-picker-menu">
 				<MenuLabel>{label}</MenuLabel>
 				<MenuRadioGroup
 					label={label}
