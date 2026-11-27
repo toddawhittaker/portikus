@@ -16,9 +16,9 @@ release number in the lab reply. This file goes away at the fold.
   with `term.input(" ", true)`, return false, and swallow the matching
   keypress so no second space is typed. Ctrl+Space still sends NUL;
   Space during composition (`isComposing` or key code 229) is left to
-  the input method. The focus fallback (focus the textarea on
-  pointerdown) is added only if Todd reports that letters do not type
-  either.
+  the input method. No focus change: Todd confirmed (2026-11-26) that on
+  the iPad's hardware keyboard only Space misbehaved and letters typed
+  normally, so the terminal keeps focus.
 - **#1263 (orchestrator).** Run on the rehearsal VM: install the
   published 0.1.1910, then roll back with `PORTIKUS_VERSION=0.1.1887`
   through the existing rollback path (infra/README.md, "rollback";
