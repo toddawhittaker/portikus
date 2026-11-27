@@ -33,10 +33,13 @@ interface FocusOrigin {
 
 function focusOrigin(element: HTMLElement): FocusOrigin {
 	const menu = element.closest('[role="menu"]');
-	const menuId = menu?.getAttribute("aria-labelledby");
+	// The trigger names the menu it controls; the menu's own label may name it instead.
+	const trigger = menu?.id
+		? document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(menu.id)}"]`)
+		: null;
 	return {
 		element,
-		menuTrigger: menuId ? document.getElementById(menuId) : null,
+		menuTrigger: trigger,
 		beforeMenu: menu ? lastOutsideMenu : null,
 	};
 }

@@ -29,7 +29,7 @@ test.describe("the More menu beside Add user", () => {
 		).toBeLessThan(4);
 
 		await more.click();
-		const menu = page.getByRole("menu", { name: "More", exact: true });
+		const menu = page.getByRole("menu", { name: "More ways to add people" });
 		await expect(menu).toBeVisible();
 		// The open menu hides the page behind it from the accessibility tree, so find More by its id.
 		await expect(page.getByTestId("users-add-more")).toHaveAttribute(
@@ -65,7 +65,7 @@ test.describe("the More menu beside Add user", () => {
 
 		// Enter opens the menu on its first item; Escape closes it back to More.
 		await page.keyboard.press("Enter");
-		const menu = page.getByRole("menu", { name: "More", exact: true });
+		const menu = page.getByRole("menu", { name: "More ways to add people" });
 		await expect(menu).toBeVisible();
 		await expect(menu.getByRole("menuitem", { name: "Invite…" })).toBeFocused();
 		await page.keyboard.press("Escape");
