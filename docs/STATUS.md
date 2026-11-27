@@ -99,6 +99,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 75, picking an element in the preview.** A student can pick an element in an embedded preview and send its HTML, CSS and a screenshot to an agent terminal or chat, through a Portikus wrapper page on the preview origin (SPEC.md sections 14.6 and 24, ADR 0084); and a side answer keeps keyboard focus across a reconnect (#2176).
 - **Epic 76, Portikus behind a Cloudflare Tunnel.** Portikus runs behind a Cloudflare Tunnel with real client addresses (`trusted_proxies`), previews on a separate registrable domain with a partitioned embedded cookie and a new-tab fallback, and long operations (clone, duplicate, restore, LTI starter, recovery point, zip download) as background jobs or streams that stay under Cloudflare's 100-second limit; it was staged and measured on the Kitestring lab VM (SPEC.md sections 7, 14.6, 15.6, 21.12, 24.3 and 24.10 to 24.13, ADR 0085, closes #1236).
 - **Epic 77, fix batch after Epic 76.** Space types a space in the terminal on iPad Safari with a hardware keyboard; a restore refused for a pending operation answers a plain 409 and records no operation, as recovery-point creation does; a labelled menu is named by its label (the pick menu reads "Send the picked element to"); Monaco is upgraded to 0.58.0 with DOMPurify 3.4.17; the `PORTIKUS_VERSION` pin was tested from 0.1.1910 back to 0.1.1887 and forward again, and the workspace image version is raised to 2026.10.7 (SPEC.md sections 9.1, 15.8 and 25.8; INSTALL.md, "Upgrades").
+- **Epic 78, fix batch after Epic 77.** Two-step setup goes straight on to the acceptable-use statement instead of hanging the page; the Dex sign-in page has a button that shows or hides the password; a fast repeat of "Make a recovery point" joins the first request; the security suite dials the Internet control target alone before its parallel sweep; and setup uses `postgresql_alter_system` instead of the deprecated `postgresql_set` (SPEC.md sections 5.1, 15.8, 24.13 and 25.8).
 
 ## Open items
 
@@ -166,7 +167,6 @@ list was made and may already be fixed.
 - HTML, CSS and JSON code help ignores the site's code-help switch, and HTML has no diagnostics in Monaco 0.57.
 - Java, C/C++ and SQL code help is still open (#1652). A debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
 - The Playwright projects other than `terminal-webgl` run Chromium with 3D off, so most terminal specs exercise the DOM renderer; only `e2e/terminal-webgl.spec.ts` covers WebGL.
-- A fast double-click on creating a recovery point can show a spurious "already in progress" error (#2228).
 
 ### Chat and coding agents
 
@@ -231,6 +231,5 @@ list was made and may already be fixed.
 - Two browser tests, `e2e/editor-schemes.spec.ts` (line 193) and `e2e/guard-settings.spec.ts` (line 125), failed even on retry in one run and passed when CI was rerun.
 - An MCP tool call whose inner request is refused by the key's rate limit (429) writes no audit row, matching direct rate-limited requests (accepted).
 - The rehearsal smoke still skips one check: a packaged host has no `workspace.sh`.
-- On a host with many addresses, the security suite's network probe outruns the per-workspace connection limit, so one inner Docker control check fails (#2236).
 - Nothing checks that the guides and the in-app Help agree, and the documentation images show scripted data.
 - The build script for `design/mockups/portikus-console.css` is not committed, so the file cannot be rebuilt from the repository (`design/README.md`).
