@@ -162,22 +162,37 @@ else
     --resolve "${SEC_PUBLIC_HOST}:${SEC_PUBLIC_PORT}:${net_lan_ip}" "${SEC_API}/health"
 fi
 
-net_all_targets() {
+# Every group's targets except the Internet control, one per line.
+net_sweep_targets() {
   local g
-  echo "$net_control"
   for g in "${net_groups[@]}"; do printf '%s\n' "${net_group_targets[$g]}"; done
 }
 
-# One exec per context; every target is dialled in parallel with a 2 s limit.
-# Output lines are "address,port open|closed".
-net_probe_bash() { # [TARGETS]
-  local targets="${1:-$(net_all_targets | sed '/^$/d' | tr '\n' ' ')}"
-  printf 'for t in %s; do ( h=${t%%,*}; p=${t##*,}; if timeout 2 bash -c "exec 3<>/dev/tcp/$h/$p" 2>/dev/null; then echo "$t open"; else echo "$t closed"; fi ) & done; wait' "$targets"
+# One exec per context. With no TARGETS it first dials the Internet control
+# target alone, then sweeps every other target in parallel, so the control
+# never competes with the burst for workspace a's new-connection limiter
+# (20 per second, burst 200; workspace-limits.nft.j2). Every dial has a 2 s limit.
+# With TARGETS it dials just those, in parallel. Output lines are
+# "address,port open|closed".
+net_probe() { # bash|sh [TARGETS]
+  local kind="$1" targets="${2:-}" first="" dial one
+  if [ "$kind" = sh ]; then
+    dial='nc -z -w 2 "$h" "$p"'
+  else
+    dial='timeout 2 bash -c "exec 3<>/dev/tcp/$h/$p"'
+  fi
+  if [ -z "$targets" ]; then
+    first="$net_control"
+    targets=$(net_sweep_targets | sed '/^$/d' | tr '\n' ' ')
+  fi
+  one='h=${t%%,*}; p=${t##*,}; if '"$dial"' 2>/dev/null; then echo "$t open"; else echo "$t closed"; fi'
+  if [ -n "$first" ]; then
+    printf '( t=%s; %s ); ' "$first" "$one"
+  fi
+  printf 'for t in %s; do ( %s ) & done; wait' "$targets" "$one"
 }
-net_probe_sh() { # [TARGETS]
-  local targets="${1:-$(net_all_targets | sed '/^$/d' | tr '\n' ' ')}"
-  printf 'for t in %s; do ( h=${t%%,*}; p=${t##*,}; if nc -z -w 2 "$h" "$p" 2>/dev/null; then echo "$t open"; else echo "$t closed"; fi ) & done; wait' "$targets"
-}
+net_probe_bash() { net_probe bash "$@"; } # [TARGETS]
+net_probe_sh() { net_probe sh "$@"; }     # [TARGETS]
 
 # net_report CONTEXT RESULTS -- one check per group of targets.
 net_report() {
