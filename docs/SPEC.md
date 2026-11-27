@@ -340,7 +340,7 @@ Added by Epic 14.3 (ADR 0032): every account accepts the acceptable-use statemen
   So a new local administrator changes the password first, then accepts.
 
   Added by Epic 34 (section 24.13): a Dex-password account meets a second-factor gate (code `SECOND_FACTOR_REQUIRED`) in two places, so the full order is: verify a code, if the account already has a factor; change the password; set up a factor, if it has none; accept acceptable use. While a gate is unmet, every other API route answers 403 with that gate's code, except `GET /auth/me`, `POST /auth/logout` and the routes that need no session. New WebSocket upgrades are refused, and open sockets (terminal, workspace, project events and checks) are closed at their periodic session re-check. The preview gateway refuses the account. `loadSession` decides both gates in its one query, left-joining the settings row (`id = 1`) and treating a missing row as version 1.
-- `GET /auth/me` carries `mustAcceptUse: boolean`, and the web sends every page to the first unmet gate. When any request answers with a gate code, the web fetches `/auth/me` again, so an open tab moves to the gate page. Both gate pages move focus to their heading on arrival. The acceptable-use page shows the text, its first paragraph as an introduction and the rest as a list, with **Accept and continue** and **Sign out** (Epic 25).
+- `GET /auth/me` carries `mustAcceptUse: boolean`, and the web sends every page to the first unmet gate. When any request answers with a gate code, the web fetches `/auth/me` again, so an open tab moves to the gate page. Both gate pages move focus to their heading on arrival. The acceptable-use page shows the text, its first paragraph as an introduction and the rest as a list, with **Accept and continue** and **Sign out** (Epic 25). Added by Epic 78: a gate page that is finished sends the browser on to the next unmet gate itself, not to `/`, so it never fights the router's own redirect to that gate.
 - `POST /me/acceptable-use {version}` is CSRF-checked. It is one conditional update of the account plus the audit row `user.acceptable_use_accepted` with `{version}`, in one transaction. When `version` is not the current one it answers 409 `ACCEPTABLE_USE_CHANGED` and records nothing, so nobody accepts a text they did not see.
 - The gate is checked on every request, so a text change reaches people already signed in at their next request. Their workspaces keep running. An administrator who saves a new text meets the gate too.
 
@@ -2443,6 +2443,8 @@ Restoring a recovery point must:
 A restore puts back the whole project, its `.git` folder included, so the repository returns to the state it was in at that point, commits and all. Portikus never makes Git commits for the student; the recovery dialog says so (Epic 25).
 
 Added by Epic 76: a restore is a background operation (§7.3) answering 202. A double click joins the running restore. Since Epic 77, a restore refused for a pending operation (§15.6) answers a plain 409 `OPERATION_PENDING` and records no operation, so a reload shows no second error toast and the workspace's last finished record stays; a repeat sent while that check runs gets the same answer as the first request.
+
+Added by Epic 78: creating a recovery point joins the same way. A repeat sent while the first request's checks run gets the same answer: 202 with the same operation, or the same refusal.
 
 If a restore stops part way, the earlier files stay in a `~/projects/.portikus-aside-<pointId>` folder (§15.10). The student deletes it from the Recovery points dialog, not in a terminal.
 
@@ -6538,6 +6540,8 @@ Added by Epic 77: a menu given a label is named by that label, not by its trigge
 
 Added by Epic 75: in a chat's side conversation (section 10.2), a reconnect makes the host replay the side conversation, and the browser empties and rebuilds its message list. If focus was on a control inside a side answer when that happens, it falls back to the side composer, or to Stop while a question is running, and never to the page body.
 
+Added by Epic 78: the Dex password field has a show-or-hide button inside its right end. It is a real button of at least 44 by 44 pixels, named "Show password" or "Hide password" to match the field, and the field starts hidden on every load and is hidden again before the form is sent.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -8623,6 +8627,25 @@ Acceptance:
 - the pick menu's accessible name is "Send the picked element to", and focus returns to a menu's trigger after its dialog closes;
 - the editor specs pass unchanged on Monaco 0.58.0.
 - on the rehearsal VM, 0.1.1910 rolls back to 0.1.1887 and forward again, and the full smoke passes with no skips on image 2026.10.7.
+
+### Epic 78 — Fix batch after Epic 77
+
+Built on `epic/78-fix-batch`, closing #2239, #2238, #2228, #2236 and #2241 (#2233 was closed as not needed: no smoke step waits on the Codex setting). No migration. See sections 5.1, 15.8, 24.13 and 25.8.
+
+Includes:
+
+- two-step setup going on to the next unmet gate, so the page no longer hangs when acceptable use is still owed;
+- a show-or-hide password button on the Dex sign-in page;
+- a repeat of "Make a recovery point" joining the first request;
+- the security suite's Internet control probe dialled alone before the parallel sweep;
+- `postgresql_alter_system` in place of the deprecated `postgresql_set`.
+
+Acceptance:
+
+- an account with a Portikus password that owes acceptable use sets up two-step sign-in and lands on the acceptable-use page;
+- the password button toggles the field, keeps the value and cursor, and is there again after a wrong password, on the real Dex page;
+- a repeat create during the checks gets 202 with the same operation or the same refusal;
+- on the rehearsal VM, the full smoke passes with no skips, the inner-Docker Internet control check passes on two security runs, and setup prints no `postgresql_set` warning and reports no change for that task on a rerun.
 
 ### Estimated total
 
