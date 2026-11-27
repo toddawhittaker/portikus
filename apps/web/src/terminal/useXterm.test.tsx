@@ -154,6 +154,57 @@ test("a bare F8 is left to the page and never sent to the shell", () => {
 	expect(sent.length).toBeGreaterThan(0);
 });
 
+/** Render a terminal that records what it sends, and a way to fire keys at it. */
+function renderKeyed() {
+	const sent: string[] = [];
+	const attach = vi.fn((term: { onData: (cb: (d: string) => void) => void }) => {
+		term.onData((data) => sent.push(data));
+		return { resized: vi.fn(), dispose: vi.fn() };
+	});
+	const { view } = renderHost({ attach: attach as never });
+	const textarea = view.container.querySelector("textarea");
+	if (!textarea) throw new Error("no xterm textarea");
+	const fire = (type: string, init: KeyboardEventInit) => {
+		const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
+		act(() => {
+			textarea.dispatchEvent(event);
+		});
+		return event;
+	};
+	return { sent, fire };
+}
+
+const SPACE = { key: " ", code: "Space", keyCode: 32, charCode: 32 };
+
+test("Space types exactly one space and cancels the page scroll", () => {
+	const { sent, fire } = renderKeyed();
+	const down = fire("keydown", SPACE);
+	// Safari scrolls the page on a Space keydown nobody cancels (#2214).
+	expect(down.defaultPrevented).toBe(true);
+	const press = fire("keypress", SPACE);
+	expect(press.defaultPrevented).toBe(false);
+	expect(sent).toEqual([" "]);
+	// Shift+Space is still a space.
+	fire("keydown", { ...SPACE, shiftKey: true });
+	fire("keypress", { ...SPACE, shiftKey: true });
+	expect(sent).toEqual([" ", " "]);
+});
+
+test("Ctrl+Space still sends NUL through xterm", () => {
+	const { sent, fire } = renderKeyed();
+	fire("keydown", { ...SPACE, ctrlKey: true });
+	expect(sent).toEqual(["\u0000"]);
+});
+
+test("a Space while composing is left to the input method", () => {
+	const { sent, fire } = renderKeyed();
+	const composing = fire("keydown", { ...SPACE, isComposing: true });
+	const ime = fire("keydown", { ...SPACE, keyCode: 229 });
+	expect(composing.defaultPrevented).toBe(false);
+	expect(ime.defaultPrevented).toBe(false);
+	expect(sent).toEqual([]);
+});
+
 test("without pasteImage a pasted picture is ignored", () => {
 	const { view } = renderHost();
 	expect(() =>

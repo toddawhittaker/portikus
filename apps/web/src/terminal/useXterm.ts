@@ -525,6 +525,13 @@ export function useXterm({
 			return false;
 		}
 
+		/** Space with no Ctrl, Alt or Meta, outside an input method's composition. */
+		function isPlainSpace(event: KeyboardEvent): boolean {
+			if (event.key !== " " || event.ctrlKey || event.altKey || event.metaKey)
+				return false;
+			return !event.isComposing && event.keyCode !== 229;
+		}
+
 		term.attachCustomKeyEventHandler((event) => {
 			if (handleVoiceKey(event)) return false;
 			if (isLeaveShortcut(event)) {
@@ -546,6 +553,16 @@ export function useXterm({
 				// The browser's own paste event follows and lands exactly once:
 				// xterm types text, and onPaste saves a picture.
 				return false;
+			}
+			// xterm leaves Space's keydown uncancelled, so Safari on an iPad
+			// with a keyboard scrolls the page and types nothing (#2214). Type
+			// the space here; its keypress must then not type a second one.
+			if (isPlainSpace(event)) {
+				if (event.type === "keydown") {
+					event.preventDefault();
+					term.input(" ", true);
+				}
+				return event.type !== "keydown" && event.type !== "keypress";
 			}
 			return true;
 		});
