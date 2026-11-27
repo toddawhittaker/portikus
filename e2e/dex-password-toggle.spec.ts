@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { expectNoViolations } from "./helpers";
 
-// The show-or-hide button in the Dex password field (issue #2238; SPEC.md
+// The show-or-hide button in the Dex password field (SPEC.md
 // section 25.8; ADR 0023, "Pages"). The e2e stack signs in through a mock
 // provider, not Dex, so this page is Dex's password row as the pinned
 // template renders it after web.yml's patches, with the theme's real
