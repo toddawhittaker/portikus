@@ -98,6 +98,7 @@ that is not a gap in something built goes in a GitHub issue instead.
 - **Epic 74, side conversations.** A student can type `/btw` in a Claude Code (GUI) or Codex (GUI) chat tab to ask a side question, or press Side question beside the composer's microphone, in a split beside the chat: it is answered from the conversation as it stands, never enters it or steers the running turn, runs read-only, and is kept across a reload (SPEC.md section 10.2, ADR 0083).
 - **Epic 75, picking an element in the preview.** A student can pick an element in an embedded preview and send its HTML, CSS and a screenshot to an agent terminal or chat, through a Portikus wrapper page on the preview origin (SPEC.md sections 14.6 and 24, ADR 0084); and a side answer keeps keyboard focus across a reconnect (#2176).
 - **Epic 76, Portikus behind a Cloudflare Tunnel.** Portikus runs behind a Cloudflare Tunnel with real client addresses (`trusted_proxies`), previews on a separate registrable domain with a partitioned embedded cookie and a new-tab fallback, and long operations (clone, duplicate, restore, LTI starter, recovery point, zip download) as background jobs or streams that stay under Cloudflare's 100-second limit; it was staged and measured on the Kitestring lab VM (SPEC.md sections 7, 14.6, 15.6, 21.12, 24.3 and 24.10 to 24.13, ADR 0085, closes #1236).
+- **Epic 77, fix batch after Epic 76.** Space types a space in the terminal on iPad Safari with a hardware keyboard; a restore refused for a pending operation answers a plain 409 and records no operation, as recovery-point creation does; a labelled menu is named by its label (the pick menu reads "Send the picked element to"); Monaco is upgraded to 0.58.0 with DOMPurify 3.4.17 (SPEC.md sections 9.1, 15.8 and 25.8).
 
 ## Open items
 
@@ -165,7 +166,7 @@ list was made and may already be fixed.
 - HTML, CSS and JSON code help ignores the site's code-help switch, and HTML has no diagnostics in Monaco 0.57.
 - Java, C/C++ and SQL code help is still open (#1652). A debugger is #1622; signature help, find references, code actions and format on save are not built, on purpose (SPEC.md section 13.6).
 - The Playwright projects other than `terminal-webgl` run Chromium with 3D off, so most terminal specs exercise the DOM renderer; only `e2e/terminal-webgl.spec.ts` covers WebGL.
-- A restore refused because another project operation is pending still records a failed operation, so a reload shows a second error toast (#2219).
+- A fast double-click on creating a recovery point can show a spurious "already in progress" error (#2228).
 
 ### Chat and coding agents
 
@@ -202,8 +203,6 @@ list was made and may already be fixed.
 ### Interface and accessibility
 
 - A manual VoiceOver pass over headings inside `<summary>` elements is #1260.
-- The preview's pick menu is named "Pick an element" for screen readers, not "Send the picked element to", because Radix points the menu's name at its trigger (#2196).
-- iPad Safari: the space bar in the terminal scrolls the page instead of typing a space (#2214).
 - A toast can cover a focused row near the bottom of a drawer (WCAG 2.4.11), and the plan meter popover can cover a toast.
 - The Audit tab and the other refreshing admin tabs do not announce new rows to screen readers. The Health heat map's cell values are not readable by sighted keyboard users.
 - The shared Checkbox's unavailable look is faint in both themes.
@@ -217,13 +216,12 @@ list was made and may already be fixed.
 - Incremental, deduplicated backups with an off-host copy are #753. The off-site target needs rrsync, and its prune bounds only steady use, so a broken-into server can fill the target's disk.
 - The `FAILED`, `SKIPPED` and `REQUESTED` marker files in a backup set are not covered by its MAC (message authentication code), and a set's MAC does not check its `vm` line. A whole-server restore is a shell command, not a button.
 - A VM that sends data slowly can hold the host-wide backup lock for up to 12 hours.
-- Pinning between two published versions is untested (#1263).
 - Purge keeps the `squid.conf` setup wrote, so Squid stays disabled until its owner restores Debian's file, and keeps `distrobuilder`.
 - A connection to a newly blocked site that already goes through Squid keeps working until it closes, because Squid is reloaded, not restarted.
 - Setup fetches a provider's discovery document directly as root rather than through Squid (accepted, ADR 0059).
 - The shared coding-agent tools arrive only when setup runs, about two minutes after an upgrade restart.
 - Certificates: only Cloudflare DNS-01 is tested end to end, re-applying the same settings leaves Caddy serving its old certificate until renewal, split-horizon DNS can make a public name read as private, and the internal authority's 12-hour certificates show the red expiry notice.
-- Monaco bundles DOMPurify 3.4.15 (#1829). Wanted: the libvirt provider 0.9 (#767).
+- Pinning between two published versions is untested (#1263). Wanted: the libvirt provider 0.9 (#767).
 
 ### Tests and docs
 
