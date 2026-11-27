@@ -206,6 +206,33 @@ test("after enrolment the recovery codes are shown before going on", async () =>
 	);
 });
 
+test("after the recovery codes, an account that still owes the statement goes straight to it (SPEC.md sections 5.1, 24.13)", async () => {
+	let enrolled = false;
+	stubFetch((url) => {
+		if (url === "/auth/me")
+			return json(200, {
+				...LOCAL,
+				secondFactor: enrolled ? null : "enrol",
+				mustAcceptUse: true,
+			});
+		if (url === "/me/second-factor/totp/start") return json(200, START);
+		if (url === "/me/second-factor/totp") {
+			enrolled = true;
+			return json(200, { recoveryCodes: ["AAAA-BBBB-CCCC-DDDD"] });
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	const { router } = renderApp("/second-factor");
+	fireEvent.change(await screen.findByLabelText("Code from your app"), {
+		target: { value: "123456" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Turn on two-step sign-in" }));
+	fireEvent.click(
+		await screen.findByRole("button", { name: "I have saved them, continue" }),
+	);
+	await waitFor(() => expect(router.state.location.pathname).toBe("/acceptable-use"));
+});
+
 test("an enrolled account enters a code; a wrong one is announced on the field", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, { ...LOCAL, secondFactor: "verify" });
@@ -239,5 +266,16 @@ test("a recovery code can be used instead", async () => {
 		expect(
 			fetch.mock.calls.find(([url]) => url === "/me/second-factor/verify")?.[1]?.body,
 		).toBe(JSON.stringify({ code: "aaaa-bbbb-cccc-dddd" })),
+	);
+});
+
+test("an account that owes no second factor is sent on from the page", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...LOCAL, secondFactor: null });
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	const { router } = renderApp("/second-factor");
+	await waitFor(() =>
+		expect(router.state.location.pathname).not.toBe("/second-factor"),
 	);
 });

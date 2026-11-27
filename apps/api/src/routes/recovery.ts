@@ -66,6 +66,13 @@ type RestoreCheck = { operation: ProjectOperation } | { refused: "pending" | "fa
 /** Restores holding the slot before their pending check ends, by workspace and key. */
 const checkingRestores = new Map<string, Promise<RestoreCheck>>();
 
+/** How a create's checks ended, for a repeat that arrived while they ran. */
+type CreateCheck =
+	| { operation: ProjectOperation }
+	| { status: number; code: ApiErrorCode; message: string };
+/** Creates holding the slot before their checks end, by workspace and key. */
+const checkingCreates = new Map<string, Promise<CreateCheck>>();
+
 const PENDING = {
 	code: "OPERATION_PENDING",
 	message:
@@ -192,15 +199,35 @@ export function registerRecoveryRoutes(
 		// A double-click joins the running point instead of meeting the held slot.
 		const same = runningOperation(input.workspaceId, input.key);
 		if (same) return reply.status(202).send(same);
+		const checkKey = `${scope.workspaceId}:${input.key}`;
+		const checking = checkingCreates.get(checkKey);
+		if (checking) {
+			const outcome = await checking;
+			if ("operation" in outcome) return reply.status(202).send(outcome.operation);
+			return sendError(reply, outcome.status, outcome.code, outcome.message);
+		}
 		// The slot is held through the checks so maintenance cannot slip in
 		// between them. A refusal is a plain error, not a recorded operation:
 		// recording it would replace the workspace's last finished one and show
 		// the student a second failure toast on reload.
 		if (!claimLongOperation(scope.workspaceId, reply)) return reply;
+		let settle: (outcome: CreateCheck) => void = () => {};
+		checkingCreates.set(
+			checkKey,
+			new Promise((resolve) => {
+				settle = resolve;
+			}),
+		);
+		const finishCheck = (outcome: CreateCheck) => {
+			checkingCreates.delete(checkKey);
+			settle(outcome);
+		};
 		const refuse = (status: number, code: ApiErrorCode, message: string) => {
 			releaseLongOperation(scope.workspaceId);
+			finishCheck({ status, code, message });
 			return sendError(reply, status, code, message);
 		};
+		let operation: ProjectOperation;
 		try {
 			if (await isPending(db, scope.workspaceId)) {
 				return refuse(409, PENDING.code, PENDING.message);
@@ -230,29 +257,33 @@ export function registerRecoveryRoutes(
 					`This project already has ${MAX_POINTS_PER_PROJECT} recovery points, the most it can keep. Older points expire on their own; try again later.`,
 				);
 			}
+			operation = startOperation(input, async (background) => {
+				let row: RecoveryPointRow;
+				try {
+					row = await makeRecoveryPoint(db, config, agent, {
+						workspaceId: scope.workspaceId,
+						project,
+						reason: "manual",
+						createdBy: user.id,
+					});
+				} catch (error) {
+					sendAgentError(background, error);
+					return null;
+				}
+				request.log.info(
+					{ workspaceId: scope.workspaceId, projectId: project.id, pointId: row.id },
+					"recovery point created",
+				);
+				return null;
+			});
 		} catch (error) {
+			// Nothing else will free the slot or answer a repeat waiting on this
+			// check.
 			releaseLongOperation(scope.workspaceId);
+			finishCheck({ status: 500, ...UNEXPECTED });
 			throw error;
 		}
-		const operation = startOperation(input, async (background) => {
-			let row: RecoveryPointRow;
-			try {
-				row = await makeRecoveryPoint(db, config, agent, {
-					workspaceId: scope.workspaceId,
-					project,
-					reason: "manual",
-					createdBy: user.id,
-				});
-			} catch (error) {
-				sendAgentError(background, error);
-				return null;
-			}
-			request.log.info(
-				{ workspaceId: scope.workspaceId, projectId: project.id, pointId: row.id },
-				"recovery point created",
-			);
-			return null;
-		});
+		finishCheck({ operation });
 		return reply.status(202).send(operation);
 	});
 

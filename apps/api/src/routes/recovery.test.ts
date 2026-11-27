@@ -714,13 +714,16 @@ function holdPendingCheck() {
 	};
 }
 
-/** Two clicks on one restore, the second while the first's pending check is held. */
-async function doubleClickDuringCheck(pointId: string, fail = false) {
+/** Two clicks, the second while the first's pending check is held. */
+async function clickTwiceDuringCheck(
+	start: () => ReturnType<typeof startCreate>,
+	fail = false,
+) {
 	const held = holdPendingCheck();
 	try {
-		const first = startRestore(alice, pointId);
+		const first = start();
 		await held.waiting;
-		const second = startRestore(alice, pointId);
+		const second = start();
 		// Let the second reach the first's check.
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		held.release(fail);
@@ -728,6 +731,14 @@ async function doubleClickDuringCheck(pointId: string, fail = false) {
 	} finally {
 		held.restore();
 	}
+}
+
+function doubleClickDuringCheck(pointId: string, fail = false) {
+	return clickTwiceDuringCheck(() => startRestore(alice, pointId), fail);
+}
+
+function createTwiceDuringCheck(fail = false) {
+	return clickTwiceDuringCheck(() => startCreate(alice), fail);
 }
 
 test.skipIf(skip)(
@@ -791,6 +802,99 @@ test.skipIf(skip)(
 		expect(currentOperation(workspaceId)).toEqual(finished);
 		expect(holdLongOperation(workspaceId)).toBe(true);
 		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a repeat sent while a create's checks run joins the point that follows",
+	async () => {
+		const [first, second] = await createTwiceDuringCheck();
+		expect([first.statusCode, second.statusCode]).toEqual([202, 202]);
+		expect(second.json().id).toBe(first.json().id);
+		await settleOperation(app, alice.cookieHeader(), workspaceId, first);
+		expect(await pointRows()).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
+	"a repeat sent while a create's checks run gets the same pending refusal and no record",
+	async () => {
+		const finished = currentOperation(workspaceId);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date().toISOString(),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+		const answers = await createTwiceDuringCheck();
+		for (const answer of answers) {
+			expect(answer.statusCode).toBe(409);
+			expect(answer.json().code).toBe("OPERATION_PENDING");
+		}
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a repeat sent while a create's checks run gets the same rate limit refusal",
+	async () => {
+		expect((await create(alice)).statusCode).toBe(201);
+		const answers = await createTwiceDuringCheck();
+		for (const answer of answers) {
+			expect(answer.statusCode).toBe(429);
+			expect(answer.json().code).toBe("RATE_LIMITED");
+		}
+		expect(await pointRows()).toHaveLength(1);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a repeat sent while a create's checks run gets the same point cap refusal",
+	async () => {
+		await fillPoints(200);
+		const answers = await createTwiceDuringCheck();
+		for (const answer of answers) {
+			expect(answer.statusCode).toBe(409);
+			expect(answer.json().code).toBe("BUSY");
+		}
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a create whose check fails answers a repeat with an error, gives the slot back and clears the entry",
+	async () => {
+		const finished = currentOperation(workspaceId);
+		const answers = await createTwiceDuringCheck(true);
+		expect(answers.map((answer) => answer.statusCode)).toEqual([500, 500]);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+		// A later click runs its own checks instead of waiting on the failed one.
+		expect((await create(alice)).statusCode).toBe(201);
+	},
+);
+
+test.skipIf(skip)(
+	"a create that cannot start answers a waiting repeat with an error, gives the slot back and clears the entry",
+	async () => {
+		const finished = currentOperation(workspaceId);
+		vi.mocked(startOperation).mockImplementationOnce(() => {
+			throw new Error("the operation could not start");
+		});
+		const answers = await createTwiceDuringCheck();
+		expect(answers.map((answer) => answer.statusCode)).toEqual([500, 500]);
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+		expect((await create(alice)).statusCode).toBe(201);
 	},
 );
 
