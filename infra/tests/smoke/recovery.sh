@@ -49,6 +49,18 @@ wait_for_operation() {
   echo "$status"
 }
 
+# The state of the workspace's project operation once it stops running.
+operation_state() {
+  local state="" _
+  for _ in $(seq 1 60); do
+    state=$(vm_get alice "${API}/workspaces/${ws_id}/project-operation" \
+      | python3 -c 'import json,sys; o=json.load(sys.stdin)["operation"] or {}; print(o.get("state", ""))' 2>/dev/null)
+    [ "$state" = running ] || break
+    sleep 2
+  done
+  echo "$state"
+}
+
 # HEAD, every ref, the stash, the reflog and the index bytes, hashed.
 rs_git_state() {
   alice_student "cd ${RS_DIR} && { git rev-parse HEAD; git for-each-ref; git stash list; git reflog; sha256sum .git/index; } | sha256sum"
@@ -84,10 +96,17 @@ else
 
   git_before=$(rs_git_state)
   check "read the project's Git state" test -n "$git_before"
-  rp_response=$(vm_get alice "${PROJECTS_URL}/${rs_id}/recovery-points" \
-    "-X POST -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{}'")
-  rp_id=$(echo "$rp_response" | json_field id)
-  check "POST recovery-points returns a point" test -n "$rp_id"
+  # Making a point is answered at once and finished in the background, as
+  # a restore is (SPEC.md 15.6). The finished operation does not name the
+  # point, so its id comes from the project's list, where it is the only
+  # manual point.
+  check_output "POST recovery-points returns 202, a background operation" "202" \
+    http_status alice "${PROJECTS_URL}/${rs_id}/recovery-points" \
+    "-X POST -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{}'"
+  check_output "the recovery point operation succeeds" "succeeded" operation_state
+  rp_id=$(vm_get alice "${PROJECTS_URL}/${rs_id}/recovery-points" \
+    | python3 -c "import sys,json; print(next((p['id'] for p in json.load(sys.stdin)['points'] if p['reason'] == 'manual'), ''))")
+  check "the project lists the new point" test -n "$rp_id"
   check_output "making a point leaves Git untouched" "$git_before" rs_git_state
   check_output "the archive is mode 0600" "600" \
     alice_root "stat -c %a ${RECOVERY_ROOT}/${rs_id}/${rp_id}.tar.zst"
@@ -102,17 +121,7 @@ else
   check_output "restore returns 202, a background operation" "202" \
     http_status alice "${PROJECTS_URL}/${rs_id}/recovery-points/${rp_id}/restore" \
     "-X POST -H 'Origin: ${API}' -H 'Content-Type: application/json' -d '{}'"
-  restore_state() {
-    local state="" _
-    for _ in $(seq 1 60); do
-      state=$(vm_get alice "${API}/workspaces/${ws_id}/project-operation" \
-        | python3 -c 'import json,sys; o=json.load(sys.stdin)["operation"] or {}; print(o.get("state", ""))' 2>/dev/null)
-      [ "$state" = running ] || break
-      sleep 2
-    done
-    echo "$state"
-  }
-  check_output "the restore operation succeeds" "succeeded" restore_state
+  check_output "the restore operation succeeds" "succeeded" operation_state
   check_output "restore brings the files back" "one" \
     alice_student "cat ${RS_DIR}/notes.txt"
   check "restore brings back Git-ignored files" \
