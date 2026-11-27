@@ -179,7 +179,7 @@ const SPACE = { key: " ", code: "Space", keyCode: 32, charCode: 32 };
 test("Space types exactly one space and cancels the page scroll", () => {
 	const { sent, fire } = renderKeyed();
 	const down = fire("keydown", SPACE);
-	// Safari scrolls the page on a Space keydown nobody cancels (#2214).
+	// Safari scrolls the page on a Space keydown nobody cancels (SPEC.md §9.1).
 	expect(down.defaultPrevented).toBe(true);
 	const press = fire("keypress", SPACE);
 	expect(press.defaultPrevented).toBe(false);

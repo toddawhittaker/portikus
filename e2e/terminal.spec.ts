@@ -133,7 +133,7 @@ test("Space types one space, Ctrl+Space sends NUL, and a composing Space is left
 	context,
 }) => {
 	// iPad Safari scrolled the page on a Space keydown xterm left uncancelled
-	// and typed nothing (#2214, SPEC.md §9.1).
+	// and typed nothing (SPEC.md §9.1).
 	const inputs: string[] = [];
 	page.on("websocket", (socket) => {
 		socket.on("framesent", ({ payload }) => {

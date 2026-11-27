@@ -555,7 +555,7 @@ export function useXterm({
 				return false;
 			}
 			// xterm leaves Space's keydown uncancelled, so Safari on an iPad
-			// with a keyboard scrolls the page and types nothing (#2214). Type
+			// with a keyboard scrolls the page and types nothing (SPEC.md §9.1). Type
 			// the space here; its keypress must then not type a second one.
 			if (isPlainSpace(event)) {
 				if (event.type === "keydown") {
