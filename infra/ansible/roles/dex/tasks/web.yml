@@ -103,6 +103,16 @@
       <a class="dex-subtle-text" href="/forgot-password">Forgot your password?</a>\n  </div>\n
   notify: Restart portikus-dex
 
+# The show-or-hide button in the password field comes from the theme's
+# script, which needs no inline code. The lookbehind keeps a second run from
+# adding it twice.
+- name: Load the password show-or-hide script on the Dex sign-in form
+  ansible.builtin.replace:
+    path: "{{ dex_web_dir }}/templates/password.html"
+    regexp: '(?<!theme/password-toggle\.js" }}"></script>)\n(\{\{ template "footer\.html" \. \}\})'
+    replace: '\n{% raw %}<script src="{{ url .ReqPath "theme/password-toggle.js" }}"></script>{% endraw %}\n\1'
+  notify: Restart portikus-dex
+
 # A Dex upgrade can change a template so a patch silently stops matching.
 - name: Check every Dex template patch landed
   ansible.builtin.shell:
@@ -115,6 +125,7 @@
       && grep -q 'Sign in, Portikus' header.html
       && grep -q 'Choose another way to sign in.' password.html
       && grep -q 'href="/forgot-password"' password.html
+      && [ "$(grep -c 'theme/password-toggle.js' password.html)" = 1 ]
       && ! grep -q -e 'Log in' -e 'Invalid [^}]' -e 'Select another' password.html login.html
       && ! grep -q 'tabindex=' password.html device.html
       && ! grep -q '<h2 class="theme-heading">' ./*.html
