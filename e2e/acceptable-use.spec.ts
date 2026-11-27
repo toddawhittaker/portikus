@@ -1,5 +1,10 @@
 import { type BrowserContext, expect, test } from "@playwright/test";
-import { createLocalPasswordAdmin, createStudent, query } from "./helpers";
+import {
+	createLocalPasswordAdmin,
+	createStudent,
+	enrolSecondFactor,
+	query,
+} from "./helpers";
 
 /**
  * The acceptable-use gate (SPEC.md section 5.1). The run's
@@ -146,4 +151,30 @@ test("a dropped accept request says so in plain words, never the browser's error
 		"Your acceptance was not saved. Try again.",
 	);
 	await expect(page).toHaveURL(/\/acceptable-use$/);
+});
+
+test("two-step setup then the statement: continuing from the recovery codes reaches it, then accepting lands on /admin (SPEC.md sections 5.1, 24.13)", async ({
+	page,
+	context,
+}) => {
+	const userId = await createLocalPasswordAdmin(context, {
+		prefix: "aup-enrol",
+		displayName: "Enrol Then Accept",
+		mustChange: false,
+	});
+	// A new account owes both gates: the second factor comes first (SPEC.md section 24.13).
+	await query("update sessions set second_factor_at = null where user_id = $1", [
+		userId,
+	]);
+	await clearAcceptance(userId);
+
+	await page.goto("/");
+	// The page used to hang here, bouncing between /second-factor and /acceptable-use.
+	await enrolSecondFactor(page);
+	await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
+	await expect(page.getByRole("heading", { name: "Acceptable use" })).toBeVisible();
+
+	await page.getByRole("button", { name: "Accept and continue" }).click();
+	await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
+	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 });

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { StandalonePage } from "../pages/StandalonePage.js";
-import { useMe } from "../useMe.js";
+import { gatePath, type MeState, useMe } from "../useMe.js";
 import { EnrolTotp } from "./EnrolTotp.js";
 import { PasskeyButton } from "./PasskeyButton.js";
 import { passkeysSupported, registerPasskey } from "./passkey.js";
@@ -32,12 +32,17 @@ export function SecondFactorPage() {
 	async function done() {
 		// The gate is clear now; refetch so the router stops sending pages here.
 		await client.refetchQueries({ queryKey: ["me"] });
-		await navigate({ to: "/", replace: true });
+		// Go to the next gate the account owes, not "/": the router would send
+		// "/" there anyway, but through a loop with this page (SPEC.md sections 5.1, 24.13).
+		const fresh = client.getQueryData<MeState>(["me"]);
+		await navigate({ to: (fresh && gatePath(fresh)) ?? "/", replace: true });
 	}
 
 	if (me.status === "loading") return <div className="pk-root" aria-busy="true" />;
 	if (me.status !== "authenticated") return <Navigate to="/" replace />;
-	if (codes === null && mode === null) return <Navigate to="/" replace />;
+	if (codes === null && mode === null) {
+		return <Navigate to={gatePath(me) ?? "/"} replace />;
+	}
 
 	const title =
 		codes !== null
