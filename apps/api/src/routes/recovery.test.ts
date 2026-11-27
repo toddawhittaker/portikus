@@ -622,6 +622,60 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a restore refused for a pending operation records no operation and keeps the last finished one",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		// A finished restore is the workspace's record.
+		expect((await restore(alice, pointId)).statusCode).toBe(204);
+		const finished = currentOperation(workspaceId);
+		expect(finished).toMatchObject({ kind: "restore", state: "succeeded" });
+
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date().toISOString(),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+		const refused = await startRestore(alice, pointId);
+		expect(refused.statusCode).toBe(409);
+		expect(refused.json().code).toBe("OPERATION_PENDING");
+		// A reload would read this record; it must still be the finished restore.
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
+test.skipIf(skip)(
+	"a double-clicked restore refused for a pending operation gets one answer and no record",
+	async () => {
+		const pointId = (await create(alice)).json().id;
+		const finished = currentOperation(workspaceId);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date().toISOString(),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+		const answers = await Promise.all([
+			startRestore(alice, pointId),
+			startRestore(alice, pointId),
+		]);
+		for (const answer of answers) {
+			expect(answer.statusCode).toBe(409);
+			expect(answer.json().code).toBe("OPERATION_PENDING");
+		}
+		expect(currentOperation(workspaceId)).toEqual(finished);
+		expect(holdLongOperation(workspaceId)).toBe(true);
+		releaseLongOperation(workspaceId);
+	},
+);
+
 test.skipIf(skip)("refusing for a pending operation gives the slot back", async () => {
 	const pointId = (await create(alice)).json().id;
 	await testDb.db
