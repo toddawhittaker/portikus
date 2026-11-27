@@ -268,3 +268,14 @@ test("a recovery code can be used instead", async () => {
 		).toBe(JSON.stringify({ code: "aaaa-bbbb-cccc-dddd" })),
 	);
 });
+
+test("an account that owes no second factor is sent on from the page", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...LOCAL, secondFactor: null });
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	const { router } = renderApp("/second-factor");
+	await waitFor(() =>
+		expect(router.state.location.pathname).not.toBe("/second-factor"),
+	);
+});
