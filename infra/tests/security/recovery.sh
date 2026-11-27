@@ -51,10 +51,27 @@ rp_seeded=$(rp_tree)
 check "the project was seeded with its modes and links (control)" \
   grep -qx 'private/inner.txt student:student 600 f ' <<<"$rp_seeded"
 
+# rp_operation -- the state of the workspace's project operation once it
+# stops running. Making and restoring a point both finish in the
+# background (SPEC.md 15.6, 15.8).
+rp_operation() {
+  local state="" _
+  for _ in $(seq 1 60); do
+    sec_http a GET "/workspaces/${rp_ws}/project-operation" >/dev/null
+    state=$(jq -r '.operation.state // empty' "$SEC_LAST_BODY" 2>/dev/null)
+    [ "$state" = running ] || break
+    sleep 2
+  done
+  echo "$state"
+}
+
 rp_status=$(sec_http a POST "/workspaces/${rp_ws}/projects/${rp_pid}/recovery-points" \
   -H 'Content-Type: application/json' --data '{}')
-rp_point=$(jq -r '.id // empty' "$SEC_LAST_BODY" 2>/dev/null)
-check_output "a makes a recovery point through the edge (control)" "201" echo "$rp_status"
+check_output "a makes a recovery point through the edge (control)" "202" echo "$rp_status"
+check_output "the recovery point operation succeeds (control)" "succeeded" rp_operation
+# The finished operation does not name the point; it is the project's only manual one.
+sec_http a GET "/workspaces/${rp_ws}/projects/${rp_pid}/recovery-points" >/dev/null
+rp_point=$(jq -r '[.points[] | select(.reason == "manual")][0].id // empty' "$SEC_LAST_BODY" 2>/dev/null)
 
 if [ -z "$rp_pid" ] || [ -z "$rp_point" ]; then
   bad "recovery setup: the project and its point exist (project '${rp_pid}', point '${rp_point}')"
@@ -84,7 +101,8 @@ else
 
   rp_status=$(sec_http a POST "/workspaces/${rp_ws}/projects/${rp_pid}/recovery-points/${rp_point}/restore" \
     -H 'Content-Type: application/json' --data '{"skipSafetyPoint":true}')
-  check_output "a restores the point through the edge" "204" echo "$rp_status"
+  check_output "a restores the point through the edge" "202" echo "$rp_status"
+  check_output "the restore operation succeeds" "succeeded" rp_operation
   rp_restored=$(rp_tree)
   if [ "$rp_restored" = "$rp_seeded" ]; then
     ok "the restore brings back every owner, mode and link as seeded"
